@@ -1,0 +1,171 @@
+# Nav2 서버 전체 파라미터 — ros_system.launch.py use_nav2:=true 일 때 navigation_launch.py가 읽는다
+# 설계: documents/ros2-design/04-nav.md (Nav2) · 06-base.md (속도 체인 · collision_monitor) · API.md §2·§3·§5
+# 속도 체인 (API.md:159):
+#   controller_server·behavior_server → /cmd_vel_nav → rl_nav_correction → /cmd_vel_corrected
+#   → twist_mux → /cmd_vel_mux → velocity_smoother → /cmd_vel_smoothed → collision_monitor → /cmd_vel
+# 프레임: base_footprint (Nav2·EKF·MoveIt 통일), odom은 /odometry/filtered (EKF)
+# 최상위 키 = 노드 이름. 이름 오타는 오류 없이 무시되고 기본값으로 돈다 → 실기에서 ros2 param get 으로 확인
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# bt_navigator — 행동 트리(BT)로 "경로 계산 → 따라가기 → 막히면 복구"를 지휘한다.
+#   coordinator가 보내는 🎬 /navigate_to_pose 액션을 받는 서버 (API.md §3)
+# ─────────────────────────────────────────────────────────────────────────────
+bt_navigator:
+  ros__parameters:
+    # 목표 좌표의 기준 프레임. map→odom은 rtabmap(위치추정 모드)이 낸다.
+    global_frame: map
+    # 로봇 몸의 기준 프레임. controllers.yaml:37 · ekf.yaml:10 과 같아야 한다 (기본값 base_link 아님).
+    robot_base_frame: base_footprint
+    # 현재 속도를 읽는 토픽. /odom(바퀴만)이 아니라 EKF가 IMU까지 합친 결과.
+    odom_topic: /odometry/filtered
+    # BT를 한 번 tick하는 주기(ms). 10 → 100Hz. 로봇 속도와는 무관하고 configure 때 한 번 읽혀 실행 중 변경 불가.
+    bt_loop_duration: 10
+    # BT 노드가 액션 서버(planner·controller·behavior)를 기다리는 기본 시간(ms).
+    default_server_timeout: 20
+    # 띄울 내비게이터 목록. coordinator는 navigate_to_pose만 쓴다 (navigate_through_poses는 뺌).
+    #   이름은 기본값 그대로 — 액션 이름 /navigate_to_pose와 연결된다.
+    navigators: ["navigate_to_pose"]
+    navigate_to_pose:
+      # NavigateToPose 액션을 처리하는 Nav2 플러그인 (이름 고정).
+      plugin: "nav2_bt_navigator::NavigateToPoseNavigator"
+    # TODO(권형중): BackUp 0.1m 제한한 BT XML → default_nav_to_pose_bt_xml
+    #   기본 BT는 복구 때 0.30m 후진 — pole_cam이 뒤를 못 봐서 위험 (15-changes #23)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# controller_server — /plan(전역 경로)을 따라가는 속도 명령을 만든다.
+#   출력 /cmd_vel_nav → rl_nav_correction (출력 토픽 이름은 yaml이 아니라 launch 리매핑이 정함)
+#   노드 이름 /controller_server 는 rl_nav_tuner.cpp:27 이 파라미터를 바꾸려고 부르는 이름
+# ─────────────────────────────────────────────────────────────────────────────
+controller_server:
+  ros__parameters:
+    # 컨트롤러 계산 주기(Hz). /cmd_vel_nav가 이 주기로 나온다 (API.md: 20Hz).
+    controller_frequency: 20.0
+    # 현재 속도를 읽는 토픽 (EKF 결과). 가속 제한 계산에 쓴다.
+    odom_topic: /odometry/filtered
+    # 속도 상한 토픽. rl_nav_tuner(rl_nav_tuner.cpp:26)가 프리셋마다 백분율(%)로 보낸다.
+    #   100% 기준 = FollowPath.max_vel_x(0.26). 0이면 제한 없음.
+    speed_limit_topic: /speed_limit
+    # true면 속도 명령을 TwistStamped로 낸다.
+    #   Lyrical diff_drive_controller · twist_mux(use_stamped: true)가 TwistStamped만 받으므로 체인 전체 통일.
+    enable_stamped_cmd_vel: true
+    # 오도메트리 속도가 이 값보다 작으면 0으로 본다 (센서 잡음 제거). [m/s · rad/s]
+    min_x_velocity_threshold: 0.001
+    # 차동 구동이라 옆(y) 속도는 없다 → 크게 잡아 사실상 무시.
+    min_y_velocity_threshold: 0.5
+    min_theta_velocity_threshold: 0.001
+    # 컨트롤러가 유효한 명령을 못 만들어도 이 시간(초)까지는 재시도. 넘으면 FollowPath 실패 → BT 복구.
+    #   0.0 = 바로 실패, -1 = 무한 재시도
+    failure_tolerance: 0.3
+    # 아래 세 목록의 이름은 우리가 짓는 라벨 — 같은 이름의 블록을 찾아 읽는다.
+    progress_checker_plugins: ["progress_checker"]
+    goal_checker_plugins: ["goal_checker"]
+    # FollowPath는 이름 고정: rl_nav_tuner.cpp:64~66 · fake_nav2.cpp:11~13 이 FollowPath.* 를 바꾼다.
+    controller_plugins: ["FollowPath"]
+
+    # 진행 감시 — 로봇이 "막혔는지" 판단한다 (도착 판단은 goal_checker).
+    progress_checker:
+      plugin: "nav2_controller::SimpleProgressChecker"
+      # 이 거리(m) 이상 움직여야 "진행 중"으로 본다. (실측)
+      required_movement_radius: 0.3
+      # 이 시간(초) 안에 위 거리만큼 못 움직이면 막힘 → 컨트롤러 실패 → BT가 복구(Spin·BackUp·Wait).
+      movement_time_allowance: 10.0
+
+    # 도착 판단 — 목표 위치·방향 허용 오차 안에 들어오면 성공.
+    goal_checker:
+      plugin: "nav2_controller::SimpleGoalChecker"
+      # true면 위치(xy)를 한 번 만족한 뒤엔 기억하고 방향(yaw)만 맞춘다.
+      # false면 매 순간 위치·방향을 둘 다 만족해야 한다 — 허용 오차가 좁으면(0.10) 제자리 회전 중
+      #   위치가 살짝 벗어나 도착 판정이 늦어지거나 흔들릴 수 있다. 실기에서 보고 true로 바꿀지 결정.
+      stateful: false
+      # 목표 위치 허용 오차(m). 퍽 앞 접근 정확도 — 팔 도달 범위가 좁아 기본 0.25보다 작게 (00-overview "도달 범위 주의"). (실측)
+      xy_goal_tolerance: 0.10
+      # 목표 방향 허용 오차(rad). 0.15 ≈ 8.6°. (실측)
+      yaw_goal_tolerance: 0.15
+
+    # 경로 추종 플러그인 — DWB(Dynamic Window Approach).
+    #   여러 속도 후보로 짧은 미래 궤적을 그려 보고, critics 점수가 가장 좋은 속도를 고른다.
+    #   DWB여야 acc_lim_x·decel_lim_x 이름이 존재한다 (Jazzy 기본 파일은 MPPI — 이름이 달라 tuner가 실패).
+    FollowPath:
+      plugin: "dwb_core::DWBLocalPlanner"
+
+      # ── 속도 한계 [m/s · rad/s] — ml.yaml rl_nav_correction(max_vel_x · max_vel_theta)과 같은 값
+      # 전진 최소 속도. 0이면 경로 추종 중 후진하지 않는다 (pole_cam이 뒤를 못 봄).
+      min_vel_x: 0.0
+      # 전진 최대 속도. Waffle Pi 최대 0.26. /speed_limit 백분율의 기준.
+      max_vel_x: 0.26
+      # 차동 구동 — 옆으로 못 가므로 y는 0.
+      min_vel_y: 0.0
+      max_vel_y: 0.0
+      # 최대 회전 속도. 프리셋 A 값 — rl_nav_tuner가 실행 중 1.82/1.0/0.8로 바꾼다.
+      max_vel_theta: 1.82
+      # 병진 속도 크기(√(vx²+vy²))의 최소·최대. 차동 구동이라 사실상 vx와 같다.
+      min_speed_xy: 0.0
+      max_speed_xy: 0.26
+      # 회전 속도 크기의 최소. 0 = 하한 없음.
+      min_speed_theta: 0.0
+
+      # ── 가속 한계 [m/s² · rad/s²] — 프리셋 A와 같은 값 (rl_nav_tuner.cpp:10, fake_nav2.cpp:12~13)
+      #   tuner를 꺼도(enabled:=false → 프리셋 A) 원래 시스템과 같아야 하므로 일치시킨다.
+      # 전진 가속·감속. rl_nav_tuner가 실행 중 바꾼다.
+      acc_lim_x: 2.5
+      decel_lim_x: -2.5
+      # 옆 방향 — 차동 구동이라 0.
+      acc_lim_y: 0.0
+      decel_lim_y: 0.0
+      # 회전 가속·감속.
+      acc_lim_theta: 3.2
+      decel_lim_theta: -3.2
+
+      # ── 궤적 샘플링 — 몇 개의 속도 후보를 얼마나 멀리 그려 볼지
+      # 선속도 후보 개수. 많을수록 정밀하지만 계산이 무겁다.
+      vx_samples: 20
+      # 옆 속도 후보 개수. y를 안 쓰므로 1.
+      vy_samples: 1
+      # 회전 속도 후보 개수.
+      vtheta_samples: 20
+      # 각 후보 궤적을 몇 초 앞까지 그려 볼지. 좁은 미로라 너무 길면 먼 벽에 걸려 후보가 다 탈락한다. (실측)
+      sim_time: 1.5
+      # 궤적 위 충돌 검사 간격 — 직선(m) · 회전(rad). 작을수록 촘촘하게 검사.
+      linear_granularity: 0.05
+      angular_granularity: 0.025
+      # TF가 이 시간(초)까지 늦어도 허용.
+      transform_tolerance: 0.2
+      # critics가 "목표 근처"를 판단하는 거리. goal_checker의 xy_goal_tolerance와 같게.
+      xy_goal_tolerance: 0.10
+      # 이 속도(m/s)보다 느리면 "멈춘 상태"로 본다 (RotateToGoal이 제자리 회전을 시작하는 조건).
+      trans_stopped_velocity: 0.25
+      # 이미 최고점보다 나빠진 후보는 남은 critic 계산을 건너뛴다 (계산 절약).
+      short_circuit_trajectory_evaluation: true
+      # true면 목표 근처에서 "회전 단계"에 들어간 상태를 기억해, 다시 전진으로 돌아가며 흔들리지 않게 한다.
+      stateful: true
+
+      # ── 평가 기준(critics) — 후보 궤적마다 점수를 매겨 합이 가장 좋은 것을 고른다.
+      #   가중치(.scale)는 실행 중에 바꾸지 않는다 — 초기화 때만 읽힐 수 있음 (15-changes #2)
+      #   RotateToGoal : 목표 근처에서 목표 방향으로 제자리 회전
+      #   Oscillation  : 앞뒤·좌우로 왔다 갔다 하는 궤적에 벌점
+      #   BaseObstacle : costmap 비용이 높은(벽·장애물 가까운) 곳을 지나는 궤적에 벌점
+      #   GoalAlign    : 로봇 앞쪽이 목표를 향하도록
+      #   PathAlign    : 로봇 방향이 경로 방향과 나란하도록
+      #   PathDist     : 경로에서 멀어지는 궤적에 벌점
+      #   GoalDist     : 목표까지 거리를 줄이는 궤적을 선호
+      critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
+      # 장애물 벌점 가중치. 작게 두고 inflation(costmap)으로 벽과 거리를 확보한다.
+      BaseObstacle.scale: 0.02
+      # 경로 방향 정렬 가중치. forward_point_distance = 로봇 앞 몇 m 지점으로 정렬을 계산할지.
+      PathAlign.scale: 32.0
+      PathAlign.forward_point_distance: 0.1
+      # 목표 방향 정렬 가중치.
+      GoalAlign.scale: 24.0
+      GoalAlign.forward_point_distance: 0.1
+      # 경로 이탈 벌점 가중치. 미로에서는 경로를 꼭 붙어 가야 하므로 크게.
+      PathDist.scale: 32.0
+      # 목표 접근 가중치.
+      GoalDist.scale: 24.0
+      # 목표 근처 회전 가중치.
+      RotateToGoal.scale: 32.0
+      # 회전 단계에 들어가기 전 감속 정도. 클수록 일찍·많이 감속.
+      RotateToGoal.slowing_factor: 5.0
+      # 미래 위치로 회전 시작 시점을 미리 판단할 시간(초). -1 = 사용 안 함 (현재 위치로 판단).
+      RotateToGoal.lookahead_time: -1.0
