@@ -9,22 +9,20 @@ ManualControl::ManualControl()
   gripper_joint_ = declare_parameter<std::string>("gripper_joint", "gripper_left_joint");
   arm_move_s_ = declare_parameter<double>("arm_move_s", 1.0);
   cmd_timeout_s_ = declare_parameter<double>("cmd_timeout_s", 0.5);
-  mode_pub_ = create_publisher<std_msgs::msg::String>("/operation_mode", rclcpp::QoS(1).reliable().transient_local());
   vel_pub_ = create_publisher<TwistStamped>("/cmd_vel_manual", rclcpp::QoS(1).reliable());
   traj_pub_ = create_publisher<trajectory_msgs::msg::JointTrajectory>("/arm_controller/joint_trajectory", 10);
   gripper_ = rclcpp_action::create_client<GripperCommand>(this, "/gripper_controller/gripper_cmd");
-  enable_sub_ = create_subscription<std_msgs::msg::Bool>("/manual/enable", rclcpp::QoS(1).reliable(),
-    [this](std_msgs::msg::Bool::ConstSharedPtr m) { set_manual(m->data); });
-  vel_sub_ = create_subscription<TwistStamped>("/manual/cmd_vel", 10,
+  mode_sub_ = create_subscription<std_msgs::msg::String>("/state/operation_mode", rclcpp::QoS(1).reliable().transient_local(),
+    [this](std_msgs::msg::String::ConstSharedPtr m) { set_manual(m->data == "MANUAL"); });
+  vel_sub_ = create_subscription<TwistStamped>("/cmd/manual/cmd_vel", 10,
     [this](TwistStamped::ConstSharedPtr m) { on_cmd_vel(*m); });
-  arm_sub_ = create_subscription<sensor_msgs::msg::JointState>("/manual/arm", 10,
+  arm_sub_ = create_subscription<sensor_msgs::msg::JointState>("/cmd/manual/arm", 10,
     [this](sensor_msgs::msg::JointState::ConstSharedPtr m) { on_arm(*m); });
   js_sub_ = create_subscription<sensor_msgs::msg::JointState>("/joint_states", 10,
     [this](sensor_msgs::msg::JointState::ConstSharedPtr m) {
       for (size_t i = 0; i < m->name.size() && i < m->position.size(); ++i) current_[m->name[i]] = m->position[i];
     });
   timer_ = create_wall_timer(std::chrono::milliseconds(100), [this]() { watchdog(); });
-  publish_mode();
   diag_.setHardwareID("beebot");
   diag_.add("상태", [this](diagnostic_updater::DiagnosticStatusWrapper & s) {
     s.summary(manual_ ? diagnostic_msgs::msg::DiagnosticStatus::WARN : diagnostic_msgs::msg::DiagnosticStatus::OK,
@@ -43,13 +41,6 @@ void ManualControl::set_manual(bool manual) {
   manual_ = manual;
   if (!manual_) stop_base();
   RCLCPP_WARN(get_logger(), "운영 모드 → %s", manual_ ? "MANUAL" : "AUTO");
-  publish_mode();
-}
-
-void ManualControl::publish_mode() {
-  std_msgs::msg::String m;
-  m.data = manual_ ? "MANUAL" : "AUTO";
-  mode_pub_->publish(m);
 }
 
 void ManualControl::on_cmd_vel(const TwistStamped & in) {

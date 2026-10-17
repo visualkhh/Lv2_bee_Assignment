@@ -6,3 +6,4 @@ perception:
     confidence: 0.4         # 검출 신뢰도 하한
     imgsz: 416              # YOLO 입력 한 변 (도커 CPU용)
     device: "cpu"           # 실기 GPU 있으면 cuda
+    cpu_threads: 2          # device=cpu일 때 torch 스레드 수 — 기본(코어 전부)이면 제어·Nav2가 밀림 (도커 7코어 중 5코어를 먹었음)

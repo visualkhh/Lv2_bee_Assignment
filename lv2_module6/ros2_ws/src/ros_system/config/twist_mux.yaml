@@ -1,6 +1,6 @@
 # twist_mux — 바퀴 속도 명령 고르기 (높은 priority가 이김). 출력 /cmd_vel_mux → velocity_smoother → collision_monitor → /cmd_vel
 #   자동: rl_nav_correction의 /cmd_vel_corrected · 수동: control/manual_control의 /cmd_vel_manual
-#   잠금: /e_stop (std_msgs/Bool true) → 모든 입력을 막는다 (비상정지 — 시뮬레이터 버튼 · ros2 topic pub)
+  #   잠금: /state/emergency (std_msgs/Bool true) → 모든 입력을 막는다 (비상정지 — 시뮬 버튼 /cmd/e_stop → state_manager)
 twist_mux:
   ros__parameters:
     use_stamped: true        # 체인 전체 TwistStamped
@@ -15,6 +15,7 @@ twist_mux:
         priority: 100
     locks:
       e_stop:
-        topic: /e_stop
+        # state_manager가 주인 (/cmd/e_stop 원본 → /state/emergency 로 발행). 직접 구독 금지.
+        topic: /state/emergency
         timeout: 0.0
         priority: 255

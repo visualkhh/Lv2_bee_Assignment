@@ -1,12 +1,11 @@
 #pragma once
 
 // manual_control (🛠 직접 작성, 담당: 김현하) — 수동 조작 (원격 조종 · 팔 직접 움직이기)
-//   입력: ✉️ /manual/enable (std_msgs/Bool) — true = 수동, false = 자동
-//         ✉️ /manual/cmd_vel (geometry_msgs/TwistStamped) — 바퀴 (teleop_twist_keyboard · 시뮬레이터 조작판)
-//         ✉️ /manual/arm (sensor_msgs/JointState) — 관절 목표 (joint1~5 rad, gripper_left_joint m). 이름이 있는 것만 움직임
+//   입력: ✉️ /state/operation_mode (std_msgs/String "AUTO" | "MANUAL", transient_local) — 모드는 manager/state_manager가 정함 (/cmd/operation_mode → 거기)
+//         ✉️ /cmd/manual/cmd_vel (geometry_msgs/TwistStamped) — 바퀴 (teleop_twist_keyboard · 시뮬레이터 조작판)
+//         ✉️ /cmd/manual/arm (sensor_msgs/JointState) — 관절 목표 (joint1~5 rad, gripper_left_joint m). 이름이 있는 것만 움직임
 //         ✉️ /joint_states — 지금 관절각 (목표에 없는 팔 관절은 지금 각으로 채워 5축 전체 궤적을 보낸다 — JTC는 일부 관절 궤적을 거부)
-//   출력: ✉️ /operation_mode (std_msgs/String "AUTO" | "MANUAL", transient_local) → coordinator가 자동 실행을 멈춤
-//         ✉️ /cmd_vel_manual (TwistStamped) → twist_mux (자동 /cmd_vel_corrected보다 우선) → velocity_smoother → collision_monitor
+//   출력: ✉️ /cmd_vel_manual (TwistStamped) → twist_mux (자동 /cmd_vel_corrected보다 우선) → velocity_smoother → collision_monitor
 //         ✉️ /arm_controller/joint_trajectory (trajectory_msgs/JointTrajectory) → JTC가 바로 실행 (JTC 표준 토픽 입력)
 //         🎬 /gripper_controller/gripper_cmd (control_msgs/action/ParallelGripperCommand)
 //         ✉️ /diagnostics
@@ -25,7 +24,6 @@
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
-#include "std_msgs/msg/bool.hpp"
 #include "std_msgs/msg/string.hpp"
 #include "trajectory_msgs/msg/joint_trajectory.hpp"
 
@@ -43,8 +41,6 @@ public:
 private:
   void set_manual(bool manual);
 
-  void publish_mode();
-
   void on_cmd_vel(const TwistStamped & in);
 
   void watchdog();
@@ -61,11 +57,10 @@ private:
   bool manual_ = false, moving_ = false;
   size_t vel_count_ = 0, arm_count_ = 0;
   rclcpp::Time last_vel_{0, 0, RCL_ROS_TIME};
-  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr mode_pub_;
   rclcpp::Publisher<TwistStamped>::SharedPtr vel_pub_;
   rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr traj_pub_;
   rclcpp_action::Client<GripperCommand>::SharedPtr gripper_;
-  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr enable_sub_;
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr mode_sub_;
   rclcpp::Subscription<TwistStamped>::SharedPtr vel_sub_;
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr arm_sub_, js_sub_;
   std::map<std::string, double> current_;

@@ -7,7 +7,7 @@ UserInput::UserInput()
 : rclcpp::Node("user_input") {
   const auto command = declare_parameter<std::string>("command", "");
   if (!command.empty()) pending_.push_back(command);
-  cmd_pub_ = create_publisher<String>("/user_command", rclcpp::QoS(10).reliable());
+  cmd_pub_ = create_publisher<String>("/cmd/user_command", rclcpp::QoS(10).reliable());
   say_sub_ = create_subscription<String>("/robot_say", rclcpp::QoS(10).reliable(),
     [this](String::ConstSharedPtr m) { RCLCPP_INFO(get_logger(), "🔊 \"%s\"", m->data.c_str()); });
   status_sub_ = create_subscription<TaskStatus>("/task_status", rclcpp::QoS(10).reliable().transient_local(),
@@ -47,7 +47,7 @@ void UserInput::send_pending() {
     cmd_pub_->publish(m);
     ++sent_;
     last_ = m.data;
-    RCLCPP_INFO(get_logger(), "/user_command \"%s\"", m.data.c_str());
+    RCLCPP_INFO(get_logger(), "/cmd/user_command \"%s\"", m.data.c_str());
   }
 }
 

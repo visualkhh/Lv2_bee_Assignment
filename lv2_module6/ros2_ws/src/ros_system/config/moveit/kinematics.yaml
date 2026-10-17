@@ -1,0 +1,9 @@
+# IK — KDL 수치해법 (pick_ik 없이 기본으로 동작. URDF 축이 z 일괄이라 KDL로 충분)
+/**:
+  ros__parameters:
+    # arm만 — gripper는 두 손가락 병렬이라 체인이 아니어서 KDL 불가 (관절 직접 제어)
+    arm:
+      kinematics_solver: kdl_kinematics_plugin/KDLKinematicsPlugin
+      kinematics_solver_search_resolution: 0.005
+      kinematics_solver_timeout: 0.05
+      kinematics_solver_attempts: 3

@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Fast DDS 기본 프로파일 — 환경변수 FASTDDS_DEFAULT_PROFILES_FILE 로 읽힘 (docker-compose · CI · start.sh가 지정)
+  1) type_propagation 끔: Fast DDS 3의 TypeLookup(XTypes 타입 정보 조회)이 노드 40개 규모에서 서로 묻고 답하며
+     루프백 UDP 초당 8만 패킷 넘게 폭주 → CPU 대부분을 커널이 먹고 controller_manager 서비스가 안 떠서 컨트롤러가 못 뜸.
+     ROS 2 메시지 타입은 컴파일돼 있어 타입 조회가 필요 없다 (끈 뒤 초당 700 패킷 · 컨트롤러 첫 시도에 전부 active).
+  2) 공유 메모리(SHM) 구역 32MB: 기본 512KB면 카메라 영상(640×480 ≈ 900KB)이 SHM을 못 타고 조각난 UDP로 가서
+     구독자가 많은 pole_cam 영상을 거의 다 잃음 (RTAB-Map이 컬러를 못 받아 지도를 못 만듦). 같은 머신끼리는 SHM, 그 밖은 UDP.
+     8MB에서도 구독자 많은 pole_cam이 기동 직후 버퍼가 차서 안 나간 적 있음(재시작하니 정상) → 32MB.
+     /dev/shm이 노드 수(CLI 포함) × 32MB보다 커야 한다 (docker-compose shm_size: 4gb). 실기 SBC는 /dev/shm 기본이 RAM 절반이라 충분.
+     (LARGE_DATA 내장 모드는 이 환경에서 서비스 응답이 안 돌아와 velocity_smoother 설정이 멈춰서 안 씀 — 실측) -->
+<dds xmlns="http://www.eprosima.com">
+  <profiles>
+    <transport_descriptors>
+      <transport_descriptor>
+        <transport_id>beebot_shm</transport_id>
+        <type>SHM</type>
+        <segment_size>33554432</segment_size>
+        <maxMessageSize>4194304</maxMessageSize>
+      </transport_descriptor>
+      <transport_descriptor>
+        <transport_id>beebot_udp</transport_id>
+        <type>UDPv4</type>
+      </transport_descriptor>
+    </transport_descriptors>
+    <participant profile_name="beebot_default" is_default_profile="true">
+      <rtps>
+        <userTransports>
+          <transport_id>beebot_shm</transport_id>
+          <transport_id>beebot_udp</transport_id>
+        </userTransports>
+        <useBuiltinTransports>false</useBuiltinTransports>
+        <propertiesPolicy>
+          <properties>
+            <property><name>fastdds.type_propagation</name><value>disabled</value></property>
+          </properties>
+        </propertiesPolicy>
+      </rtps>
+    </participant>
+  </profiles>
+</dds>

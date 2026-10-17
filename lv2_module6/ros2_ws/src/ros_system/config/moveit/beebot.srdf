@@ -1,0 +1,49 @@
+<?xml version="1.0" ?>
+<!-- beebot SRDF — URDF lv2_module6/urdf/beebot.urdf.xacro 의 의미 정보 (Setup Assistant 출력과 동등) -->
+<robot name="beebot">
+  <!-- 팔: joint1~5, 베이스 arm_base_link → 팁 gripper_link -->
+  <group name="arm">
+    <chain base_link="arm_base_link" tip_link="gripper_link" />
+  </group>
+  <!-- 그리퍼: 양쪽 finger (오른쪽은 URDF mimic) -->
+  <group name="gripper">
+    <joint name="gripper_left_joint" />
+    <joint name="gripper_right_joint" />
+  </group>
+  <end_effector name="gripper" parent_link="gripper_link" group="gripper" />
+
+  <group_state name="home" group="arm">
+    <joint name="joint1" value="0" />
+    <joint name="joint2" value="0" />
+    <joint name="joint3" value="0" />
+    <joint name="joint4" value="0" />
+    <joint name="joint5" value="0" />
+  </group_state>
+
+  <!-- 인접 링크는 항상 닿아 있어 충돌 검사 제외 (팔 안쪽 11쌍 + 아래 차체 쪽) -->
+  <disable_collisions link1="arm_base_link" link2="shoulder_link" reason="Adjacent" />
+  <disable_collisions link1="shoulder_link" link2="upper_arm_link" reason="Adjacent" />
+  <disable_collisions link1="upper_arm_link" link2="forearm_link" reason="Adjacent" />
+  <disable_collisions link1="forearm_link" link2="wrist_link" reason="Adjacent" />
+  <disable_collisions link1="wrist_link" link2="gripper_link" reason="Adjacent" />
+  <disable_collisions link1="gripper_link" link2="finger_left_link" reason="Adjacent" />
+  <disable_collisions link1="gripper_link" link2="finger_right_link" reason="Adjacent" />
+  <disable_collisions link1="finger_left_link" link2="gripper_cam_link" reason="Adjacent" />
+  <disable_collisions link1="finger_right_link" link2="gripper_cam_link" reason="Adjacent" />
+  <disable_collisions link1="gripper_link" link2="gripper_cam_link" reason="Adjacent" />
+  <disable_collisions link1="gripper_link" link2="end_effector_link" reason="Adjacent" />
+  <!-- 차체 쪽 인접 (고정 조인트로 붙어 있어 항상 닿음 — 빠지면 시작 자세부터 충돌로 보고 모든 계획 거부) -->
+  <disable_collisions link1="base_link" link2="arm_base_link" reason="Adjacent" />
+  <disable_collisions link1="base_link" link2="wheel_left_link" reason="Adjacent" />
+  <disable_collisions link1="base_link" link2="wheel_right_link" reason="Adjacent" />
+  <disable_collisions link1="base_link" link2="pole_cam_link" reason="Adjacent" />
+  <!-- 차체에 고정된 것끼리 (서로 움직이지 않아 닿을 일이 없음) -->
+  <disable_collisions link1="arm_base_link" link2="wheel_left_link" reason="Never" />
+  <disable_collisions link1="arm_base_link" link2="wheel_right_link" reason="Never" />
+  <disable_collisions link1="arm_base_link" link2="pole_cam_link" reason="Never" />
+  <disable_collisions link1="wheel_left_link" link2="wheel_right_link" reason="Never" />
+  <disable_collisions link1="wheel_left_link" link2="pole_cam_link" reason="Never" />
+  <disable_collisions link1="wheel_right_link" link2="pole_cam_link" reason="Never" />
+  <!-- base_link 충돌에는 바구니(적재함)·기둥이 있다 (feature/isaac-setup storage_collision) — 팔 링크와 base_link는 검사한다 -->
+  <!-- TODO: 실기 치수 확정 후 MoveIt Setup Assistant 충돌 샘플링으로 다시 생성 (Never 쌍 자동 산출) -->
+</robot>

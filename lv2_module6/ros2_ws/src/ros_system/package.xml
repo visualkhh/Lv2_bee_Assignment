@@ -20,13 +20,27 @@
   <exec_depend>diff_drive_controller</exec_depend>
   <exec_depend>joint_trajectory_controller</exec_depend>
   <exec_depend>parallel_gripper_controller</exec_depend>
+  <exec_depend>moveit_ros_move_group</exec_depend>
+  <exec_depend>moveit_kinematics</exec_depend>
+  <exec_depend>moveit_planners_ompl</exec_depend>
+  <exec_depend>moveit_simple_controller_manager</exec_depend>
   <exec_depend>control</exec_depend>
   <exec_depend>ml</exec_depend>
   <!-- 실기 PC에만 설치 (테스트베드 이미지에는 없음 — faker가 대신함) -->
   <exec_depend>realsense2_camera</exec_depend>
   <exec_depend>robot_localization</exec_depend>
   <exec_depend>rtabmap_launch</exec_depend>
-  <exec_depend>nav2_bringup</exec_depend>
+  <!-- 진짜 Nav2 서버 (launch가 직접 띄움 — nav2_bringup은 시뮬레이션 의존성까지 끌어와 안 씀) -->
+  <exec_depend>nav2_lifecycle_manager</exec_depend>
+  <exec_depend>nav2_bt_navigator</exec_depend>
+  <exec_depend>nav2_planner</exec_depend>
+  <exec_depend>nav2_navfn_planner</exec_depend>
+  <exec_depend>nav2_controller</exec_depend>
+  <exec_depend>dwb_core</exec_depend>
+  <exec_depend>nav2_behaviors</exec_depend>
+  <exec_depend>nav2_costmap_2d</exec_depend>
+  <exec_depend>nav2_velocity_smoother</exec_depend>
+  <exec_depend>nav2_collision_monitor</exec_depend>
 
   <test_depend>ament_cmake_test</test_depend>
 

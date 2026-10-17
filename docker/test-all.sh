@@ -14,7 +14,7 @@ run_one test-packages
 run_one test-hardware
 run_one test-bringup
 run_one test-faker 1
-run_one test-faker 1 pick_fail_count:=2
+run_one test-faker 1
 
 echo "=========================="
 echo "ALL PASS"

@@ -3,8 +3,9 @@
 #
 #   ./start.sh                              # 📦(카메라·EKF·RTAB-Map·controller_manager) + 🛠 노드 전부, OpenCR 실기
 #   ./start.sh mock_hardware:=true          # OpenCR 없이 (명령을 상태로 되돌림 — launch 인자는 그대로 전달)
-#   ./start.sh port:=/dev/ttyACM1           # OpenCR 포트 지정 (기본 /dev/ttyACM0)
+#   ./start.sh port:=/dev/ttyACM1           # OpenCR 포트 지정 (기본 /dev/opencr — udev 규칙 99-opencr.rules)
 #   ./start.sh learning_enabled:=false      # 학습 노드 끄고 (비교 기준)
+#   ./start.sh map:=slam                    # 지도 매핑 (새 폴더 map/<날짜_시각>/) — 기본 map:=saved = 저장 지도로 위치추정
 #   ./start.sh --build [launch 인자]        # 저장소에서 실행할 때 colcon build 후 실행
 #
 # 두 가지 위치에서 동작한다.
@@ -39,6 +40,8 @@ if [ "$build" = 1 ] || [ ! -f "$HERE/install/setup.bash" ]; then
 fi
 # shellcheck disable=SC1091
 source "$HERE/install/setup.bash"
+# Fast DDS TypeLookup 끔 — 노드 40개에서 UDP 폭주로 controller_manager가 못 뜨는 것 방지 (설명: ros_system/config/fastdds.xml)
+export FASTDDS_DEFAULT_PROFILES_FILE="${FASTDDS_DEFAULT_PROFILES_FILE:-$HERE/install/ros_system/share/ros_system/config/fastdds.xml}"
 
 # --- 아키텍처 확인: 다른 CPU용으로 빌드된 install/이면 노드가 Exec format error로 죽으므로 미리 멈춘다
 # (예: CI x86_64 패키지를 Raspberry Pi에서 실행). 실행 파일의 ELF 헤더 e_machine(오프셋 18)으로 판정.
@@ -63,7 +66,7 @@ fi
 # --- 장치 확인 (경고만 — 장치 없이 실행하는 경우도 있음)
 mock=false
 use_cameras=true
-port=/dev/ttyACM0
+port=/dev/opencr
 for arg in "$@"; do
   case "$arg" in
     mock_hardware:=true) mock=true ;;
@@ -75,7 +78,7 @@ done
 if [ "$mock" = false ]; then
   # BeebotSystemHardware가 여는 포트 (URDF port → ros_system 인자 port)
   if [ ! -e "$port" ]; then
-    echo "WARN: OpenCR 포트 없음: $port — USB 연결 확인 (ls /dev/ttyACM*), 없이 시험하려면 mock_hardware:=true"
+    echo "WARN: OpenCR 포트 없음: $port — USB 연결 확인 (ls /dev/ttyACM*) · udev 규칙: sudo cp $(dirname "$0")/99-opencr.rules /etc/udev/rules.d/ && sudo udevadm control --reload && sudo udevadm trigger · 없이 시험하려면 mock_hardware:=true"
   elif [ ! -w "$port" ]; then
     echo "WARN: $port 쓰기 권한 없음 → sudo usermod -aG dialout \$USER (재로그인)"
   else
@@ -98,5 +101,7 @@ if [ "$use_cameras" = true ]; then
   fi
 fi
 
+# 지도 폴더 기본 = 이 워크스페이스의 map/ (테스트베드 /ws/map 과 같은 자리) — map:=slam(새 폴더 매핑) · saved(저장 지도, 기본)
+case " $* " in *" map_dir:="*) ;; *) set -- "$@" "map_dir:=$HERE/map" ;; esac
 echo "=== ros2 launch bringup bringup.launch.py $*"
 exec ros2 launch bringup bringup.launch.py "$@"

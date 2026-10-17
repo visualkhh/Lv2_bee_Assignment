@@ -23,7 +23,7 @@ constexpr float WHEEL_RIGHT_DIR = -1.0f;              // 오른쪽 바퀴는 반
 constexpr float ARM_DIR[ARM_COUNT] = {1, 1, 1, 1, 1};
 constexpr float GRIPPER_RAD_PER_M = 60.0f;            // 그리퍼 손가락 [m] → 서보 [rad] (TODO 실측)
 
-// ---- 시리얼 프로토콜 (호스트 control/BeebotSystemHardware와 짝 — README.md "프로토콜")
+// ---- 시리얼 프로토콜 (SBC control/BeebotSystemHardware와 짝 — README.md "프로토콜")
 constexpr uint32_t HOST_BAUD = 115200;                // USB CDC라 실제 속도와 무관
 constexpr size_t LINE_CAPACITY = 160;
 constexpr uint32_t COMMAND_TIMEOUT_MS = 500;          // 마지막 유효 C 명령 후 바퀴 정지·팔 현재 자세 유지

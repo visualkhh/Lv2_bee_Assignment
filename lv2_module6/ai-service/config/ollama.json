@@ -1,5 +1,5 @@
 {
-  "http": {"host": "127.0.0.1", "port": 8001},
+  "http": {"host": "127.0.0.1", "port": 8000},
   "ai": {
     "backend": "ollama",
     "model": "llama4",

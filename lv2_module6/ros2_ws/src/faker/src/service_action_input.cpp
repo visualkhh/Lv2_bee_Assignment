@@ -9,7 +9,8 @@ namespace faker {
 namespace {
 
 const char * kServices[] = {"score_grasps", "clear_octomap", "apply_planning_scene",
-  "diff_drive_controller/set_odometry", "reset"};
+  "diff_drive_controller/set_odometry", "reset", "fake_opencr/set_parameters",
+  "map_saver/save_map"};
 const char * kActions[] = {"navigate_to_pose", "execute_task_solution"};
 
 bool get_double(const rapidjson::Value & v, const char * key, double & out) {
@@ -53,6 +54,8 @@ ServiceActionInput::ServiceActionInput()
   reset_cli_ = create_client<std_srvs::srv::Empty>("/reset");  // EKF 리셋
   scene_cli_ = create_client<moveit_msgs::srv::ApplyPlanningScene>("/apply_planning_scene");
   odom_cli_ = create_client<control_msgs::srv::SetOdometry>("/diff_drive_controller/set_odometry");
+  opencr_params_cli_ = create_client<rcl_interfaces::srv::SetParameters>("/fake_opencr/set_parameters");
+  save_map_cli_ = create_client<nav2_msgs::srv::SaveMap>("/map_saver/save_map");
   nav_cli_ = rclcpp_action::create_client<nav2_msgs::action::NavigateToPose>(this, "/navigate_to_pose");
   mtc_cli_ = rclcpp_action::create_client<moveit_task_constructor_msgs::action::ExecuteTaskSolution>(
       this, "/execute_task_solution");
@@ -199,6 +202,57 @@ void ServiceActionInput::poll_service(const std::string & name) {
       if (data.HasMember("yaw") && data["yaw"].IsNumber()) ros_req->yaw = data["yaw"].GetDouble();
     }
     odom_fut_ = odom_cli_->async_send_request(ros_req).future;
+  } else {
+    // call()로 보내는 서비스 — 응답 변환은 st.done (check_service)
+    bool sent = false;
+    if (name == "fake_opencr/set_parameters") {
+      // data: {"parameters": [{"name": "slip", "value": {"type": 3, "double_value": 0.3}}, ...]} (rcl_interfaces 그대로)
+      auto req = std::make_shared<rcl_interfaces::srv::SetParameters::Request>();
+      if (data.IsObject() && data.HasMember("parameters") && data["parameters"].IsArray()) {
+        for (const auto & p : data["parameters"].GetArray()) {
+          if (!p.IsObject() || !p.HasMember("value") || !p["value"].IsObject()) continue;
+          rcl_interfaces::msg::Parameter m;
+          m.name = get_str(p, "name");
+          const auto & v = p["value"];
+          m.value.type = v.HasMember("type") && v["type"].IsInt() ? v["type"].GetInt() : 0;
+          if (v.HasMember("bool_value") && v["bool_value"].IsBool()) m.value.bool_value = v["bool_value"].GetBool();
+          if (v.HasMember("integer_value") && v["integer_value"].IsInt64()) m.value.integer_value = v["integer_value"].GetInt64();
+          if (v.HasMember("double_value") && v["double_value"].IsNumber()) m.value.double_value = v["double_value"].GetDouble();
+          m.value.string_value = get_str(v, "string_value");
+          req->parameters.push_back(m);
+        }
+      }
+      sent = call<rcl_interfaces::srv::SetParameters>(st, opencr_params_cli_, req, [](const auto & res) {
+        std::string r = "{\"results\": [";
+        for (size_t i = 0; i < res.results.size(); ++i) {
+          r += std::string(i ? ", " : "") + "{\"successful\": " + (res.results[i].successful ? "true" : "false") +
+               ", \"reason\": \"" + escape_json(res.results[i].reason) + "\"}";
+        }
+        return r + "]}";
+      });
+    } else if (name == "map_saver/save_map") {
+      // data: {"map_url": "/ws/map/map", ...} — 비운 값은 map_saver 기본 (map_topic /map · pgm · trinary · 0.25/0.65)
+      static const rapidjson::Value kEmpty(rapidjson::kObjectType);
+      const rapidjson::Value & o = data.IsObject() ? data : kEmpty;
+      auto req = std::make_shared<nav2_msgs::srv::SaveMap::Request>();
+      req->map_topic = get_str(o, "map_topic", "/map");
+      req->map_url = get_str(o, "map_url");
+      req->image_format = get_str(o, "image_format", "pgm");
+      req->map_mode = get_str(o, "map_mode", "trinary");
+      double free_t = 0.25, occ_t = 0.65;
+      get_double(o, "free_thresh", free_t);
+      get_double(o, "occupied_thresh", occ_t);
+      req->free_thresh = static_cast<float>(free_t);
+      req->occupied_thresh = static_cast<float>(occ_t);
+      sent = call<nav2_msgs::srv::SaveMap>(st, save_map_cli_, req, [](const auto & res) {
+        return std::string("{\"result\": ") + (res.result ? "true" : "false") + "}";
+      });
+    }
+    if (!sent) {
+      write_json(dir / "response", "{\"request_id\": \"" + escape_json(st.request_id) +
+          "\", \"ok\": false, \"error\": \"server 없음\"}");
+      st.busy = false;
+    }
   }
 }
 
@@ -208,7 +262,13 @@ void ServiceActionInput::check_service(const std::string & name) {
   const fs::path dir = svc_dir(debug_dir_ + "/service", name);
   bool done = false;
   std::string body;
-  if (name == "score_grasps") {
+  if (st.done) {
+    std::string data;
+    if (st.done(data)) {
+      body = "{\"request_id\": \"" + escape_json(st.request_id) + "\", \"ok\": true, \"data\": " + data + "}";
+      done = true;
+    }
+  } else if (name == "score_grasps") {
     if (score_fut_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
       body = score_response_json(st.request_id, score_fut_.get());
       done = true;
@@ -243,6 +303,7 @@ void ServiceActionInput::check_service(const std::string & name) {
   if (done) {
     if (!st.timed_out) write_json(dir / "response", body);
     st.busy = false;
+    st.done = nullptr;
     return;
   }
   if (std::chrono::steady_clock::now() > st.deadline && !st.timed_out) {

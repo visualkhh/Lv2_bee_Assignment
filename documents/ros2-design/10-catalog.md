@@ -157,13 +157,13 @@ URDF와 관절 각도로 로봇 몸의 모든 링크 좌표(TF)를 계산해 낸
 
 패키지 `plan` · 형태 ROS 2 노드 (C++)
 
-운영자와 로봇 사이의 텍스트 입출력 (외부 입력 노드). 텍스트 명령을 /user_command로 내보내고, 로봇이 알릴 말(/robot_say)과 진행 상황(/task_status)을 보여 준다.
+운영자와 로봇 사이의 텍스트 입출력 (외부 입력 노드). 텍스트 명령을 /cmd/user_command로 내보내고, 로봇이 알릴 말(/robot_say)과 진행 상황(/task_status)을 보여 준다.
 
 **⬅ 받는 것 (입력)**
 
 | 방식 | 이름 | 메시지 타입 / 형식 | 보내는 쪽 | 비고 |
 | --- | --- | --- | --- | --- |
-| ⌨️ 입력 | `텍스트 명령` | `command 파라미터 · 터미널 표준입력` | 운영자 | 예: "빨간 퍽을 목표 구역으로 옮겨" (시뮬레이터는 /user_command를 직접 넣기도 함) |
+| ⌨️ 입력 | `텍스트 명령` | `command 파라미터 · 터미널 표준입력` | 운영자 | 예: "빨간 퍽을 목표 구역으로 옮겨" (시뮬레이터는 /cmd/user_command를 직접 넣기도 함) |
 | ✉️ 구독 | `/robot_say` | `std_msgs/String` | coordinator | 알릴 문장 |
 | ✉️ 구독 | `/task_status` | `plan/TaskStatus` | coordinator | 진행 상황 표시 |
 
@@ -171,7 +171,7 @@ URDF와 관절 각도로 로봇 몸의 모든 링크 좌표(TF)를 계산해 낸
 
 | 방식 | 이름 | 메시지 타입 / 형식 | 받는 쪽 | 비고 |
 | --- | --- | --- | --- | --- |
-| ✉️ 발행 | `/user_command` | `std_msgs/String` | vlm_task_planner | vlm_task_planner가 붙을 때까지 들고 있다가 보냄 |
+| ✉️ 발행 | `/cmd/user_command` | `std_msgs/String` | vlm_task_planner | vlm_task_planner가 붙을 때까지 들고 있다가 보냄 |
 | ✉️ 발행 | `/diagnostics` | `diagnostic_msgs/DiagnosticArray` | diagnostic_aggregator | 못 보낸 명령 수 · 마지막 명령 |
 | 💬 알림 | `알림` | `로그 · 화면` | 운영자 | 예: "퍽을 옮겼어요", "퍽을 잡을 수 없어요" |
 
@@ -190,7 +190,7 @@ URDF와 관절 각도로 로봇 몸의 모든 링크 좌표(TF)를 계산해 낸
 
 | 방식 | 이름 | 메시지 타입 / 형식 | 보내는 쪽 | 비고 |
 | --- | --- | --- | --- | --- |
-| ✉️ 구독 | `/user_command` | `std_msgs/String` | user_input | 명령마다 |
+| ✉️ 구독 | `/cmd/user_command` | `std_msgs/String` | user_input | 명령마다 |
 | ✉️ 구독 | `/tracked_objects` | `perception/TrackedObjectArray` | perception | 최신 목록을 프롬프트에 넣음 |
 | ✉️ 구독 | `/pole_cam/color/image_raw` | `sensor_msgs/Image` | realsense2_camera (pole_cam) | 계획할 때 한 장만 |
 | ✉️ 구독 | `/task_status` | `plan/TaskStatus` | coordinator | FAILED면 재계획 |
@@ -349,7 +349,7 @@ RGB-D SLAM. 매핑 모드에서는 지도를 만들어 rtabmap.db에 저장하�
 - `subscribe_depth: true`
 - `approx_sync: true`
 - `Reg/Force3DoF: true`
-- `Grid/Sensor: 1 (depth)`
+- `Grid/Sensor: 0 (scan_cloud = points_filtered, 자기 몸 뺀 점구름)`
 - `Mem/IncrementalMemory: true(매핑) / false(위치추정)`
 - `Mem/InitWMWithAllNodes: true (위치추정)`
 
@@ -404,7 +404,7 @@ NavigateToPose 목표를 받아 행동 트리로 "경로 계산 → 따라가기
 | --- | --- | --- | --- | --- |
 | 🎬 서버 | `/compute_path_to_pose` | `nav2_msgs/action/ComputePathToPose` | bt_navigator |  |
 | ✉️ 구독 | `/map` | `nav_msgs/OccupancyGrid` | rtabmap | static layer |
-| ✉️ 구독 | `/pole_cam/depth/color/points` | `sensor_msgs/PointCloud2` | realsense2_camera (pole_cam) | voxel layer |
+| ✉️ 구독 | `/pole_cam/depth/color/points_filtered` | `sensor_msgs/PointCloud2` | body_filter (자기 몸 점 제거) | voxel layer |
 | ✉️ 구독 | `/tf` | `tf2_msgs/TFMessage` | rtabmap, ekf |  |
 
 **➡ 내보내는 것 (출력)**
@@ -434,7 +434,7 @@ NavigateToPose 목표를 받아 행동 트리로 "경로 계산 → 따라가기
 | 🎬 서버 | `/follow_path` | `nav2_msgs/action/FollowPath` | bt_navigator |  |
 | ✉️ 구독 | `/odometry/filtered` | `nav_msgs/Odometry` | ekf |  |
 | ✉️ 구독 | `/speed_limit` | `nav2_msgs/SpeedLimit` | rl_nav_tuner | 속도 상한 (백분율) |
-| ✉️ 구독 | `/pole_cam/depth/color/points` | `sensor_msgs/PointCloud2` | realsense2_camera (pole_cam) | local voxel layer |
+| ✉️ 구독 | `/pole_cam/depth/color/points_filtered` | `sensor_msgs/PointCloud2` | body_filter (자기 몸 점 제거) | local voxel layer |
 | 📞 서버 | `/controller_server/set_parameters` | `rcl_interfaces/srv/SetParameters` | rl_nav_tuner | kinematic 파라미터 런타임 변경 |
 | 📞 서버 | `/local_costmap/local_costmap/set_parameters` | `rcl_interfaces/srv/SetParameters` | coordinator | footprint 변경 |
 
@@ -489,7 +489,7 @@ NavigateToPose 목표를 받아 행동 트리로 "경로 계산 → 따라가기
 
 | 방식 | 이름 | 메시지 타입 / 형식 | 보내는 쪽 | 비고 |
 | --- | --- | --- | --- | --- |
-| ✉️ 구독 | `/pole_cam/depth/color/points` | `sensor_msgs/PointCloud2` | realsense2_camera (pole_cam) | observation_sources: pointcloud |
+| ✉️ 구독 | `/pole_cam/depth/color/points_filtered` | `sensor_msgs/PointCloud2` | body_filter (자기 몸 점 제거) | observation_sources: pointcloud |
 | ✉️ 구독 | `/map` | `nav_msgs/OccupancyGrid` | rtabmap | global만 (static layer) |
 
 **➡ 내보내는 것 (출력)**
@@ -516,7 +516,9 @@ NavigateToPose 목표를 받아 행동 트리로 "경로 계산 → 따라가기
 
 패키지 `nav2_lifecycle_manager` · 형태 ROS 2 노드
 
-Nav2 서버들을 정해진 순서로 configure → activate 하고, 하나가 죽으면 전체를 내린다.
+Nav2 주행 계획 서버(planner · controller · behavior · bt_navigator)를 정해진 순서로 configure → activate 하고, 하나가 죽으면 이것들을 내린다. map(→odom)이 있어야 뜬다.
+
+바퀴 명령 체인(velocity_smoother · collision_monitor)은 별도 관리자 **lifecycle_manager_base**가 올린다 — odom만 있으면 뜨므로 RTAB-Map이 아직 map→odom을 못 내도(매핑 시작 직후) 수동 조작은 바퀴까지 간다. 하나로 묶었을 때 global_costmap 실패에 수동 조작까지 막혔음 (실측). 서비스 `/lifecycle_manager_base/manage_nodes` 동일.
 
 **⬅ 받는 것 (입력)**
 
@@ -839,22 +841,21 @@ JTC가 낸 관절 목표에 작은 Δ를 더해 중력 처짐 같은 오차를 �
 
 패키지 `control` · 형태 ROS 2 노드 (C++)
 
-수동 조작. 수동 모드면 운영자의 바퀴·팔 명령을 실행 계층에 넘기고, /operation_mode로 coordinator에게 자동 실행을 멈추라고 알린다. 수동 바퀴 명령도 안전 체인(twist_mux → velocity_smoother → collision_monitor)을 지난다.
+수동 조작. /state/operation_mode(state_manager 발행)가 MANUAL이면 운영자의 바퀴·팔 명령을 실행 계층에 넘긴다 (모드 결정은 manager/state_manager). 수동 바퀴 명령도 안전 체인(twist_mux → velocity_smoother → collision_monitor)을 지난다.
 
 **⬅ 받는 것 (입력)**
 
 | 방식 | 이름 | 메시지 타입 / 형식 | 보내는 쪽 | 비고 |
 | --- | --- | --- | --- | --- |
-| ✉️ 구독 | `/manual/enable` | `std_msgs/Bool` | 운영자 (시뮬레이터 · ros2 topic pub) | true = 수동 |
-| ✉️ 구독 | `/manual/cmd_vel` | `geometry_msgs/TwistStamped` | teleop_twist_keyboard · 시뮬레이터 | 수동일 때만 넘김, 0.5초 끊기면 0 |
-| ✉️ 구독 | `/manual/arm` | `sensor_msgs/JointState` | 시뮬레이터 · 운영자 | joint1~5 rad · gripper_left_joint m |
+| ✉️ 구독 | `/state/operation_mode` | `std_msgs/String (transient_local)` | state_manager | MANUAL일 때만 수동 명령 통과 |
+| ✉️ 구독 | `/cmd/manual/cmd_vel` | `geometry_msgs/TwistStamped` | teleop_twist_keyboard · 시뮬레이터 | 수동일 때만 넘김, 0.5초 끊기면 0 |
+| ✉️ 구독 | `/cmd/manual/arm` | `sensor_msgs/JointState` | 시뮬레이터 · 운영자 | joint1~5 rad · gripper_left_joint m |
 | ✉️ 구독 | `/joint_states` | `sensor_msgs/JointState` | joint_state_broadcaster | 목표에 없는 관절은 지금 각으로 채움 |
 
 **➡ 내보내는 것 (출력)**
 
 | 방식 | 이름 | 메시지 타입 / 형식 | 받는 쪽 | 비고 |
 | --- | --- | --- | --- | --- |
-| ✉️ 발행 | `/operation_mode` | `std_msgs/String (transient_local)` | coordinator | AUTO · MANUAL |
 | ✉️ 발행 | `/cmd_vel_manual` | `geometry_msgs/TwistStamped` | twist_mux | 자동보다 우선 |
 | ✉️ 발행 | `/arm_controller/joint_trajectory` | `trajectory_msgs/JointTrajectory` | arm_controller (JTC) | 5축 전체 한 점 |
 | 🎬 요청 | `/gripper_controller/gripper_cmd` | `control_msgs/ParallelGripperCommand` | gripper_controller |  |
@@ -871,7 +872,7 @@ JTC가 낸 관절 목표에 작은 Δ를 더해 중력 처짐 같은 오차를 �
 | --- | --- | --- | --- | --- |
 | ✉️ 구독 | `/cmd_vel_corrected` | `geometry_msgs/TwistStamped` | rl_nav_correction | 자동, priority 10 |
 | ✉️ 구독 | `/cmd_vel_manual` | `geometry_msgs/TwistStamped` | manual_control | 수동, priority 100 |
-| ✉️ 구독 | `/e_stop` | `std_msgs/Bool` | 운영자 | 잠금 priority 255 — true면 전부 차단 |
+| ✉️ 구독 | `/state/emergency` | `std_msgs/Bool` | state_manager (`/cmd/e_stop` 그대로) | 잠금 priority 255 — true면 전부 차단 |
 | ✉️ 발행 | `/cmd_vel_mux` | `geometry_msgs/TwistStamped` | velocity_smoother |  |
 
 <a id="arm_safety_monitor"></a>
@@ -939,7 +940,7 @@ JTC가 낸 관절 목표에 작은 Δ를 더해 중력 처짐 같은 오차를 �
 
 **🔧 직접 연결·설정할 것**
 
-1. URDF(lv2_module6/ros2_ws/urdf/beebot.urdf.xacro)에 <ros2_control name="BeebotSystem" type="system"> 블록 — <plugin>control/BeebotSystemHardware</plugin>, <param> mock · mock_effort · port, 그리고 관절(wheel_left/right_joint, joint1~5, gripper_left_joint)·센서(imu)별 command/state 인터페이스 (팔·그리퍼에 effort).
+1. URDF(lv2_module6/urdf/beebot.urdf.xacro)에 <ros2_control name="BeebotSystem" type="system"> 블록 — <plugin>control/BeebotSystemHardware</plugin>, <param> mock · mock_effort · port, 그리고 관절(wheel_left/right_joint, joint1~5, gripper_left_joint)·센서(imu)별 command/state 인터페이스 (팔·그리퍼에 effort).
 2. controllers.yaml의 controller_manager.ros__parameters에 update_rate: 100과 컨트롤러 6개의 type: joint_state_broadcaster/JointStateBroadcaster · imu_sensor_broadcaster/IMUSensorBroadcaster · diff_drive_controller/DiffDriveController · ml/RlArmCorrection · joint_trajectory_controller/JointTrajectoryController · parallel_gripper_action_controller/GripperActionController. 컨트롤러별 파라미터는 같은 파일의 <이름>.ros__parameters 아래에.
 3. launch(ros_system): robot_state_publisher(URDF 발행) → ros2_control_node(parameters=[controllers.yaml]) → spawner(--param-file controllers.yaml, --controller-ros-args로 ~/cmd_vel·~/odom·~/imu 리매핑 — ros2_control_node에 준 리매핑은 컨트롤러에 안 먹음)로 joint_state_broadcaster, imu_sensor_broadcaster, diff_drive_controller, rl_arm_correction, arm_controller, gripper_controller 순서 (체인은 rl_arm_correction이 arm_controller보다 먼저).
 4. 확인: ros2 control list_hardware_components → list_hardware_interfaces([claimed] 표시, joint2/effort가 보이는지) → list_controllers(전부 active) → view_controller_chains.

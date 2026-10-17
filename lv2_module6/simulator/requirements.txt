@@ -1,3 +1,4 @@
 opencv-python
 numpy
+torch  # 렌더러 — CUDA·Apple GPU(MPS) 있으면 GPU, 없으면 CPU (scene.pick_device)
 xacro  # export_dataset.py의 URDF 전개용 (순수 파이썬, 시뮬레이터 본체는 불필요)

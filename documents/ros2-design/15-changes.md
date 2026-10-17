@@ -31,7 +31,7 @@
 | 21 | QoS 언급 없음 | QoS 표 추가 | best_effort ↔ reliable 불일치는 연결 자체가 안 됨 |
 | 22 | gripper_cam RGB, LiDAR 탑재 가정 | 카메라 2대 모두 Intel RealSense, LiDAR 없음 | 실제 하드웨어 구성 반영 — 근접 점구름은 gripper_cam, 장애물·SLAM은 pole_cam 담당 |
 | 23 | 후방 감지 가정 | BackUp 복구 제한, voxel layer 보수적 clearing | 전방 카메라 하나라 옆·뒤 사각지대 |
-| 24 | rtabmap Grid/FromDepth | Grid/Sensor 1 (depth) | 현재 rtabmap에서 Grid/FromDepth는 Grid/Sensor(0 레이저, 1 depth, 2 둘 다)로 바뀜 — rtabmap Parameters.h 확인 |
+| 24 | rtabmap Grid/FromDepth | Grid/Sensor 0 + scan_cloud = points_filtered (처음엔 1 depth — 팔이 지도에 벽으로 남아 바꿈) | 현재 rtabmap에서 Grid/FromDepth는 Grid/Sensor(0 레이저, 1 depth, 2 둘 다)로 바뀜 — rtabmap Parameters.h 확인 |
 | 25 | 공식 TurtleBot3 플러그인으로 전류(effort) 사용 | 플러그인 fork해서 effort state 추가 | 공식 jazzy 플러그인은 position·velocity만 내보냄 — OpenCR 제어 테이블의 present_current를 읽어 effort로 내보내야 arm_safety_monitor·rl_arm_correction이 동작 |
 | 26 | /failure_report (실패할 때만, coordinator → VLM) | /task_status (RUNNING·SUCCEEDED·FAILED + reason) | 실패만이 아니라 진행·완료도 같은 토픽으로 — VLM은 FAILED에 재계획, user_input는 완료 안내·진행 표시에 사용 |
 

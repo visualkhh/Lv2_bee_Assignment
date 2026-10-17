@@ -1,0 +1,8 @@
+# course/tools/build_map.py 가 walls.json에서 만든 지도 — 원점 = 출발 칸 (map = odom 원점)
+image: twin_closed_maze.pgm
+mode: trinary
+resolution: 0.05
+origin: [-0.597, -6.139, 0.0]
+negate: 0
+occupied_thresh: 0.65
+free_thresh: 0.25

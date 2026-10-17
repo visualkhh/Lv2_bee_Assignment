@@ -46,6 +46,10 @@ void InputManager::load(const std::string & topic, const fs::path & file, Input 
     return;
   }
   const std::string type = doc["type"].GetString();
+  if (topic.rfind("/state/", 0) == 0) {  // 상태 토픽은 state_manager만 발행 — 바꾸려면 요청 토픽 /cmd/<이름>
+    RCLCPP_WARN(get_logger(), "%s: /state/* 는 state_manager만 발행 — /cmd/<이름> 으로 보낼 것", topic.c_str());
+    return;
+  }
   try {
     if (type != in.type) {
       in.parser = std::make_shared<RosMsgParser::Parser>(

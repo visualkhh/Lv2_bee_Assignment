@@ -19,7 +19,7 @@ CallbackReturn BeebotSystemHardware::on_init(const hardware_interface::HardwareC
   const auto & hp = info_.hardware_parameters;
   mock_ = hp.count("mock") && (hp.at("mock") == "true" || hp.at("mock") == "True");
   mock_effort_ = hp.count("mock_effort") ? std::stod(hp.at("mock_effort")) : 0.0;
-  port_ = hp.count("port") ? hp.at("port") : "/dev/ttyACM0";
+  port_ = hp.count("port") ? hp.at("port") : "/dev/opencr";
   imu_ = info_.sensors.empty() ? "imu" : info_.sensors.front().name;
   if (!mock_) {  // 실기 프로토콜은 관절 순서가 고정 — URDF와 다르면 시작하지 않는다
     const auto in_urdf = [this](const char * name) {

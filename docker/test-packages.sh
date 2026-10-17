@@ -11,7 +11,7 @@ cd /ws || { echo "FAIL: /ws 없음"; exit 2; }
 SELECT=()
 [ $# -gt 0 ] && SELECT=(--packages-select "$@")
 
-colcon build --symlink-install --event-handlers console_direct- "${SELECT[@]}" || { echo "FAIL: colcon build"; exit 1; }
+build-ws "${SELECT[@]}" || exit 1   # 빌드 + install → /debug/install (docker/build-ws.sh)
 # 패키지 테스트끼리 토픽이 섞이지 않게 순서대로 (gtest마다 ROS_DOMAIN_ID도 따로 둠)
 colcon test --executor sequential --event-handlers console_direct- "${SELECT[@]}"
 echo "--- 결과 ---"

@@ -21,14 +21,20 @@ from perception.msg import TrackedObject, TrackedObjectArray
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSHistoryPolicy, QoSProfile, QoSReliabilityPolicy
 from sensor_msgs.msg import CameraInfo, Image
+from std_msgs.msg import String
 from tf2_geometry_msgs import do_transform_point
 from tf2_ros import Buffer, TransformListener
 
-CLASSES = ["puck", "goal_zone", "obstacle", "person", "traffic_light"]
+QR_GAP_S = 10.0  # 이만큼 QR이 안 보였다가 다시 읽히면 새 미션 지역으로 보고 재발행 [s]
+# 모델 없을 때의 기본 클래스 — 모델이 있으면 모델에 저장된 이름(model.names)을 쓴다 (학습 클래스가 바뀌어도 코드 수정 없음)
+CLASSES = ["puck", "puck_lying", "goal_zone", "station_zone", "qr_board", "obstacle", "person", "traffic_light"]
 # 크기 추정 실패 시 클래스 기본값 (sx, sy, sz) [m]
 SIZE_FALLBACK = {
     "puck": (0.06, 0.06, 0.04),
+    "puck_lying": (0.04, 0.06, 0.05),
     "goal_zone": (0.30, 0.30, 0.01),
+    "station_zone": (0.45, 0.45, 0.01),
+    "qr_board": (0.01, 0.30, 0.30),
     "obstacle": (0.20, 0.20, 0.30),
     "person": (0.40, 0.40, 1.70),
     "traffic_light": (0.14, 0.14, 0.45),
@@ -41,6 +47,47 @@ def sensor_qos():
                       history=QoSHistoryPolicy.KEEP_LAST, depth=5)
 
 
+# HSV 색상(OpenCV H: 0~180) 기준 — 퍽 색 · 신호등 램프 색
+HUES = {"red": (0, 180), "yellow": (30,), "green": (60,), "blue": (120,)}
+
+
+def _nearest_hue(h):
+    return min(HUES, key=lambda c: min(min(abs(h - x), 180 - abs(h - x)) for x in HUES[c]))
+
+
+def classify_color(cls, roi):
+    """박스 안 색 → 퍽: 채도 있는 화소의 대표 색상, 신호등: 켜진 램프(밝고 채도 높은 화소) 색 · 없으면 off. 그 외 ''"""
+    if roi.size == 0 or cls not in ("puck", "puck_lying", "traffic_light"):
+        return ""
+    hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+    h, s, v = hsv[..., 0].ravel(), hsv[..., 1].ravel(), hsv[..., 2].ravel()
+    if cls == "traffic_light":
+        lit = (s > 100) & (v > 90)  # 켜짐 V 180~230 · 꺼짐 45~57 (시뮬 램프) — 조명 0.55~1.45배에서도 갈리는 경계
+        if lit.sum() < 4:
+            return "off"
+        sel = h[lit]
+    else:
+        sel = h[(s > 80) & (v > 50)]
+        if sel.size < 8:
+            return "unknown"
+    # 빨강은 0과 180 양끝에 걸치므로 원형 거리로 가장 많은 색을 고른다
+    votes = {}
+    for hv in sel[:: max(1, sel.size // 400)]:
+        c = _nearest_hue(int(hv))
+        votes[c] = votes.get(c, 0) + 1
+    return max(votes, key=votes.get)
+
+
+def qr_crop(bgr, box):
+    """YOLO qr_board 박스 → 여유 15% 잘라 짧은 변 300px 이상으로 확대 (QR 모듈이 뭉개지지 않게)"""
+    x0, y0, x1, y1 = box
+    h, w = bgr.shape[:2]
+    mx, my = int((x1 - x0) * 0.15), int((y1 - y0) * 0.15)
+    crop = bgr[max(0, y0 - my):min(h, y1 + my), max(0, x0 - mx):min(w, x1 + mx)]
+    k = max(1.0, 300.0 / max(1, min(crop.shape[:2])))
+    return cv2.resize(crop, None, fx=k, fy=k, interpolation=cv2.INTER_CUBIC) if k > 1 else crop
+
+
 class PerceptionNode(Node):
     def __init__(self):
         super().__init__("perception")
@@ -49,6 +96,7 @@ class PerceptionNode(Node):
         self.declare_parameter("confidence", 0.4)
         self.declare_parameter("imgsz", 416)
         self.declare_parameter("device", "cpu")
+        self.declare_parameter("cpu_threads", 2)
         self.rate_hz = float(self.get_parameter("rate_hz").value)
         conf = float(self.get_parameter("confidence").value)
         self.conf_th = conf
@@ -67,11 +115,16 @@ class PerceptionNode(Node):
             except Exception:  # noqa: BLE001
                 pass
         self.model = None
+        self.names = dict(enumerate(CLASSES))  # 클래스 번호 → 이름 (모델이 있으면 모델 것으로)
         self.model_path = model_path
         if model_path:
             try:
                 from ultralytics import YOLO
+                if self.device == "cpu":  # torch는 기본으로 코어를 전부 씀 → 같은 머신의 제어·Nav2가 밀림 (도커 7코어 중 5코어 실측)
+                    import torch
+                    torch.set_num_threads(max(1, int(self.get_parameter("cpu_threads").value)))
                 self.model = YOLO(model_path)
+                self.names = dict(self.model.names)
                 self.get_logger().info(f"YOLO 모델 로드: {model_path} (device={self.device})")
             except Exception as e:  # noqa: BLE001
                 self.get_logger().warning(f"YOLO 로드 실패 ({e}) — 빈 목록 발행")
@@ -86,6 +139,14 @@ class PerceptionNode(Node):
         self.tracks = {}  # id → dict(class_name, x, y, z, sx, sy, sz, last_seen)
         self.next_id = 1
         self.published = 0
+        # QR 문제 (documents/MISSION.md §3-1): A 지역 QR 판을 읽어 /mission_qr 로 — 모델 없이도 동작
+        self.qr = cv2.QRCodeDetector()
+        self.qr_text = ""
+        self.qr_seen = 0.0   # 마지막으로 QR을 읽은 시각 — QR_GAP_S 넘게 안 보였다 다시 보이면 같은 내용도 재발행 (다음 미션 지역)
+        self.qr_pub = self.create_publisher(
+            String, "/mission_qr",
+            QoSProfile(depth=1, reliability=QoSReliabilityPolicy.RELIABLE,
+                       durability=QoSDurabilityPolicy.TRANSIENT_LOCAL, history=QoSHistoryPolicy.KEEP_LAST))
 
         for cam in ("pole_cam", "gripper_cam"):
             self.create_subscription(Image, f"/{cam}/color/image_raw",
@@ -99,6 +160,7 @@ class PerceptionNode(Node):
         self.create_timer(1.0 / max(self.rate_hz, 0.1), self.on_publish)
         self.create_timer(0.25, self.on_infer)  # 카메라당 최대 4Hz 추론
         self.create_timer(1.0, self.on_diag)
+        self.create_timer(0.5, self.on_qr)
 
     # ---------- 입력 캐시
     def _slot(self, cam):
@@ -154,9 +216,10 @@ class PerceptionNode(Node):
         h, w = s["bgr"].shape[:2]
         depth_m = s["depth_mm"].astype(np.float32) / 1000.0
         now_stamp = s["stamp"]
+        qr_boxes = []
         for b in res.boxes:
-            cls_id = int(b.cls[0])
-            if not 0 <= cls_id < len(CLASSES):
+            cls = self.names.get(int(b.cls[0]))
+            if cls is None:
                 continue
             x0, y0, x1, y1 = (int(v) for v in b.xyxy[0].tolist())
             x0, y0 = max(x0, 0), max(y0, 0)
@@ -174,8 +237,10 @@ class PerceptionNode(Node):
             mp = self.to_map(s["frame_id"], now_stamp, px, py, zm)
             if mp is None:
                 continue
-            cls = CLASSES[cls_id]
-            fb = SIZE_FALLBACK[cls]
+            if cls == "qr_board":
+                qr_boxes.append((x0, y0, x1, y1))
+            color = classify_color(cls, s["bgr"][y0:y1, x0:x1])
+            fb = SIZE_FALLBACK.get(cls, (0.1, 0.1, 0.1))
             sx = max((x1 - x0) * zm / s["fx"], 0.01)
             sy = max((y1 - y0) * zm / s["fy"], 0.01)
             tid = self.match(cls, mp[0], mp[1], mp[2])
@@ -183,8 +248,9 @@ class PerceptionNode(Node):
                 self.tracks[tid] = {"class_name": cls, "x": mp[0], "y": mp[1], "z": mp[2],
                                     "sx": sx, "sy": sy, "sz": fb[2],
                                     "conf": float(b.conf[0]), "last_seen": now_stamp,
-                                    "camera": cam, "px": (int(u), int(v))}
+                                    "camera": cam, "px": (int(u), int(v)), "color": color}
         with self.lock:
+            self.frames[cam]["qr_boxes"] = qr_boxes  # on_qr가 이 박스 안만 해독
             now_s = now_stamp.sec + now_stamp.nanosec * 1e-9
             for tid in [t for t, tr in self.tracks.items()
                         if now_s - (tr["last_seen"].sec + tr["last_seen"].nanosec * 1e-9) > 2.0]:
@@ -241,10 +307,40 @@ class PerceptionNode(Node):
             o.last_seen = tr["last_seen"]
             o.camera = tr.get("camera", "")
             o.px = [int(v) for v in tr.get("px", (0, 0))]
+            o.color = tr.get("color", "")
             out.objects.append(o)
         self.pub.publish(out)
         with self.lock:
             self.published += 1
+
+    # ---------- QR (2Hz) — 내용이 바뀌었거나, QR_GAP_S 넘게 안 보이다 다시 읽혔을 때 발행
+    # (한 맵에 미션 지역이 여러 곳 — 같은 문제가 두 지역에 있어도 지역마다 한 번씩. transient_local: 늦게 붙어도 받음)
+    def on_qr(self):
+        with self.lock:
+            imgs = [(c, s["bgr"], list(s.get("qr_boxes", []))) for c, s in self.frames.items()
+                    if s.get("bgr") is not None]
+        for cam, bgr, boxes in imgs:
+            # YOLO가 찾은 qr_board 박스 안만 (여유 15% + 작으면 확대 — 멀리 있는 판도 모듈이 보이게).
+            # 모델이 없으면(기동 검사 · 모델 없는 CI) 화면 전체
+            crops = [bgr] if self.model is None else [qr_crop(bgr, b) for b in boxes]
+            text = ""
+            for crop in crops:
+                try:
+                    text = self.qr.detectAndDecode(crop)[0]
+                except cv2.error:
+                    text = ""
+                if text:
+                    break
+            if not text:
+                continue
+            now = time.time()
+            fresh = text != self.qr_text or now - self.qr_seen > QR_GAP_S
+            self.qr_seen = now
+            if fresh:
+                self.qr_text = text
+                self.qr_pub.publish(String(data=text))
+                self.get_logger().info(f"QR 문제 ({cam}): {text}")
+            return
 
     def on_diag(self):
         s = DiagnosticStatus()
@@ -260,7 +356,8 @@ class PerceptionNode(Node):
             n = len(self.tracks)
             pub = self.published
         s.values = [KeyValue(key="추적 물체", value=str(n)),
-                    KeyValue(key="발행한 /tracked_objects", value=str(pub))]
+                    KeyValue(key="발행한 /tracked_objects", value=str(pub)),
+                    KeyValue(key="QR 문제", value=self.qr_text or "(아직 없음)")]
         msg = DiagnosticArray()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.status = [s]

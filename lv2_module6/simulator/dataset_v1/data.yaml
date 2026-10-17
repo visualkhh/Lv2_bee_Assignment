@@ -1,0 +1,5 @@
+path: /Users/hyunhakim/workspace/visualkhh/source/Lv2_bee_Assignment/lv2_module6/simulator/dataset
+train: train/images
+val: val/images
+nc: 5
+names: ['puck', 'goal_zone', 'obstacle', 'person', 'traffic_light']

@@ -8,9 +8,10 @@ if [ -f /ws/install/setup.bash ]; then
 fi
 
 # 가상 시리얼 브릿지 (OpenCR 실기 없이 통신 로직 검증용 — module5와 같은 구성)
-#   앱(BeebotSystemHardware·업로더) ↔ /dev/ttyV0 ↔ (socat 중계) ↔ /dev/ttyV1 ↔ input/hardware/serial·output/hardware/serial 파일
-#   /dev/ttyV0에 들어온 데이터 → /debug/output/hardware/serial 에 append   (호스트가 보낸 C 명령, 업로드된 .bin)
-#   /debug/input/hardware/serial 에 쓴 데이터 → /dev/ttyV0 으로 전송         (OpenCR 응답 S 상태를 흉내)
+#   앱(BeebotSystemHardware·업로더) ↔ /dev/opencr (→ ttyV0) ↔ (socat 중계) ↔ /dev/ttyV1 ↔ input/hardware/serial·output/hardware/serial 파일
+#   앱은 실기와 같은 이름 /dev/opencr 만 쓴다 — ttyV0·ttyV1은 PTY 쌍의 내부 이름 (V1은 브릿지 쪽)
+#   /dev/opencr에 들어온 데이터 → /debug/output/hardware/serial 에 append   (호스트가 보낸 C 명령, 업로드된 .bin)
+#   /debug/input/hardware/serial 에 쓴 데이터 → /dev/opencr 로 전송          (OpenCR 응답 S 상태를 흉내)
 rm -f /run/testbed-ready
 mkdir -p /debug
 # 공유 폴더 권한: 컨테이너(root)와 호스트(일반 사용자)가 서로 만든 파일·폴더를 읽고 써야 함.
@@ -24,13 +25,11 @@ if command -v socat >/dev/null 2>&1; then
   : > /debug/output/hardware/serial
   # 컨테이너(root)가 만든 파일이라 호스트 사용자도 쓸 수 있게 (시뮬레이터가 input/hardware/serial에 OpenCR 응답을 써 넣음)
   chmod 666 /debug/input/hardware/serial /debug/output/hardware/serial
-  # 1. PTY 쌍 생성 (앱용 /dev/ttyV0, 브릿지용 /dev/ttyV1)
+  # 1. PTY 쌍 생성 (/dev/ttyV0 = 앱 쪽, 아래 /dev/opencr 링크로 연다 · /dev/ttyV1 = 브릿지 쪽)
   socat pty,raw,echo=0,link=/dev/ttyV0 pty,raw,echo=0,link=/dev/ttyV1 &
   sleep 1
-  # 실기 OpenCR 포트명(dynamixel.yaml의 serial_port)도 가상 시리얼로 연결
-  # → 팀 설정 그대로 띄워도 모터 명령이 serial-out에 쌓임. 실물 보드를 넘겨받았으면 그대로 둠.
-  [ -e /dev/ttyACM0 ] || ln -s /dev/ttyV0 /dev/ttyACM0
-  # dynamixel.yaml의 serial_port는 /dev/opencr (실기 udev 심볼릭 링크) → 같은 가상 시리얼로 연결
+  # 실기 OpenCR 포트명도 가상 시리얼로 연결 (실물 보드를 넘겨받았으면 그대로 둠)
+  #   /dev/opencr = 실기 udev 고정 이름 (URDF port 기본 — BeebotSystemHardware · 펌웨어 업로드 기본)
   [ -e /dev/opencr ] || ln -s /dev/ttyV0 /dev/opencr
   # 2. 시리얼 → 파일 (앱이 보낸 데이터를 output/hardware/serial에 축적)
   socat -u /dev/ttyV1,raw,echo=0 OPEN:/debug/output/hardware/serial,creat,append &

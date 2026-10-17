@@ -69,7 +69,7 @@ flowchart TB
 - 번호 없는 화살표(/map, map→odom, 점구름, /odometry/filtered, rl_nav_tuner)는 늘 들어오는 입력이다.
 
 - **costmap 장애물 층:** LaserScan이 없으므로 `voxel_layer`(또는 STVL)에 PointCloud2를 `observation_sources`로 넣는다. `min_obstacle_height 0.03`, `max_obstacle_height 0.40`으로 바닥과 목표 구역 상판 위를 거른다.
-- **시야 사각지대:** pole_cam 수평 화각은 약 87°라 옆·뒤가 안 보인다. 한 번 본 장애물이 시야 밖에서도 남도록 voxel layer의 clearing을 보수적으로 두고, BT의 **BackUp 복구는 빼거나 거리를 0.1m 이하로** 제한한다(뒤를 못 보므로 collision_monitor도 막아 주지 못한다). Spin도 짧게.
+- **시야 사각지대:** pole_cam 수평 화각은 약 87°라 옆·뒤가 안 보인다. 한 번 본 장애물이 시야 밖에서도 남도록 voxel layer의 clearing을 보수적으로 두고, BT의 **BackUp 복구는 빼거나 거리를 0.1m 이하로** 제한한다(뒤를 못 보므로 collision_monitor도 막아 주지 못한다). Spin도 짧게. 구현: `ros_system/config/navigate_to_pose.xml`(Nav2 기본 BT 복사본에서 BackUp만 0.10m · 0.05m/s)을 `ros_system.launch.py`가 `default_nav_to_pose_bt_xml`로 넘긴다. 기본 0.30m로는 벽에 박혀 odom이 밀리고 → 위치추정이 벽 안으로 → 출발점부터 경로 실패 → 또 후진이 반복되는 것을 테스트베드에서 봤다.
 - **lifecycle:** rtabmap은 Nav2 lifecycle 관리 대상이 아니다. localization용 lifecycle_manager는 필요 없고, navigation용 하나만 둔다.
 - **나머지 Nav2 서버:** smoother_server, waypoint_follower는 이 작업에 필수는 아니지만 기본 bringup에 포함돼 있어 같이 띄워도 된다. velocity_smoother·collision_monitor는 5장에서 다룬다.
 - **리매핑 하나:** Nav2 기본 bringup은 controller_server 출력을 /cmd_vel_nav, velocity_smoother 입력을 /cmd_vel_nav로 잇는다. 여기서는 velocity_smoother 입력만 /cmd_vel_corrected로 바꿔 사이에 rl_nav_correction을 끼운다. behavior_server의 출력도 같은 /cmd_vel_nav로 맞춰 복구 동작도 안전 필터를 거치게 한다.
@@ -127,7 +127,7 @@ flowchart TB
 
 ```bash
 # 1) 매핑 — 기존 DB를 지우고 새로 (-d)
-ros2 launch rtabmap_launch rtabmap.launch.py   rgb_topic:=/pole_cam/color/image_raw   depth_topic:=/pole_cam/aligned_depth_to_color/image_raw   camera_info_topic:=/pole_cam/color/camera_info   frame_id:=base_footprint odom_topic:=/odometry/filtered   visual_odometry:=false approx_sync:=true qos:=1   rtabmap_args:="-d --Reg/Force3DoF true --Grid/Sensor 1"
+ros2 launch rtabmap_launch rtabmap.launch.py   rgb_topic:=/pole_cam/color/image_raw   depth_topic:=/pole_cam/aligned_depth_to_color/image_raw   camera_info_topic:=/pole_cam/color/camera_info   frame_id:=base_footprint odom_topic:=/odometry/filtered   visual_odometry:=false approx_sync:=true qos:=1   subscribe_scan_cloud:=true scan_cloud_topic:=/pole_cam/depth/color/points_filtered   rtabmap_args:="-d --Reg/Force3DoF true --Grid/Sensor 0"
 
 # 2) (선택) Nav2·RViz용 2D 지도 파일 따로 보관
 ros2 run nav2_map_server map_saver_cli -f ~/maps/home

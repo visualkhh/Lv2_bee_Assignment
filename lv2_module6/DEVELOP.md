@@ -23,6 +23,7 @@ test-all                               # 빌드 + 전체 검사. ALL PASS면 셋
 
 컨테이너는 워크스페이스 전체(`lv2_module6/ros2_ws` → `/ws`)를 마운트합니다. 빌드 결과·로그도 호스트에서 바로 봅니다.
 같은 LAN의 다른 팀 스택과 DDS 토픽이 섞이지 않게 `ROS_DOMAIN_ID=6` (docker-compose.yml) — 컨테이너 안 명령은 자동 적용.
+DDS 환경 (docker-compose · CI 공통): `ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET` (ROS 기본값 — LOCALHOST면 Fast DDS가 localhost 참가자 번호 몇 개에만 유니캐스트로 discovery를 보내 노드 40여 개 중 일부가 서로 안 보였음: Nav2 관리자 멈춤 · `/map` 발행자 0 · CLI가 노드 못 찾음. 다른 팀과는 `ROS_DOMAIN_ID=6`로 분리) · `FASTDDS_DEFAULT_PROFILES_FILE=…/ros_system/config/fastdds.xml` (Fast DDS TypeLookup 끔 — 없으면 노드 40개에서 UDP 폭주로 컨트롤러가 못 뜸).
 
 | 호스트 | 컨테이너 | 용도 |
 | --- | --- | --- |
@@ -55,25 +56,33 @@ cd docker && docker compose exec -u root lyrical bash -c "chown -R 1000:1000 /de
 | 명령 | 하는 일 |
 | --- | --- |
 | `test-all` | **push 전 필수.** CI와 같은 검사: test-serial → test-firmware → test-packages → test-hardware → test-bringup → test-faker(정상) → test-faker(파지 실패·재계획) |
-| `test-serial` | 가상 시리얼(`/dev/ttyV0` = `/dev/ttyACM0`) ↔ `debug/input/hardware/serial`·`output/hardware/serial` 파일 왕복 |
+| `test-serial` | 가상 시리얼(`/dev/opencr` — 실기 udev와 같은 이름, 컨테이너는 PTY 링크) ↔ `debug/input/hardware/serial`·`output/hardware/serial` 파일 왕복 |
 | `test-firmware` | OpenCR 펌웨어 컴파일 → 가상 시리얼로 업로드 → 보낸 바이트가 .bin과 같은지 (결과 `debug/firmware/`) |
 | `test-packages [패키지...]` | colcon build + 패키지별 테스트 (`colcon test`). 예) `test-packages plan` |
 | `test-hardware` | controller_manager를 실기 모드(`mock_hardware:=false`)로 가상 시리얼에 붙여 펌웨어 프로토콜 확인 (C 명령 송신 · S 상태 → `/joint_states`) |
-| `test-bringup` | 🛠 노드 8개가 모두 뜨는지 |
-| `test-faker [초\|0] [launch 인자]` | 더미로 전체 흐름 → `/task_status` SUCCEEDED면 PASS. `0`이면 띄워 두기 (Ctrl+C 종료). `mock_hardware:=false`면 시뮬레이터 플랜트가 OpenCR 역할, `ml:=real`이면 ML 대역 대신 진짜 ml 노드 |
-| `test-logger [초]` | 지금 떠 있는 그래프를 사람용 로그로 기록: `topic/<토픽>/info`·`type`·`topic/list`, `node/<노드>/info`·`params`·`node/list`, `pkg/<패키지>/prefix`·`executables`·`pkg/list`, `output/topic/<토픽>/echo` (sim 실시간값 `message`·`image`는 monitor, 타입 틀(`proto`)은 `interface|service|action` 밑) |
+| `test-bringup` | 🛠 노드가 모두 뜨는지 (perception · user_input · vlm_task_planner · coordinator · arm_safety_monitor · manual_control · body_filter · state_manager) |
+| `test-faker [초\|0] [launch 인자]` | 더미로 전체 흐름 → `/task_status` SUCCEEDED면 PASS. `0`이면 띄워 두기 (Ctrl+C 종료, 시뮬레이터 [ROS 재시작] = `/cmd/restart`로 ROS 전부 껐다 다시 띄움). 기본은 fake_opencr가 가상 시리얼 반대편 OpenCR 역할 (`mock_hardware:=true`면 OpenCR 없이 mock — 물리 없음), `ml:=real`이면 ML 대역 대신 진짜 ml 노드. 지도 `map:=course`(기본, 코스 지도 외움) · `map:=slam`(RTAB-Map 스캔 → 새 폴더 `ros2_ws/map/<날짜_시각>/rtabmap.db`) · `map:=saved`(저장 지도로 위치추정 — 가장 최근 폴더, `map_name:=<폴더>`로 고름) |
+| `ros-kill` | ROS 전부 끄기 + 캐시 정리: launch에 SIGINT → 최대 20초 대기(RTAB-Map DB 닫기) → 안 죽은 것만 SIGKILL → ros2 daemon stop · `/dev/shm/fastdds_*` 삭제 |
+| `ros-restart [launch 인자]` | **진짜 bringup** 다시 띄우기: `ros-kill` → `build-ws` → `ros2 launch bringup bringup.launch.py [인자]` (🛠 노드 + ros_system 📦, Ctrl+C 종료, 로그 `/tmp/bringup.log`). 컨테이너엔 RealSense·OpenCR가 없으니 보통 `use_ros_system:=false` |
+| `ros-faker-restart [launch 인자]` | **테스트베드(faker)** 다시 띄우기: 띄워 둔 `test-faker 0`이 있으면 거기에 재시작 요청(`/cmd/restart` — 시뮬레이터 [ROS 재시작]과 같음) → `ros-kill` · `build-ws`(고친 코드·설정 반영) · 다시 띄움, 없으면 `ros-kill` 후 `test-faker 0 [인자]` |
+| (기록) | `test-faker` 실행 중 **monitor_manager**(노드 하나)가 남김: `output/topic/<토픽>/message`·`image.jpg`, `topic/<토픽>/info`·`type`·`topic/list`, `node/<노드>/info`·`params`·`node/list`, `pkg/<패키지>/prefix`·`executables`·`pkg/list` (예전 test-logger — 토픽마다 ros2 CLI를 띄워 CPU를 먹어서 없앰). 빌드 뒤 `install/` 실파일 복사본은 `debug/install` (`build-ws`) |
 
 ```bash
 # 띄워 두고 직접 보기 — 셸 두 개 (docker compose exec lyrical bash 를 하나 더)
 test-faker 0                                 # 셸 1
 ros2 topic list                              # 셸 2
 ros2 topic echo /task_status
-ros2 run plan user_input                     # 텍스트 명령 직접 입력
+ros2 run plan user_input                     # 텍스트 명령 직접 입력 (표준입력 한 줄 = 명령 하나 → /cmd/user_command)
+# 참고: user_input의 키보드 입력은 터미널에 직접 띄웠을 때만 열린다(isatty).
+# launch(test-faker)로 뜨면 stdin이 터미널이 아니라서 안 열리고, launch `command:=` 인자(기본값 "빨간 퍽을 목표 구역으로 옮겨") 한 번만 보낸다.
+# 평소엔 시뮬레이터 조작창 prompt(파일 → input_manager → /cmd/user_command)가 유저 입력 역할을 한다.
 ros2 control list_controllers                # ros2_control 상태 (joint_state_broadcaster … gripper_controller)
 ros2 topic echo /diagnostics_agg             # 노드별 상태 (OK · WARN · ERROR)
-ros2 topic pub --once /manual/enable std_msgs/msg/Bool '{data: true}'      # 수동 모드
-ros2 run teleop_twist_keyboard teleop_twist_keyboard --ros-args -p stamped:=true -r cmd_vel:=/manual/cmd_vel   # 키보드 조종
-ros2 topic pub --once /e_stop std_msgs/msg/Bool '{data: true}'             # 비상정지 (false로 해제)
+ros2 topic pub --once /cmd/operation_mode std_msgs/msg/String '{data: MANUAL}'   # 수동 모드 (AUTO = 자동, state_manager → /state/operation_mode)
+ros2 topic pub --once /cmd/map_mode std_msgs/msg/String '{data: MAPPING}'   # 스캔 (LOCALIZATION = 위치추정, map:=slam·saved일 때)
+ros2 topic echo /state/map_mode                                            # 상태는 state_manager만 /state/<이름> 으로 발행
+ros2 run teleop_twist_keyboard teleop_twist_keyboard --ros-args -p stamped:=true -r cmd_vel:=/cmd/manual/cmd_vel   # 키보드 조종
+ros2 topic pub --once /cmd/e_stop std_msgs/msg/Bool '{data: true}'             # 비상정지 (false로 해제)
 ```
 
 ## 3. 빌드
@@ -87,15 +96,27 @@ source install/setup.bash                                   # 빌드 후 새 셸
 ```
 
 - `--symlink-install`: launch·yaml·URDF는 다시 빌드하지 않아도 수정이 반영됩니다. C++은 다시 빌드해야 합니다.
-- 의존 방향: `perception`, `control` ← `ml` ← `plan` ← `bringup` · `faker`. 아래쪽 패키지(메시지 포함)를 고치면 위쪽도 다시 빌드됩니다.
+- 의존 방향: `perception`, `control`, `manager` ← `ml` ← `plan` ← `bringup` · `faker`. 아래쪽 패키지(메시지 포함)를 고치면 위쪽도 다시 빌드됩니다.
 - 호스트에서 빌드할 땐 `ros2_ws/rebuild.sh` (build/·install/·log/ 삭제 후 풀빌드 — 컨테이너와 같은 이름, 한 번에 한 곳에서만).
 - 호스트 의존성: ROS 2 Lyrical (`/opt/ros/lyrical`) + 아래 패키지. rosdep는 lyrical을 몰라서 그냥 apt로 받는다.
   ```bash
-  sudo apt install -y ros-lyrical-moveit-msgs ros-lyrical-moveit-task-constructor-msgs \
-    ros-lyrical-twist-mux ros-lyrical-controller-manager ros-lyrical-joint-trajectory-controller \
-    ros-lyrical-parallel-gripper-controller ros-lyrical-imu-sensor-broadcaster ros-lyrical-diagnostic-aggregator
+  sudo apt install -y ros-lyrical-nav2-msgs ros-lyrical-moveit-msgs ros-lyrical-moveit-task-constructor-msgs \
+    ros-lyrical-control-msgs ros-lyrical-controller-interface ros-lyrical-hardware-interface \
+    ros-lyrical-pluginlib ros-lyrical-std-srvs ros-lyrical-controller-manager \
+    ros-lyrical-joint-state-broadcaster ros-lyrical-imu-sensor-broadcaster ros-lyrical-diff-drive-controller \
+    ros-lyrical-joint-trajectory-controller ros-lyrical-parallel-gripper-controller \
+    ros-lyrical-robot-state-publisher ros-lyrical-xacro ros-lyrical-ros2controlcli ros-lyrical-twist-mux \
+    ros-lyrical-diagnostic-updater ros-lyrical-diagnostic-aggregator ros-lyrical-teleop-twist-keyboard \
+    ros-lyrical-robot-localization ros-lyrical-rosx-introspection ros-lyrical-cv-bridge \
+    ros-lyrical-nav2-lifecycle-manager ros-lyrical-nav2-bt-navigator ros-lyrical-nav2-behavior-tree \
+    ros-lyrical-nav2-planner ros-lyrical-nav2-navfn-planner ros-lyrical-nav2-controller \
+    ros-lyrical-nav2-dwb-controller ros-lyrical-nav2-behaviors ros-lyrical-nav2-costmap-2d \
+    ros-lyrical-nav2-velocity-smoother ros-lyrical-nav2-collision-monitor ros-lyrical-nav2-map-server \
+    ros-lyrical-moveit-ros-move-group ros-lyrical-moveit-kinematics ros-lyrical-moveit-planners-ompl \
+    ros-lyrical-moveit-simple-controller-manager ros-lyrical-rtabmap-ros ros-lyrical-ament-cmake-pytest
   ```
-  더 없다고 나오면 `docker/Dockerfile`의 apt 목록과 대조 (그게 컨테이너 정본). 호스트 빌드는 참고용, CI·테스트베드 정본은 컨테이너 빌드.
+  위 목록 = `docker/Dockerfile`의 apt 목록 (그게 컨테이너 정본 — Dockerfile에 추가하면 여기도 같이 고친다).
+  YOLO perception은 pip `torch`(CPU) · `ultralytics`도 필요 (Dockerfile 참고). 호스트 빌드는 참고용, CI·테스트베드 정본은 컨테이너 빌드.
 
 ## 4. 커스텀 메시지
 
@@ -150,13 +171,13 @@ perception::msg::TrackedObjectArray msg;
   `bringup/launch/bringup.launch.py`에 `node('<패키지>', '<실행 파일>')` → `docker/test-bringup.sh`의 `NODES`에 노드 이름 → `bringup/config/diagnostics.yaml` 묶음에 이름.
 - 토픽·메시지·QoS는 설계 문서 표를 따른다. 센서는 `rclcpp::SensorDataQoS()`(best_effort), 명령은 reliable, 가끔만 바뀌는 상태(`/sub_goals`, `/task_status`)는 reliable + transient_local.
 - 학습 노드는 `enabled` 파라미터로 끌 수 있어야 하고, 꺼지거나 모델 파일이 없으면 기본 동작(Δ=0 · 규칙)으로 돌아야 한다.
-- **도커·CI에는 GPU·모델이 없다** — 테스트베드는 진짜 ml 노드 대신 **faker ML 대역**(`fake_ml`: grasp_scorer · rl_nav_tuner · rl_nav_correction, 컨트롤러 `faker/PassthroughArmCorrection`)을 같은 이름·토픽으로 띄운다 (`ml:=fake` 기본, `bringup use_ml:=false`).
+- **도커·CI에는 GPU·모델이 없다** — 테스트베드는 진짜 ml 노드 대신 **faker ML 대역**(ml 노드와 1:1 — `fake_grasp_scorer` · `fake_rl_nav_tuner` · `fake_rl_nav_correction`, 컨트롤러 `faker/FakeRlArmCorrection`)을 같은 이름·토픽으로 띄운다 (`ml:=fake` 기본, `bringup use_ml:=false`).
   진짜로 돌려 보려면 `test-faker 0 ml:=real`. ml 패키지의 gtest(`colcon test`)는 도커에서 돌므로 **CPU만으로 도는 테스트**로 둔다.
-  ml 노드의 토픽·서비스·파라미터를 바꾸면 `faker/src/fake_ml.cpp`도 같이 맞춘다.
+  ml 노드의 토픽·서비스·파라미터를 바꾸면 같은 이름의 대역 `faker/src/fake_<노드>.cpp`도 같이 맞춘다. 하나만 진짜로: `grasp_scorer:=real` (rl_nav_tuner · rl_nav_correction · rl_arm_correction도 같음)
 - **상태는 `/diagnostics`로** — 노드 클래스에 `diagnostic_updater::Updater diag_{this};` 를 두고 `diag_.add("상태", …)`에서
   `s.summary(OK|WARN|ERROR, "한 줄")` + `s.add("키", 값)`. 1초마다 발행되고 bringup의 `diagnostic_aggregator`가 묶는다
   (`bringup/config/diagnostics.yaml` — 새 노드는 이름을 해당 묶음 `startswith`에 추가). `test-bringup`이 노드마다 상태가 오는지 확인한다.
-- **수동 모드를 존중** — 로봇을 움직이는 노드는 `/operation_mode`가 "MANUAL"이면 자기 명령을 멈춘다 (coordinator처럼). 바퀴는 twist_mux가 이미 수동을 우선한다.
+- **수동 모드를 존중** — 로봇을 움직이는 노드는 `/state/operation_mode`가 "MANUAL"이면 자기 명령을 멈춘다 (coordinator처럼). 바퀴는 twist_mux가 이미 수동을 우선한다.
 - 담당자가 채울 곳은 `TODO(이름)` 주석으로 표시돼 있다.
 
 ## 6. 파라미터 (config yaml)
@@ -166,10 +187,12 @@ perception::msg::TrackedObjectArray msg;
 | 파일 | 노드 |
 | --- | --- |
 | `perception/config/perception.yaml` | perception |
-| `control/config/control.yaml` | arm_safety_monitor |
+| `control/config/control.yaml` | arm_safety_monitor · manual_control · body_filter |
+| `manager/config/manager.yaml` | state_manager (지도 모드 시작 값 — faker가 `map:=`에 맞춰 덮어씀) |
 | `ml/config/ml.yaml` | grasp_scorer · rl_nav_tuner · rl_nav_correction |
-| `plan/config/plan.yaml` | user_input · vlm_task_planner · coordinator |
-| `faker/config/faker.yaml` | pole_cam · gripper_cam · controller_server · move_group · monitor_manager · input_manager (더미) |
+| `plan/config/plan.yaml` | user_input · vlm_task_planner · coordinator · explorer(자동 탐사) |
+| `faker/config/faker.yaml` | pole_cam · gripper_cam · move_group · fake_opencr · monitor_manager · input_manager (더미) |
+| `ros_system/config/moveit/*.yaml` + `beebot.srdf` | 진짜 move_group 설정 (arm 그룹 · KDL · OMPL · arm_controller) — `use_moveit:=true` |
 | `ros_system/config/controllers.yaml` | ros2_control 컨트롤러 (rl_arm_correction 포함) |
 | `ros_system/config/ekf.yaml` | robot_localization EKF |
 
@@ -192,8 +215,11 @@ Python 노드(perception)는 **pytest**(`ament_cmake_pytest` + `test/test_node.p
 | --- | --- | --- |
 | perception | `test/test_node.py` (pytest, YOLO 없이 빈 발행·진단) | 모델 없이도 노드가 떠서 빈 `/tracked_objects`가 나온다 |
 | control | `test/test_arm_safety_monitor.cpp` | 전류 과다가 0.1초 넘게 이어지면 `/arm_safety_event` |
-| control | `test/test_manual_control.cpp` | 수동 모드일 때만 `/manual/cmd_vel` → `/cmd_vel_manual`, `/operation_mode` 전환 |
+| control | `test/test_manual_control.cpp` | `/state/operation_mode`가 MANUAL일 때만 `/cmd/manual/cmd_vel` → `/cmd_vel_manual` |
+| manager | `test/test_state_manager.cpp` | `/cmd/operation_mode` → `/state/operation_mode` · `/cmd/map_mode` → RTAB-Map 응답 뒤 `/state/map_mode` (서버 없거나 COURSE면 그대로) |
+| control | `test/test_body_filter.cpp` | URDF 충돌 상자(+padding) 안의 점은 빠지고 밖의 점만 `points_filtered`로 나간다 |
 | ml | `test/test_rl_nav_correction.cpp` | 보정 출력이 `/speed_limit` 상한으로 잘린다 |
+| plan | `test/test_explorer.cpp` | 프론티어(빈 칸·모르는 칸 경계)를 덩어리로 묶어 중심 칸을 고르고, 작은 덩어리·모르는 곳 없는 지도는 빈 결과 |
 | plan | `test/test_coordinator.cpp` | 허용 안 된 동작이 든 계획은 FAILED로 거부 · 수동 모드로 바뀌면 진행 중 계획을 멈춤(manual_override) |
 | ros_system | `CMakeLists.txt` `test_urdf` | URDF가 xacro로 펼쳐지고 트리가 올바르다 (`check_urdf`) |
 | bringup · faker | `CMakeLists.txt` `test_launch` | launch 파일이 오류 없이 읽힌다 |
@@ -225,23 +251,45 @@ target_link_libraries(test_foo <노드가 쓰는 타깃들>)
 
 ## 8. 로봇 모델 (URDF)
 
-`lv2_module6/ros2_ws/urdf/beebot.urdf.xacro` — TurtleBot3 Waffle Pi + 앞쪽 상판 위 OpenMANIPULATOR-X + 손목 roll + 그리퍼(위에 gripper_cam) + 뒤쪽 전원선 가이드 폴(pole_cam). 치수는 아직 더미.
+모델 하나 = 폴더 하나 `urdf/<이름>/urdf.xacro` (+ 그 폴더 `meshes/`) — launch 인자 `urdf:=<이름>`으로 고른다 (기본 `beebot_mesh`, ros_system · bringup · faker 공통. 메시 경로는 launch가 `mesh_uri:=package://ros_system/urdf/<이름>/meshes`로 넘김). 시뮬레이터 [로봇 모델]에서 폴더를 고르면 확인 후 `/cmd/restart urdf:=<이름>`으로 다시 띄운다 (URDF는 기동 때만 읽힘). 빌드가 `urdf/` 전체를 설치하므로 새 폴더·수정은 `build-ws` 뒤에 반영.
+
+`urdf/beebot_mesh/urdf.xacro` — TurtleBot3 Waffle Pi + 앞쪽 상판 위 OpenMANIPULATOR-X(RM-X52) + 손목 roll + 그리퍼(위에 gripper_cam) + 뒤쪽 전원선 가이드 폴(pole_cam) + 바구니(적재함) 충돌체. Fusion 모델에서 뽑은 메시·질량 — 만들기·검수 스크립트와 Isaac Sim용 `beebot.urdf`는 [urdf/README.md](urdf/README.md). 컨테이너에는 `/ws/urdf`로 마운트된다.
 
 ```bash
-xacro /urdf/beebot.urdf.xacro mock_hardware:=true > /tmp/beebot.urdf && check_urdf /tmp/beebot.urdf   # 트리 확인
+xacro /ws/urdf/beebot_mesh/urdf.xacro mock_hardware:=true > /tmp/beebot.urdf && check_urdf /tmp/beebot.urdf   # 트리 확인
 ```
 
 - 구동 관절 6개: `joint1~4` (OM-X) · `joint5` (손목 roll, 추가) · `gripper_left_joint` (오른쪽 손가락은 mimic) + 바퀴 2개
 - `ros_system`이 빌드할 때 `share/ros_system/urdf/`로 설치하고, launch가 xacro로 펼쳐 `robot_state_publisher`·`controller_manager`에 넘긴다.
 - Isaac Sim USD: `xacro`로 펼친 URDF를 Isaac Sim **URDF Importer**로 변환.
 - 메시: OM-X(RM-X52-TNM)는 `ros-lyrical-open-manipulator-description`(apt)의 STL을 쓸 수 있다 (TODO).
+- 웹 뷰어 (설치 없이 브라우저로 확인):
+  - STL 메시: <https://imagetostl.com/kr/view-stl-online> — `urdf/beebot_mesh/meshes` 드래그
+  - URDF: <https://viewer.robotsfan.com/> — 위 `xacro`로 펼친 `/tmp/beebot.urdf` + `meshes/` 폴더를 함께 올림 (xacro 원본은 못 읽음)
 
 ## 9. SIL 시뮬레이터 (`simulator/`)
 
 실행·화면·파일 규격은 [simulator/README.md](simulator/README.md)를 본다. 요약만 두면:
 
-- 호스트에서 `cd lv2_module6/simulator && .venv/bin/python main.py` (컨테이너 셸에서는 `test-faker 0` 또는 `test-faker 0 mock_hardware:=false`로 띄워 두기 — 컨테이너 접속은 §1 참조)
+- 호스트에서 `cd lv2_module6/simulator && .venv/bin/python main.py` (컨테이너 셸에서는 `test-faker 0`으로 띄워 두기 — 컨테이너 접속은 §1 참조)
+- **시뮬레이터는 사람이 호스트에서** 켠다 (컨테이너·테스트·CI는 띄우지 않음 — 컨테이너는 `debug/` 파일만 받음). `test-faker`·`test-all`은 시뮬레이터 없이도 배관(joint_states · odom · Nav2 · monitor)을 검사하고, **시뮬레이터가 켜져 있으면** 카메라 → 인지 → 작업 성공 흐름까지 본다 (창 없이 켜려면 `.venv/bin/python main.py --headless --pucks 6`).
 - 컨테이너와는 `lv2_module6/debug/` 파일로만 주고받는다 (호스트에 ROS 불필요)
+- **지도 만들기 (스캔)**: 컨테이너 `test-faker 0 map:=slam` → 시뮬레이터 [수동 조작] 탭으로 미로를 몰고 다님 (RTAB-Map이 pole_cam 컬러+깊이로 작성. 지도 한 벌 = 폴더 하나 `ros2_ws/map/<날짜_시각>/` — rtabmap.db · map.pgm · map.yaml, 새 스캔은 새 폴더라 덮어쓰지 않음)
+  → '지도 (SLAM)' 칸 [지도 저장] (같은 폴더에 `map.pgm`·`map.yaml` — 미리보기용, 폴더 이름은 `/state/map_name`) → 다음부터 `test-faker 0 map:=saved` (가장 최근 폴더) 또는 `map:=saved map_name:=<폴더>` (rtabmap.db로 위치추정). 실행 중에도 시뮬레이터 지도 목록에서 폴더를 고르면 그 지도로 갈아끼움 (`/cmd/map_name`).
+  [스캔 시작]·[위치추정으로]는 `/cmd/map_mode` → state_manager가 RTAB-Map 모드를 재시작 없이 바꿈
+
+### 지도 모드 정리
+
+| 시작 인자 | 뜨는 지도 노드 | `/state/map_mode` | 지도 DB |
+| --- | --- | --- | --- |
+| `map:=course` (테스트베드 기본) | map_server(코스 지도 파일) + 고정 `map→odom`(항등) — **RTAB-Map 없음** | COURSE | 없음 |
+| `map:=slam` | RTAB-Map + map_saver | MAPPING | 새 폴더 `map/<날짜_시각>/rtabmap.db` (빈 DB) |
+| `map:=saved [map_name:=<폴더>]` | RTAB-Map + map_saver (slam과 **같은 노드**) | LOCALIZATION | 저장 폴더의 DB (기본 가장 최근) |
+
+- **재시작 없이 바뀌는 것** (같은 RTAB-Map 안): 스캔 ↔ 위치추정(`/cmd/map_mode` → `/rtabmap/rtabmap/set_mode_*`) · 지도 갈아끼우기(`/cmd/map_name` → `/rtabmap/rtabmap/load_database` + 위치추정).
+- **재시작이 필요한 것**: 코스 ↔ RTAB-Map — 노드 구성이 다르고(`/map`·`map→odom`을 map_server와 RTAB-Map이 같이 내면 안 됨) launch는 시작 때 노드를 정한다.
+  시뮬레이터에서 코스 모드일 때 [스캔 시작]·[위치추정으로]·지도 고르기를 누르면 확인 창 → `/cmd/restart`(`map:=slam` / `map:=saved [map_name:=…]`).
+- 상태: `/state/map_mode` · `/state/map_name`(지금 지도 폴더) · `/state/map_list`(가진 지도 폴더) — 전부 state_manager.
 
 ## 10. OpenCR 펌웨어 (`firmware/`)
 
@@ -271,6 +319,7 @@ OpenCR 하나가 바퀴 2 · 팔 5축 · 그리퍼 · IMU를 맡고, 호스트�
 cd ros2_ws-<RUN ID>
 ./firmware-upload.sh --setup && ./firmware-upload.sh     # OpenCR 펌웨어 (최초 1회 --setup)
 ./start.sh                                               # 장치 확인 → bringup (mock_hardware:=true 면 OpenCR 없이)
+./stop.sh                                                # 떠 있는 ROS 전부 끄기 (launch · 노드 · ros2 CLI · daemon)
 ```
 
 ## 12. 실기
@@ -279,16 +328,40 @@ cd ros2_ws-<RUN ID>
 ./ros2_ws/start.sh                          # 저장소에서 (install/ 없으면 빌드) — OpenCR · RealSense 확인 후 bringup
 ./ros2_ws/start.sh learning_enabled:=false  # 학습 노드 끄고 비교 기준
 ./ros2_ws/start.sh mock_hardware:=true use_cameras:=false   # 장치 없이
+./ros2_ws/stop.sh                           # 떠 있는 ROS 전부 끄기
 ```
 
-- 실기 PC에 필요한 apt: `ros-lyrical-{realsense2-camera,rtabmap-ros,nav2-bringup,robot-localization,controller-manager,joint-state-broadcaster,imu-sensor-broadcaster,diff-drive-controller,joint-trajectory-controller,parallel-gripper-controller,robot-state-publisher,xacro}` (+ MoveIt, 설정 패키지 준비 후)
-- OpenCR 포트 기본 `/dev/ttyACM0` (`port:=` 로 변경). 업로드 중에는 ROS를 끈다 (같은 포트).
+- 실기 PC에 필요한 apt: 위 §3 목록 + `ros-lyrical-{realsense2-camera,controller-manager,joint-state-broadcaster,imu-sensor-broadcaster,diff-drive-controller,joint-trajectory-controller,parallel-gripper-controller,robot-state-publisher,xacro,moveit-ros-move-group,moveit-kinematics,moveit-planners-ompl,moveit-simple-controller-manager}` (MoveIt 설정은 `ros_system/config/moveit/` — SA 재생성 시 이 폴더에 덮음)
+- OpenCR 포트 기본 `/dev/opencr` (`port:=` 로 변경) — ACM 번호는 꽂는 순서로 바뀌니 udev 고정 이름을 쓴다. 최초 1회:
+  `sudo cp ros2_ws/99-opencr.rules /etc/udev/rules.d/ && sudo udevadm control --reload && sudo udevadm trigger` (OpenCR VID:PID 0483:5740 → `/dev/opencr`). 업로드 중에는 ROS를 끈다 (같은 포트).
+
+### 실기에서 지도 (스캔 · 위치추정) — 시뮬레이터로 조작
+
+시뮬레이터는 ROS 정보를 전부 토픽으로 주고받으므로(`debug/` 파일 ↔ monitor_manager · input_manager · service_action_input) 실기에도 같은 화면·버튼을 쓴다:
+
+1. 로봇(SBC)과 PC를 **같은 네트워크 · 같은 `ROS_DOMAIN_ID=6`** 에 둔다. 로봇은 `ROS_AUTOMATIC_DISCOVERY_RANGE`를 LOCALHOST로 두지 않는다 (기본 SUBNET).
+2. PC에서 파일 연동 노드만 띄운다: `monitor_manager` · `input_manager` · `service_action_input` · `service_action_monitor` (`debug_dir` = 시뮬레이터의 `lv2_module6/debug`).
+   카메라 원본(무압축 영상)은 네트워크가 무거우니 `monitor_manager raw_images:=false`.
+3. 로봇은 `./start.sh` — 버튼은 테스트베드와 같다: [스캔 시작]·[위치추정으로](`/cmd/map_mode`) · 지도 목록(`/cmd/map_name`) · [지도 저장] · 오른쪽 클릭 [여기로 이동](Nav2).
+
+지도 처리는 **bringup**에 있다 (실기·테스트베드 공통 — faker는 bringup을 그대로 포함하고 대역 인자만 덮어씀):
+```bash
+./ros2_ws/start.sh map:=slam                         # 매핑: 새 폴더 ros2_ws/map/<날짜_시각>/ (start.sh가 map_dir:=ros2_ws/map 기본)
+./ros2_ws/start.sh                                   # = map:=saved — 가장 최근 저장 지도로 위치추정
+./ros2_ws/start.sh map:=saved map_name:=20261017_163731
+```
+bringup 기본은 실기 값: `use_cameras:=true` · `mock_hardware:=false` · `use_moveit:=true` (예전 ros_system 기본 false라 실기에서 move_group이 안 떴음).
+
+**아직 안 되는 것 (TODO)**:
+- `/cmd/restart`를 받을 쪽이 실기엔 없음 (테스트베드는 `test-faker 0`) → `start.sh`에 같은 재시작 루프가 필요.
+- 시뮬레이터 [지도 저장]이 저장 경로를 `/ws/map/<폴더>/map`(컨테이너 경로)으로 직접 만듦 → state_manager가 `map_dir`로 정하도록 (`/cmd/map_save`) 바꿔야 실기 경로와 맞음.
 
 ## 13. 문제 해결
 
 | 증상 | 원인 · 해결 |
 | --- | --- |
-| 토픽이 두 번씩 오거나 이상한 값 | 이전 실행의 노드가 남음 → `pkill -f /ws/install/` 또는 `docker compose restart` |
+| 컨테이너 load가 수십 · spawner가 `/controller_manager/load_controller`를 못 찾아 컨트롤러 0개 · 아무 일 없는 노드도 CPU 10~20% | Fast DDS 3 TypeLookup 폭주 (루프백 UDP 초당 8만 패킷). `FASTDDS_DEFAULT_PROFILES_FILE=…/ros_system/config/fastdds.xml`(type_propagation 끔)이 설정돼 있는지 — docker-compose · CI · start.sh가 지정. 확인: `awk '/^Udp:/{getline;print $2}' /proc/net/snmp`를 5초 간격으로 두 번 → 차이/5가 수천 이하여야 정상 |
+| 토픽이 두 번씩 오거나 이상한 값 | 이전 실행의 노드·launch가 남음 → `pkill -f '(/ws/install\|/opt/ros/lyrical)/[^ ]*lib/\|ros2 launch'` (test-* 시작 때 자동으로 같은 정리) 또는 `docker compose restart` |
 | `Overrun detected!` 경고 (controller_manager) | 컨테이너는 실시간 스케줄링이 안 돼서 나는 경고 — 테스트에는 문제없음 |
 | spawner `Could not contact service` | 기동 직후 CPU가 몰림. `test-faker`는 spawner를 2회까지 자동 재시도, 그래도 안 되면 다른 무거운 일(빌드 등)을 끝내고 다시 |
 | `malformed launch argument` | `인자:=""`처럼 빈 값은 안 됨 — 인자를 빼거나 공백이 아닌 값 |
@@ -297,7 +370,7 @@ cd ros2_ws-<RUN ID>
 | `docker compose build`에서 `not enough free space` | 다시 빌드할 때마다 이전 이미지가 이름 없이(dangling) 쌓인다 → `docker image prune -f && docker builder prune -f` |
 | test-hardware `OpenCR 포트를 열 수 없음` | 가상 시리얼 브릿지가 안 떴음 → `docker compose restart` (entrypoint가 다시 만든다) |
 | 시뮬레이터 카메라가 `waiting` | 컨테이너에서 `test-faker 0`이 떠 있어야 로봇 자세(`/odom`·`/robot_description`)가 온다 |
-| 시뮬레이터 플랜트가 `대기` | 컨테이너가 `mock_hardware:=false`로 떠 있어야 C 명령이 온다 (기본 mock이면 플랜트는 쉰다) |
+| 시뮬레이터 시리얼이 `대기` | 컨테이너가 `mock_hardware:=true`(mock)로 떠 있으면 C 명령이 안 온다 — 기본(`test-faker 0`)으로 다시 띄울 것 |
 | 진단에 `controller_manager … bad periodicity · jitter` ERROR | 도커는 실시간 스케줄링이 안 돼서 — 실기에선 사라져야 정상 |
 | 진단에 `ekf_filter_node … No events recorded` ERROR | robot_localization 자체 진단 — 도커에서 EKF 갱신 주기를 못 맞출 때. `/odometry/filtered`는 나오고 있으면 테스트엔 문제없음 |
-| 수동 조작이 안 먹음 | `/operation_mode`가 MANUAL인지(`[수동 모드]`), `/e_stop`이 true로 남아 있지 않은지 |
+| 수동 조작이 안 먹음 | `/state/operation_mode`가 MANUAL인지(`[수동 모드]`), `/cmd/e_stop`이 true로 남아 있지 않은지 |

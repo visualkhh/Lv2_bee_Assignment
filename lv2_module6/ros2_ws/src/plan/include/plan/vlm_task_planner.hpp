@@ -1,7 +1,7 @@
 #pragma once
 
 // vlm_task_planner (🛠 직접 작성, 담당: 권형중) — 설계: documents/ros2-design/03-plan.md
-//   입력: /user_command (명령), /tracked_objects (지금 보이는 물체), /task_status (FAILED면 재계획)
+//   입력: /cmd/user_command (명령), /tracked_objects (지금 보이는 물체), /task_status (FAILED면 재계획)
 //   출력: /sub_goals (plan/SubGoalArray, reliable + transient_local) → coordinator
 // VLM은 "무엇을, 어떤 순서로"만 정한다. 어떻게 움직일지·파지 후보 재시도는 coordinator 몫.
 // VLM 경로: vlm_endpoint가 비어 있지 않으면 호스트 ai-service에 POST /plan (계약: lv2_module6/ai-service/README)
@@ -53,6 +53,7 @@ private:
 
   static std::string find_in(const TrackedObjectArray & objs, const std::string & cls);
 
+  void on_command(const char * source, const std::string & text);  // /cmd/user_command · /mission_qr 공통
   void make_plan();                            // 물체 확인 후 VLM 시도 (endpoint 없으면 템플릿 즉시)
   void make_template(const TrackedObjectArray & objs);  // 고정 4단계 발행
   void try_vlm_async();                        // 스냅샷 → 별 스레드 POST → 성공 발행·실패 템플릿
@@ -65,7 +66,7 @@ private:
     const std::string & cmd, const TrackedObjectArray & objs, const ReplanInfo & rp,
     const std::vector<ImageFrame> & imgs);
   static bool fetch_goals(const std::string & endpoint, const std::string & body,
-    std::vector<SubGoal> & goals, double timeout_s);
+    std::vector<SubGoal> & goals, double timeout_s, std::string * err = nullptr);
   // 320px JPEG base64 (ai-service images[]용) — OpenCV 의존
   static std::string encode_jpeg_base64(const sensor_msgs::msg::Image & msg);
 
@@ -79,10 +80,12 @@ private:
   std::string cmd_;
   ReplanInfo replan_;
   TrackedObjectArray::ConstSharedPtr objects_;
+  std::string last_objs_sig_;  // 마지막으로 계획 시도한 물체 집합 — 같으면 재시도 안 함 (VLM 폭주 방지)
   std::map<std::string, sensor_msgs::msg::Image::ConstSharedPtr> images_;  // 카메라별 최신 1장
   std::mutex mutex_;  // cmd_·replan_·objects_·images_·발행 결정 (구독 콜백 ↔ 워커)
   rclcpp::Publisher<SubGoalArray>::SharedPtr goals_pub_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr cmd_sub_;
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr qr_sub_;
   rclcpp::Subscription<TrackedObjectArray>::SharedPtr objects_sub_;
   rclcpp::Subscription<TaskStatus>::SharedPtr status_sub_;
   std::vector<rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr> image_subs_;

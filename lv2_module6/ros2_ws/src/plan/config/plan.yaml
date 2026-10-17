@@ -12,3 +12,12 @@ coordinator:
     max_grasp_tries: 2       # 파지 후보를 점수순으로 몇 개까지 시도 (규칙 4)
     max_step_failures: 2     # 같은 단계가 이만큼 연속 실패하면 알리고 정지 (규칙 5)
     server_wait_s: 30.0      # [s] Nav2·MoveIt 서버가 뜰 때까지 기다리는 시간
+
+explorer:                    # 자동 탐사 — /state/operation_mode EXPLORE일 때 /map 프론티어로 Nav2 목표
+  ros__parameters:
+    min_frontier_cells: 8    # 이보다 작은 프론티어 덩어리는 무시 (칸 0.05m → 약 0.4m 입구)
+    blacklist_radius: 0.4    # [m] 도착·실패·시간 초과한 프론티어 근처는 다시 안 감
+    goal_timeout_s: 60.0     # [s] 목표 하나에 이보다 오래 걸리면 포기
+    empty_checks: 3          # 프론티어 없음이 1초 간격으로 이만큼 이어지면 탐사 끝 (지도 갱신 중일 수 있어서)
+    min_goal_dist: 0.4       # [m] 로봇에서 이보다 가까운 프론티어는 안 고름 — pole_cam이 로봇 바로 앞·아래(약 0.3m)를 못 봐 계속 '모름'으로 남음
+    goal_search_radius: 0.3  # [m] 프론티어에서 이 안의 '갈 수 있는 칸'(코스트맵에서 로봇과 이어짐)을 목표 자리로 · 로봇 칸이 막혔을 때 시작 칸 찾는 반경

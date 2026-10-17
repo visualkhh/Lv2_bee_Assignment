@@ -1,0 +1,8 @@
+# manager 패키지 파라미터 — bringup이 노드에 넘긴다
+state_manager:
+  ros__parameters:
+    # 지도 모드 시작 값 = launch가 RTAB-Map을 띄운 모드 (실기 ros_system 기본 = 위치추정).
+    # 테스트베드는 faker가 map:= 에 맞춰 덮어씀 (course → COURSE · slam → MAPPING · saved → LOCALIZATION)
+    map_mode: LOCALIZATION
+    map_dir: ""              # 지도 폴더들이 있는 곳 (faker가 /ws/map 으로 덮어씀) — 시뮬레이터 지도 목록에서 고르면 갈아끼움
+    map_name: ""             # 지도 폴더 이름 (faker가 map:=slam·saved 때 정해서 덮어씀 — /ws/map/<이름>/)

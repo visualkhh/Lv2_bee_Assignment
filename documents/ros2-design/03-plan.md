@@ -21,7 +21,7 @@ flowchart TB
     O3b(["→ 3 controller_server"])
     O4a(["→ 4 move_group (MTC)"])
     USER -->|"⌨️ 텍스트<br/>“빨간 퍽을 목표 구역으로 옮겨”"| UI
-    UI -->|"✉️ /user_command<br/>(std_msgs/String)"| VLM
+    UI -->|"✉️ /cmd/user_command<br/>(std_msgs/String)"| VLM
     CO -->|"✉️ /robot_say<br/>(std_msgs/String)"| UI
     UI -->|"💬 알림<br/>“퍽을 옮겼어요”<br/>“퍽을 잡을 수 없어요”"| USER
     TO --> VLM
@@ -50,7 +50,7 @@ flowchart TB
 
 | 이름 | 종류 | 메시지 타입 | 보내는 쪽 → 받는 쪽 | 주기 · QoS |
 | --- | --- | --- | --- | --- |
-| /user_command | 토픽 | std_msgs/String | user_input → vlm_task_planner | 명령마다 · reliable |
+| /cmd/user_command | 토픽 | std_msgs/String | user_input → vlm_task_planner | 명령마다 · reliable |
 | /robot_say | 토픽 | std_msgs/String | coordinator → user_input | 알릴 때 · reliable |
 | /sub_goals | 토픽 | 커스텀 SubGoalArray | vlm_task_planner → coordinator | 계획마다 · reliable + transient_local |
 | /task_status | 토픽 | 커스텀 TaskStatus | coordinator → vlm_task_planner, UI | 단계 완료·실패 시 · reliable |
@@ -91,7 +91,7 @@ flowchart TB
 
 1. **운영자가 명령한다** — "빨간 퍽을 목표 구역으로 옮겨".  
    <sub>화살표: 사람 → user_input</sub>
-2. **VLM에 명령** — /user_command 문자열 + 지금 보이는 물체 목록(/tracked_objects)을 함께 보고 계획합니다.  
+2. **VLM에 명령** — /cmd/user_command 문자열 + 지금 보이는 물체 목록(/tracked_objects)을 함께 보고 계획합니다.  
    <sub>화살표: user_input → vlm_task_planner · /tracked_objects ← 1 → vlm_task_planner</sub>
 3. **계획 → coordinator 검증** — /sub_goals [navigate, pick, navigate, place]. coordinator가 형식·허용 동작·대상 id가 /tracked_objects에 실제 있는지 확인합니다.  
    <sub>화살표: vlm_task_planner → coordinator · /tracked_objects ← 1 → coordinator</sub>

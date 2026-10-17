@@ -1,0 +1,35 @@
+# OMPL 플래너 — moveit2 기본값 (5축이면 RRTConnect로 충분)
+/**:
+  ros__parameters:
+    planning_plugins: [ompl_interface/OMPLPlanner]
+    request_adapters:
+      - default_planning_request_adapters/CheckStartStateBounds
+      - default_planning_request_adapters/CheckStartStateCollision
+      - default_planning_request_adapters/ValidateWorkspaceBounds
+    # 계획 뒤처리 — 시간 붙이기가 없으면 궤적에 시각·속도가 비어 JTC가 거부하거나 순간이동처럼 실행한다
+    response_adapters:
+      - default_planning_response_adapters/AddTimeOptimalParameterization
+      - default_planning_response_adapters/ValidateSolution
+      - default_planning_response_adapters/DisplayMotionPath
+    start_state_max_bounds_error: 0.1
+    planner_configs:
+      RRTConnectkConfigDefault:
+        type: geometric::RRTConnect
+        range: 0.0  # 0이면 내부 기본값
+      RRTkConfigDefault:
+        type: geometric::RRT
+        range: 0.0
+      PRMkConfigDefault:
+        type: geometric::PRM
+        max_nearest_neighbors: 10
+      ESTkConfigDefault:
+        type: geometric::EST
+        range: 0.0
+        goal_bias: 0.05
+    arm:
+      planner_configs: [RRTConnectkConfigDefault]
+      projection_evaluator: joints(joint1,joint2)
+      longest_valid_segment_fraction: 0.005
+    gripper:
+      planner_configs: [RRTConnectkConfigDefault]
+      longest_valid_segment_fraction: 0.005

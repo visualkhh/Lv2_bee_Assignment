@@ -1,9 +1,9 @@
 {
   "http": {"host": "127.0.0.1", "port": 8000},
   "ai": {
-    "backend": "opencode_cli",
-    "model": "opencode-go/muse-spark-1.3-contributor",
-    "timeout_s": 120,
-    "system": "Autonomous logistics transport and obstacle avoidance\nInside a maze course, the robot (beebot) drives on its own, scans the course, finds scattered pucks, picks them up, and carries them to the goal zone. Avoid or stop for obstacles along the way and people cutting in — the robot competition's \"move and place objects\" mission."
+    "backend": "template",
+    "model": "default",
+    "timeout_s": 60,
+    "system": ""
   }
 }

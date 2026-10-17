@@ -1,10 +1,10 @@
 # OpenCR 펌웨어 (beebot_opencr)
 
 OpenCR 하나가 TurtleBot3 바퀴 2개, OpenMANIPULATOR-X(RM-X52-TNM) 4축 + 손목 roll + 그리퍼, 내장 IMU를 맡는다.
-호스트(라즈베리파이·PC)의 `control/BeebotSystemHardware`(ros2_control 하드웨어 플러그인)와 USB 시리얼로 짝을 이룬다.
+SBC(라즈베리파이·Jetson 등 로봇에 실린 컴퓨터)의 `control/BeebotSystemHardware`(ros2_control 하드웨어 플러그인)와 USB 시리얼로 짝을 이룬다.
 
 ```text
-호스트 /dev/ttyACM0 ── USB CDC, ASCII 줄 ──> OpenCR USB Serial
+SBC /dev/opencr (udev → ttyACM*) ── USB CDC, ASCII 줄 ──> OpenCR USB Serial
 OpenCR Serial3 ── DYNAMIXEL Protocol 2.0, 1,000,000 bps ──> 바퀴 ID 1·2 · 팔 ID 11~15 · 그리퍼 ID 16
 OpenCR 내장 IMU (MPU9250, cIMU)
 ```
@@ -15,12 +15,12 @@ OpenCR 내장 IMU (MPU9250, cIMU)
 
 | 방향 | 형식 | 주기 |
 | --- | --- | --- |
-| 호스트 → OpenCR | `C,<바퀴L rad/s>,<바퀴R rad/s>,<joint1>,<joint2>,<joint3>,<joint4>,<joint5 rad>,<그리퍼 m>\n` (8개) | 제어 주기 (100Hz) |
-| OpenCR → 호스트 | `S,` 바퀴L pos·vel, 바퀴R pos·vel, joint1~5 pos·vel·전류A, 그리퍼 m·m/s·A, IMU qx·qy·qz·qw, gx·gy·gz rad/s, ax·ay·az m/s² `\n` (32개) | `STATE_PERIOD_MS` (25ms) |
+| SBC → OpenCR | `C,<바퀴L rad/s>,<바퀴R rad/s>,<joint1>,<joint2>,<joint3>,<joint4>,<joint5 rad>,<그리퍼 m>\n` (8개) | 제어 주기 (100Hz) |
+| OpenCR → SBC | `S,` 바퀴L pos·vel, 바퀴R pos·vel, joint1~5 pos·vel·전류A, 그리퍼 m·m/s·A, IMU qx·qy·qz·qw, gx·gy·gz rad/s, ax·ay·az m/s² `\n` (32개) | `STATE_PERIOD_MS` (25ms) |
 
 - watchdog: 마지막 **유효한** `C`부터 `COMMAND_TIMEOUT_MS`(500ms)가 지나면 바퀴 속도 0, 팔·그리퍼는 현재 자세 유지 (한 번).
   형식이 틀린 줄·빈 줄은 무시하고 타이머도 갱신하지 않는다.
-- 부팅 때 모터 하나라도 ping이 안 되면 `C`를 받지 않는다 (상태 `S`는 계속 보내 호스트가 원인을 볼 수 있게).
+- 부팅 때 모터 하나라도 ping이 안 되면 `C`를 받지 않는다 (상태 `S`는 계속 보내 SBC가 원인을 볼 수 있게).
 - 그리퍼는 전류 기반 위치 모드 — 퍽을 쥐면 전류 한계에서 멈춘다.
 
 ## 준비
@@ -37,7 +37,7 @@ test-firmware
 
 # 실기 PC·라즈베리파이 — 저장소에서
 ./upload.sh --setup                 # 최초 1회 (arduino-cli · OpenCR 코어 · 업로더)
-./upload.sh [포트]                  # 컴파일 → 업로드 (기본 /dev/ttyACM0)
+./upload.sh [포트]                  # 컴파일 → 업로드 (기본 /dev/opencr, 없으면 /dev/ttyACM0)
 
 # CI 배포 패키지에서 — 미리 컴파일된 .bin
 ../ros2_ws/firmware-upload.sh --setup && ../ros2_ws/firmware-upload.sh [포트]

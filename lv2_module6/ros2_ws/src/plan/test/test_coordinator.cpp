@@ -70,7 +70,7 @@ TEST_F(RosTest, ManualModeStopsRunningPlan) {
   const auto latched = rclcpp::QoS(10).reliable().transient_local();
   auto objects_pub = probe->create_publisher<TrackedObjectArray>("/tracked_objects", rclcpp::QoS(5).reliable());
   auto goals_pub = probe->create_publisher<SubGoalArray>("/sub_goals", latched);
-  auto mode_pub = probe->create_publisher<std_msgs::msg::String>("/operation_mode", rclcpp::QoS(1).reliable().transient_local());
+  auto mode_pub = probe->create_publisher<std_msgs::msg::String>("/state/operation_mode", rclcpp::QoS(1).reliable().transient_local());
   std::vector<TaskStatus> got;
   auto sub = probe->create_subscription<TaskStatus>("/task_status", latched,
     [&](TaskStatus::SharedPtr m) { got.push_back(*m); });

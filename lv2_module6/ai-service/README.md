@@ -1,7 +1,9 @@
 # 호스트 VLM HTTP (`ai-service/`)
 
 컨테이너 `vlm_task_planner`가 호출하는 호스트 서버. 키·모델·CLI는 여기, 컨테이너는 호출만.
-
+```shell
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt   # 최초 1회
+```
 ```bash
 ./test.sh                                                        # 34개, 외부 호출 없음 (CLI·HTTP 전부 스텁)
 ./server.sh [--port 8000] [--host 127.0.0.1] [--config config.json]

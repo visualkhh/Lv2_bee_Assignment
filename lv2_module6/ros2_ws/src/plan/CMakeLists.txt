@@ -17,8 +17,11 @@ find_package(sensor_msgs REQUIRED)
 find_package(OpenCV REQUIRED COMPONENTS core imgcodecs imgproc)
 find_package(tf2_ros REQUIRED)
 find_package(nav2_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
+find_package(tf2 REQUIRED)
 find_package(moveit_msgs REQUIRED)
-find_package(moveit_task_constructor_msgs REQUIRED)
+find_package(control_msgs REQUIRED)
+find_package(shape_msgs REQUIRED)
 find_package(perception REQUIRED)
 find_package(control REQUIRED)
 find_package(ml REQUIRED)
@@ -33,19 +36,20 @@ include_directories(include)
 
 # --- 노드: 클래스 구현(src/<노드>.cpp)은 라이브러리 하나로 묶고, 실행 파일(src/<노드>_main.cpp)과 테스트가 함께 링크
 #     선언·설명은 include/plan/<노드>.hpp
-add_library(${PROJECT_NAME}_nodes STATIC src/user_input.cpp src/vlm_task_planner.cpp src/coordinator.cpp)
+add_library(${PROJECT_NAME}_nodes STATIC src/user_input.cpp src/vlm_task_planner.cpp src/coordinator.cpp src/explorer.cpp)
 target_include_directories(${PROJECT_NAME}_nodes PUBLIC include)
 target_compile_features(${PROJECT_NAME}_nodes PUBLIC cxx_std_17)
 target_link_libraries(${PROJECT_NAME}_nodes PUBLIC rclcpp::rclcpp rclcpp_action::rclcpp_action
-  ${std_msgs_TARGETS} ${std_srvs_TARGETS} ${geometry_msgs_TARGETS} ${nav2_msgs_TARGETS}
-  ${moveit_msgs_TARGETS} ${moveit_task_constructor_msgs_TARGETS}
+  ${std_msgs_TARGETS} ${std_srvs_TARGETS} ${geometry_msgs_TARGETS} ${nav2_msgs_TARGETS} ${nav_msgs_TARGETS}
+  tf2::tf2 tf2_ros::tf2_ros
+  ${moveit_msgs_TARGETS} ${control_msgs_TARGETS} ${shape_msgs_TARGETS}
   ${perception_TARGETS} ${control_TARGETS} ${ml_TARGETS} ${msgs_cpp} diagnostic_updater::diagnostic_updater
   ${OpenCV_LIBS})
-foreach(node user_input vlm_task_planner coordinator)
+foreach(node user_input vlm_task_planner coordinator explorer)
   add_executable(${node} src/${node}_main.cpp)
   target_link_libraries(${node} ${PROJECT_NAME}_nodes)
 endforeach()
-install(TARGETS user_input vlm_task_planner coordinator DESTINATION lib/${PROJECT_NAME})
+install(TARGETS user_input vlm_task_planner coordinator explorer DESTINATION lib/${PROJECT_NAME})
 
 # 파라미터 (bringup이 share/plan/config/plan.yaml을 노드에 넘긴다)
 install(DIRECTORY config DESTINATION share/${PROJECT_NAME})
@@ -55,6 +59,8 @@ if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   ament_add_gtest(test_coordinator test/test_coordinator.cpp TIMEOUT 60 ENV ROS_DOMAIN_ID=104)
   target_link_libraries(test_coordinator ${PROJECT_NAME}_nodes)
+  ament_add_gtest(test_explorer test/test_explorer.cpp TIMEOUT 60 ENV ROS_DOMAIN_ID=110)
+  target_link_libraries(test_explorer ${PROJECT_NAME}_nodes)
 endif()
 
 ament_export_dependencies(rosidl_default_runtime)

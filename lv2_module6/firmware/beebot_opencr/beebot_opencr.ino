@@ -1,7 +1,7 @@
-// beebot OpenCR 펌웨어 — 호스트(control/BeebotSystemHardware) ↔ OpenCR ↔ DYNAMIXEL 8개 + 내장 IMU
+// beebot OpenCR 펌웨어 — SBC(control/BeebotSystemHardware) ↔ OpenCR ↔ DYNAMIXEL 8개 + 내장 IMU
 //   USB 시리얼 ASCII 줄 프로토콜 (module5 opencr_pan_tilt와 같은 방식, 단위는 SI):
-//     호스트 → OpenCR  C,<바퀴L rad/s>,<바퀴R rad/s>,<j1>,<j2>,<j3>,<j4>,<j5 rad>,<그리퍼 m>\n      (매 제어 주기)
-//     OpenCR → 호스트  S,<바퀴L pos,vel>,<바퀴R pos,vel>,<j1 pos,vel,A>…<j5 …>,<그리퍼 m,m/s,A>,
+//     SBC → OpenCR  C,<바퀴L rad/s>,<바퀴R rad/s>,<j1>,<j2>,<j3>,<j4>,<j5 rad>,<그리퍼 m>\n      (매 제어 주기)
+//     OpenCR → SBC  S,<바퀴L pos,vel>,<바퀴R pos,vel>,<j1 pos,vel,A>…<j5 …>,<그리퍼 m,m/s,A>,
 //                        <qx,qy,qz,qw>,<gx,gy,gz rad/s>,<ax,ay,az m/s²>\n                         (STATE_PERIOD_MS마다)
 //   관절 0rad = 서보 중앙(2048 = 180°). 바퀴 위치는 부팅 후 누적 rad.
 //   watchdog: 마지막 유효 C부터 COMMAND_TIMEOUT_MS 지나면 바퀴 속도 0, 팔·그리퍼는 현재 자세 유지 (한 번)
@@ -144,7 +144,7 @@ void setup()
     for (size_t i = 0; i < ARM_COUNT; ++i)
         ok = setup_motor(ARM_IDS[i], OP_POSITION) && ok;
     ok = setup_motor(GRIPPER_ID, OP_CURRENT_BASED_POSITION) && ok;  // 퍽을 쥐면 전류로 멈춘다
-    motors_ready = ok;  // 하나라도 응답이 없으면 명령을 받지 않는다 (상태는 계속 보냄 — 호스트가 원인 파악)
+    motors_ready = ok;  // 하나라도 응답이 없으면 명령을 받지 않는다 (상태는 계속 보냄 — SBC가 원인 파악)
 }
 
 void loop()
