@@ -1,4 +1,26 @@
-# perception 패키지 파라미터 — bringup이 노드에 넘긴다 (ros2 param get /perception <이름> 으로 확인)
+# perception 패키지 파라미터 — bringup이 노드(/perception)에 넘긴다 (ros2 param get /perception <이름> 으로 확인)
 perception:
   ros__parameters:
     rate_hz: 10.0            # /tracked_objects 발행 주기 (설계: 10Hz · reliable)
+    model_path: ""          # 비면 share/perception/model/best.pt 자동 탐색, 없으면 빈 목록
+    confidence: 0.4         # 검출 신뢰도 하한
+    imgsz: 416              # YOLO 입력 한 변 (도커 CPU용)
+    device: "cpu"           # 실기 GPU 있으면 cuda
+    cpu_threads: 2          # device=cpu일 때 torch 스레드 수 — 기본(코어 전부)이면 제어·Nav2가 밀림 (도커 7코어 중 5코어를 먹었음)
+    track_frame: "odom"      # 추적·융합 좌표계 (끊김 없음) — /tracked_objects는 발행 순간의 map ← odom으로 바꿔 map 기준
+    # 컬러·depth 동기화 · 두 카메라 융합 (scripts/perception_node.py 맨 위 설명)
+    sync_slop: 0.05         # 컬러·정렬 depth를 한 쌍으로 묶는 시각 차 한도 [s]
+    match_dist: 0.4         # 같은 클래스 검출을 기존 트랙에 붙이는 거리 한도 [m] — 그 안에서 마할라노비스 거리 작은 쌍부터 1:1
+    pixel_sigma: 4.0        # 박스 중심 픽셀 오차 [px] → 가로·세로 σ = pixel_sigma·z/f
+    depth_sigma0: 0.005     # depth 오차 σz = depth_sigma0 + depth_sigma_k·z² [m] (RealSense: 거리² 비례)
+    depth_sigma_k: 0.01     #   → 0.3m 0.6cm · 1m 1.5cm · 2m 4.5cm · 4m 17cm
+    process_noise: 0.01     # 트랙 예측 공정 잡음 [m²/s] — 퍽·구역·장애물처럼 거의 안 움직이는 물체
+    process_noise_dynamic: 1.0  # person (스스로 움직임) — 크면 새 관측을 바로 따라감
+    # 자기 몸 필터 — pole_cam이 앞으로 뻗은 팔·그리퍼를 obstacle로 잡던 것 (영상 시각 TF로 그 순간 팔 자세)
+    self_filter: true
+    base_frame: "base_footprint"
+    self_links: ["shoulder_link", "upper_arm_link", "forearm_link", "wrist_link", "gripper_link", "end_effector_link"]
+    self_radius: 0.06       # 팔 링크를 잇는 선분에서 이 안이면 자기 몸 [m] (퍽은 마지막 선분 = 손가락 사이 제외)
+    body_radius: 0.2        # 차체 원점에서 수평 이 안 · 높이 body_height 아래면 자기 몸 [m] (적재함·폴)
+    body_height: 0.6
+    self_arm_hits: 3        # 퍽이 아닌 검출 박스 안에 팔(TF 링크를 화면에 투영) 점이 이만큼 있으면 자기 팔 — 박스 일부만 팔이면 depth가 팔 뒤 바닥이라 위 3D 판정을 빠져나감 (0 = 안 봄)

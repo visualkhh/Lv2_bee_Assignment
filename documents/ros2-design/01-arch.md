@@ -54,7 +54,7 @@ flowchart TB
         end
     end
     U -->|"⌨️ 텍스트<br/>“빨간 퍽을 목표 구역으로 옮겨”"| UI
-    UI -->|"✉️ /user_command<br/>(std_msgs/String)"| VLM
+    UI -->|"✉️ /cmd/user_command<br/>(std_msgs/String)"| VLM
     UI -->|"💬 알림<br/>“퍽을 옮겼어요”<br/>“퍽을 잡을 수 없어요”"| U
     PCH -->|"🔌 USB 3<br/>(RealSense SDK)"| PC
     GCH -->|"🔌 USB 3<br/>(RealSense SDK)"| GC
@@ -87,8 +87,8 @@ flowchart TB
     NAV -->|"✉️ /cmd_vel_nav · /plan<br/>(geometry_msgs/<br/>TwistStamped ·<br/>nav_msgs/Path)"| RLN
     CM -->|"✉️ /odom · /imu<br/>실제 속도·각속도<br/>(nav_msgs/Odometry ·<br/>sensor_msgs/Imu)"| RLN
     RLN -->|"✉️ /cmd_vel_corrected<br/>(geometry_msgs/<br/>TwistStamped)"| MUX
-    U -->|"✉️ /manual/enable ·<br/>/manual/cmd_vel · /manual/arm<br/>· /e_stop"| MAN
-    MAN -->|"✉️ /operation_mode<br/>AUTO · MANUAL<br/>(std_msgs/String)"| CO
+    U -->|"✉️ /cmd/operation_mode ·<br/>/cmd/manual/cmd_vel · /cmd/manual/arm<br/>· /cmd/e_stop"| MAN
+    MAN -->|"✉️ /state/operation_mode<br/>AUTO · MANUAL<br/>(std_msgs/String)"| CO
     MAN -->|"✉️ /cmd_vel_manual<br/>(geometry_msgs/<br/>TwistStamped)"| MUX
     MAN -->|"✉️ /arm_controller<br/>/joint_trajectory ·<br/>🎬 gripper_cmd"| CM
     MUX -->|"✉️ /cmd_vel_mux<br/>(geometry_msgs/<br/>TwistStamped)"| VS
@@ -128,7 +128,7 @@ flowchart TB
     style SHA fill:#fffde7,stroke:#f9a825,stroke-width:2px
 ```
 
-- **수동 조작은 manual_control → twist_mux.** 수동 모드(/manual/enable)면 coordinator가 진행 중 이동·팔 goal을 취소하고 멈추고(/operation_mode), 운영자의 바퀴 명령은 twist_mux에서 자동보다 우선한다. 수동이어도 velocity_smoother·collision_monitor를 지나며, /e_stop은 twist_mux 잠금으로 모든 바퀴 명령을 막는다.
+- **수동 조작은 manual_control → twist_mux.** 수동 모드(/cmd/operation_mode → state_manager)면 coordinator가 진행 중 이동·팔 goal을 취소하고 멈추고(/state/operation_mode), 운영자의 바퀴 명령은 twist_mux에서 자동보다 우선한다. 수동이어도 velocity_smoother·collision_monitor를 지나며, /cmd/e_stop은 twist_mux 잠금으로 모든 바퀴 명령을 막는다.
 - **모든 🛠 노드는 /diagnostics로 자기 상태를 낸다.** diagnostic_updater(OK·WARN·ERROR + 값)를 bringup의 diagnostic_aggregator가 계층별로 묶어 /diagnostics_agg로 — 도식에는 생략.
 - **물리 하드웨어는 노란 영역, 토픽은 내지 않는다.** 장치(육각형)는 신호가 오가는 곳 가까이에 두고 같은 노란 "물리 하드웨어" 영역으로 표시했다 — 센서 쪽(카메라)과 구동 쪽(OpenCR·모터·IMU). RealSense 카메라 2대는 🔌 USB 3로 realsense2_camera 드라이버 노드에 붙고, 토픽은 드라이버 노드가 발행한다. 모터·IMU는 OpenCR → hardware interface(controller_manager) 경로로 같은 원칙을 따른다.
 - **학습 노드도 입력을 보고 판단한다.** rl_nav_tuner는 local costmap(통로 폭·최근접 장애물), `/odometry/filtered`(현재 속도), `/plan`(남은 거리)을 보고 1~2초마다 프리셋 A/B/C를 고른다. rl_nav_correction은 `/cmd_vel_nav`가 올 때마다 `/plan`(경로 오차), `/odom`·`/imu`(실제 움직임), `/speed_limit`(재클리핑 상한)으로 Δ를 계산한다. grasp_scorer는 `/tracked_objects`로 대상 퍽을 찾고 gripper_cam 점구름으로 후보를 매긴다.
@@ -149,7 +149,7 @@ flowchart TB
 
 1. **운영자가 명령한다** — "빨간 퍽을 목표 구역으로 옮겨" — user_input이 텍스트 명령을 받습니다. 모든 일은 여기서 시작합니다.  
    <sub>화살표: 사람 → user_input</sub>
-2. **명령이 VLM으로** — ✉️ /user_command (std_msgs/String) 문자열 하나가 vlm_task_planner에 들어갑니다.  
+2. **명령이 VLM으로** — ✉️ /cmd/user_command (std_msgs/String) 문자열 하나가 vlm_task_planner에 들어갑니다.  
    <sub>화살표: user_input → vlm_task_planner</sub>
 3. **카메라는 늘 보고 있다** — pole_cam 영상·depth가 USB로 드라이버 → perception으로 계속 흐릅니다. 명령과 상관없이 상시 입력입니다.  
    <sub>화살표: pole_cam → realsense2_camera · realsense2_camera → perception</sub>

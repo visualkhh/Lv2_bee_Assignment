@@ -6,7 +6,6 @@
 - 팔 뷰: 관절 원점에 마커를 그리고, 마커를 잡아 위아래로 끌면 그 관절 목표값이 바뀐다 (수동 조작 창).
 """
 import math
-import os
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -15,53 +14,24 @@ import numpy as np
 
 import scene
 
-MESH_DIR = Path(__file__).resolve().parent.parent / 'ros2_ws' / 'urdf' / 'meshes'  # 소스 기준 stub
-WS_DIR = Path(__file__).resolve().parent.parent / 'ros2_ws'  # 워크스페이스 (install/ 마운트 포함)
-DEBUG_DIR = WS_DIR.parent / 'debug'  # test-logger의 pkg/<이름>/prefix가 여기 있음
+URDF_DIR = Path(__file__).resolve().parent.parent / 'urdf'  # 소스 기준 (lv2_module6/urdf) — 모델 하나 = 폴더 하나 <이름>/urdf.xacro + meshes/
+INSTALL_DIR = Path(__file__).resolve().parent.parent / 'debug' / 'install'  # 컨테이너 install 실파일 복사본 (docker/build-ws.sh)
+CAMERA_MESH_CELL = 0.025  # 카메라 렌더용 간소화 격자 [m] — 광선 추적이라 미리보기보다 거칠게 (차체 7.8k → 약 3k 삼각형)
 MESH_CELL = 0.016  # 메시 간소화 격자 [m] — 3D 미리보기용. 0.008의 1/3 삼각형·3배속, 320px 미리보기엔 충분
 _mesh_cache = {}
 
 
-def _dereference(p):
-    """호스트에서 읽을 수 있는 실경로로. install share는 컨테이너 절대 심링크(/ws/…)라 호스트에서 안 풀려서 매핑한다"""
-    p = Path(p)
-    for _ in range(8):
-        if not p.is_symlink():
-            break
-        t = Path(os.readlink(p))
-        p = t if t.is_absolute() else p.parent / t
-    s = str(p)
-    if s.startswith('/ws/'):
-        p = WS_DIR / s[len('/ws/'):]
-    return Path(os.path.normpath(p))
-
-
-def _prefix_share(pkg, rel):
-    """debug/pkg/<pkg>/prefix (컨테이너 경로, 예: /ws/install/plan) → 호스트 install 경로 매핑.
-    prefix 뒤에 share/<pkg>/<경로>를 붙인다 (표준 ROS share 배치 — isolated/merged 둘 다 됨)."""
-    try:
-        pre = (DEBUG_DIR / 'pkg' / pkg / 'prefix').read_text().strip().splitlines()[0]
-    except (OSError, IndexError):
-        return None
-    if not pre.startswith('/ws/'):
-        return None  # /opt/ros 등 호스트에 대응 경로 없음
-    cand = WS_DIR / pre[len('/ws/'):] / 'share' / pkg / rel
-    return cand if cand.is_file() else None
-
-
 def resolve_mesh(filename):
-    """<mesh filename> → STL 실경로. package://<pkg>/<경로>는 prefix 파일 매핑 → install share → 소스 meshes 순.
-    없으면 None (뼈대 대체)"""
+    """<mesh filename> → STL 실경로. package://<pkg>/<경로>는 debug/install/<pkg>/share/<pkg>/<경로>
+    (빌드 뒤 컨테이너가 링크를 풀어 복사한 실파일) → 없으면 소스 (package://ros_system/urdf/<모델>/meshes/x → lv2_module6/urdf/<모델>/meshes/x).
+    둘 다 없으면 None (뼈대 대체)"""
     if filename.startswith('package://'):
         pkg, _, rel = filename[len('package://'):].partition('/')
-        for cand in (_prefix_share(pkg, rel),
-                     WS_DIR / 'install' / pkg / 'share' / pkg / rel,
-                     MESH_DIR / Path(rel).name):
-            if cand is not None and _dereference(cand).is_file():
-                return _dereference(cand)
+        for cand in (INSTALL_DIR / pkg / 'share' / pkg / rel, URDF_DIR / rel.removeprefix('urdf/')):
+            if cand.is_file():
+                return cand
         return None
-    cand = MESH_DIR / Path(filename).name
-    return cand if cand.is_file() else None
+    return None
 
 # 메시 끔(use_mesh=False)일 때 대체 뼈대 — 구 URDF(primitive 시절) 치수 참조, visual 원점 기준 box
 # (arm은 collision마저 메시라 여기서라도 살려야 팔·gripper_cam이 허공에 안 뜸. 카메라는 구 카메라 박스 0.025×0.090×0.025)
@@ -110,16 +80,16 @@ def _sphere(r, n=8):
     return faces
 
 
-def load_stl(path, scale):
-    """바이너리 STL → (N,3,3) 삼각형. 꼭짓점을 격자(MESH_CELL)로 뭉쳐 간소화 · 같은 파일은 한 번만 읽는다.
+def load_stl(path, scale, cell=MESH_CELL):
+    """바이너리 STL → (N,3,3) 삼각형. 꼭짓점을 격자(cell, 기본 MESH_CELL)로 뭉쳐 간소화 · 같은 파일은 한 번만 읽는다.
     path는 resolve_mesh()가 준 실경로, scale은 축별(x y z) 배율"""
-    key = (str(path), tuple(scale))
+    key = (str(path), tuple(scale), cell)
     if key not in _mesh_cache:
         data = np.fromfile(path, np.uint8)
         n = int(np.frombuffer(data[80:84], np.uint32)[0])
         rec = np.frombuffer(data[84:84 + 50 * n], np.dtype([('n', '<f4', 3), ('v', '<f4', (3, 3)), ('a', '<u2')]))
         pts = rec['v'].astype(float).reshape(-1, 3) * np.asarray(scale, float)
-        _, inv = np.unique(np.round(pts / MESH_CELL).astype(np.int64), axis=0, return_inverse=True)
+        _, inv = np.unique(np.round(pts / cell).astype(np.int64), axis=0, return_inverse=True)
         inv = inv.reshape(-1)
         verts = np.zeros((inv.max() + 1, 3))
         np.add.at(verts, inv, pts)
@@ -140,17 +110,21 @@ def primitive_faces(shape, a, h, b=None):
     return _box(a, b if b else a, h)
 
 
+COLLISION_BGR = (0, 140, 255)  # 충돌 모양 보기 — 한 가지 색 (주황)
+
+
 class RobotModel:
-    def __init__(self, urdf_xml):
+    def __init__(self, urdf_xml, collision=False):
         """<mesh> visual은 항상 STL로 그림 (package:// → install share, 없으면 소스 meshes 폴백).
-        파일이 없으면 그 링크만 뼈대(Skeleton 표 → collision 원시도형)로 대체"""
+        파일이 없으면 그 링크만 뼈대(Skeleton 표 → collision 원시도형)로 대체.
+        collision=True면 <visual> 대신 <collision> 모양 (메시 충돌체도 STL 그대로, 색은 COLLISION_BGR)"""
         root = ET.fromstring(urdf_xml)
         self.kin = scene.Kinematics(urdf_xml)
         colors = {m.get('name'): m.find('color').get('rgba') for m in root.findall('material') if m.find('color') is not None}
         self.visuals = []  # (link, T_origin, faces_local, BGR)
         self.missing = []  # 못 찾은 STL (파일명) — 상태 표시용
         for link in root.findall('link'):
-            for vis in link.findall('visual'):
+            for vis in link.findall('collision' if collision else 'visual'):
                 geom = vis.find('geometry')
                 if geom is None or len(geom) == 0:
                     continue
@@ -166,6 +140,8 @@ class RobotModel:
                     if stl is None:
                         # 파일 없음 — 뼈대로 대체. 순서는 Skeleton 표 → collision 원시도형.
                         self.missing.append(Path(g.get('filename', '')).name)
+                        if collision:
+                            continue
                         origin = vis.find('origin')
                         xyz = [float(v) for v in (origin.get('xyz', '0 0 0') if origin is not None else '0 0 0').split()]
                         rpy = [float(v) for v in (origin.get('rpy', '0 0 0') if origin is not None else '0 0 0').split()]
@@ -213,8 +189,8 @@ class RobotModel:
                     c = mat.find('color')
                     rgba = c.get('rgba') if c is not None else colors.get(mat.get('name'))
                 r, gg, b = ([float(v) for v in rgba.split()[:3]] if rgba else [0.7, 0.7, 0.7])
-                self.visuals.append((link.get('name'), scene.transform(scene.rpy_matrix(*rpy), xyz), faces,
-                                     (int(b * 255), int(gg * 255), int(r * 255))))
+                col = COLLISION_BGR if collision else (int(b * 255), int(gg * 255), int(r * 255))
+                self.visuals.append((link.get('name'), scene.transform(scene.rpy_matrix(*rpy), xyz), faces, col))
         self.joints = {}  # 움직이는 관절 이름 → (자식 링크, 종류, 축, 하한, 상한)
         for j in root.findall('joint'):
             if j.get('type') in ('revolute', 'continuous', 'prismatic') and j.find('mimic') is None:
@@ -329,5 +305,48 @@ class OrbitView:
         self.yaw -= du * 0.01
         self.pitch = max(-0.2, min(1.5, self.pitch + dv * 0.01))
 
+    def pan(self, du, dv):
+        """화면 픽셀만큼 바라보는 점을 옆·위로 옮김 (Shift+드래그) — 멀리 볼수록 크게"""
+        _, right, up, _ = self.basis()
+        k = self.dist * 0.0015
+        self.target = self.target - right * du * k + up * dv * k
+
     def zoom(self, steps):
         self.dist = max(0.25, min(4.0, self.dist * (0.9 ** steps)))
+
+
+def camera_mesh(filename, scale):
+    """카메라 렌더용 메시 로더 (scene.BodyModel load_mesh) — package:// 경로 → 간소화 삼각형 (N,3,3), 못 찾으면 None"""
+    stl = resolve_mesh(filename)
+    return None if stl is None else load_stl(stl, scale, CAMERA_MESH_CELL)
+
+
+def draw_wheel_spin(img, model, view, size, q, wheel_vel, radius=0.033):
+    """바퀴 회전 표시 — 바퀴 중심에서 림까지 스포크: 각도 = 바퀴 관절각(굴러간 만큼 돎), 색 = 회전 중 주황 · 정지 회색.
+    바퀴 메시는 원기둥이라 돌아도 안 보여서 따로 그림 (로봇 3D · 조작 창 3D 공용)"""
+    frames = model.joint_frames(q)
+    for i, (joint, w) in enumerate((('wheel_left_joint', wheel_vel[0]), ('wheel_right_joint', wheel_vel[1]))):
+        if joint not in frames or joint not in model.joints:
+            continue
+        origin, axis = frames[joint]
+        axis = np.asarray(axis, float)
+        axis = axis / max(np.linalg.norm(axis), 1e-9)
+        p0 = np.cross(axis, [0.0, 0.0, 1.0])
+        if np.linalg.norm(p0) < 1e-6:
+            p0 = np.array([1.0, 0.0, 0.0])
+        p0 = p0 / np.linalg.norm(p0)
+        p1 = np.cross(axis, p0)
+        ang = q.get(joint, 0.0)
+        col = (0, 140, 255) if abs(w) > 0.05 else (150, 150, 150)
+        rim = [origin + (math.cos(ang + k * math.pi / 2) * p0 + math.sin(ang + k * math.pi / 2) * p1) * radius
+               for k in range(4)]  # 스포크 4개 — 한 개보다 도는 게 잘 보임
+        uv, z = view.project([origin] + rim, size)
+        if (z < 0.02).any():
+            continue
+        c = tuple(uv[0].astype(int))
+        for k in range(4):
+            r_ = tuple(uv[1 + k].astype(int))
+            cv2.line(img, c, r_, col, 2 if k == 0 else 1, cv2.LINE_AA)
+        cv2.circle(img, tuple(uv[1].astype(int)), 3, col, -1, cv2.LINE_AA)  # 0번 스포크 끝 = 회전 기준점
+        cv2.putText(img, f'{"L" if i == 0 else "R"}{w:+.1f}', (c[0] + 8, c[1]),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.4, col, 1, cv2.LINE_AA)

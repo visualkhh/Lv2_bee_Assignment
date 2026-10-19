@@ -1,0 +1,18 @@
+# IK — pick_ik (PickNik, 소스 빌드 — Lyrical apt에 없음: docker/Dockerfile)
+#   팔이 5축이라 KDL은 "위치 + 위→아래 방향" 목표를 못 풀었음 (MoveIt이 방향 허용 범위 안에서 뽑은 목표 자세 대부분이
+#   팔 평면 밖으로 기울어 정확한 해가 없음 → 'Unable to sample any valid states for goal tree'). pick_ik는 비용(위치·회전 오차)을
+#   줄이는 방식이라 축이 모자란 팔에서도 해를 찾는다.
+/**:
+  ros__parameters:
+    # arm만 — gripper는 두 손가락 병렬이라 체인이 아님 (관절 직접 제어)
+    arm:
+      kinematics_solver: pick_ik/PickIkPlugin
+      kinematics_solver_timeout: 0.05
+      mode: global                 # 전역 탐색 (진화 알고리즘 + 경사 하강) — local은 지금 자세 근처만
+      position_scale: 1.0
+      rotation_scale: 0.5          # 회전 오차 가중 (위치보다 덜 엄격 — 5축이라 회전은 근사)
+      position_threshold: 0.001    # [m] 이 안이면 해
+      orientation_threshold: 0.01  # [rad]
+      cost_threshold: 0.001
+      minimal_displacement_weight: 0.0
+      gd_step_size: 0.0001

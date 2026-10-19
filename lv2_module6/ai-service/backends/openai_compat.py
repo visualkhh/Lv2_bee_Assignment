@@ -13,6 +13,7 @@ import os
 import urllib.request
 from urllib.parse import urlparse
 
+from backends import opencode_cli
 from images import prepare
 from prompt import build
 
@@ -25,20 +26,28 @@ def _is_local(endpoint):
     return host in ("localhost", "127.0.0.1", "::1")
 
 
-def plan(req, endpoint="https://api.openai.com/v1", model="gpt-4o-mini", timeout_s=60):
+def plan(req, endpoint="https://api.openai.com/v1", model="gpt-4o-mini", timeout_s=60, system="", options=None):
+    """→ (goals, err, raw) — raw는 모델 날출력 문자열 그대로 (파싱 실패해도 버리지 않음)."""
     key = os.environ.get("OPENAI_API_KEY", "")
     if not key and not _is_local(endpoint):
-        return None, "OPENAI_API_KEY 없음"
+        return None, "OPENAI_API_KEY 없음", ""
     content = [{"type": "text", "text": build(req)}]
     for im in prepare(req):  # 원본·마킹 최대 4장
         content.append({"type": "image_url",
                         "image_url": {"url": "data:image/jpeg;base64," + im["data_b64"]}})
-    body = json.dumps({
+    messages = []
+    if isinstance(system, str) and system.strip():
+        messages.append({"role": "system", "content": system.strip()})
+    messages.append({"role": "user", "content": content})
+    body = {
         "model": model,
         "temperature": 0,
         "response_format": {"type": "json_object"},
-        "messages": [{"role": "user", "content": content}],
-    }).encode()
+        "messages": messages,
+    }
+    if isinstance(options, dict) and options:
+        body["options"] = options  # ollama 전용 (num_ctx 등) — 외부 API는 무시됨
+    body = json.dumps(body).encode()
     headers = {"Content-Type": "application/json"}
     if key:
         headers["Authorization"] = "Bearer " + key
@@ -48,13 +57,14 @@ def plan(req, endpoint="https://api.openai.com/v1", model="gpt-4o-mini", timeout
         with urllib.request.urlopen(r, timeout=timeout_s) as res:
             out = json.loads(res.read())
     except Exception as e:  # noqa: BLE001 — 네트워크 실패는 문자열로 전달
-        return None, f"http 실패: {e}"[:200]
+        return None, f"http 실패: {e}"[:200], ""
     try:
         text = out["choices"][0]["message"]["content"]
-        goals = json.loads(text)
-        goals = goals.get("goals", goals) if isinstance(goals, dict) else goals
-    except (KeyError, json.JSONDecodeError, IndexError):
-        return None, "응답 goals 파싱 실패"
-    if not isinstance(goals, list) or not goals:
-        return None, "응답에 goals 없음"
-    return goals, None
+    except (KeyError, IndexError):
+        return None, "응답 goals 파싱 실패", ""
+    raw = text if isinstance(text, str) else ""
+    # qwen3-vl 등은 설명문+JSON을 뱉는다 — opencode 쪽 스캐너로 배열 회수
+    goals, err = opencode_cli._goals_from_text(raw)
+    if err or not goals:
+        return None, err or "응답에 goals 없음", raw
+    return goals, None, raw

@@ -1,9 +1,14 @@
 {
-  "http": {"host": "127.0.0.1", "port": 8001},
+  "http": {
+    "host": "127.0.0.1",
+    "port": 8000
+  },
   "ai": {
     "backend": "ollama",
     "model": "llama4",
     "endpoint": "http://localhost:11434/v1",
-    "timeout_s": 120
+    "timeout_s": 120,
+    "system_file": "system_prompt.md",
+    "system": ""
   }
 }

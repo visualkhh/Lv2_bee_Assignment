@@ -1,0 +1,14 @@
+# manager 패키지 파라미터 — bringup이 노드에 넘긴다
+state_manager:
+  ros__parameters:
+    # 지도 모드 시작 값 = launch가 RTAB-Map을 띄운 모드 (실기 ros_system 기본 = 위치추정).
+    # 테스트베드는 faker가 map:= 에 맞춰 덮어씀 (course → COURSE · slam → MAPPING · saved → LOCALIZATION)
+    map_mode: LOCALIZATION
+    map_dir: ""              # 지도 폴더들이 있는 곳 (faker가 /ws/map 으로 덮어씀) — 시뮬레이터 지도 목록에서 고르면 갈아끼움
+    map_name: ""             # 지도 폴더 이름 (faker가 map:=slam·saved 때 정해서 덮어씀 — /ws/map/<이름>/)
+    # 재시작 (/cmd/restart "all [이름:=값 …]" · "node <이름>") — 설명은 include/manager/state_manager.hpp
+    restart_prepare: ""      # all 때 다시 띄우기 전 셸 명령 (bringup restart_prepare:= 가 덮어씀 — 테스트베드 faker = build-ws)
+    restart_log: "/tmp/bringup.log"   # all 때 다시 띄운 launch 출력 (테스트베드 faker = /tmp/faker.log)
+    restart_marker: "/tmp/beebot_restart.pending"  # 도는 동안 있는 파일 — test-faker 0이 보고 기다림
+    restart_registry: "/tmp/beebot_restarted_nodes"  # node로 따로 다시 띄운 노드 기록 — all 때 같이 끄고 비움
+    restart_wait_s: 25.0     # 정상 종료(SIGINT) 기다림 [s] — RTAB-Map이 rtabmap.db를 닫을 시간, 넘으면 SIGKILL

@@ -19,6 +19,7 @@ import argparse
 import base64
 import json
 import sys
+import time
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -28,6 +29,7 @@ sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE / "backends"))
 
 from backends import template  # noqa: E402
+from prompt import build as build_prompt  # noqa: E402
 
 ALLOWED = {"navigate", "pick", "place", "say"}
 CONFIG = {}
@@ -81,64 +83,124 @@ def ai_conf():
     return ai if isinstance(ai, dict) else {}
 
 
-def dispatch(req):
+def system_text(ai):
+    """시스템 프롬프트 = system_file(기본 system_prompt.md — 상대 경로는 이 폴더 기준) 내용 + system(덧붙일 말).
+    요청마다 파일을 읽음 — 프롬프트를 고쳐도 서버를 다시 켤 필요 없음. 파일이 없으면 system만"""
+    parts = []
+    name = ai.get("system_file", "")
+    if isinstance(name, str) and name.strip():
+        p = Path(name)
+        p = p if p.is_absolute() else HERE / p
+        try:
+            parts.append(p.read_text(encoding="utf-8").strip())
+        except OSError:
+            pass
+    extra = ai.get("system", "")
+    if isinstance(extra, str) and extra.strip():
+        parts.append(extra.strip())
+    return "\n\n".join(parts)
+
+
+def dispatch(req, image_files=None):
+    """image_files: begin_log이 저장한 PNG 절대경로 — opencode_cli만 --file로 쓴다."""
     ai = ai_conf()
     backend = ai.get("backend", "template")
+    system = system_text(ai)
     if backend == "claude_cli":
         from backends import claude_cli
         return claude_cli.plan(req, model=ai.get("model", "default"),
-                               timeout_s=ai.get("timeout_s", 60))
+                               timeout_s=ai.get("timeout_s", 60), system=system,
+                               image_files=image_files)
     if backend == "opencode_cli":
         from backends import opencode_cli
         return opencode_cli.plan(req, model=ai.get("model", "default"),
-                                 timeout_s=ai.get("timeout_s", 60))
+                                 timeout_s=ai.get("timeout_s", 60), system=system,
+                                 image_files=image_files)
     if backend == "ollama":
         from backends import ollama
         return ollama.plan(req, model=ai.get("model"),
                            endpoint=ai.get("endpoint"),
-                           timeout_s=ai.get("timeout_s"))
+                           timeout_s=ai.get("timeout_s"), system=system)
     if backend == "openai_compat":
         from backends import openai_compat
         return openai_compat.plan(req, endpoint=ai.get("endpoint", ""),
                                   model=ai.get("model", "default"),
-                                  timeout_s=ai.get("timeout_s", 60))
+                                  timeout_s=ai.get("timeout_s", 60), system=system)
     return template.plan(req)
 
 
-def log_plan(req, code, resp):
-    """요청 건당 log/plan-YYYYMMDD-HHMMSS-<rand>/ 에 request.json·response.json·request-imageN.png.
-    이미지 원문은 PNG 파일로, request.json에는 파일명+용량만."""
+def begin_log(req):
+    """로그 디렉토리 생성 + prepare(req) JPEG(원본·마킹) → PNG 저장.
+    → (dir, [{file, bytes, path}]) — path는 모델에 --file로 넘기는 절대경로."""
+    import uuid
+
+    from images import prepare, to_png
+
+    d = HERE / "log" / f"plan-{datetime.now():%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:6]}"
+    d.mkdir(parents=True, exist_ok=True)
+    saved = []
+    for i, im in enumerate(prepare(req)):
+        try:
+            blob = base64.b64decode(im.get("data_b64", ""), validate=True)
+        except Exception:  # noqa: BLE001
+            blob = b""
+        png = to_png(blob, "jpeg", None, None) if blob else None
+        if png:
+            (d / f"request-image{i + 1}.png").write_bytes(png)
+            saved.append({"file": f"request-image{i + 1}.png", "bytes": len(png),
+                          "path": str((d / f"request-image{i + 1}.png").resolve())})
+        else:
+            saved.append({"file": None, "bytes": 0, "path": ""})
+    return d, saved
+
+
+def log_plan(req, code, resp, t_arrive=None, raw="", t_dispatch=None, pre=None):
+    """요청 건당 log/plan-YYYYMMDD-HHMMSS-<rand>/ 에 ai.json·request.json·response.json·request-imageN.png.
+    ai.json은 AI 관련만: {backend, model, endpoint, timeout_s,
+               request: {time, elapsed_s(도착→백엔드 호출), prompt},
+               response: {time, elapsed_s(호출→완료), raw(LLM 날출력 문자열 그대로)}}.
+    request.json(원문+이미지 파일명)·response.json{code, resp}은 그대로 별도 보관. 이미지 원문은 PNG 파일로만.
+    pre=(dir, saved): do_POST가 dispatch 전에 미리 저장했으면 재사용 (검증 실패 로그는 여기서 생성)."""
     try:
-        import uuid
-
-        from images import to_png
-
-        images = req.get("images", []) if isinstance(req, dict) else []
-        pngs = []
-        for im in images[:2]:
-            d = im.get("data_b64", "") if isinstance(im, dict) else ""
-            try:
-                raw = base64.b64decode(d, validate=True)
-            except Exception:  # noqa: BLE001
-                raw = b""
-            png = to_png(raw, im.get("format", "jpeg") if isinstance(im, dict) else "jpeg",
-                         im.get("width") if isinstance(im, dict) else None,
-                         im.get("height") if isinstance(im, dict) else None) if raw else None
-            pngs.append(png)
-        d = HERE / "log" / f"plan-{datetime.now():%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:6]}"
-        d.mkdir(parents=True, exist_ok=True)
+        if pre is not None:
+            d, saved = pre
+        else:
+            d, saved = begin_log(req)
+        now = time.time()
+        arrive = t_arrive if isinstance(t_arrive, (int, float)) else now
+        call = t_dispatch if isinstance(t_dispatch, (int, float)) else arrive
+        ai = ai_conf()
+        try:
+            prompt_text = build_prompt(req if isinstance(req, dict) else {}, system_text(ai))
+        except Exception:  # noqa: BLE001
+            prompt_text = ""
+        suffix = ""
+        if ai.get("backend") == "opencode_cli":
+            suffix = "\n도구 사용 없이 JSON으로만 답하라."  # backends/opencode_cli.py와 동일 유지
         req_out = dict(req) if isinstance(req, dict) else {}
         req_out["images"] = [
-            {"file": f"request-image{i + 1}.png" if png else None,
-             "bytes": len(png) if png else 0}
-            for i, png in enumerate(pngs)
+            {"file": s["file"], "bytes": s["bytes"]} for s in saved
         ]
         (d / "request.json").write_text(json.dumps(req_out, ensure_ascii=False, indent=2))
         (d / "response.json").write_text(json.dumps({"code": code, "resp": resp},
-                                                    ensure_ascii=False, indent=2))
-        for i, png in enumerate(pngs):
-            if png:
-                (d / f"request-image{i + 1}.png").write_bytes(png)
+                                                     ensure_ascii=False, indent=2))
+        (d / "ai.json").write_text(json.dumps({
+            "backend": ai.get("backend", "template"),
+            "model": ai.get("model", "default"),
+            "endpoint": ai.get("endpoint", ""),
+            "timeout_s": ai.get("timeout_s", 60),
+            "request": {
+                "time": datetime.fromtimestamp(arrive).isoformat(timespec="seconds"),
+                "elapsed_s": round(call - arrive, 2),
+                "prompt": prompt_text + suffix,
+            },
+            "response": {
+                "time": datetime.fromtimestamp(now).isoformat(timespec="seconds"),
+                "elapsed_s": round(now - call, 2),
+                "raw": (raw[:20000] + "…[truncated]" if len(raw) > 20000 else raw)
+                       if isinstance(raw, str) else "",
+            },
+        }, ensure_ascii=False, indent=2))
     except Exception:  # noqa: BLE001 — 로깅 실패가 서빙을 막지 않음
         pass
 
@@ -163,9 +225,11 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, {"ok": False, "error": "not found"})
             return
         req = {}
+        t_arrive = time.time()
+        stamp = {"dispatch": None, "pre": None}
 
-        def done(code, resp):
-            log_plan(req, code, resp)
+        def done(code, resp, raw=""):
+            log_plan(req, code, resp, t_arrive, raw, stamp["dispatch"], stamp["pre"])
             self._send(code, resp)
 
         try:
@@ -193,15 +257,26 @@ class Handler(BaseHTTPRequestHandler):
             if err:
                 done(400, {"ok": False, "error": err})
                 return
-        goals, err = dispatch(req)
+        stamp["pre"] = begin_log(req)  # PNG 저장 + 로그 dir 확보 → --file은 이 경로 사용
+        image_files = [s["path"] for s in stamp["pre"][1] if s["path"]]
+        stamp["dispatch"] = time.time()
+        goals, err, raw = dispatch(req, image_files)
         if err or goals is None:
-            done(200, {"ok": False, "error": err or "계획 실패"})
+            done(200, {"ok": False, "error": err or "계획 실패"}, raw)
             return
         why = validate(goals, objects)
         if why:
-            done(200, {"ok": False, "error": f"검증 실패: {why}"})
+            done(200, {"ok": False, "error": f"검증 실패: {why}"}, raw)
             return
-        done(200, {"ok": True, "goals": goals})
+        done(200, {"ok": True, "goals": goals}, raw)
+        if err or goals is None:
+            done(200, {"ok": False, "error": err or "계획 실패"}, raw)
+            return
+        why = validate(goals, objects)
+        if why:
+            done(200, {"ok": False, "error": f"검증 실패: {why}"}, raw)
+            return
+        done(200, {"ok": True, "goals": goals}, raw)
 
     def log_message(self, fmt, *args):  # 시끄러운 기본 로그 억제
         pass

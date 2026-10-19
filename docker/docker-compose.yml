@@ -13,21 +13,31 @@ services:
     image: lv2-module6:testbed
     container_name: lv2_module6
     working_dir: /ws
+    # DDS 공유 메모리 — Docker 기본 /dev/shm 64MB면 Fast DDS가 큰 영상(640×480 ≈ 900KB)을 공유 메모리로 못 보내고
+    # 조각난 UDP로 보내다 구독자가 많은 pole_cam 영상을 거의 다 잃음 (실측: 70초 넘게 안 옴). fastdds.xml이 노드마다 32MB 구역
+    shm_size: 4gb
     # 같은 LAN의 다른 팀 스택(xsting 등)과 DDS가 섞이지 않게 도메인 분리 (기본 0이면 /robot_description 같은 토픽을 남의 로봇이 가로챔)
     environment:
-      - ROS_DOMAIN_ID=6
-      # 컨테이너 안 DDS는 전부 자기 자신 — loopback 고정 (LAN 멀티캐스트·외부 DDS 간섭 원천 차단)
-      - ROS_LOCALHOST_ONLY=1
+      - ROS_DOMAIN_ID=8
+      # SUBNET (= ROS 기본값). LOCALHOST로 두면 Fast DDS가 멀티캐스트 대신 localhost 참가자 번호 몇 개에만 유니캐스트로
+      # discovery를 보내 노드 40여 개 중 일부가 서로 안 보였다 (Nav2 관리자 멈춤 · /map 발행자 0 · CLI가 노드 못 찾음 — 실측).
+      # 다른 팀 DDS와 섞임은 ROS_DOMAIN_ID=8이 막는다
+      - ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
+      # Fast DDS TypeLookup 끔 (노드 40개에서 UDP 폭주 → 컨트롤러가 못 뜸) — 설명은 파일 안
+      - FASTDDS_DEFAULT_PROFILES_FILE=/ws/src/ros_system/config/fastdds.xml
     volumes:
-      # ROS 2 워크스페이스 전체를 마운트 (src + urdf + build/install/log — 호스트에서 빌드 결과·로그 직접 확인용)
-      # 주의: 컨테이너(root)가 만든 build/install/log 파일은 호스트에서 root 소유라 읽기만 됨.
-      # 지우거나 고칠 땐 docker compose exec -u root ... chown -R 1000:1000 /ws/build /ws/install /ws/log
-      - ../lv2_module6/ros2_ws:/ws
+      # 편집용만 바인드 (호스트에서 고치는 것): src + model + urdf (+ 지도)
+      - ../lv2_module6/ros2_ws/src:/ws/src
+      - ../lv2_module6/ros2_ws/model:/ws/model
+      - ../lv2_module6/urdf:/ws/urdf
+      # 지도 (faker map:=slam 이 /ws/map/rtabmap.db 에 쓰고 시뮬레이터 [지도 저장](map_saver_server)이 map_<날짜_시각>.pgm·yaml → map:=saved 로 다시 씀) — 컨테이너가 쓰므로 rw
+      - ../lv2_module6/ros2_ws/map:/ws/map
+      # 빌드 산출물(build·install·log)은 컨테이너 안 — 호스트 참고용 install 복사본은 빌드 뒤 /debug/install (docker/build-ws.sh)
       # OpenCR 펌웨어 스케치 + 컴파일 결과(build/, gitignore) — 컨테이너가 빌드 산출물을 쓰므로 rw
       - ../lv2_module6/firmware:/firmware
       # 호스트 공유 폴더 (휘발성, gitignore) — 통제실·시뮬레이션과 파일로 주고받음
-      #   output/topic/<토픽>/echo·message·image.jpg ← monitor(message·image) + test-logger(echo)
-      #   topic/<토픽>/info · topic/list · node/<노드>/info · node/list · pkg/<패키지>/prefix · pkg/<패키지>/executables · pkg/list ← test-logger
+      #   output/topic/<토픽>/message·image.jpg · topic/<토픽>/info·type · node/<노드>/info·params · pkg/<패키지>/prefix ← monitor_manager
+      #   install/                          ← build-ws (빌드 뒤 install 실파일 복사 — share 참고용)
       #   input/topic/<토픽>/message       → input_manager (파일 → 토픽)
       #   input/hardware/camera/<카메라>.png → fake_camera 장면
       #   input/hardware/serial · output/hardware/serial            가상 시리얼 ↔ 파일 (OpenCR 흉내)
@@ -36,3 +46,4 @@ services:
     tty: true
     network_mode: host
     command: bash
+

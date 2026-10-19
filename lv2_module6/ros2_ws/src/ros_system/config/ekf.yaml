@@ -11,8 +11,10 @@ ekf_filter_node:
     world_frame: odom
     # 속도 위주로 넣어 미끄러짐 영향을 줄인다 [x y z, roll pitch yaw, vx vy vz, vroll vpitch vyaw, ax ay az]
     odom0: /odom
+    # 바퀴는 vx·vy만 — yaw 회전속도는 IMU(자이로)만. 실측 (회전 시험 2026-10-19): diff_drive twist 회전속도는 40~90ms 늦고
+    # 80초 적분이 실제와 5~10° 어긋남 (pose는 맞음) — 분산을 크게 줘도 섞여 EKF yaw가 끝에 1.6~2.6° 틀어짐. IMU 적분은 0.2~0.8°
     odom0_config: [false, false, false, false, false, false,
-                   true,  true,  false, false, false, true,
+                   true,  true,  false, false, false, false,
                    false, false, false]
     imu0: /imu
     imu0_config: [false, false, false, false, false, false,

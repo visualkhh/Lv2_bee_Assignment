@@ -27,3 +27,14 @@ lv2_module6/firmware/build/
 /temp/
 /lv2_module6/ros2_ws/debug/
 /lv2_module6/ros2_ws/firmware/
+/lv2_module6/ros2_ws/map/*
+!/lv2_module6/ros2_ws/map/default
+# 지도 DB(rtabmap.db)는 100MB 넘게 커서 커밋 안 함 — default 폴더도 미리보기(map.pgm·yaml)만
+/lv2_module6/ros2_ws/map/*/rtabmap.db
+
+# YOLO 가중치(best.pt, 약 5MB)는 커밋 — CI 인지 테스트에 필요. 나머지 학습 모델은 아직 제외
+/lv2_module6/ros2_ws/model/grasp_scorer/*.pt
+/lv2_module6/ros2_ws/model/arm_correction/*.pt
+/lv2_module6/ros2_ws/model/nav_correction/*.pt
+/lv2_module6/ros2_ws/model/nav_tuner/*.pt
+/lv2_module6/simulator/yolo_job.log

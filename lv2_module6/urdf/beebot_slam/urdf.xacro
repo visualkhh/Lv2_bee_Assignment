@@ -1,0 +1,242 @@
+<?xml version="1.0"?>
+<!--
+  beebot (SLAM 전용) — 지도 스캔할 때 쓰는 모델: 팔·그리퍼·gripper_cam을 떼고, 폴 위 카메라를 앞뒤 두 대로 (더미 치수)
+    beebot_normal/urdf.xacro 에서: 매니퓰레이터(arm_base_link ~ finger·end_effector · gripper_cam)와 ros2_control 팔 관절 6개 삭제,
+    폴 꼭대기 반대편(뒤)에 pole_rear_cam 추가 — pole_cam은 앞 아래, pole_rear_cam은 뒤 아래를 같은 각도(34°)로 본다.
+    남은 링크·관절 이름은 beebot_mesh · beebot_normal과 같다 (pole_rear_cam만 이 모델에 새로)
+  설계: documents/ros2-design/07-tf.md (TF 트리), 08-ctrl.md (ros2_control)
+
+  좌표: base_footprint(바닥) → base_link(바퀴 축 아래 0.010m), x 앞 · y 왼쪽 · z 위
+    - 차체: Waffle Pi 본체 266×266mm, 바퀴 반경 0.033m · 간격 0.287m, 뒤쪽 캐스터 2개
+    - 상판(deck): 차체 위 앞쪽 절반만 덮는 판넬, 스탠드오프 0.05m 위
+    - 매니퓰레이터: 없음 (SLAM 전용 — 상판은 그대로)
+    - 선가이드 폴: 차체 위 뒤쪽 끝, 전원선이 위에서 내려온다. 폴 꼭대기 앞쪽에 pole_cam(전방 하향) · 뒤쪽에 pole_rear_cam(후방 하향)
+
+  xacro 인자:
+    mock_hardware (false)  true면 control/BeebotSystemHardware가 실기 대신 명령을 그대로 상태로 되돌려 줌 (테스트베드)
+    mock_effort   (0.0)    (팔이 없어 안 씀 — 다른 모델과 인자를 맞추려고 남김)
+    port          (/dev/opencr)  OpenCR 포트 (udev 고정 이름 — ros2_ws/99-opencr.rules)
+
+  TODO(권형중): 실측 치수·질량, pole_rear_cam 실제 장착 위치·각도
+  Isaac Sim용 USD는 이 파일을 xacro로 펼친 URDF를 Isaac Sim URDF Importer로 변환해 만든다:
+    xacro beebot.urdf.xacro > beebot.urdf
+-->
+<robot name="beebot" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:arg name="mock_hardware" default="false"/>
+  <xacro:arg name="mock_effort" default="0.0"/>
+  <xacro:arg name="port" default="/dev/opencr"/>
+
+  <xacro:property name="PI" value="3.14159265"/>
+  <!-- 차체 -->
+  <xacro:property name="wheel_radius" value="0.033"/>
+  <xacro:property name="wheel_width" value="0.018"/>
+  <xacro:property name="wheel_separation" value="0.287"/>
+  <xacro:property name="body_l" value="0.266"/>
+  <xacro:property name="body_w" value="0.266"/>
+  <xacro:property name="body_h" value="0.110"/>
+  <xacro:property name="body_x" value="-0.064"/>   <!-- 바퀴 축 기준 본체 중심 (바퀴가 앞쪽) -->
+  <xacro:property name="body_z" value="0.080"/>
+  <xacro:property name="body_top" value="${body_z + body_h / 2}"/>
+  <!-- 상판: 본체 앞쪽 절반 -->
+  <xacro:property name="deck_standoff" value="0.050"/>
+  <xacro:property name="deck_t" value="0.005"/>
+  <xacro:property name="deck_l" value="${body_l / 2}"/>
+  <xacro:property name="deck_x" value="${body_x + body_l / 4}"/>
+  <xacro:property name="deck_top" value="${body_top + deck_standoff + deck_t}"/>
+  <!-- 선가이드 폴: 본체 뒤쪽 끝 -->
+  <xacro:property name="pole_h" value="0.450"/>
+  <xacro:property name="pole_r" value="0.010"/>
+  <xacro:property name="pole_x" value="${body_x - body_l / 2 + 0.020}"/>
+
+  <material name="dark"><color rgba="0.2 0.2 0.2 1"/></material>
+  <material name="grey"><color rgba="0.6 0.6 0.6 1"/></material>
+  <material name="white"><color rgba="0.95 0.95 0.95 1"/></material>
+  <material name="orange"><color rgba="0.95 0.5 0.1 1"/></material>
+  <material name="blue"><color rgba="0.2 0.4 0.8 1"/></material>
+
+  <!-- 관성: 균질 직육면체·원기둥·구 -->
+  <xacro:macro name="box_inertia" params="m x y z *origin">
+    <inertial>
+      <xacro:insert_block name="origin"/>
+      <mass value="${m}"/>
+      <inertia ixx="${m * (y*y + z*z) / 12}" ixy="0" ixz="0" iyy="${m * (x*x + z*z) / 12}" iyz="0" izz="${m * (x*x + y*y) / 12}"/>
+    </inertial>
+  </xacro:macro>
+  <xacro:macro name="cylinder_inertia" params="m r h *origin">
+    <inertial>
+      <xacro:insert_block name="origin"/>
+      <mass value="${m}"/>
+      <inertia ixx="${m * (3*r*r + h*h) / 12}" ixy="0" ixz="0" iyy="${m * (3*r*r + h*h) / 12}" iyz="0" izz="${m * r * r / 2}"/>
+    </inertial>
+  </xacro:macro>
+
+  <!-- ================= 베이스 =================
+       링크·관절 이름과 TF 트리는 beebot_mesh/urdf.xacro와 같다 (모델을 바꿔 끼워도 노드·설정이 그대로 돎).
+       beebot_mesh처럼 차체에 붙은 것(캐스터·상판·적재함·선가이드 폴)은 base_link 한 링크의 도형으로 합쳤다. -->
+  <!-- 적재함 (뒤쪽 절반, 퍽 운반): 바닥 윗면 z=0.140 (base_link 기준) · 가이드벽 4면 (높이 0.04, 두께 0.005)
+       시뮬레이터는 같은 치수로 퍽 받침·가둠 판정 (simulator/main.py TRAY) -->
+  <xacro:property name="tray_x0" value="-0.19"/>
+  <xacro:property name="tray_x1" value="-0.07"/>
+  <xacro:property name="tray_y" value="0.10"/>
+  <xacro:property name="tray_floor_z" value="0.140"/>
+  <xacro:property name="tray_wall_h" value="0.04"/>
+  <xacro:property name="tray_wall_t" value="0.005"/>
+  <xacro:macro name="part" params="xyz *geometry material">
+    <visual>
+      <origin xyz="${xyz}"/>
+      <xacro:insert_block name="geometry"/>
+      <material name="${material}"/>
+    </visual>
+  </xacro:macro>
+  <link name="base_footprint"/>
+  <link name="base_link">
+    <!-- 본체 -->
+    <visual>
+      <origin xyz="${body_x} 0 ${body_z}"/>
+      <geometry><box size="${body_l} ${body_w} ${body_h}"/></geometry>
+      <material name="dark"/>
+    </visual>
+    <collision>
+      <origin xyz="${body_x} 0 ${body_z}"/>
+      <geometry><box size="${body_l} ${body_w} ${body_h}"/></geometry>
+    </collision>
+    <!-- ponytail: 합친 부품(상판 0.2 · 적재함 0.05 · 폴 0.1kg) 질량은 본체 상자 하나에 더함 — 무게중심이 정확해야 하면 나눠 계산 -->
+    <xacro:box_inertia m="1.85" x="${body_l}" y="${body_w}" z="${body_h}"><origin xyz="${body_x} 0 ${body_z}"/></xacro:box_inertia>
+    <!-- 뒤쪽 캐스터 2개 (구, 충돌만) -->
+    <collision>
+      <origin xyz="${body_x - body_l / 2 + 0.020} 0.064 0.000"/>
+      <geometry><sphere radius="0.010"/></geometry>
+    </collision>
+    <collision>
+      <origin xyz="${body_x - body_l / 2 + 0.020} -0.064 0.000"/>
+      <geometry><sphere radius="0.010"/></geometry>
+    </collision>
+    <!-- 상판 (앞쪽 절반, 스탠드오프 위) — 윗면 z = deck_top -->
+    <xacro:part xyz="${deck_x} 0 ${deck_top - deck_t / 2}" material="white"><geometry><box size="${deck_l} ${body_w} ${deck_t}"/></geometry></xacro:part>
+    <collision>
+      <origin xyz="${deck_x} 0 ${deck_top - deck_t / 2}"/>
+      <geometry><box size="${deck_l} ${body_w} ${deck_t}"/></geometry>
+    </collision>
+    <xacro:macro name="standoff" params="x y">
+      <xacro:part xyz="${deck_x + x} ${y} ${deck_top - deck_t - deck_standoff / 2}" material="grey"><geometry><cylinder radius="0.004" length="${deck_standoff}"/></geometry></xacro:part>
+    </xacro:macro>
+    <xacro:standoff x="${deck_l / 2 - 0.01}" y="${body_w / 2 - 0.01}"/>
+    <xacro:standoff x="${deck_l / 2 - 0.01}" y="${-body_w / 2 + 0.01}"/>
+    <xacro:standoff x="${-deck_l / 2 + 0.01}" y="${body_w / 2 - 0.01}"/>
+    <xacro:standoff x="${-deck_l / 2 + 0.01}" y="${-body_w / 2 + 0.01}"/>
+    <!-- 적재함: 바닥판 + 가이드벽 4면 -->
+    <xacro:part xyz="-0.13 0 0.1375" material="grey"><geometry><box size="0.12 0.20 0.005"/></geometry></xacro:part>
+    <xacro:part xyz="-0.1875 0 0.16" material="grey"><geometry><box size="0.005 0.20 0.04"/></geometry></xacro:part>
+    <xacro:part xyz="-0.0725 0 0.16" material="grey"><geometry><box size="0.005 0.20 0.04"/></geometry></xacro:part>
+    <xacro:part xyz="-0.13 0.0975 0.16" material="grey"><geometry><box size="0.11 0.005 0.04"/></geometry></xacro:part>
+    <xacro:part xyz="-0.13 -0.0975 0.16" material="grey"><geometry><box size="0.11 0.005 0.04"/></geometry></xacro:part>
+    <collision>
+      <origin xyz="-0.13 0 0.1375"/>
+      <geometry><box size="0.12 0.20 0.005"/></geometry>
+    </collision>
+    <!-- 선가이드 폴 (뒤쪽 끝, 전원선이 위에서 내려옴) -->
+    <xacro:part xyz="${pole_x} 0 ${body_top + pole_h / 2}" material="grey"><geometry><cylinder radius="${pole_r}" length="${pole_h}"/></geometry></xacro:part>
+    <collision>
+      <origin xyz="${pole_x} 0 ${body_top + pole_h / 2}"/>
+      <geometry><cylinder radius="${pole_r}" length="${pole_h}"/></geometry>
+    </collision>
+  </link>
+  <joint name="base_joint" type="fixed">
+    <parent link="base_footprint"/>
+    <child link="base_link"/>
+    <origin xyz="0 0 0.010"/>
+  </joint>
+
+  <xacro:macro name="wheel" params="side y">
+    <link name="wheel_${side}_link">
+      <visual>
+        <origin rpy="${-PI/2} 0 0"/>
+        <geometry><cylinder radius="${wheel_radius}" length="${wheel_width}"/></geometry>
+        <material name="grey"/>
+      </visual>
+      <collision>
+        <origin rpy="${-PI/2} 0 0"/>
+        <geometry><cylinder radius="${wheel_radius}" length="${wheel_width}"/></geometry>
+      </collision>
+      <xacro:cylinder_inertia m="0.03" r="${wheel_radius}" h="${wheel_width}"><origin rpy="${-PI/2} 0 0"/></xacro:cylinder_inertia>
+    </link>
+    <joint name="wheel_${side}_joint" type="continuous">
+      <parent link="base_link"/>
+      <child link="wheel_${side}_link"/>
+      <origin xyz="0 ${y} ${wheel_radius - 0.010}"/>
+      <axis xyz="0 1 0"/>
+    </joint>
+  </xacro:macro>
+  <xacro:wheel side="left" y="${wheel_separation / 2}"/>
+  <xacro:wheel side="right" y="${-wheel_separation / 2}"/>
+
+  <link name="imu_link"/>
+  <joint name="imu_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="imu_link"/>
+    <origin xyz="${body_x} 0 0.068"/>
+  </joint>
+
+  <!-- 카메라: <이름>_link (x 앞) + <이름>_color_optical_frame (z 앞 · x 오른쪽 · y 아래) — RealSense 드라이버 publish_tf는 끈다 -->
+  <xacro:macro name="camera" params="name parent *origin">
+    <link name="${name}_link">
+      <visual>
+        <geometry><box size="0.025 0.090 0.025"/></geometry>
+        <material name="blue"/>
+      </visual>
+      <collision><geometry><box size="0.025 0.090 0.025"/></geometry></collision>
+      <xacro:box_inertia m="0.07" x="0.025" y="0.090" z="0.025"><origin xyz="0 0 0"/></xacro:box_inertia>
+    </link>
+    <joint name="${name}_joint" type="fixed">
+      <parent link="${parent}"/>
+      <child link="${name}_link"/>
+      <xacro:insert_block name="origin"/>
+    </joint>
+    <link name="${name}_color_optical_frame"/>
+    <joint name="${name}_optical_joint" type="fixed">
+      <parent link="${name}_link"/>
+      <child link="${name}_color_optical_frame"/>
+      <origin rpy="${-PI/2} 0 ${-PI/2}"/>
+    </joint>
+  </xacro:macro>
+  <xacro:camera name="pole_cam" parent="base_link">
+    <origin xyz="${pole_x + 0.020} 0 ${body_top + pole_h}" rpy="0 0.6 0"/>   <!-- 폴 꼭대기 앞, 전방 하향 약 34° -->
+  </xacro:camera>
+  <!-- 폴 반대편: 뒤를 같은 각도로 내려다봄 (yaw 180°) — 지도를 앞뒤로 함께 채움 -->
+  <xacro:camera name="pole_rear_cam" parent="base_link">
+    <origin xyz="${pole_x - 0.020} 0 ${body_top + pole_h}" rpy="0 0.6 ${PI}"/>   <!-- 폴 꼭대기 뒤, 후방 하향 약 34° -->
+  </xacro:camera>
+
+  <!-- ================= ros2_control ================= -->
+  <ros2_control name="BeebotSystem" type="system">
+    <hardware>
+      <plugin>control/BeebotSystemHardware</plugin>
+      <param name="mock">$(arg mock_hardware)</param>
+      <param name="mock_effort">$(arg mock_effort)</param>
+      <param name="port">$(arg port)</param>
+      <param name="baud_rate">1000000</param>
+    </hardware>
+    <xacro:macro name="wheel_if" params="name">
+      <joint name="${name}">
+        <command_interface name="velocity"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+    </xacro:macro>
+    <xacro:wheel_if name="wheel_left_joint"/>
+    <xacro:wheel_if name="wheel_right_joint"/>
+    <sensor name="imu">
+      <state_interface name="orientation.x"/>
+      <state_interface name="orientation.y"/>
+      <state_interface name="orientation.z"/>
+      <state_interface name="orientation.w"/>
+      <state_interface name="angular_velocity.x"/>
+      <state_interface name="angular_velocity.y"/>
+      <state_interface name="angular_velocity.z"/>
+      <state_interface name="linear_acceleration.x"/>
+      <state_interface name="linear_acceleration.y"/>
+      <state_interface name="linear_acceleration.z"/>
+      <param name="frame_id">imu_link</param>
+    </sensor>
+  </ros2_control>
+</robot>

@@ -11,7 +11,7 @@ GOOD = [{"step": 1, "skill": "navigate", "target": "3", "relation": "front", "of
 
 class TestTemplate(unittest.TestCase):
     def test_ok(self):
-        goals, err = template.plan({"objects": [{"id": 3, "class_name": "puck"},
+        goals, err, raw = template.plan({"objects": [{"id": 3, "class_name": "puck"},
                                                  {"id": 7, "class_name": "goal_zone"}]})
         self.assertIsNone(err)
         self.assertEqual(len(goals), 4)
@@ -63,20 +63,40 @@ class TestOpencodePlan(unittest.TestCase):
 
         def fake_run(cmd, **kw):
             seen["cmd"] = cmd
+            seen["input"] = kw.get("input")
             return FakeProc(stdout=json.dumps({"goals": GOOD}))
 
         with mock.patch("shutil.which", return_value="/usr/bin/opencode"), \
             mock.patch("subprocess.run", fake_run):
-            goals, err = opencode_cli.plan(
+            goals, err, raw = opencode_cli.plan(
                 {"command": "x", "objects": [], "images": [{"data_b64": img}]})
         self.assertEqual((goals, err), (GOOD, None))
+        self.assertEqual(raw, json.dumps({"goals": GOOD}))
         cmd = seen["cmd"]
         self.assertEqual(cmd[:4], ["opencode", "run", "--format", "json"])
         self.assertNotIn("--model", cmd)  # default면 생략
         fi = [i for i, c in enumerate(cmd) if c == "--file"]
         self.assertEqual(len(fi), 1)
         self.assertTrue(cmd[fi[0] + 1].endswith(".jpg"))
-        self.assertIn("도구 사용 없이", cmd[-1])
+        self.assertIn("도구 사용 없이", seen["input"])  # 프롬프트는 stdin으로
+        self.assertNotIn(seen["input"], cmd)
+
+    def test_image_files_reuse(self):
+        seen = {}
+
+        def fake_run(cmd, **kw):
+            seen["cmd"] = cmd
+            seen["input"] = kw.get("input")
+            return FakeProc(stdout=json.dumps(GOOD))
+
+        with mock.patch("shutil.which", return_value="/usr/bin/opencode"), \
+            mock.patch("subprocess.run", fake_run):
+            goals, err, raw = opencode_cli.plan(
+                {"command": "x", "objects": []},
+                image_files=["/tmp/log/request-image1.png"])
+        self.assertEqual((goals, err), (GOOD, None))
+        self.assertIn("/tmp/log/request-image1.png", seen["cmd"])
+        self.assertIn("도구 사용 없이", seen["input"])
 
     def test_model_forwarded(self):
         def fake_run(cmd, **kw):
@@ -86,11 +106,11 @@ class TestOpencodePlan(unittest.TestCase):
         with mock.patch("shutil.which", return_value="/usr/bin/opencode"), \
             mock.patch("subprocess.run", fake_run):
             self.assertEqual(opencode_cli.plan(
-                {"objects": []}, model="opencode-go/muse-spark-1.3-contributor")[0], GOOD)
+                {"objects": []}, model="opencode-go/muse-spark-1.3-contributor")[:2], (GOOD, None))
 
     def test_no_cli(self):
         with mock.patch("shutil.which", return_value=None):
-            self.assertEqual(opencode_cli.plan({"objects": []}), (None, "opencode CLI 없음"))
+            self.assertEqual(opencode_cli.plan({"objects": []}), (None, "opencode CLI 없음", ""))
 
     def test_bad_base64_skipped(self):
         seen = {}
@@ -101,7 +121,7 @@ class TestOpencodePlan(unittest.TestCase):
 
         with mock.patch("shutil.which", return_value="/usr/bin/opencode"), \
             mock.patch("subprocess.run", fake_run):
-            goals, err = opencode_cli.plan(
+            goals, err, raw = opencode_cli.plan(
                 {"objects": [], "images": [{"data_b64": "!!!"}]})
         self.assertEqual((goals, err), (GOOD, None))  # 깨진 이미지는 버리고 진행
         self.assertNotIn("--file", seen["cmd"])
@@ -112,40 +132,95 @@ class TestOpenaiCompat(unittest.TestCase):
         with mock.patch.dict("os.environ", {}, clear=False):
             import os
             os.environ.pop("OPENAI_API_KEY", None)
-            self.assertEqual(openai_compat.plan({"objects": []}), (None, "OPENAI_API_KEY 없음"))
+            self.assertEqual(openai_compat.plan({"objects": []}), (None, "OPENAI_API_KEY 없음", ""))
 
     def test_no_key_local_tries_http(self):
         import os
         os.environ.pop("OPENAI_API_KEY", None)
-        goals, err = openai_compat.plan({"objects": []}, endpoint="http://127.0.0.1:9/v1",
+        goals, err, raw = openai_compat.plan({"objects": []}, endpoint="http://127.0.0.1:9/v1",
                                         model="x", timeout_s=2)
         self.assertIsNone(goals)
         self.assertTrue(err.startswith("http 실패"))
 
 
+    def test_prose_wrapped_array(self):
+        import io
+        body = json.dumps({"choices": [{"message": {"role": "assistant",
+                 "content": '생각 중...\n[{"step": 1, "skill": "say", "target": "hi", "relation": "", "offset_m": 0.0}]'}}]}).encode()
+
+        class FakeRes:
+            def __enter__(self):
+                return self
+            def __exit__(self, *a):
+                return False
+            def read(self):
+                return body
+
+        with mock.patch("backends.openai_compat.urllib.request.urlopen", return_value=FakeRes()):
+            goals, err, raw = openai_compat.plan({"objects": []}, endpoint="http://127.0.0.1:9/v1",
+                                            model="x", timeout_s=2)
+        self.assertIsNone(err)
+        self.assertEqual(goals[0]["skill"], "say")
+        self.assertIn("생각 중", raw)
+
+
 class TestOllama(unittest.TestCase):
-    def test_defaults(self):
+    def _fake_urlopen(self, body):
+        class FakeRes:
+            def __enter__(self):
+                return self
+            def __exit__(self, *a):
+                return False
+            def read(self):
+                return body
+        return FakeRes()
+
+    def _run(self, req, **kw):
         seen = {}
 
-        def fake(req, **kw):
-            seen.update(kw)
-            return None, "x"
+        def fake(urlopen_req, timeout=None):
+            seen["url"] = urlopen_req.full_url
+            seen["body"] = json.loads(urlopen_req.data)
+            return self._fake_urlopen(json.dumps(
+                {"message": {"content": json.dumps(GOOD)}}).encode())
 
-        with mock.patch("backends.openai_compat.plan", fake):
-            ollama.plan({"objects": []})
-        self.assertEqual(seen, {"endpoint": "http://localhost:11434/v1",
-                                "model": "llama4", "timeout_s": 120})
+        with mock.patch("backends.ollama.urllib.request.urlopen", fake):
+            goals, err, raw = ollama.plan(req, **kw)
+        return seen, goals, err
+
+    def test_defaults(self):
+        seen, goals, err = self._run({"objects": []})
+        self.assertIsNone(err)
+        self.assertEqual(goals, GOOD)
+        self.assertEqual(seen["url"], "http://localhost:11434/api/chat")
+        self.assertEqual(seen["body"]["model"], "llama4")
+        self.assertEqual(seen["body"]["options"], {"num_ctx": ollama.NUM_CTX})
+        self.assertFalse(seen["body"]["think"])
+        self.assertEqual(seen["body"]["format"], "json")
 
     def test_explicit_passthrough(self):
-        seen = {}
+        seen, goals, err = self._run({"objects": []}, model="m", endpoint="http://x:1/v1",
+                                     timeout_s=5, system="임무")
+        self.assertIsNone(err)
+        self.assertEqual(seen["url"], "http://x:1/api/chat")
+        self.assertEqual(seen["body"]["model"], "m")
+        self.assertTrue(seen["body"]["messages"][0]["content"].startswith("시스템: 임무"))
 
-        def fake(req, **kw):
-            seen.update(kw)
-            return None, "x"
 
-        with mock.patch("backends.openai_compat.plan", fake):
-            ollama.plan({"objects": []}, model="m", endpoint="http://x:1/v1", timeout_s=5)
-        self.assertEqual(seen, {"endpoint": "http://x:1/v1", "model": "m", "timeout_s": 5})
+class TestClaudeSession(unittest.TestCase):
+    def test_result_string_unwrapped(self):
+        from backends import claude_cli
+
+        class FakeProc:
+            returncode = 0
+            stdout = json.dumps({"result": json.dumps(GOOD), "is_error": False})
+            stderr = ""
+
+        with mock.patch("shutil.which", return_value="/usr/bin/claude"), \
+            mock.patch("subprocess.run", return_value=FakeProc()):
+            goals, err, raw = claude_cli.plan({"objects": []})
+        self.assertIsNone(err)
+        self.assertEqual(goals, GOOD)
 
 
 if __name__ == "__main__":

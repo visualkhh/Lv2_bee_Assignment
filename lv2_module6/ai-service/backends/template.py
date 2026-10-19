@@ -13,14 +13,15 @@ def find(objects, cls):
 
 
 def plan(req):
+    """→ (goals, err, raw) — 템플릿은 LLM을 안 쓰므로 raw는 항상 ""."""
     objects = req.get("objects", [])
     puck = find(objects, "puck")
     goal = find(objects, "goal_zone")
     if not puck or not goal:
-        return None, "puck·goal_zone 없음 — 계획 보류"
+        return None, "puck·goal_zone 없음 — 계획 보류", ""
     return [
         {"step": 1, "skill": "navigate", "target": puck, "relation": "front", "offset_m": 0.2},
         {"step": 2, "skill": "pick", "target": puck, "relation": "", "offset_m": 0.0},
         {"step": 3, "skill": "navigate", "target": goal, "relation": "front", "offset_m": 0.2},
         {"step": 4, "skill": "place", "target": goal, "relation": "on", "offset_m": 0.0},
-    ], None
+    ], None, ""

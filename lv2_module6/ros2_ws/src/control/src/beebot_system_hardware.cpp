@@ -19,7 +19,7 @@ CallbackReturn BeebotSystemHardware::on_init(const hardware_interface::HardwareC
   const auto & hp = info_.hardware_parameters;
   mock_ = hp.count("mock") && (hp.at("mock") == "true" || hp.at("mock") == "True");
   mock_effort_ = hp.count("mock_effort") ? std::stod(hp.at("mock_effort")) : 0.0;
-  port_ = hp.count("port") ? hp.at("port") : "/dev/ttyACM0";
+  port_ = hp.count("port") ? hp.at("port") : "/dev/opencr";
   imu_ = info_.sensors.empty() ? "imu" : info_.sensors.front().name;
   if (!mock_) {  // 실기 프로토콜은 관절 순서가 고정 — URDF와 다르면 시작하지 않는다
     const auto in_urdf = [this](const char * name) {
@@ -186,7 +186,16 @@ bool BeebotSystemHardware::apply_state(const std::string & text) {
     set_state(std::string(name) + "/velocity", v[i++]);
   }
   for (const auto * name : ARM) {
-    set_state(std::string(name) + "/position", v[i++]);
+    double p = v[i++];
+    // 시리얼은 소수 넷째 자리(%.4f) — 한계값 명령(π = 3.14159)이 3.1416으로 오가며 한계를 0.0001쯤 넘는다.
+    // 그대로 내보내면 MoveIt이 출발 자세가 한계 밖이라며 모든 계획을 거부했음 (START_STATE_INVALID) → 반올림만큼 넘은 건 한계로
+    const auto lim = info_.limits.find(name);
+    if (lim != info_.limits.end() && lim->second.has_position_limits) {
+      const double lo = lim->second.min_position, hi = lim->second.max_position;
+      if (p > hi && p - hi < 1e-3) p = hi;
+      if (p < lo && lo - p < 1e-3) p = lo;
+    }
+    set_state(std::string(name) + "/position", p);
     set_state(std::string(name) + "/velocity", v[i++]);
     set_state(std::string(name) + "/effort", v[i++]);
   }

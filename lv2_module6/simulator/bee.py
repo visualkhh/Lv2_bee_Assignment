@@ -27,7 +27,7 @@ sys.path.insert(0, str(HERE))
 
 from bridge import (DEBUG, cancel_action_goal, read_action_file, read_action_list,
                     read_interface_info, read_msg, read_service_list, read_service_response,
-                    read_topic_list, request_interface_info, send, send_action_goal, send_bool,
+                    read_topic_list, request_interface_info, cmd_manual_mode, send, send_action_goal, send_bool,
                     send_service_request, send_twist)
 
 
@@ -43,23 +43,23 @@ def wait_for(fn, match, timeout, interval=0.2):
 
 
 def cmd_user(args):
-    send('/user_command', 'std_msgs/msg/String', {'data': args.text})
-    print(f'보냄 /user_command: {args.text}')
+    send('/cmd/user_command', 'std_msgs/msg/String', {'data': args.text})
+    print(f'보냄 /cmd/user_command: {args.text}')
 
 
 def cmd_estop(args):
-    send_bool('/e_stop', args.state == 'on')
-    print(f'/e_stop = {args.state}')
+    send_bool('/cmd/e_stop', args.state == 'on')
+    print(f'/cmd/e_stop = {args.state}')
 
 
 def cmd_manual(args):
-    send_bool('/manual/enable', args.state == 'on')
-    print(f'/manual/enable = {args.state} (operation_mode {"MANUAL" if args.state == "on" else "AUTO"})')
+    cmd_manual_mode(args.state == 'on')
+    print(f'/cmd/operation_mode = {"MANUAL" if args.state == "on" else "AUTO"} (결과 /state/operation_mode)')
 
 
 def cmd_twist(args):
     send_twist(args.v, args.w)
-    print(f'/manual/cmd_vel v={args.v} w={args.w} (수동 모드에서만 동작)')
+    print(f'/cmd/manual/cmd_vel v={args.v} w={args.w} (수동 모드에서만 동작)')
 
 
 def cmd_service(args):
@@ -145,7 +145,7 @@ def cmd_interface(args):
 def cmd_status(_):
     data, _ = read_msg('task_status')
     print(f"작업: {data if data else '(없음 — test-faker 실행 중인지 확인)'}")
-    data, _ = read_msg('operation_mode')
+    data, _ = read_msg('state/operation_mode')
     print(f"운영 모드: {data['data'] if data else '(없음)'}")
     data, _ = read_msg('odom')
     print(f"위치(odom): {data['pose']['pose']['position'] if data else '(없음)'}")
@@ -165,7 +165,7 @@ def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest='cmd')
 
-    s = sub.add_parser('user', help='텍스트 명령 → /user_command');
+    s = sub.add_parser('user', help='텍스트 명령 → /cmd/user_command');
     s.add_argument('text');
     s.set_defaults(fn=cmd_user)
 

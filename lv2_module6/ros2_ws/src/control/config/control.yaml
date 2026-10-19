@@ -8,5 +8,10 @@ manual_control:
   ros__parameters:
     arm_joints: [joint1, joint2, joint3, joint4, joint5]
     gripper_joint: gripper_left_joint
-    arm_move_s: 1.0          # [s] /manual/arm 목표까지 걸리는 시간 (JTC 궤적 한 점)
+    arm_move_s: 1.0          # [s] /cmd/manual/arm 목표까지 걸리는 시간 (JTC 궤적 한 점)
     cmd_timeout_s: 0.5       # [s] 수동 바퀴 명령이 이보다 오래 끊기면 0
+body_filter:
+  ros__parameters:
+    input_topic: /pole_cam/depth/color/points
+    output_topic: /pole_cam/depth/color/points_filtered   # Nav2 costmap·collision_monitor가 본다
+    padding: 0.03            # [m] 충돌 상자를 이만큼 키워서 뺀다 — 깊이 노이즈로 팔 가장자리 점이 남으면 키울 것

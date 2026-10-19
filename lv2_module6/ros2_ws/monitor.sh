@@ -2,7 +2,7 @@
 # monitor_manager만 실행 — 보이는 토픽의 최신 메시지를 <debug>/topic/<토픽>/ 에 저장 (시뮬레이터 상태·영상이 읽음)
 #
 #   ./monitor.sh                      # 저장: 이 스크립트 위치의 위 debug/ (저장소: lv2_module6/debug), 원본 영상 제외
-#   ./monitor.sh -D 9                 # ROS_DOMAIN_ID 지정 (Pi와 같은 값, --domain 9 도 같음)
+#   ./monitor.sh -D 8                 # ROS_DOMAIN_ID 지정 (Pi와 같은 값, --domain 8 도 같음)
 #   ./monitor.sh -d ~/lv2_debug       # debug 폴더 지정 (그 아래 topic/에 저장)
 #   ./monitor.sh --raw                # 원본 영상(sensor_msgs/Image)도 저장 (같은 컴퓨터에서만 권장)
 #   ./monitor.sh -x /pole_cam/color/camera_info -x /tf   # 토픽 제외 (여러 번)

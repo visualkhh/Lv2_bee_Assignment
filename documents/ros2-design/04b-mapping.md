@@ -24,20 +24,20 @@ flowchart LR
 | --- | --- |
 | 카메라 | `/pole_cam/color/image_raw` + `/pole_cam/aligned_depth_to_color/image_raw` + `camera_info` |
 | 오도메트리 | `/odometry/filtered` (EKF, 휠+IMU). `visual_odometry:=false` — 하향 카메라는 시각 오도메트리가 약하다 |
-| 고정 파라미터 | `frame_id:=base_footprint`, `Reg/Force3DoF true` (x·y·yaw만), `Grid/Sensor 1` (depth로 2D지도) |
+| 고정 파라미터 | `frame_id:=base_footprint`, `Reg/Force3DoF true` (x·y·yaw만), `Grid/Sensor 0` + `subscribe_scan_cloud` = body_filter의 `/pole_cam/depth/color/points_filtered` (자기 몸 뺀 점구름으로 2D지도 — depth 영상(1)으로 하면 pole_cam에 찍힌 팔이 로봇 둘레 벽으로 남아 출발점이 늘 장애물, 실측) |
 | 속도 | 0.1~0.15m/s로 천천히 |
 
 ### 절차
 
 ```bash
 # 1) 매핑 — 기존 DB를 지우고 새로 (-d)
-ros2 launch rtabmap_launch rtabmap.launch.py rgb_topic:=/pole_cam/color/image_raw depth_topic:=/pole_cam/aligned_depth_to_color/image_raw camera_info_topic:=/pole_cam/color/camera_info frame_id:=base_footprint odom_topic:=/odometry/filtered visual_odometry:=false approx_sync:=true qos:=1 rtabmap_args:="-d --Reg/Force3DoF true --Grid/Sensor 1"
+ros2 launch rtabmap_launch rtabmap.launch.py rgb_topic:=/pole_cam/color/image_raw depth_topic:=/pole_cam/aligned_depth_to_color/image_raw camera_info_topic:=/pole_cam/color/camera_info frame_id:=base_footprint odom_topic:=/odometry/filtered visual_odometry:=false approx_sync:=true qos:=1 subscribe_scan_cloud:=true scan_cloud_topic:=/pole_cam/depth/color/points_filtered rtabmap_args:="-d --Reg/Force3DoF true --Grid/Sensor 0"
 
 # 2) (선택) Nav2·RViz용 2D 지도 파일 따로 보관
 ros2 run nav2_map_server map_saver_cli -f ~/maps/home
 
 # 3) 운영 — 같은 DB로 위치추정만
-ros2 launch rtabmap_launch rtabmap.launch.py rgb_topic:=/pole_cam/color/image_raw depth_topic:=/pole_cam/aligned_depth_to_color/image_raw camera_info_topic:=/pole_cam/color/camera_info frame_id:=base_footprint odom_topic:=/odometry/filtered visual_odometry:=false approx_sync:=true qos:=1 localization:=true rtabmap_args:="--Reg/Force3DoF true --Grid/Sensor 1"
+ros2 launch rtabmap_launch rtabmap.launch.py rgb_topic:=/pole_cam/color/image_raw depth_topic:=/pole_cam/aligned_depth_to_color/image_raw camera_info_topic:=/pole_cam/color/camera_info frame_id:=base_footprint odom_topic:=/odometry/filtered visual_odometry:=false approx_sync:=true qos:=1 localization:=true subscribe_scan_cloud:=true scan_cloud_topic:=/pole_cam/depth/color/points_filtered rtabmap_args:="--Reg/Force3DoF true --Grid/Sensor 0"
 ```
 
 1. 텔레옵으로 천천히 한 바퀴 — 같은 장소를 다른 방향에서도 보고 출발점으로 돌아와 루프 클로저.

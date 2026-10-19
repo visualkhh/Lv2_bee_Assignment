@@ -16,6 +16,7 @@ InputManager::InputManager()
 
 void InputManager::scan(bool initial) {
   std::error_code ec;
+  std::vector<fs::path> done;
   for (auto it = fs::recursive_directory_iterator(input_dir_, ec); !ec && it != fs::recursive_directory_iterator();
     it.increment(ec))
   {
@@ -25,12 +26,13 @@ void InputManager::scan(bool initial) {
     const auto mtime = fs::last_write_time(it->path(), ec);
     if (ec || mtime == in.mtime) continue;
     in.mtime = mtime;
-    if (initial) {
-      RCLCPP_INFO(get_logger(), "기존 파일은 건너뜀 (바뀌면 발행): %s", topic.c_str());
-      continue;
-    }
-    load(topic, it->path(), in);
+    // 요청은 한 번만: 읽은 파일은 발행하기 전에 지운다 — 다시 떠도(재시작) 같은 요청을 또 발행하지 않게 (/cmd/restart가 되풀이되던 것)
+    // 시작할 때 남아 있던 파일 = 지난 실행의 요청 → 발행하지 않고 지움
+    if (!initial) load(topic, it->path(), in);
+    else RCLCPP_INFO(get_logger(), "지난 요청 파일은 발행하지 않고 지움: %s", topic.c_str());
+    done.push_back(it->path());
   }
+  for (const auto & p : done) fs::remove(p, ec);  // 도는 중에 지우지 않고 다 돈 뒤에
   for (auto & [topic, in] : inputs_) flush(topic, in);
 }
 
@@ -46,6 +48,10 @@ void InputManager::load(const std::string & topic, const fs::path & file, Input 
     return;
   }
   const std::string type = doc["type"].GetString();
+  if (topic.rfind("/state/", 0) == 0) {  // 상태 토픽은 state_manager만 발행 — 바꾸려면 요청 토픽 /cmd/<이름>
+    RCLCPP_WARN(get_logger(), "%s: /state/* 는 state_manager만 발행 — /cmd/<이름> 으로 보낼 것", topic.c_str());
+    return;
+  }
   try {
     if (type != in.type) {
       in.parser = std::make_shared<RosMsgParser::Parser>(

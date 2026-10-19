@@ -31,24 +31,30 @@ jobs:
       - name: Build testbed image
         run: docker build -f docker/Dockerfile -t lv2-module6:testbed .
       - name: test-all (serial → firmware → packages → hardware → bringup → faker)
-        # 소스·스케치는 이미지에 없고 compose 볼륨으로만 연결되므로 마운트 필수.
+        # 평소 11~13분. 어딘가 멈추면 6시간 한도까지 러너를 잡아먹으므로 30분에서 끊는다 (실패 → debug 수집은 돈다)
+        timeout-minutes: 30
+        # 소스·스케치는 이미지에 없고 compose 볼륨으로만 연결되므로 마운트 필수 (docker-compose.yml과 같은 경로 — 빌드 산출물은 컨테이너 안).
         run: |
-          docker run -d --name testbed \
+          docker run -d --name testbed --shm-size=4g \
+            -e ROS_DOMAIN_ID=8 -e ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET -e FASTDDS_DEFAULT_PROFILES_FILE=/ws/src/ros_system/config/fastdds.xml \
             -v ${{ github.workspace }}/lv2_module6/ros2_ws/src:/ws/src \
-            -v ${{ github.workspace }}/lv2_module6/ros2_ws/urdf:/ws/urdf:ro \
-            -v ${{ github.workspace }}/lv2_module6/firmware:/ws/firmware \
-            -v ${{ github.workspace }}/lv2_module6/debug:/ws/debug \
+            -v ${{ github.workspace }}/lv2_module6/ros2_ws/model:/ws/model \
+            -v ${{ github.workspace }}/lv2_module6/urdf:/ws/urdf \
+            -v ${{ github.workspace }}/lv2_module6/ros2_ws/map:/ws/map \
+            -v ${{ github.workspace }}/lv2_module6/firmware:/firmware \
+            -v ${{ github.workspace }}/lv2_module6/debug:/debug \
             lv2-module6:testbed sleep infinity
           # docker run -d는 entrypoint(가상 시리얼 브릿지 준비)를 기다리지 않음 → 준비 완료 표시까지 대기
           timeout 30 bash -c 'until docker exec testbed test -e /run/testbed-ready; do sleep 0.5; done' \
             || { echo "FAIL: testbed 준비 안 됨"; docker logs testbed; exit 1; }
+          # 시뮬레이터 없이 — test-faker는 배관(joint_states · odom · Nav2 · monitor)만 보고 작업 흐름은 건너뛴다
           docker exec testbed test-all
       - name: Package deploy (install + firmware + scripts)
         # 실기에 바로 올릴 수 있는 묶음 (최상위 폴더 없이):
         #   install/                       ROS 2 패키지 (build/는 컴파일 중간 산출물이라 불필요) — 이 러너 아키텍처용
         #   firmware/                      lv2_module6/firmware 폴더 전체 (스케치·upload.sh·README)
-        #   firmware/build/<스케치>/*.bin  test-firmware가 컴파일한 결과 (OpenCR용이라 아키텍처 무관)
-        #   *.sh                           lv2_module6/ros2_ws의 실행 스크립트 전부
+        #   firmware/build/<스케치>/*.bin  test-firmware가 컴파일한 결과 (/debug/firmware에서 복사 — OpenCR용이라 아키텍처 무관)
+        #   *.sh                           lv2_module6/ros2_ws의 실행 스크립트 전부 + docker/*.sh (entrypoint.sh 제외)
         #   ARCH                           이 패키지의 아키텍처 (start.sh가 확인)
         # - install: test-bringup이 --symlink-install로 빌드 → cp -L로 링크 대상 실제 파일을 담음.
         # tar로 묶어 실행 권한 보존 (zip은 권한을 잃음).
@@ -57,9 +63,13 @@ jobs:
           docker exec testbed bash -c 'rm -rf /tmp/pkg && mkdir -p /tmp/pkg && cp -rL /ws/install /tmp/pkg/'
           rm -rf ros2_ws && docker cp testbed:/tmp/pkg ros2_ws
           cp -r lv2_module6/firmware ros2_ws/firmware
-          [ -d ros2_ws/firmware/build ] || { echo "FAIL: 펌웨어 빌드 없음 (test-firmware 미실행?)"; exit 1; }
+          # test-firmware는 컴파일 결과를 /debug/firmware/<스케치>/ 에 둔다 (= 러너 lv2_module6/debug/firmware, 바인드)
+          [ -d lv2_module6/debug/firmware ] || { echo "FAIL: 펌웨어 빌드 없음 (test-firmware 미실행?)"; exit 1; }
+          rm -rf ros2_ws/firmware/build && cp -r lv2_module6/debug/firmware ros2_ws/firmware/build
           find ros2_ws/firmware/build -type f ! -name '*.bin' -delete
           cp lv2_module6/ros2_ws/*.sh ros2_ws/
+          cp docker/*.sh ros2_ws/   # test-*.sh · build-ws.sh · ros-kill.sh · ros-restart.sh (entrypoint.sh 제외 — 컨테이너 전용)
+          rm -f ros2_ws/entrypoint.sh
           echo "${{ matrix.arch }}" > ros2_ws/ARCH
           tar -czf "$PACKAGE" -C ros2_ws .
           ls -lh "$PACKAGE" && tar -tzf "$PACKAGE" | grep -E "^\./(ARCH|firmware/build/)|\.sh$"
@@ -92,13 +102,13 @@ jobs:
         run: |
           git tag -f lv2-module6-submit "$GITHUB_SHA"
           git push -f origin refs/tags/lv2-module6-submit
-      # 테스트 로그(토픽 echo·input/hardware/serial·output/hardware/serial)는 실패했을 때만 원인 확인용으로 올린다.
+      # 테스트 로그(monitor_manager 기록·input/hardware/serial·output/hardware/serial)는 실패했을 때만 원인 확인용으로 올린다.
       - name: Collect debug (실패 시)
         # launch 로그 · 토픽 기록 · input/hardware/serial·output/hardware/serial · 패키지 테스트 결과
         if: failure()
         run: |
-          docker exec testbed bash -c 'cp /tmp/*.log /ws/debug/ 2>/dev/null; mkdir -p /ws/debug/test_results && for d in /ws/build/*/test_results; do cp -r "$d" "/ws/debug/test_results/$(basename "$(dirname "$d")")"; done' || true
-          docker cp testbed:/ws/debug ./debug && find ./debug -type f | sort
+          docker exec testbed bash -c 'cp /tmp/*.log /debug/ 2>/dev/null; mkdir -p /debug/test_results && for d in /ws/build/*/test_results; do cp -r "$d" "/debug/test_results/$(basename "$(dirname "$d")")"; done' || true
+          docker cp testbed:/debug ./debug && find ./debug -type f | sort
       - uses: actions/upload-artifact@v7
         if: failure()
         with:

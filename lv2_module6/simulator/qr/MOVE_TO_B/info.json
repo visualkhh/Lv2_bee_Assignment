@@ -1,0 +1,10 @@
+{
+  "text": "MISSION:MOVE_TO_B",
+  "name": "B 지역으로 옮기기 (수납)",
+  "pucks": 4,
+  "colors": 2,
+  "lying": [
+    0,
+    0
+  ]
+}

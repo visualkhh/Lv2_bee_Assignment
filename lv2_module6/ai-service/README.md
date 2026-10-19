@@ -1,7 +1,9 @@
 # 호스트 VLM HTTP (`ai-service/`)
 
 컨테이너 `vlm_task_planner`가 호출하는 호스트 서버. 키·모델·CLI는 여기, 컨테이너는 호출만.
-
+```shell
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt   # 최초 1회
+```
 ```bash
 ./test.sh                                                        # 34개, 외부 호출 없음 (CLI·HTTP 전부 스텁)
 ./server.sh [--port 8000] [--host 127.0.0.1] [--config config.json]
@@ -18,12 +20,12 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt   # 최초 1�
 * `tests/test_server.py` — goals 검증·이미지 검사·디스패치
 * `tests/test_backends.py` — template·opencode 파서(JSONL 포함)·ollama 위임
 * 진짜 모델 호출은 테스트에 없음. 수동 확인은 서버 띄우고 `POST /plan` (한도·과금 주의)
-* 로그: 요청 건당 `log/plan-날짜-시간-rand/` 에 `request.json`·`response.json`·`request-image1.png`·`request-image2.png` (gitignore, 이미지 원문은 PNG 파일로만·request.json엔 파일명+용량)
+* 로그: 요청 건당 `log/plan-날짜-시간-rand/` 에 `request.json`(원문)·`response.json`(`{code, resp}`)·`ai.json`(`{backend, model, endpoint, timeout_s, request:{time, elapsed_s, prompt}, response:{time, elapsed_s, raw}}` AI 송수신)·`request-image1.png`·`request-image2.png` (gitignore, 이미지 원문은 PNG 파일로만)
 
-기본값은 `config.json`(opencode 내용). 대안은 `config/`에 백엔드별로 (`template`·`claude`·`ollama`) — `--config`로 고르면 된다.
+기본값은 `config.json`(opencode 내용). 대안은 `config/`에 백엔드별로 (`template`·`claude`·`ollama`·`opencode`) — `--config`로 고르면 된다.
 
 * `POST /plan` → `{"ok": true, "goals": [...]}` 또는 `{"ok": false, "error"}` (후자면 컨테이너는 템플릿 폴백)
-* 요청: `command`·`objects[{id, class_name}]`·`images[{data_b64}]`(320px JPEG, 장당 500KB 제한)·`replan{plan_id, failed_step, reason}`·`history[{role, text}]`(선택, 최근 20개·개당 500자까지 프롬프트에 포함 — 서버는 저장 안 함)
+* 요청: `command`·`objects[{id, class_name, position(map), size, confidence, color, camera, px{카메라: [u, v]}}]`(컨테이너 vlm_task_planner가 `/tracked_objects`에서 — px는 그 카메라 영상 속 박스 중심, 이미지 마킹에 씀)·`robot{x, y, yaw}`(map, 로봇 위치 — 프롬프트에 물체마다 거리 dist를 붙여 팔이 안 닿으면 navigate를 먼저 넣게)·`images[{data_b64}]`(320px JPEG, 장당 500KB 제한)·`replan{plan_id, failed_step, reason}`·`history[{role, text}]`(선택, 최근 20개·개당 500자까지 프롬프트에 포함 — 서버는 저장 안 함)
 * 출력 검증은 coordinator와 동일(허용 동작·대상 id·step 순서) — 실패면 `ok:false`
 * 백엔드는 `backends/`: `template`(기본·오프라인) · `claude_cli` · `opencode_cli`(`opencode run --format json`, `--model`·`--file` 첨부) · `ollama`(로컬, 키 불필요) · `openai_compat`(외부사, `OPENAI_API_KEY`는 환경변수, localhost는 키 불필요) — `config.json`의 `backend`로 전환, 계약은 유지.
 
@@ -38,6 +40,8 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt   # 최초 1�
 | `ai.model` | CLI·API에 넘길 모델명. `"default"`면 각자 기본값 사용 |
 | `ai.endpoint` | `openai_compat`·`ollama` 전용 — 뒤에 `/chat/completions`가 붙는다. CLI·template 백엔드는 안 씀 (config에 없어도 됨) |
 | `ai.timeout_s` | 백엔드 호출 제한 [초] (기본 60) — 넘기면 `{"ok": false, "error"}` 반환, 컨테이너는 템플릿 폴백 |
+| `ai.system_file` | 시스템 프롬프트 파일 (모든 설정 기본 **`system_prompt.md`** — 역할 · 미션 · 로봇 · 입력 읽는 법 · 허용 동작 · 규칙 · 재계획 사유별 대응 · 출력 형식). 요청마다 읽어서 고쳐도 서버 재시작 불필요, 상대 경로는 이 폴더 기준 |
+| `ai.system` | 덧붙일 말 (기본 `""`) — `system_file` 내용 뒤에 붙음. 합친 것이 맨 앞에 `시스템: …`으로 들어감. `openai_compat`·`ollama`는 `system` 역할 메시지로, CLI 백엔드는 텍스트 앞에 붙여서 전송 |
 
 백엔드별 `model` 해석:
 

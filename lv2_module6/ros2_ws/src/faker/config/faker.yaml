@@ -1,28 +1,27 @@
 # faker 패키지 파라미터 — faker.launch.py가 노드에 넘긴다. fail_count·debug_dir은 launch 인자가 덮어쓴다
-pole_cam:                    # fake_camera (realsense2_camera 대역) — 장면은 시뮬레이터가 live_dir에 쓴다
+pole_cam:                    # fake_camera (realsense2_camera 대역) — 시뮬레이터가 live_dir에 쓴 프레임만 낸다 (없으면 아무것도 안 냄)
   ros__parameters:
-    width: 640
+    width: 640               # 출력 크기 (렌더가 더 작으면 확대 — 깊이는 보간 없이)
     height: 480
-    period_s: 0.0333         # 30fps
-    hfov_deg: 69.0           # D435 컬러 수평 화각 — 시뮬레이터 렌더와 같아야 한다
+    poll_s: 0.02             # 메타(<이름>.json) 확인 주기 — 발행은 새 프레임마다 (렌더 속도 = 약 5Hz). 화각은 메타의 hfov_deg
     cloud_step: 4            # 점구름: depth 4픽셀마다 한 점
     live_dir: /debug/input/hardware/camera
 gripper_cam:
   ros__parameters:
     width: 640
     height: 480
-    period_s: 0.0667         # 15fps
-    hfov_deg: 69.0
+    poll_s: 0.02
     cloud_step: 4
     live_dir: /debug/input/hardware/camera
-controller_server:           # fake_nav2 (Nav2 대역)
+fake_opencr:                 # OpenCR 대역 (C→물리→S, 유일한 OpenCR) — 아래 환경 값은 실행 중 변경 가능 (시뮬레이터 버튼)
   ros__parameters:
-    nav_time_s: 2.0          # NavigateToPose 하나에 걸리는 시간
-    fail_count: 0            # 처음 N번 ABORTED
-move_group:                  # fake_moveit (move_group + MTC 대역)
-  ros__parameters:
-    exec_time_s: 1.0         # ExecuteTaskSolution 하나에 걸리는 시간
-    fail_count: 0            # 처음 N번 실패
+    serial_in: /debug/input/hardware/serial    # S 상태 씀
+    serial_out: /debug/output/hardware/serial  # C 명령 읽음
+    slip: 0.0                # 미끄럼 (0 = 없음)
+    friction: 1.0            # 가속 한계 배율
+    noise: 0.01              # IMU yaw rate 잡음 [rad/s]
+    comm_down: false         # true면 C를 안 읽고 S를 안 보냄 (통신 끊김)
+    arm_grabbed: false       # true면 팔 고정 + 과전류 (붙잡힘)
 monitor_manager:             # 토픽 → debug/output/topic/<토픽>/message · image.jpg
   ros__parameters:
     debug_dir: /debug
@@ -32,9 +31,9 @@ input_manager:               # debug/input/topic/<토픽>/message → 토픽
   ros__parameters:
     debug_dir: /debug
     period_s: 0.2
-rl_nav_tuner:                # fake_ml — ml 대역 (ml:=fake). grasp_scorer 대역은 파라미터 없음
+rl_nav_tuner:                # fake_rl_nav_tuner — ml 대역 (ml:=fake 또는 rl_nav_tuner:=fake). fake_grasp_scorer는 파라미터 없음
   ros__parameters:
     speed_percent: 100.0     # 고정 속도 상한 [%]
-rl_nav_correction:
+rl_nav_correction:           # fake_rl_nav_correction
   ros__parameters:
     max_vel_x: 0.26          # [m/s] /speed_limit 백분율의 기준

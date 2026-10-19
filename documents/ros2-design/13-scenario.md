@@ -29,7 +29,7 @@ sequenceDiagram
     participant G as grasp_scorer
     participant M as move_group (MTC)
     U->>I: ⌨️ “빨간 퍽을 목표 구역으로 옮겨”
-    I->>V: ✉️ /user_command "빨간 퍽을 목표 구역으로 옮겨" (std_msgs/String)
+    I->>V: ✉️ /cmd/user_command "빨간 퍽을 목표 구역으로 옮겨" (std_msgs/String)
     V->>C: ✉️ /sub_goals [navigate, pick, navigate, place] (plan/SubGoalArray)
     C->>C: 검증 (허용 동작, id 존재) · 팔 stow
     C->>N: 🎬 /navigate_to_pose x 3.45, y 0.9, yaw 0 (nav2_msgs/action/NavigateToPose)
@@ -50,7 +50,7 @@ sequenceDiagram
 
 ### 1단계: 인식과 계획
 
-1. **사람:** "빨간 퍽을 목표 구역으로 옮겨" → /user_command
+1. **사람:** "빨간 퍽을 목표 구역으로 옮겨" → /cmd/user_command
 2. **perception:** pole_cam 영상·depth로 물체 추적
 
 ```yaml
@@ -244,7 +244,7 @@ sequenceDiagram
     participant N as Nav2
     Note over T: 지도와 맞는 장면 찾는 중 · map→odom 아직 없음
     U->>I: ⌨️ “빨간 퍽을 목표 구역으로 옮겨”
-    I->>V: ✉️ /user_command
+    I->>V: ✉️ /cmd/user_command
     V->>C: ✉️ /sub_goals
     C->>C: 검증 OK · map→odom TF 대기
     T-->>C: ✉️ /tf map→odom 발행 시작

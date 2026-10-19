@@ -14,7 +14,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 # 🛠 노드 빌드에 필요한 메시지·인터페이스 + 도커에서 실제로 돌리는 📦 (ros2_control · robot_state_publisher · EKF)
 # + faker 파일 연동(rosx_introspection · OpenCV).
-# Nav2·MoveIt·RTAB-Map·RealSense 본체는 이미지가 수 GB로 커지므로 빼고 faker 대역을 쓴다 (실기 PC에만 설치).
+# RTAB-Map·RealSense 본체는 아직 빼고 faker 대역을 쓴다 (실기 PC에만 설치). Nav2·MoveIt은 아래에서 진짜를 설치.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-dev-tools \
     python3-colcon-common-extensions \
@@ -48,6 +48,61 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
+# 진짜 Nav2 — ros_system이 서버를 직접 띄운다 (nav2_bringup은 시뮬레이션 의존성까지 수백 개라 안 씀).
+# faker도 대역 없이 이걸 쓴다. map_server는 시뮬레이터·테스트용 코스 지도(faker/maps) (실기는 RTAB-Map이 지도·map→odom)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ros-lyrical-nav2-lifecycle-manager \
+    ros-lyrical-nav2-bt-navigator \
+    ros-lyrical-nav2-behavior-tree \
+    ros-lyrical-nav2-planner \
+    ros-lyrical-nav2-navfn-planner \
+    ros-lyrical-nav2-controller \
+    ros-lyrical-nav2-dwb-controller \
+    ros-lyrical-nav2-behaviors \
+    ros-lyrical-nav2-costmap-2d \
+    ros-lyrical-nav2-velocity-smoother \
+    ros-lyrical-nav2-collision-monitor \
+    ros-lyrical-nav2-map-server \
+    && rm -rf /var/lib/apt/lists/*
+
+# 진짜 move_group — beebot_moveit_config 설정으로 실기·테스트베드 둘 다 기동 가능.
+# 테스트베드도 이걸 쓴다 (mock 컨트롤러로 동작 — 대역 fake_moveit 삭제됨).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ros-lyrical-moveit-ros-move-group \
+    ros-lyrical-moveit-kinematics \
+    ros-lyrical-moveit-planners-ompl \
+    ros-lyrical-moveit-simple-controller-manager \
+    && rm -rf /var/lib/apt/lists/*
+
+# pick_ik — MoveIt IK 플러그인 (config/moveit/kinematics.yaml). Lyrical apt에 없어 소스로 빌드해 /opt/ros/lyrical에 설치.
+#   팔이 5축이라 기본 KDL은 "위치 + 위→아래 방향" 목표를 못 풀었음 (축이 모자란 팔 — pick_ik는 오차 비용을 줄여 해를 찾음).
+#   커밋 고정 (재현성): PickNikRobotics/pick_ik 7c97fe2 (2026-09-18)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git ros-lyrical-rsl ros-lyrical-generate-parameter-library ros-lyrical-moveit-core ros-lyrical-tf2-kdl \
+    librange-v3-dev libfmt-dev libexpected-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /tmp/pick_ik_ws/src && cd /tmp/pick_ik_ws/src \
+    && git clone https://github.com/PickNikRobotics/pick_ik.git && cd pick_ik && git checkout 7c97fe2 \
+    && cd /tmp/pick_ik_ws && . /opt/ros/lyrical/setup.sh \
+    && colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
+    && cp -r install/pick_ik/. /opt/ros/lyrical/ \
+    && rm -rf /tmp/pick_ik_ws
+# (colcon --install-base /opt/ros/lyrical 는 ROS의 setup.bash를 덮어써서 안 씀 — 패키지 폴더만 복사: lib · share · ament_index)
+
+# RTAB-Map (faker map:=slam · saved — pole_cam으로 지도 작성·위치추정. RealSense 본체는 faker 대역)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ros-lyrical-rtabmap-msgs \
+    ros-lyrical-rtabmap-ros \
+    && rm -rf /var/lib/apt/lists/*
+
+# YOLO perception (CPU 추론용) — torch CPU + ultralytics. libGL은 cv2용.
+# 모델 가중치는 ros2_ws/model/yolo/*.pt 로 커밋 (약 6MB) → perception이 share에 설치.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1 libglib2.0-0 python3-pip ros-lyrical-ament-cmake-pytest \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --break-system-packages --ignore-installed --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
+    && pip install --break-system-packages --ignore-installed --no-cache-dir ultralytics pytest
 
 # Arduino CLI (OpenCR 펌웨어 빌드·업로드용, Linux ARM64/x86_64 지원)
 # 근거: https://docs.arduino.cc/arduino-cli/installation (install.sh + BINDIR)
@@ -102,9 +157,12 @@ COPY docker/test-hardware.sh /usr/local/bin/test-hardware
 COPY docker/test-packages.sh /usr/local/bin/test-packages
 COPY docker/test-bringup.sh /usr/local/bin/test-bringup
 COPY docker/test-faker.sh /usr/local/bin/test-faker
-COPY docker/test-logger.sh /usr/local/bin/test-logger
 COPY docker/test-all.sh /usr/local/bin/test-all
-RUN chmod +x /entrypoint.sh /usr/local/bin/test-* \
+COPY docker/build-ws.sh /usr/local/bin/build-ws
+COPY docker/ros-restart.sh /usr/local/bin/ros-restart
+COPY docker/ros-faker-restart.sh /usr/local/bin/ros-faker-restart
+COPY docker/ros-kill.sh /usr/local/bin/ros-kill
+RUN chmod +x /entrypoint.sh /usr/local/bin/test-* /usr/local/bin/build-ws /usr/local/bin/ros-restart /usr/local/bin/ros-faker-restart /usr/local/bin/ros-kill \
     && echo "source /opt/ros/lyrical/setup.bash" >> /root/.bashrc \
     && echo "if [ -f /ws/install/setup.bash ]; then source /ws/install/setup.bash; fi" >> /root/.bashrc
 

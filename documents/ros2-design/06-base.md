@@ -72,7 +72,7 @@ flowchart TB
 | /cmd_vel_corrected | 토픽 | geometry_msgs/TwistStamped | rl_nav_correction → twist_mux (자동) | 20Hz |
 | /cmd_vel_manual | 토픽 | geometry_msgs/TwistStamped | manual_control → twist_mux (수동, 우선) | 수동 조작 시 |
 | /cmd_vel_mux | 토픽 | geometry_msgs/TwistStamped | twist_mux → velocity_smoother | 20Hz |
-| /e_stop | 토픽 | std_msgs/Bool | 운영자 → twist_mux (잠금) | 비상정지 |
+| /cmd/e_stop | 토픽 | std_msgs/Bool | 운영자 → state_manager → /state/emergency → twist_mux (잠금) | 비상정지 |
 | /cmd_vel_smoothed | 토픽 | geometry_msgs/TwistStamped | velocity_smoother → collision_monitor | 20Hz |
 | /cmd_vel | 토픽 | geometry_msgs/TwistStamped | collision_monitor → diff_drive_controller | 20Hz |
 | /odom | 토픽 | nav_msgs/Odometry | diff_drive_controller → ekf, rl_nav_correction | 50Hz |

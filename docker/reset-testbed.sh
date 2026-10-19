@@ -8,5 +8,5 @@ cd "$(dirname "$0")"
 docker compose down
 docker compose up -d --build
 docker compose exec lyrical bash -c 'while [ ! -f /run/testbed-ready ]; do sleep 1; done'
-docker compose exec -u root lyrical bash -c 'rm -rf /debug/* /ws/build /ws/install /ws/log /firmware/build'
+docker compose exec -u root lyrical bash -c 'rm -rf /debug/* /ws/build /ws/install /ws/log'
 docker compose exec lyrical bash -c "test-faker $DUR"

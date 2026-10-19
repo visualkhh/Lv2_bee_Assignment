@@ -54,7 +54,8 @@ flowchart TB
 | /tf, /tf_static | 토픽 | tf2_msgs/TFMessage | robot_state_publisher, rtabmap, ekf → 전체 | 10~100Hz |
 | /tracked_objects | 토픽 | 커스텀 TrackedObjectArray | perception → vlm_task_planner, coordinator, grasp_scorer | 10Hz · reliable |
 
-- **TrackedObject 한 항목:** id, class, map 기준 pose(+공분산), 크기, 신뢰도, 마지막 관측 시각. VLM·coordinator가 같은 물체를 id로 가리킨다.
+- **TrackedObject 한 항목:** id, class, map 기준 pose(+위치 공분산), 크기, 신뢰도, 마지막 관측 시각 + 마지막으로 본 카메라·박스 중심 px(VLM 이미지 마킹용) + 색(퍽·신호등). VLM·coordinator가 같은 물체를 id로 가리킨다. 필드별 뜻은 [API.md](../API.md#api-msg-trackedobject).
+- **두 카메라 융합 (객체 단위):** 카메라마다 컬러·정렬 depth를 시각 동기화해 박스 중심 + depth 중앙값으로 3D 점 1개 → **영상 시각의 TF**로 odom 변환(gripper_cam이 팔과 함께 움직여도 찍힌 순간 자세 — 추적·융합은 끊김 없는 odom에서, 발행 때 그 순간의 map ← odom으로 map 기준) → 같은 클래스·0.4m 안 트랙에 1:1 배정 → 칼만 갱신. 관측 공분산은 depth 축 σ = 0.005 + 0.01·z², 가로·세로 σ = 4px·z/f를 TF 회전으로 map에 — 가까운 gripper_cam이 자연히 무겁고, 두 카메라가 다른 방향에서 보면 서로의 depth 축 오차를 줄인다. 융합 전 카메라별 검출은 `/perception/<cam>/detections`(디버그·시뮬레이터 [감지 물체 보기]).
 - **/scan이 없다:** LiDAR를 쓰지 않으므로 LaserScan 기반 노드(slam_toolbox, amcl)는 빠진다. 거리 정보는 전부 RealSense depth에서 온다. 굳이 스캔이 필요하면 `pointcloud_to_laserscan`(target_frame=base_footprint, 높이 범위 지정)을 쓰고, `depthimage_to_laserscan`은 하향 카메라에선 바닥을 장애물로 잡으니 쓰지 않는다.
 - **RealSense 2대 운용:** 드라이버를 카메라마다 하나씩 띄우고 `serial_no`로 구분, `camera_namespace:=''`·`camera_name:=pole_cam / gripper_cam`으로 토픽을 위 이름에 맞춘다. 가능하면 서로 다른 USB 3 컨트롤러에 꽂고, 대역폭·CPU를 아끼려 640×480 · 15~30fps로 둔다. 둘 다 `align_depth.enable:=true`.
 - **gripper_cam 근접 한계:** D435 계열은 최소 측정 거리가 대략 0.2~0.3m라 그리퍼가퍽에 바짝 붙으면 depth가 비어 버린다. 근접 점구름이 중요하면 D405 같은 근거리 모델을 고르거나, 점구름은 접근 시작점(약 0.3m)에서 미리 찍어 둔다.

@@ -17,6 +17,9 @@
   <exec_depend>control</exec_depend>
   <exec_depend>ml</exec_depend>
   <exec_depend>plan</exec_depend>
+  <exec_depend>manager</exec_depend>
+  <exec_depend>nav2_map_server</exec_depend>
+  <exec_depend>nav2_lifecycle_manager</exec_depend>
 
   <test_depend>ament_cmake_test</test_depend>
 

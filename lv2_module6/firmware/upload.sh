@@ -3,7 +3,7 @@
 #
 #   ./upload.sh --setup              # 최초 1회: 툴 설치 (sudo 필요)
 #   ./upload.sh [포트] [스케치폴더]    # 컴파일 → .opencr 변환 → 업로드
-#                                     #   포트 기본 /dev/ttyACM0, 스케치 기본 이 폴더의 유일한 스케치
+#                                     #   포트 기본 /dev/opencr (udev), 없으면 /dev/ttyACM0, 스케치 기본 이 폴더의 유일한 스케치
 #
 # 왜 arduino-cli upload가 아닌가:
 #   ROBOTIS 보드 인덱스의 업로더(opencr_ld)·컴파일러(opencr_gcc)는 x86/Win/Mac 전용 → ARM엔 없음.
@@ -85,7 +85,7 @@ setup() {
 }
 
 upload() {
-  local port=${1:-/dev/ttyACM0}
+  local port=${1:-$([ -e /dev/opencr ] && echo /dev/opencr || echo /dev/ttyACM0)}
   local sketch=${2:-}
   if [ -z "$sketch" ]; then
     local found=("$HERE"/*/*.ino)

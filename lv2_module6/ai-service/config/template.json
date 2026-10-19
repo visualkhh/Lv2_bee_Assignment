@@ -1,8 +1,13 @@
 {
-  "http": {"host": "127.0.0.1", "port": 8003},
+  "http": {
+    "host": "127.0.0.1",
+    "port": 8000
+  },
   "ai": {
     "backend": "template",
     "model": "default",
-    "timeout_s": 60
+    "timeout_s": 60,
+    "system_file": "system_prompt.md",
+    "system": ""
   }
 }

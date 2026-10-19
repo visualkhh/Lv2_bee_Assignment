@@ -93,34 +93,43 @@ def _goals_from_text(text):
     return None, "응답에 goals 없음"
 
 
-def plan(req, model="default", timeout_s=60):
+def plan(req, model="default", timeout_s=60, system="", image_files=None):
+    """→ (goals, err, raw) — raw는 CLI 날출력 문자열 그대로 (파싱 실패해도 버리지 않음).
+    image_files가 있으면 로그 PNG 경로를 --file로 그대로 쓰고(stdin으로 프롬프트 전달),
+    없으면 base64를 임시 JPEG로 내려 --file로 첨부한다."""
     if shutil.which("opencode") is None:
-        return None, "opencode CLI 없음"
-    prompt = build(req) + "\n도구 사용 없이 JSON으로만 답하라."
+        return None, "opencode CLI 없음", ""
+    prompt = build(req, system) + "\n도구 사용 없이 JSON으로만 답하라."
     cmd = ["opencode", "run", "--format", "json"]
     if model and model != "default":
         cmd += ["--model", model]
     tmp = []
+    given = [f for f in (image_files or [])]
     try:
-        for im in prepare(req):  # 원본·마킹 최대 4장
-            try:
-                raw = base64.b64decode(im["data_b64"], validate=True)
-            except Exception:  # noqa: BLE001
-                return None, "이미지 base64 오류"
-            f = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg",
-                                            prefix=f"{im['camera']}-{im['kind']}-")
-            f.write(raw)
-            f.close()
-            tmp.append(f.name)
-            cmd += ["--file", f.name]
-        cmd.append(prompt)
+        if given:
+            for f in given:
+                cmd += ["--file", f]
+        else:
+            for im in prepare(req):  # 원본·마킹 최대 4장
+                try:
+                    raw = base64.b64decode(im["data_b64"], validate=True)
+                except Exception:  # noqa: BLE001
+                    return None, "이미지 base64 오류", ""
+                f = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg",
+                                                prefix=f"{im['camera']}-{im['kind']}-")
+                f.write(raw)
+                f.close()
+                tmp.append(f.name)
+                cmd += ["--file", f.name]
         try:
-            p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_s)
+            p = subprocess.run(cmd, input=prompt, capture_output=True, text=True,
+                               timeout=timeout_s)
         except subprocess.TimeoutExpired:
-            return None, "opencode timeout"
+            return None, "opencode timeout", ""
         if p.returncode != 0:
-            return None, f"opencode exit={p.returncode}: {p.stderr[:200]}"
-        return _goals_from_text(p.stdout)
+            return None, f"opencode exit={p.returncode}: {p.stderr[:200]}", p.stdout or ""
+        goals, err = _goals_from_text(p.stdout)
+        return goals, err, p.stdout
     finally:
         import os
 

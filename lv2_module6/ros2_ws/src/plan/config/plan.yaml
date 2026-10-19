@@ -7,8 +7,32 @@ vlm_task_planner:
     max_replans: 1           # 명령 하나당 재계획 횟수 (coordinator의 max_step_failures와 짝)
     vlm_endpoint: ""         # 비면 템플릿 고정(기본·CI). 호스트 ai-service면 "http://127.0.0.1:8000" (컨테이너 host망이라 localhost가 호스트)
     vlm_timeout_s: 120.0    # [s] VLM 대기 — 넘기면 템플릿 폴백
+    tray_capacity: 4         # MOVE_TO_B 템플릿이 한 번에 싣는 퍽 수 (coordinator tray_slots 칸 수와 같게)
 coordinator:
   ros__parameters:
     max_grasp_tries: 2       # 파지 후보를 점수순으로 몇 개까지 시도 (규칙 4)
     max_step_failures: 2     # 같은 단계가 이만큼 연속 실패하면 알리고 정지 (규칙 5)
     server_wait_s: 30.0      # [s] Nav2·MoveIt 서버가 뜰 때까지 기다리는 시간
+    arm_plan_tries: 3        # 팔 계획 실패 시 같은 목표로 다시 (IK·OMPL이 무작위라 닿는 곳도 가끔 못 찾음)
+    # 적재함 (MISSION ③ — target "tray"): 칸 [x, y, …] base_footprint. MoveIt 실측으로 손끝 아래 방향이 닿는 곳
+    #   (높이 0.22·0.17 6번씩: 앞줄 x −0.095 12/12 · 뒷줄 x −0.135 9/12 — 재시도로 메움, x −0.16 이후 거의 X — 폴·팔 길이).
+    #   적재함 안쪽 x −0.185~−0.075: 앞줄 −0.095가 지름 40mm 퍽의 앞벽 한계. 싣는 순서 = 뒷줄 → 앞줄, 꺼내기는 반대
+    #   ponytail: 앞뒤 간격 0.04 — 지름 40mm 퍽까지만 4개. 50~60mm 퍽은 뒷줄이 닿지 않는 곳(−0.155 이후)이 돼 한 줄(최대 3개)뿐 — 실제 퍽으로 정할 것
+    tray_slots: [-0.135, 0.05, -0.135, -0.05, -0.095, 0.05, -0.095, -0.05]
+    tray_release_z: 0.22     # [m] 싣기 — 칸 위 이 높이(손끝)에서 그리퍼를 벌림 (적재함 바닥 약 0.15)
+    tray_grasp_z: 0.17       # [m] 꺼내기 — 손끝 파지 높이 (퍽 높이 30~50mm의 가운데쯤)
+    tray_approach_m: 0.05    # [m] 꺼내기 접근·들어올리기 (0.10이면 0.27로 닿지 않음)
+    place_spacing: 0.08      # [m] 같은 곳(B 지역 판)에 여러 개 내려놓을 때 비키는 간격 (MISSION: 퍽 사이 0.08 이상)
+    # 팔이 닿게 다가가기 — pick · place <물체 id> 때 대상이 로봇 중심에서 reach_m 넘으면 먼저 approach_m 앞까지 navigate (단계마다 한 번)
+    #   바닥 퍽은 팔 회전축(차체 중심 앞 0.05)에서 수평 약 0.08~0.26 — 차체 중심 기준 약 0.13~0.31 (simulator 팔 범위 지도)
+    reach_m: 0.30
+    approach_m: 0.24         # [m] 다가간 뒤 로봇 중심 ~ 물체 중심 (범퍼 0.18 + 여유 — 팔 범위 가운데쯤)
+
+explorer:                    # 자동 탐사 — /state/operation_mode EXPLORE일 때 /map 프론티어로 Nav2 목표
+  ros__parameters:
+    min_frontier_cells: 8    # 이보다 작은 프론티어 덩어리는 무시 (칸 0.05m → 약 0.4m 입구)
+    blacklist_radius: 0.4    # [m] 도착·실패·시간 초과한 프론티어 근처는 다시 안 감
+    goal_timeout_s: 60.0     # [s] 목표 하나에 이보다 오래 걸리면 포기
+    empty_checks: 3          # 프론티어 없음이 1초 간격으로 이만큼 이어지면 탐사 끝 (지도 갱신 중일 수 있어서)
+    min_goal_dist: 0.4       # [m] 로봇에서 이보다 가까운 프론티어는 안 고름 — pole_cam이 로봇 바로 앞·아래(약 0.3m)를 못 봐 계속 '모름'으로 남음
+    goal_search_radius: 0.3  # [m] 프론티어에서 이 안의 '갈 수 있는 칸'(코스트맵에서 로봇과 이어짐)을 목표 자리로 · 로봇 칸이 막혔을 때 시작 칸 찾는 반경

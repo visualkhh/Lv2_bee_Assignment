@@ -12,15 +12,26 @@ analyzers:
     plan:
       type: diagnostic_aggregator/GenericAnalyzer
       path: 계획·임무
-      startswith: [ 'user_input', 'vlm_task_planner', 'coordinator' ]
+      startswith: [ 'user_input', 'vlm_task_planner', 'coordinator', 'explorer' ]
     ml:
       type: diagnostic_aggregator/GenericAnalyzer
       path: 학습
       startswith: [ 'grasp_scorer', 'rl_nav_tuner', 'rl_nav_correction' ]
+    manager:
+      type: diagnostic_aggregator/GenericAnalyzer
+      path: 상태
+      startswith: [ 'state_manager' ]
     control:
       type: diagnostic_aggregator/GenericAnalyzer
       path: 제어
-      startswith: [ 'arm_safety_monitor', 'manual_control', 'beebotsystem', 'controller_manager' ]
+      startswith: [ 'arm_safety_monitor', 'manual_control', 'body_filter', 'beebotsystem', 'controller_manager' ]
+    nav2:
+      type: diagnostic_aggregator/GenericAnalyzer
+      path: Nav2 관리자
+      startswith: [ 'lifecycle_manager' ]
+      # 기동 때 가끔(약 4번에 1번) 관리자가 노드 응답을 못 받고 멈춘다 — 이 둘이 아예 안 오면 Stale로 (expected)
+      # Nav2는 'Managed nodes are unconfigured'(멈춤)여도 수준을 OK로 내서, 시뮬레이터 진단 칸이 active가 아니면 오류로 칠한다
+      expected: [ 'lifecycle_manager_base: Nav2 Health', 'lifecycle_manager_navigation: Nav2 Health' ]
     system:
       type: diagnostic_aggregator/GenericAnalyzer
       path: 제공 패키지
