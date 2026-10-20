@@ -54,10 +54,24 @@ def Xform "beebot" (
 
                 over "wheel_left_link"
                 {
+                    over "cylinder"
+                    {
+                        float3[] extent = [(-0.033, -0.033, -0.0075), (0.033, 0.033, 0.0075)]
+                        double height = 0.015
+                    }
                 }
 
                 over "wheel_right_link"
                 {
+                    string isaac:nameOverride (
+                        displayName = "Name Override"
+                    )
+
+                    over "cylinder"
+                    {
+                        float3[] extent = [(-0.033, -0.033, -0.0075), (0.033, 0.033, 0.0075)]
+                        double height = 0.015
+                    }
                 }
 
                 over "pole_cam_link"
@@ -377,7 +391,7 @@ def "Render" (
                 bool omni:rtx:scene:hydra:mdlMaterialWarmup = 1
                 rel orderedVars = </Render/Vars/LdrColor>
                 custom bool overrideClipRange = 0
-                uniform int2 resolution = (705, 788)
+                uniform int2 resolution = (687, 405)
             }
         }
     }

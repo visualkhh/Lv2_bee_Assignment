@@ -37,6 +37,7 @@ over "beebot"
             prepend apiSchemas = ["PhysxJointAPI"]
         )
         {
+            float physxJoint:armature = 0.016
             float physxJoint:maxJointVelocity = 462
         }
 
@@ -44,6 +45,7 @@ over "beebot"
             prepend apiSchemas = ["PhysxJointAPI"]
         )
         {
+            float physxJoint:armature = 0.016
             float physxJoint:maxJointVelocity = 462
         }
 
@@ -51,6 +53,7 @@ over "beebot"
             prepend apiSchemas = ["PhysxJointAPI"]
         )
         {
+            float physxJoint:armature = 0.045
             float physxJoint:maxJointVelocity = 276
         }
 
@@ -58,7 +61,7 @@ over "beebot"
             prepend apiSchemas = ["PhysxJointAPI"]
         )
         {
-            float physxJoint:armature = 0
+            float physxJoint:armature = 0.045
             float physxJoint:maxJointVelocity = 276
         }
 
@@ -66,6 +69,7 @@ over "beebot"
             prepend apiSchemas = ["PhysxJointAPI"]
         )
         {
+            float physxJoint:armature = 0.045
             float physxJoint:maxJointVelocity = 276
         }
 
@@ -73,7 +77,7 @@ over "beebot"
             prepend apiSchemas = ["PhysxJointAPI"]
         )
         {
-            float physxJoint:armature = 0
+            float physxJoint:armature = 0.045
             float physxJoint:maxJointVelocity = 276
         }
 
@@ -81,6 +85,7 @@ over "beebot"
             prepend apiSchemas = ["PhysxJointAPI"]
         )
         {
+            float physxJoint:armature = 0.045
             float physxJoint:maxJointVelocity = 276
         }
 
@@ -95,6 +100,23 @@ over "beebot"
             prepend apiSchemas = ["PhysxJointAPI"]
         )
         {
+        }
+    }
+
+    over "PhysicsMaterials"
+    {
+        over "wheel_rubber" (
+            prepend apiSchemas = ["PhysxMaterialAPI"]
+        )
+        {
+            uniform token physxMaterial:frictionCombineMode = "max"
+        }
+
+        over "caster_ball" (
+            prepend apiSchemas = ["PhysxMaterialAPI"]
+        )
+        {
+            uniform token physxMaterial:frictionCombineMode = "min"
         }
     }
 }

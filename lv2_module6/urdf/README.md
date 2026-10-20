@@ -4,42 +4,66 @@ BEE 로봇(TurtleBot3 Waffle Pi 베이스 + RM-X52 팔 + 그리퍼 + 카메라 2
 
 ## 모델 고르기 (폴더 하나 = 모델 하나)
 
-`urdf/<이름>/urdf.xacro` (+ 메시는 그 폴더 `meshes/`). ROS는 launch 인자 `urdf:=<이름>`으로 고르고(기본 `beebot_mesh`), 메시 경로는 launch가 `mesh_uri:=package://ros_system/urdf/<이름>/meshes`로 넘긴다 — 메시를 쓰는 모델은 `mesh_uri` 인자를 받아야 한다(`beebot_mesh`처럼). 시뮬레이터 [로봇 모델]에서 폴더를 고르면 확인 후 그 모델로 ROS를 다시 띄운다. 빌드(`build-ws`)가 `urdf/` 전체를 설치하고, 폴더마다 `test_urdf_<이름>`(xacro → check_urdf)이 돈다.
+`urdf/<이름>/` 폴더 하나가 모델 하나다. 메시는 그 폴더의 `meshes/`에 둔다. ROS는 launch 인자 `urdf:=<이름>`으로 모델을 고른다(기본 `default`). 메시 경로는 launch가 `mesh_uri:=package://ros_system/urdf/<이름>/meshes`로 넘긴다. 메시를 쓰는 모델은 `mesh_uri` 인자를 받아야 한다. 시뮬레이터 [로봇 모델]에서 폴더를 고르면 확인 후 그 모델로 ROS를 다시 띄운다. 빌드(`build-ws`)가 `urdf/` 전체를 설치하고, 폴더마다 `test_urdf_<이름>`(xacro → check_urdf)이 돈다.
+
+| 폴더 | xacro 파일 | 내용 |
+| --- | --- | --- |
+| `default` | `beetbot.urdf.xacro` | 기본 모델. 실측 CAD 메시 + Gazebo 블록(RGBD 카메라 2대, IMU, DiffDrive, 팔 JointPositionController). `xacro:arg` 기본값이 없어서 인자 4개(`mesh_uri`·`mock_hardware`·`mock_effort`·`port`)를 모두 넘겨야 한다 |
+| `beebot_mesh` | `beebot.urdf.xacro` | 실측 CAD 메시 모델 (Gazebo 블록 없음). `make_xacro.py` 생성본이고, 변환·검수 스크립트가 이 폴더에 있다 |
+| `beebot_normal` | `urdf.xacro` | 기본 도형으로 만든 더미 치수 모델 (메시 없음). TurtleBot3 Waffle Pi + OM-X + 손목 roll + 그리퍼 |
+| `beebot_slam` | `urdf.xacro` | SLAM 전용 더미 모델. 팔·그리퍼·gripper_cam을 빼고 폴 뒤쪽 카메라 `pole_rear_cam`을 더했다 |
+
+`default/beetbot.urdf`는 `beetbot.urdf.xacro`를 기본 인자로 펼친 순수 URDF다 (메시 경로 `package://ros_system/urdf/default/meshes`). xacro를 고치면 다시 만든다:
+
+```bash
+cd default && xacro beetbot.urdf.xacro mesh_uri:=package://ros_system/urdf/default/meshes \
+  mock_hardware:=false mock_effort:=0.0 port:=/dev/opencr -o beetbot.urdf && check_urdf beetbot.urdf
+```
+
+`default/meshes/maze.stl`은 xacro가 쓰지 않는 파일이다.
 
 ## 폴더 구조
 
 ```
 urdf/
-├── beebot.urdf.xacro      # ROS용 xacro (인자: mock_hardware·mock_effort·port·mesh_uri). make_xacro.py 생성본
-├── beebot.urdf            # Isaac Sim URDF Importer용. xacro를 펼치고 메시 경로를 상대 경로로 바꾼 것
-├── meshes/                # 링크별 STL 22개 (단위 mm, URDF에서 scale 0.001로 m 변환)
-└── scripts/               # 변환(urdf ↔ xacro)·검증·분석 스크립트
+├── default/
+│   ├── beetbot.urdf.xacro     # 기본 모델 (Gazebo 블록 포함)
+│   ├── beetbot.urdf           # 위 xacro를 펼친 순수 URDF
+│   └── meshes/                # 링크별 STL + storage_collision/ 9개 (+ maze.stl)
+├── beebot_mesh/
+│   ├── beebot.urdf.xacro      # ROS용 xacro (인자: mock_hardware·mock_effort·port·mesh_uri). make_xacro.py 생성본
+│   ├── meshes/                # 링크별 STL + storage_collision/ 9개 (단위 mm, URDF에서 scale 0.001로 m 변환)
+│   └── scripts/               # 변환(urdf ↔ xacro)·검증·분석 스크립트
+├── beebot_normal/urdf.xacro   # 더미 치수 모델
+└── beebot_slam/urdf.xacro     # SLAM 전용 더미 모델
 ```
 
-`beebot.urdf.xacro`와 `beebot_mesh/beebot.urdf`는 서로 변환된다. 한쪽을 고쳤으면 다른 쪽을 다시 만들고 검수까지 돌린다.
+`beebot_mesh/beebot.urdf.xacro`와 `beebot_mesh/beebot.urdf`(Isaac Sim URDF Importer용, 메시 경로가 상대 경로 `meshes/`)는 서로 변환된다. `beebot.urdf`는 레포에 없으므로 처음에는 `make_urdf.sh`로 만든다. 한쪽을 고쳤으면 다른 쪽을 다시 만들고 검수까지 돌린다. 스크립트는 어디서 실행해도 `beebot_mesh/`에서 동작한다.
 
 ```bash
 # beebot.urdf를 고쳤을 때
-python3 scripts/make_xacro.py
+python3 beebot_mesh/scripts/make_xacro.py
 # beebot.urdf.xacro를 고쳤을 때
-scripts/make_urdf.sh
+beebot_mesh/scripts/make_urdf.sh
 # 검수 (둘 다 고친 뒤 항상)
-scripts/check_urdf.sh
+beebot_mesh/scripts/check_urdf.sh
 ```
 
 `.sh`는 bash 스크립트라 그대로 실행한다(`python3`로 돌리면 `SyntaxError`). `.py`는 `python3`로 돌린다.
 
 ### xacro 인자
 
+`beebot_mesh` 기준이다. `default`는 같은 인자를 쓰지만 기본값이 없다. `beebot_normal`·`beebot_slam`은 `mesh_uri`가 없다.
+
 | 인자 | 기본값 | 용도 |
 | --- | --- | --- |
 | `mock_hardware` | `false` | `true`면 BeebotSystemHardware가 실기 대신 명령을 상태로 되돌린다 (`ros_system.launch.py`, `faker.launch.py`가 넘김) |
 | `mock_effort` | `0.0` | mock일 때 팔 관절 effort [A] (접촉 감지 테스트용) |
 | `port` | `/dev/opencr` | OpenCR 시리얼 포트 (udev 고정 이름 — `ros2_ws/99-opencr.rules`) |
-| `mesh_uri` | `package://ros_system/urdf/meshes` | 메시 경로 앞부분. `make_urdf.sh`는 이 값을 `beebot_mesh/meshes`로 바꿔 `beebot_mesh/beebot.urdf`를 만든다 |
+| `mesh_uri` | `package://ros_system/urdf/meshes` | 메시 경로 앞부분. `make_urdf.sh`는 기본값을 상대 경로 `meshes/`로 바꿔 `beebot_mesh/beebot.urdf`를 만든다 |
 
 ```bash
-xacro beebot.urdf.xacro mock_hardware:=true > /tmp/beebot.urdf && check_urdf /tmp/beebot.urdf
+xacro beebot_mesh/beebot.urdf.xacro mock_hardware:=true > /tmp/beebot.urdf && check_urdf /tmp/beebot.urdf
 ```
 
 기본값은 `make_xacro.py`가 돌 때 `beebot_mesh/beebot.urdf`의 `<ros2_control>` 값을 그대로 가져온다. 없는 인자를 넘기면 xacro는 에러 없이 무시하므로, 인자를 추가하면 `make_xacro.py`와 `check_xacro.py`도 같이 고친다.
@@ -74,7 +98,7 @@ base_footprint
 
 구동 관절은 6개(joint1~5, gripper_left_joint)와 바퀴 2개다. 오른쪽 손가락은 왼쪽을 따라 움직이는 mimic이다. 그리퍼는 0이 닫힘, 0.0265가 열림이다.
 
-### 메시와 링크 매핑 (`beebot_mesh/meshes`)
+### 메시와 링크 매핑 (`beebot_mesh/meshes`, `default/meshes`도 같음)
 
 | STL | 링크 | 설명 |
 | --- | --- | --- |
@@ -115,6 +139,8 @@ base_footprint
 
 ## 스크립트 (`beebot_mesh/scripts`)
 
+아래 `beebot.urdf`·`beebot.urdf.xacro`는 모두 `beebot_mesh/` 안의 파일이다.
+
 | 스크립트 | 용도 | 입력 → 출력 |
 | --- | --- | --- |
 | `make_urdf.sh` | `beebot.urdf.xacro`를 펼쳐 `beebot.urdf`를 만들고 `check_urdf`로 확인한다 | xacro → `beebot.urdf` |
@@ -130,7 +156,7 @@ base_footprint
 
 ### Fusion에서 처음부터 다시 만들 때
 
-설계(형상·카메라 위치·브라켓)를 바꿔 Fusion에서 다시 뽑는 일은 Windows(Fusion이 있는 PC)에서 한다. 그 생성 스크립트(`fusion_extract.py`, `merge_raw.py`, `build.py`, `to_beebot.py`, `rm_x52.urdf`)와 절차는 이 레포에 두지 않고 Drive `KANT/BEE/model/v00/urdf/beebot/scripts/`에서만 관리한다. 결과로 나온 `beebot.urdf`와 바뀐 메시를 이 폴더에 넣은 뒤 `python3 scripts/make_xacro.py` → `scripts/check_urdf.sh`를 돌린다.
+설계(형상·카메라 위치·브라켓)를 바꿔 Fusion에서 다시 뽑는 일은 Windows(Fusion이 있는 PC)에서 한다. 그 생성 스크립트(`fusion_extract.py`, `merge_raw.py`, `build.py`, `to_beebot.py`, `rm_x52.urdf`)와 절차는 이 레포에 두지 않고 Drive `KANT/BEE/model/v00/urdf/beebot/scripts/`에서만 관리한다. 결과로 나온 `beebot.urdf`와 바뀐 메시를 `beebot_mesh/`에 넣은 뒤 `python3 beebot_mesh/scripts/make_xacro.py` → `beebot_mesh/scripts/check_urdf.sh`를 돌린다.
 
 ### make_xacro.py가 만드는 xacro
 
@@ -138,4 +164,4 @@ base_footprint
 
 ## Isaac Sim에서 쓰기
 
-`beebot_mesh/beebot.urdf`를 Isaac Sim URDF Importer로 가져오면 USD가 만들어진다. 질량과 관성은 URDF 값이 USD로 한 번 변환되고, 시뮬은 USD만 읽는다. URDF를 고쳤다면 다시 가져와야 반영된다.
+`beebot_mesh/beebot.urdf`(`make_urdf.sh`로 만든 것)를 Isaac Sim URDF Importer로 가져오면 USD가 만들어진다. 질량과 관성은 URDF 값이 USD로 한 번 변환되고, 시뮬은 USD만 읽는다. URDF를 고쳤다면 다시 가져와야 반영된다.

@@ -59,15 +59,21 @@ over "beebot"
                 }
 
                 over "sphere" (
-                    prepend apiSchemas = ["NewtonCollisionAPI"]
+                    prepend apiSchemas = ["NewtonCollisionAPI", "MaterialBindingAPI"]
                 )
                 {
+                    rel material:binding:physics = </beebot/PhysicsMaterials/caster_ball> (
+                        bindMaterialAs = "strongerThanDescendants"
+                    )
                 }
 
                 over "sphere_1" (
-                    prepend apiSchemas = ["NewtonCollisionAPI"]
+                    prepend apiSchemas = ["NewtonCollisionAPI", "MaterialBindingAPI"]
                 )
                 {
+                    rel material:binding:physics = </beebot/PhysicsMaterials/caster_ball> (
+                        bindMaterialAs = "strongerThanDescendants"
+                    )
                 }
 
                 over "wheel_left_link" (
@@ -81,9 +87,12 @@ over "beebot"
                     quatf physics:principalAxes = (-0.34050268, 0.34088013, 0.6195185, 0.61972207)
 
                     over "cylinder" (
-                        prepend apiSchemas = ["NewtonCollisionAPI"]
+                        prepend apiSchemas = ["NewtonCollisionAPI", "MaterialBindingAPI"]
                     )
                     {
+                        rel material:binding:physics = </beebot/PhysicsMaterials/wheel_rubber> (
+                            bindMaterialAs = "strongerThanDescendants"
+                        )
                     }
                 }
 
@@ -98,9 +107,12 @@ over "beebot"
                     quatf physics:principalAxes = (0.61972207, -0.6195185, -0.34088013, -0.34050268)
 
                     over "cylinder" (
-                        prepend apiSchemas = ["NewtonCollisionAPI"]
+                        prepend apiSchemas = ["NewtonCollisionAPI", "MaterialBindingAPI"]
                     )
                     {
+                        rel material:binding:physics = </beebot/PhysicsMaterials/wheel_rubber> (
+                            bindMaterialAs = "strongerThanDescendants"
+                        )
                     }
                 }
 
@@ -235,7 +247,7 @@ over "beebot"
             prepend apiSchemas = ["NewtonJointAPI", "PhysicsDriveAPI:angular", "PhysicsJointStateAPI:angular"]
         )
         {
-            float drive:angular:physics:damping = 0
+            float drive:angular:physics:damping = 0.035
             float drive:angular:physics:maxForce = 3
             float drive:angular:physics:stiffness = 0
             token drive:angular:physics:type = "force"
@@ -256,7 +268,7 @@ over "beebot"
             prepend apiSchemas = ["NewtonJointAPI", "PhysicsDriveAPI:angular", "PhysicsJointStateAPI:angular"]
         )
         {
-            float drive:angular:physics:damping = 0
+            float drive:angular:physics:damping = 0.035
             float drive:angular:physics:maxForce = 3
             float drive:angular:physics:stiffness = 0
             token drive:angular:physics:type = "force"
@@ -277,9 +289,9 @@ over "beebot"
             prepend apiSchemas = ["NewtonJointAPI", "PhysicsDriveAPI:angular", "PhysicsJointStateAPI:angular"]
         )
         {
-            float drive:angular:physics:damping = 0.13
+            float drive:angular:physics:damping = 0.0105
             float drive:angular:physics:maxForce = 4.1
-            float drive:angular:physics:stiffness = 5
+            float drive:angular:physics:stiffness = 0.35
             token drive:angular:physics:type = "force"
             float newton:velocityLimit = 275.99377
             uniform token physics:axis = "Z"
@@ -300,9 +312,9 @@ over "beebot"
             prepend apiSchemas = ["NewtonJointAPI", "PhysicsDriveAPI:angular", "PhysicsJointStateAPI:angular"]
         )
         {
-            float drive:angular:physics:damping = 0.23
+            float drive:angular:physics:damping = 0.0105
             float drive:angular:physics:maxForce = 4.1
-            float drive:angular:physics:stiffness = 15
+            float drive:angular:physics:stiffness = 0.35
             token drive:angular:physics:type = "force"
             float newton:velocityLimit = 275.99377
             uniform token physics:axis = "Z"
@@ -323,9 +335,9 @@ over "beebot"
             prepend apiSchemas = ["NewtonJointAPI", "PhysicsDriveAPI:angular", "PhysicsJointStateAPI:angular"]
         )
         {
-            float drive:angular:physics:damping = 0.12
+            float drive:angular:physics:damping = 0.0105
             float drive:angular:physics:maxForce = 4.1
-            float drive:angular:physics:stiffness = 10
+            float drive:angular:physics:stiffness = 0.35
             token drive:angular:physics:type = "force"
             float newton:velocityLimit = 275.99377
             uniform token physics:axis = "Z"
@@ -346,9 +358,9 @@ over "beebot"
             prepend apiSchemas = ["NewtonJointAPI", "PhysicsDriveAPI:angular", "PhysicsJointStateAPI:angular"]
         )
         {
-            float drive:angular:physics:damping = 0.045
+            float drive:angular:physics:damping = 0.0105
             float drive:angular:physics:maxForce = 4.1
-            float drive:angular:physics:stiffness = 5
+            float drive:angular:physics:stiffness = 0.35
             token drive:angular:physics:type = "force"
             float newton:velocityLimit = 275.99377
             uniform token physics:axis = "Z"
@@ -369,9 +381,9 @@ over "beebot"
             prepend apiSchemas = ["NewtonJointAPI", "PhysicsDriveAPI:angular", "PhysicsJointStateAPI:angular"]
         )
         {
-            float drive:angular:physics:damping = 0.006
+            float drive:angular:physics:damping = 0.0105
             float drive:angular:physics:maxForce = 4.1
-            float drive:angular:physics:stiffness = 2
+            float drive:angular:physics:stiffness = 0.35
             token drive:angular:physics:type = "force"
             float newton:velocityLimit = 275.99377
             uniform token physics:axis = "Z"
@@ -440,6 +452,7 @@ over "beebot"
             append rel physics:body0 = </beebot>
             custom rel physics:body1
             append rel physics:body1 = </beebot/Geometry/base_footprint/base_link>
+            bool physics:jointEnabled = 0
             point3f physics:localPos0 = (0, 0, 0.01)
             point3f physics:localPos1 = (0, 0, 0)
             quatf physics:localRot0 = (1, 0, 0, 0)
@@ -480,6 +493,27 @@ over "beebot"
             point3f physics:localPos1 = (0, 0, 0)
             quatf physics:localRot0 = (-0.57158357, -0.4169121, 0.41636932, -0.57106316)
             quatf physics:localRot1 = (1, 0, 0, 0)
+        }
+    }
+
+    def Scope "PhysicsMaterials"
+    {
+        def Material "wheel_rubber" (
+            prepend apiSchemas = ["PhysicsMaterialAPI"]
+        )
+        {
+            float physics:dynamicFriction = 0.9
+            float physics:restitution = 0
+            float physics:staticFriction = 1
+        }
+
+        def Material "caster_ball" (
+            prepend apiSchemas = ["PhysicsMaterialAPI"]
+        )
+        {
+            float physics:dynamicFriction = 0
+            float physics:restitution = 0
+            float physics:staticFriction = 0
         }
     }
 }
