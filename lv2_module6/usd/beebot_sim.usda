@@ -1,0 +1,301 @@
+#usda 1.0
+(
+    defaultPrim = "beebot"
+    doc = """Hand-tuned overrides on top of the URDF importer output in ./beebot/.
+Open THIS file in Isaac Sim. ./beebot/ is generated and may be overwritten by re-import.
+Overrides bind by prim path: after re-import, check joint/link names still match."""
+    kilogramsPerUnit = 1
+    metersPerUnit = 1
+    upAxis = "Z"
+)
+
+def Xform "beebot" (
+    prepend references = @./beebot/beebot.usda@
+    variants = {
+        string Physics = "physx"
+    }
+)
+{
+    over "Geometry"
+    {
+        over "base_footprint"
+        {
+            over "base_link" (
+                prepend apiSchemas = ["PhysxArticulationAPI"]
+            )
+            {
+                bool physxArticulation:enabledSelfCollisions = 0
+                float physxArticulation:sleepThreshold = 0
+                float physxArticulation:stabilizationThreshold = 0
+
+                over "sphere" (
+                    prepend apiSchemas = ["MaterialBindingAPI"]
+                )
+                {
+                    rel material:binding:physics = </beebot/PhysicsMaterials/caster_ball> (
+                        bindMaterialAs = "strongerThanDescendants"
+                    )
+                }
+
+                over "sphere_1" (
+                    prepend apiSchemas = ["MaterialBindingAPI"]
+                )
+                {
+                    rel material:binding:physics = </beebot/PhysicsMaterials/caster_ball> (
+                        bindMaterialAs = "strongerThanDescendants"
+                    )
+                }
+
+                over "wheel_left_link"
+                {
+                    over "cylinder" (
+                        prepend apiSchemas = ["MaterialBindingAPI"]
+                    )
+                    {
+                        float3[] extent = [(-0.033, -0.033, -0.0075), (0.033, 0.033, 0.0075)]
+                        double height = 0.015
+                        rel material:binding:physics = </beebot/PhysicsMaterials/wheel_rubber> (
+                            bindMaterialAs = "strongerThanDescendants"
+                        )
+                    }
+                }
+
+                over "wheel_right_link"
+                {
+                    over "cylinder" (
+                        prepend apiSchemas = ["MaterialBindingAPI"]
+                    )
+                    {
+                        float3[] extent = [(-0.033, -0.033, -0.0075), (0.033, 0.033, 0.0075)]
+                        double height = 0.015
+                        rel material:binding:physics = </beebot/PhysicsMaterials/wheel_rubber> (
+                            bindMaterialAs = "strongerThanDescendants"
+                        )
+                    }
+                }
+
+                over "pole_cam_link"
+                {
+                    over "pole_cam_color_optical_frame"
+                    {
+                        def Camera "pole_cam_rgb" (
+                            prepend apiSchemas = ["OmniRtxCameraAutoExposureAPI_1", "OmniRtxCameraExposureAPI_1"]
+                        )
+                        {
+                            float2 clippingRange = (0.01, 20)
+                            float exposure:fStop = 5
+                            float exposure:responsivity = 1.1026709
+                            float exposure:time = 0.02
+                            float focalLength = 15.2449
+                            float focusDistance = 400
+                            float horizontalAperture = 20.955
+                            bool omni:kit:cameraLock = 1
+                            float verticalAperture = 15.7162
+                            quatd xformOp:orient = (6.123233995736766e-17, 1, 0, 0)
+                            double3 xformOp:scale = (1, 1, 1)
+                            double3 xformOp:translate = (0, 0, 0)
+                            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+                        }
+                    }
+                }
+
+                over "arm_base_link"
+                {
+                    over "shoulder_link"
+                    {
+                        over "upper_arm_link"
+                        {
+                            over "forearm_link"
+                            {
+                                over "wrist_link"
+                                {
+                                    over "gripper_link"
+                                    {
+                                        over "gripper_cam_link"
+                                        {
+                                            over "gripper_cam_color_optical_frame"
+                                            {
+                                                def Camera "gripper_cam_rgb" (
+                                                    prepend apiSchemas = ["OmniRtxCameraAutoExposureAPI_1", "OmniRtxCameraExposureAPI_1"]
+                                                )
+                                                {
+                                                    float2 clippingRange = (0.01, 20)
+                                                    float exposure:fStop = 5
+                                                    float exposure:responsivity = 1.1026709
+                                                    float exposure:time = 0.02
+                                                    float focalLength = 15.2449
+                                                    float focusDistance = 400
+                                                    float horizontalAperture = 20.955
+                                                    bool omni:kit:cameraLock = 1
+                                                    float verticalAperture = 15.7162
+                                                    quatd xformOp:orient = (6.123233995736766e-17, 1, 0, 0)
+                                                    double3 xformOp:scale = (1, 1, 1)
+                                                    double3 xformOp:translate = (0, 0, 0)
+                                                    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    over "Physics"
+    {
+        over "wheel_left_joint" (
+            prepend apiSchemas = ["PhysxJointAPI"]
+        )
+        {
+            float drive:angular:physics:damping = 0.035
+            float drive:angular:physics:stiffness = 0
+            token drive:angular:physics:type = "force"
+            float physxJoint:armature = 0.016
+            float physxJoint:maxJointVelocity = 462
+        }
+
+        over "wheel_right_joint" (
+            prepend apiSchemas = ["PhysxJointAPI"]
+        )
+        {
+            float drive:angular:physics:damping = 0.035
+            float drive:angular:physics:stiffness = 0
+            token drive:angular:physics:type = "force"
+            float physxJoint:armature = 0.016
+            float physxJoint:maxJointVelocity = 462
+        }
+
+        over "joint1" (
+            prepend apiSchemas = ["PhysxJointAPI"]
+        )
+        {
+            float drive:angular:physics:damping = 0.0105
+            float drive:angular:physics:stiffness = 0.35
+            token drive:angular:physics:type = "force"
+            float physxJoint:armature = 0.045
+            float physxJoint:maxJointVelocity = 276
+        }
+
+        over "joint2" (
+            prepend apiSchemas = ["PhysxJointAPI"]
+        )
+        {
+            float drive:angular:physics:damping = 0.0105
+            float drive:angular:physics:stiffness = 0.35
+            token drive:angular:physics:type = "force"
+            float physxJoint:armature = 0.045
+            float physxJoint:maxJointVelocity = 276
+        }
+
+        over "joint3" (
+            prepend apiSchemas = ["PhysxJointAPI"]
+        )
+        {
+            float drive:angular:physics:damping = 0.0105
+            float drive:angular:physics:stiffness = 0.35
+            token drive:angular:physics:type = "force"
+            float physxJoint:armature = 0.045
+            float physxJoint:maxJointVelocity = 276
+        }
+
+        over "joint4" (
+            prepend apiSchemas = ["PhysxJointAPI"]
+        )
+        {
+            float drive:angular:physics:damping = 0.0105
+            float drive:angular:physics:stiffness = 0.35
+            token drive:angular:physics:type = "force"
+            float physxJoint:armature = 0.045
+            float physxJoint:maxJointVelocity = 276
+        }
+
+        over "joint5" (
+            prepend apiSchemas = ["PhysxJointAPI"]
+        )
+        {
+            float drive:angular:physics:damping = 0.0105
+            float drive:angular:physics:stiffness = 0.35
+            token drive:angular:physics:type = "force"
+            float physxJoint:armature = 0.045
+            float physxJoint:maxJointVelocity = 276
+        }
+
+        over "gripper_left_joint" (
+            prepend apiSchemas = ["PhysxJointAPI"]
+        )
+        {
+            float drive:linear:physics:damping = 10
+            float drive:linear:physics:stiffness = 1000
+            token drive:linear:physics:type = "force"
+            float physxJoint:maxJointVelocity = 0.07
+        }
+
+        over "gripper_right_joint"
+        {
+            float drive:linear:physics:stiffness = 0
+            token drive:linear:physics:type = "force"
+        }
+
+        over "base_joint"
+        {
+            bool physics:jointEnabled = 0
+        }
+    }
+
+    def Scope "PhysicsMaterials"
+    {
+        def Material "wheel_rubber" (
+            prepend apiSchemas = ["PhysicsMaterialAPI", "PhysxMaterialAPI"]
+        )
+        {
+            float physics:dynamicFriction = 0.9
+            float physics:restitution = 0
+            float physics:staticFriction = 1
+            uniform token physxMaterial:frictionCombineMode = "max"
+        }
+
+        def Material "caster_ball" (
+            prepend apiSchemas = ["PhysicsMaterialAPI", "PhysxMaterialAPI"]
+        )
+        {
+            float physics:dynamicFriction = 0
+            float physics:restitution = 0
+            float physics:staticFriction = 0
+            uniform token physxMaterial:frictionCombineMode = "min"
+        }
+    }
+
+    # test-only ground; drop when the maze scene supplies its own floor
+    def Xform "GroundPlane"
+    {
+        quatf xformOp:orient = (1, 0, 0, 0)
+        float3 xformOp:scale = (1, 1, 1)
+        double3 xformOp:translate = (0, 0, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+
+        def Mesh "CollisionMesh"
+        {
+            uniform bool doubleSided = 0
+            int[] faceVertexCounts = [4]
+            int[] faceVertexIndices = [0, 1, 2, 3]
+            normal3f[] normals = [(0, 0, 1), (0, 0, 1), (0, 0, 1), (0, 0, 1)]
+            point3f[] points = [(-25, -25, 0), (25, -25, 0), (25, 25, 0), (-25, 25, 0)]
+            color3f[] primvars:displayColor = [(0.5, 0.5, 0.5)]
+            texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
+                interpolation = "varying"
+            )
+        }
+
+        def Plane "CollisionPlane" (
+            prepend apiSchemas = ["PhysicsCollisionAPI"]
+        )
+        {
+            uniform token axis = "Z"
+            uniform token purpose = "guide"
+        }
+    }
+}
