@@ -1,0 +1,318 @@
+#usda 1.0
+(
+    customLayerData = {
+        string creator = "URDF USD Converter v0.3.2"
+    }
+    defaultPrim = "beebot"
+    endTimeCode = 1000000
+    kilogramsPerUnit = 1
+    metersPerUnit = 1
+    startTimeCode = 0
+    upAxis = "Z"
+)
+
+over "beebot" (
+    prepend apiSchemas = ["IsaacRobotAPI"]
+)
+{
+    prepend rel isaac:physics:robotJoints = [
+        </beebot/Physics/base_joint>,
+        </beebot/Physics/wheel_left_joint>,
+        </beebot/Physics/wheel_right_joint>,
+        </beebot/Physics/front_pole_cam_joint>,
+        </beebot/Physics/arm_mount_joint>,
+        </beebot/Physics/joint1>,
+        </beebot/Physics/joint2>,
+        </beebot/Physics/joint3>,
+        </beebot/Physics/joint4>,
+        </beebot/Physics/joint5>,
+        </beebot/Physics/gripper_left_joint>,
+        </beebot/Physics/gripper_right_joint>,
+        </beebot/Physics/gripper_cam_joint>,
+    ]
+    prepend rel isaac:physics:robotLinks = [
+        </beebot/Geometry/base_footprint/base_link>,
+        </beebot/Geometry/base_footprint/base_link/imu_link>,
+        </beebot/Geometry/base_footprint/base_link/basket_slot_0>,
+        </beebot/Geometry/base_footprint/base_link/basket_slot_1>,
+        </beebot/Geometry/base_footprint/base_link/basket_slot_2>,
+        </beebot/Geometry/base_footprint/base_link/basket_slot_3>,
+        </beebot/Geometry/base_footprint/base_link/basket_slot_4>,
+        </beebot/Geometry/base_footprint/base_link/basket_slot_5>,
+        </beebot/Geometry/base_footprint/base_link/basket_slot_6>,
+        </beebot/Geometry/base_footprint/base_link/basket_slot_7>,
+        </beebot/Geometry/base_footprint/base_link/basket_slot_8>,
+        </beebot/Geometry/base_footprint/base_link/basket_slot_9>,
+        </beebot/Geometry/base_footprint/base_link/basket_slot_10>,
+        </beebot/Geometry/base_footprint/base_link/basket_slot_11>,
+        </beebot/Geometry/base_footprint/base_link/wheel_left_link>,
+        </beebot/Geometry/base_footprint/base_link/wheel_right_link>,
+        </beebot/Geometry/base_footprint/base_link/front_pole_cam_link>,
+        </beebot/Geometry/base_footprint/base_link/front_pole_cam_link/front_pole_cam_color_optical_frame>,
+        </beebot/Geometry/base_footprint/base_link/arm_base_link>,
+        </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link>,
+        </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link>,
+        </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link>,
+        </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link>,
+        </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link>,
+        </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link/end_effector_link>,
+        </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link/finger_left_link>,
+        </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link/finger_right_link>,
+        </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link/gripper_cam_link>,
+        </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link/gripper_cam_link/gripper_cam_color_optical_frame>,
+    ]
+    token isaac:robotType = "Default"
+
+    over "Geometry"
+    {
+        over "base_footprint"
+        {
+            over "base_link" (
+                prepend apiSchemas = ["IsaacLinkAPI"]
+            )
+            {
+                over "wheel_left_link" (
+                    prepend apiSchemas = ["IsaacLinkAPI"]
+                )
+                {
+                }
+
+                over "wheel_right_link" (
+                    prepend apiSchemas = ["IsaacLinkAPI"]
+                )
+                {
+                }
+
+                over "front_pole_cam_link" (
+                    prepend apiSchemas = ["IsaacLinkAPI"]
+                )
+                {
+                    over "front_pole_cam_color_optical_frame" (
+                        prepend apiSchemas = ["IsaacSiteAPI"]
+                    )
+                    {
+                    }
+                }
+
+                over "arm_base_link" (
+                    prepend apiSchemas = ["IsaacLinkAPI"]
+                )
+                {
+                    over "shoulder_link" (
+                        prepend apiSchemas = ["IsaacLinkAPI"]
+                    )
+                    {
+                        over "upper_arm_link" (
+                            prepend apiSchemas = ["IsaacLinkAPI"]
+                        )
+                        {
+                            over "forearm_link" (
+                                prepend apiSchemas = ["IsaacLinkAPI"]
+                            )
+                            {
+                                over "wrist_link" (
+                                    prepend apiSchemas = ["IsaacLinkAPI"]
+                                )
+                                {
+                                    over "gripper_link" (
+                                        prepend apiSchemas = ["IsaacLinkAPI"]
+                                    )
+                                    {
+                                        over "finger_left_link" (
+                                            prepend apiSchemas = ["IsaacLinkAPI"]
+                                        )
+                                        {
+                                        }
+
+                                        over "finger_right_link" (
+                                            prepend apiSchemas = ["IsaacLinkAPI"]
+                                        )
+                                        {
+                                        }
+
+                                        over "gripper_cam_link" (
+                                            prepend apiSchemas = ["IsaacLinkAPI"]
+                                        )
+                                        {
+                                            over "gripper_cam_color_optical_frame" (
+                                                prepend apiSchemas = ["IsaacSiteAPI"]
+                                            )
+                                            {
+                                            }
+                                        }
+
+                                        over "end_effector_link" (
+                                            prepend apiSchemas = ["IsaacSiteAPI"]
+                                        )
+                                        {
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                over "imu_link" (
+                    prepend apiSchemas = ["IsaacSiteAPI"]
+                )
+                {
+                }
+
+                over "basket_slot_0" (
+                    prepend apiSchemas = ["IsaacSiteAPI"]
+                )
+                {
+                }
+
+                over "basket_slot_1" (
+                    prepend apiSchemas = ["IsaacSiteAPI"]
+                )
+                {
+                }
+
+                over "basket_slot_2" (
+                    prepend apiSchemas = ["IsaacSiteAPI"]
+                )
+                {
+                }
+
+                over "basket_slot_3" (
+                    prepend apiSchemas = ["IsaacSiteAPI"]
+                )
+                {
+                }
+
+                over "basket_slot_4" (
+                    prepend apiSchemas = ["IsaacSiteAPI"]
+                )
+                {
+                }
+
+                over "basket_slot_5" (
+                    prepend apiSchemas = ["IsaacSiteAPI"]
+                )
+                {
+                }
+
+                over "basket_slot_6" (
+                    prepend apiSchemas = ["IsaacSiteAPI"]
+                )
+                {
+                }
+
+                over "basket_slot_7" (
+                    prepend apiSchemas = ["IsaacSiteAPI"]
+                )
+                {
+                }
+
+                over "basket_slot_8" (
+                    prepend apiSchemas = ["IsaacSiteAPI"]
+                )
+                {
+                }
+
+                over "basket_slot_9" (
+                    prepend apiSchemas = ["IsaacSiteAPI"]
+                )
+                {
+                }
+
+                over "basket_slot_10" (
+                    prepend apiSchemas = ["IsaacSiteAPI"]
+                )
+                {
+                }
+
+                over "basket_slot_11" (
+                    prepend apiSchemas = ["IsaacSiteAPI"]
+                )
+                {
+                }
+            }
+        }
+    }
+
+    over "Physics"
+    {
+        over "base_joint" (
+            prepend apiSchemas = ["IsaacJointAPI"]
+        )
+        {
+        }
+
+        over "wheel_left_joint" (
+            prepend apiSchemas = ["IsaacJointAPI"]
+        )
+        {
+        }
+
+        over "wheel_right_joint" (
+            prepend apiSchemas = ["IsaacJointAPI"]
+        )
+        {
+        }
+
+        over "front_pole_cam_joint" (
+            prepend apiSchemas = ["IsaacJointAPI"]
+        )
+        {
+        }
+
+        over "arm_mount_joint" (
+            prepend apiSchemas = ["IsaacJointAPI"]
+        )
+        {
+        }
+
+        over "joint1" (
+            prepend apiSchemas = ["IsaacJointAPI"]
+        )
+        {
+        }
+
+        over "joint2" (
+            prepend apiSchemas = ["IsaacJointAPI"]
+        )
+        {
+        }
+
+        over "joint3" (
+            prepend apiSchemas = ["IsaacJointAPI"]
+        )
+        {
+        }
+
+        over "joint4" (
+            prepend apiSchemas = ["IsaacJointAPI"]
+        )
+        {
+        }
+
+        over "joint5" (
+            prepend apiSchemas = ["IsaacJointAPI"]
+        )
+        {
+        }
+
+        over "gripper_left_joint" (
+            prepend apiSchemas = ["IsaacJointAPI"]
+        )
+        {
+        }
+
+        over "gripper_right_joint" (
+            prepend apiSchemas = ["IsaacJointAPI"]
+        )
+        {
+        }
+
+        over "gripper_cam_joint" (
+            prepend apiSchemas = ["IsaacJointAPI"]
+        )
+        {
+        }
+    }
+}
+

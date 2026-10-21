@@ -76,7 +76,7 @@ for fn in ('beebot.urdf',):
     check(not missing, f'메시 파일 {len(refs)}개 전부 있음' if not missing else f'메시 파일 없음: {missing}')
     # 메시 왕복 위치: 베이스 쪽 메시를 Fusion 추출본(raw/)과 비교 — raw/가 있을 때만
     RAW_NAME = {'base_link': 'base_link', 'wheel_left_link': 'wheel_left', 'wheel_right_link': 'wheel_right',
-                'pole_cam_link': 'camera_rear', 'gripper_cam_link': 'camera_wrist'}
+                'front_pole_cam_link': 'camera_rear', 'gripper_cam_link': 'camera_wrist'}
     if not os.path.isdir(os.path.join(HERE, 'raw')):
         print('INFO raw/ 없음, 메시 왕복 위치 확인 건너뜀')
     for n, l in links.items():

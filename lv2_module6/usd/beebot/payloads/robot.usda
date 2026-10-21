@@ -19,7 +19,7 @@ over "beebot" (
         </beebot/Physics/base_joint>,
         </beebot/Physics/wheel_left_joint>,
         </beebot/Physics/wheel_right_joint>,
-        </beebot/Physics/pole_cam_joint>,
+        </beebot/Physics/front_pole_cam_joint>,
         </beebot/Physics/arm_mount_joint>,
         </beebot/Physics/joint1>,
         </beebot/Physics/joint2>,
@@ -47,8 +47,8 @@ over "beebot" (
         </beebot/Geometry/base_footprint/base_link/basket_slot_11>,
         </beebot/Geometry/base_footprint/base_link/wheel_left_link>,
         </beebot/Geometry/base_footprint/base_link/wheel_right_link>,
-        </beebot/Geometry/base_footprint/base_link/pole_cam_link>,
-        </beebot/Geometry/base_footprint/base_link/pole_cam_link/pole_cam_color_optical_frame>,
+        </beebot/Geometry/base_footprint/base_link/front_pole_cam_link>,
+        </beebot/Geometry/base_footprint/base_link/front_pole_cam_link/front_pole_cam_color_optical_frame>,
         </beebot/Geometry/base_footprint/base_link/arm_base_link>,
         </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link>,
         </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link>,
@@ -83,11 +83,11 @@ over "beebot" (
                 {
                 }
 
-                over "pole_cam_link" (
+                over "front_pole_cam_link" (
                     prepend apiSchemas = ["IsaacLinkAPI"]
                 )
                 {
-                    over "pole_cam_color_optical_frame" (
+                    over "front_pole_cam_color_optical_frame" (
                         prepend apiSchemas = ["IsaacSiteAPI"]
                     )
                     {
@@ -254,7 +254,7 @@ over "beebot" (
         {
         }
 
-        over "pole_cam_joint" (
+        over "front_pole_cam_joint" (
             prepend apiSchemas = ["IsaacJointAPI"]
         )
         {

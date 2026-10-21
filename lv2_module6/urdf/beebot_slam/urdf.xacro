@@ -2,7 +2,7 @@
 <!--
   beebot (SLAM 전용) — 지도 스캔할 때 쓰는 모델: 팔·그리퍼·gripper_cam을 떼고, 폴 위 카메라를 앞뒤 두 대로 (더미 치수)
     beebot_normal/urdf.xacro 에서: 매니퓰레이터(arm_base_link ~ finger·end_effector · gripper_cam)와 ros2_control 팔 관절 6개 삭제,
-    폴 꼭대기 반대편(뒤)에 pole_rear_cam 추가 — pole_cam은 앞 아래, pole_rear_cam은 뒤 아래를 같은 각도(34°)로 본다.
+    폴 꼭대기 반대편(뒤)에 pole_rear_cam 추가 — front_pole_cam은 앞 아래, pole_rear_cam은 뒤 아래를 같은 각도(34°)로 본다.
     남은 링크·관절 이름은 beebot_mesh · beebot_normal과 같다 (pole_rear_cam만 이 모델에 새로)
   설계: documents/ros2-design/07-tf.md (TF 트리), 08-ctrl.md (ros2_control)
 
@@ -10,7 +10,7 @@
     - 차체: Waffle Pi 본체 266×266mm, 바퀴 반경 0.033m · 간격 0.287m, 뒤쪽 캐스터 2개
     - 상판(deck): 차체 위 앞쪽 절반만 덮는 판넬, 스탠드오프 0.05m 위
     - 매니퓰레이터: 없음 (SLAM 전용 — 상판은 그대로)
-    - 선가이드 폴: 차체 위 뒤쪽 끝, 전원선이 위에서 내려온다. 폴 꼭대기 앞쪽에 pole_cam(전방 하향) · 뒤쪽에 pole_rear_cam(후방 하향)
+    - 선가이드 폴: 차체 위 뒤쪽 끝, 전원선이 위에서 내려온다. 폴 꼭대기 앞쪽에 front_pole_cam(전방 하향) · 뒤쪽에 pole_rear_cam(후방 하향)
 
   xacro 인자:
     mock_hardware (false)  true면 control/BeebotSystemHardware가 실기 대신 명령을 그대로 상태로 되돌려 줌 (테스트베드)
@@ -199,7 +199,7 @@
       <origin rpy="${-PI/2} 0 ${-PI/2}"/>
     </joint>
   </xacro:macro>
-  <xacro:camera name="pole_cam" parent="base_link">
+  <xacro:camera name="front_pole_cam" parent="base_link">
     <origin xyz="${pole_x + 0.020} 0 ${body_top + pole_h}" rpy="0 0.6 0"/>   <!-- 폴 꼭대기 앞, 전방 하향 약 34° -->
   </xacro:camera>
   <!-- 폴 반대편: 뒤를 같은 각도로 내려다봄 (yaw 180°) — 지도를 앞뒤로 함께 채움 -->

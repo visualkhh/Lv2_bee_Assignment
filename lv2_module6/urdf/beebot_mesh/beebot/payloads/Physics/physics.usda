@@ -1,0 +1,460 @@
+#usda 1.0
+(
+    customLayerData = {
+        string creator = "URDF USD Converter v0.3.2"
+    }
+    defaultPrim = "beebot"
+    endTimeCode = 1000000
+    kilogramsPerUnit = 1
+    metersPerUnit = 1
+    startTimeCode = 0
+    upAxis = "Z"
+)
+
+over "beebot"
+{
+    over "Geometry"
+    {
+        over "base_footprint"
+        {
+            over "base_link" (
+                prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsArticulationRootAPI", "NewtonArticulationRootAPI", "PhysicsMassAPI", "NewtonMassAPI"]
+            )
+            {
+                double[] newton:inertia = [0.028115, 0.032571, 0.027719, -0.000011729, 0.0063963, -0.0000076014]
+                bool newton:selfCollisionEnabled = 0
+                point3f physics:centerOfMass = (-0.085631, -0.000202, 0.080552)
+                float3 physics:diagonalInertia = (0.021517636, 0.03257089, 0.034316473)
+                float physics:mass = 2.4006
+                quatf physics:principalAxes = (-0.3898167, 0.0014183915, 0.9208841, 0.0036648444)
+
+                over "box" (
+                    prepend apiSchemas = ["NewtonCollisionAPI"]
+                )
+                {
+                }
+
+                over "box_1" (
+                    prepend apiSchemas = ["NewtonCollisionAPI"]
+                )
+                {
+                }
+
+                over "box_2" (
+                    prepend apiSchemas = ["NewtonCollisionAPI"]
+                )
+                {
+                }
+
+                over "box_3" (
+                    prepend apiSchemas = ["NewtonCollisionAPI"]
+                )
+                {
+                }
+
+                over "box_4" (
+                    prepend apiSchemas = ["NewtonCollisionAPI"]
+                )
+                {
+                }
+
+                over "sphere" (
+                    prepend apiSchemas = ["NewtonCollisionAPI"]
+                )
+                {
+                }
+
+                over "sphere_1" (
+                    prepend apiSchemas = ["NewtonCollisionAPI"]
+                )
+                {
+                }
+
+                over "wheel_left_link" (
+                    prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI", "NewtonMassAPI"]
+                )
+                {
+                    double[] newton:inertia = [0.000011098, 0.000020549, 0.000011095, 5.7318e-9, 3.1818e-9, -4.8114e-11]
+                    point3f physics:centerOfMass = (0, -0.000704, 0.000002)
+                    float3 physics:diagonalInertia = (0.000011092981, 0.000011100015, 0.000020549003)
+                    float physics:mass = 0.0285
+                    quatf physics:principalAxes = (-0.34050268, 0.34088013, 0.6195185, 0.61972207)
+
+                    over "cylinder" (
+                        prepend apiSchemas = ["NewtonCollisionAPI"]
+                    )
+                    {
+                    }
+                }
+
+                over "wheel_right_link" (
+                    prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI", "NewtonMassAPI"]
+                )
+                {
+                    double[] newton:inertia = [0.000011098, 0.000020549, 0.000011095, -5.7318e-9, -3.1818e-9, -4.8114e-11]
+                    point3f physics:centerOfMass = (0, 0.000704, -0.000002)
+                    float3 physics:diagonalInertia = (0.000011092981, 0.000011100015, 0.000020549003)
+                    float physics:mass = 0.0285
+                    quatf physics:principalAxes = (0.61972207, -0.6195185, -0.34088013, -0.34050268)
+
+                    over "cylinder" (
+                        prepend apiSchemas = ["NewtonCollisionAPI"]
+                    )
+                    {
+                    }
+                }
+
+                over "front_pole_cam_link" (
+                    prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI", "NewtonMassAPI"]
+                )
+                {
+                    double[] newton:inertia = [0.000046203, 0.0000069218, 0.000046614, 4.1597e-7, 2.0009e-8, 3.6648e-9]
+                    point3f physics:centerOfMass = (-0.013393, 0.001408, -0.000023)
+                    float3 physics:diagonalInertia = (0.0000069173952, 0.00004620642, 0.000046614987)
+                    float physics:mass = 0.072
+                    quatf physics:principalAxes = (-0.017250448, 0.7031419, 0.71062493, -0.017495882)
+
+                    over "box" (
+                        prepend apiSchemas = ["NewtonCollisionAPI"]
+                    )
+                    {
+                    }
+                }
+
+                over "arm_base_link" (
+                    prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI", "NewtonMassAPI"]
+                )
+                {
+                    double[] newton:inertia = [0.000012862502962900217, 0.000022531969968508323, 0.000019821050957242446, 6.251056457349735e-19, -1.811662342359175e-7, 1.5086560978736273e-17]
+                    point3f physics:centerOfMass = (-0.011692268, -3.7743534e-15, 0.023926534)
+                    float3 physics:diagonalInertia = (0.000012857789, 0.000019825764, 0.000022531969)
+                    float physics:mass = 0.08108258
+                    quatf physics:principalAxes = (0.707047, 0.707047, -0.00919622, 0.00919622)
+
+                    over "shoulder_link" (
+                        prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI", "NewtonMassAPI"]
+                    )
+                    {
+                        double[] newton:inertia = [0.000026324742259425243, 0.000022861624315008813, 0.000014187591495603722, -7.312006911381859e-16, -9.128905585988183e-18, -8.980408739570743e-8]
+                        point3f physics:centerOfMass = (1.3576596e-13, 0.0006685783, 0.028869491)
+                        float3 physics:diagonalInertia = (0.000014186662, 0.000022862554, 0.000026324742)
+                        float physics:mass = 0.08583374
+                        quatf physics:principalAxes = (0.7070973, -0.0036598735, -0.7070973, 0.0036598733)
+
+                        over "upper_arm_link" (
+                            prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI", "NewtonMassAPI"]
+                        )
+                        {
+                            double[] newton:inertia = [0.00018774476358412258, 0.00003578068745086586, 0.00019584173585813564, 0.000023927185167595554, 2.494779573069466e-7, -0.0000013200789827030247]
+                            point3f physics:centerOfMass = (-0.008487065, 0.10499673, 0.019195324)
+                            float3 physics:diagonalInertia = (0.00003209131, 0.00019142266, 0.00019585322)
+                            float physics:mass = 0.12886466
+                            quatf physics:principalAxes = (-0.006491687, 0.651142, 0.7589271, -0.0012702987)
+
+                            over "forearm_link" (
+                                prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI", "NewtonMassAPI"]
+                            )
+                            {
+                                double[] newton:inertia = [0.000019524545623177503, 0.00014316575812332259, 0.00013706538722077516, -2.9158900918577e-9, 0.0000010925502645848908, 3.773501040795638e-11]
+                                point3f physics:centerOfMass = (-0.09379596, 6.576999e-7, 0.01923923)
+                                float3 physics:diagonalInertia = (0.000019514391, 0.00013707553, 0.00014316576)
+                                float physics:mass = 0.11729976
+                                quatf physics:principalAxes = (0.7070985, 0.7070998, 0.003294248, -0.003277578)
+
+                                over "wrist_link" (
+                                    prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI", "NewtonMassAPI"]
+                                )
+                                {
+                                    double[] newton:inertia = [0.00002376831067770098, 0.0000198868978503507, 0.000029205178935103743, 5.954218246732174e-7, -3.5110061152839838e-15, 2.3069523907684884e-16]
+                                    point3f physics:centerOfMass = (-0.04362262, 0.011448916, 0.01875)
+                                    float3 physics:diagonalInertia = (0.000019797611, 0.000023857596, 0.000029205179)
+                                    float physics:mass = 0.0901523
+                                    quatf physics:principalAxes = (2.3992658e-10, 0.6525734, 0.7577255, 2.1760042e-10)
+
+                                    over "gripper_link" (
+                                        prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI", "NewtonMassAPI"]
+                                    )
+                                    {
+                                        double[] newton:inertia = [0.00007566997046639816, 0.00010679192530828156, 0.00010974001130350429, 4.58037525130514e-8, 1.147686837904163e-9, -0.000008666284099644634]
+                                        point3f physics:centerOfMass = (-1.5886903e-7, -0.008076961, 0.0333312)
+                                        float3 physics:diagonalInertia = (0.000075669894, 0.00009947527, 0.00011705674)
+                                        float physics:mass = 0.17574131
+                                        quatf physics:principalAxes = (0.9391731, 0.3434432, -0.00006750909, -0.00082394894)
+
+                                        over "finger_left_link" (
+                                            prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI", "NewtonMassAPI"]
+                                        )
+                                        {
+                                            double[] newton:inertia = [0.000016044439735299576, 0.000030067540639167056, 0.000038262391196432324, 3.5963237118778324e-9, 0.000004605246566927584, 1.5747727444362111e-9]
+                                            point3f physics:centerOfMass = (-0.02155894, -0.0000081806475, 0.018420806)
+                                            float3 physics:diagonalInertia = (0.000015127707, 0.00003006754, 0.00003917912)
+                                            float physics:mass = 0.053565208
+                                            quatf physics:principalAxes = (0.9951776, -0.00013325695, 0.09808897, -0.00009514246)
+                                        }
+
+                                        over "finger_right_link" (
+                                            prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI", "NewtonMassAPI"]
+                                        )
+                                        {
+                                            double[] newton:inertia = [0.000016044441819699544, 0.000030069181530455354, 0.00003826403413411749, 3.5958195413410427e-9, 0.000004605674889789638, 1.5747659279198598e-9]
+                                            point3f physics:centerOfMass = (-0.02155799, -0.000008180634, 0.018420806)
+                                            float3 physics:diagonalInertia = (0.000015127608, 0.00003006918, 0.000039180868)
+                                            float physics:mass = 0.053565208
+                                            quatf physics:principalAxes = (0.99517745, -0.0001332477, 0.09809066, -0.00009511371)
+                                        }
+
+                                        over "gripper_cam_link" (
+                                            prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI", "NewtonMassAPI"]
+                                        )
+                                        {
+                                            double[] newton:inertia = [0.000051824, 0.000017218, 0.000059057, 8.5769e-8, -0.0000021898, -5.7372e-8]
+                                            point3f physics:centerOfMass = (-0.017727, 0.001229, -0.001059)
+                                            float3 physics:diagonalInertia = (0.000017217722, 0.00005121283, 0.000059668444)
+                                            float physics:mass = 0.08837
+                                            quatf physics:principalAxes = (0.09540439, 0.6997844, 0.7013459, 0.0965073)
+
+                                            over "box" (
+                                                prepend apiSchemas = ["NewtonCollisionAPI"]
+                                            )
+                                            {
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    over "Physics"
+    {
+        def PhysicsRevoluteJoint "wheel_left_joint" (
+            prepend apiSchemas = ["NewtonJointAPI", "PhysicsDriveAPI:angular", "PhysicsJointStateAPI:angular"]
+        )
+        {
+            float drive:angular:physics:maxForce = 3
+            float newton:velocityLimit = 461.97586
+            uniform token physics:axis = "Y"
+            custom rel physics:body0
+            append rel physics:body0 = </beebot/Geometry/base_footprint/base_link>
+            custom rel physics:body1
+            append rel physics:body1 = </beebot/Geometry/base_footprint/base_link/wheel_left_link>
+            point3f physics:localPos0 = (0, 0.1439, 0.023)
+            point3f physics:localPos1 = (0, 0, 0)
+            quatf physics:localRot0 = (1, 0, 0, 0)
+            quatf physics:localRot1 = (1, 0, 0, 0)
+            custom float urdf:limit:effort = 3
+        }
+
+        def PhysicsRevoluteJoint "wheel_right_joint" (
+            prepend apiSchemas = ["NewtonJointAPI", "PhysicsDriveAPI:angular", "PhysicsJointStateAPI:angular"]
+        )
+        {
+            float drive:angular:physics:maxForce = 3
+            float newton:velocityLimit = 461.97586
+            uniform token physics:axis = "Y"
+            custom rel physics:body0
+            append rel physics:body0 = </beebot/Geometry/base_footprint/base_link>
+            custom rel physics:body1
+            append rel physics:body1 = </beebot/Geometry/base_footprint/base_link/wheel_right_link>
+            point3f physics:localPos0 = (0, -0.1439, 0.023)
+            point3f physics:localPos1 = (0, 0, 0)
+            quatf physics:localRot0 = (1, 0, 0, 0)
+            quatf physics:localRot1 = (1, 0, 0, 0)
+            custom float urdf:limit:effort = 3
+        }
+
+        def PhysicsRevoluteJoint "joint1" (
+            prepend apiSchemas = ["NewtonJointAPI", "PhysicsDriveAPI:angular", "PhysicsJointStateAPI:angular"]
+        )
+        {
+            float drive:angular:physics:maxForce = 4.1
+            float newton:velocityLimit = 275.99377
+            uniform token physics:axis = "Z"
+            custom rel physics:body0
+            append rel physics:body0 = </beebot/Geometry/base_footprint/base_link/arm_base_link>
+            custom rel physics:body1
+            append rel physics:body1 = </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link>
+            point3f physics:localPos0 = (0, 0, 0.0409)
+            point3f physics:localPos1 = (0, 0, 0)
+            quatf physics:localRot0 = (1, 0, 0, 0)
+            quatf physics:localRot1 = (1, 0, 0, 0)
+            float physics:lowerLimit = -179.99985
+            float physics:upperLimit = 179.99985
+            custom float urdf:limit:effort = 4.1
+        }
+
+        def PhysicsRevoluteJoint "joint2" (
+            prepend apiSchemas = ["NewtonJointAPI", "PhysicsDriveAPI:angular", "PhysicsJointStateAPI:angular"]
+        )
+        {
+            float drive:angular:physics:maxForce = 4.1
+            float newton:velocityLimit = 275.99377
+            uniform token physics:axis = "Z"
+            custom rel physics:body0
+            append rel physics:body0 = </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link>
+            custom rel physics:body1
+            append rel physics:body1 = </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link>
+            point3f physics:localPos0 = (0, -0.01875, 0.0416)
+            point3f physics:localPos1 = (0, 0, 0)
+            quatf physics:localRot0 = (7.58092e-11, 7.580929e-11, 0.70710677, 0.70710677)
+            quatf physics:localRot1 = (1, 0, 0, 0)
+            float physics:lowerLimit = -109.99999
+            float physics:upperLimit = 109.99999
+            custom float urdf:limit:effort = 4.1
+        }
+
+        def PhysicsRevoluteJoint "joint3" (
+            prepend apiSchemas = ["NewtonJointAPI", "PhysicsDriveAPI:angular", "PhysicsJointStateAPI:angular"]
+        )
+        {
+            float drive:angular:physics:maxForce = 4.1
+            float newton:velocityLimit = 275.99377
+            uniform token physics:axis = "Z"
+            custom rel physics:body0
+            append rel physics:body0 = </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link>
+            custom rel physics:body1
+            append rel physics:body1 = </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link>
+            point3f physics:localPos0 = (-0.024, 0.128, 5.195438e-12)
+            point3f physics:localPos1 = (0, 0, 0)
+            quatf physics:localRot0 = (1, 0, 0, 0)
+            quatf physics:localRot1 = (1, 0, 0, 0)
+            float physics:lowerLimit = -89.999985
+            float physics:upperLimit = 79.99998
+            custom float urdf:limit:effort = 4.1
+        }
+
+        def PhysicsRevoluteJoint "joint4" (
+            prepend apiSchemas = ["NewtonJointAPI", "PhysicsDriveAPI:angular", "PhysicsJointStateAPI:angular"]
+        )
+        {
+            float drive:angular:physics:maxForce = 4.1
+            float newton:velocityLimit = 275.99377
+            uniform token physics:axis = "Z"
+            custom rel physics:body0
+            append rel physics:body0 = </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link>
+            custom rel physics:body1
+            append rel physics:body1 = </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link>
+            point3f physics:localPos0 = (-0.124, 5.551115e-17, 2.657112e-11)
+            point3f physics:localPos1 = (0, 0, 0)
+            quatf physics:localRot0 = (1, 0, 0, 0)
+            quatf physics:localRot1 = (1, 0, 0, 0)
+            float physics:lowerLimit = -97.402824
+            float physics:upperLimit = 112.87269
+            custom float urdf:limit:effort = 4.1
+        }
+
+        def PhysicsRevoluteJoint "joint5" (
+            prepend apiSchemas = ["NewtonJointAPI", "PhysicsDriveAPI:angular", "PhysicsJointStateAPI:angular"]
+        )
+        {
+            float drive:angular:physics:maxForce = 4.1
+            float newton:velocityLimit = 275.99377
+            uniform token physics:axis = "Z"
+            custom rel physics:body0
+            append rel physics:body0 = </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link>
+            custom rel physics:body1
+            append rel physics:body1 = </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link>
+            point3f physics:localPos0 = (-0.0629, -1.110223e-16, 0.01875)
+            point3f physics:localPos1 = (0, 0, 0)
+            quatf physics:localRot0 = (-1.416344e-16, -0.70710677, -1.110223e-16, 0.70710677)
+            quatf physics:localRot1 = (1, 0, 0, 0)
+            float physics:lowerLimit = -180.00002
+            float physics:upperLimit = 180.00002
+            custom float urdf:limit:effort = 4.1
+        }
+
+        def PhysicsPrismaticJoint "gripper_left_joint" (
+            prepend apiSchemas = ["NewtonJointAPI", "PhysicsDriveAPI:linear", "PhysicsJointStateAPI:linear"]
+        )
+        {
+            float drive:linear:physics:maxForce = 20
+            float newton:velocityLimit = 0.07
+            uniform token physics:axis = "Z"
+            custom rel physics:body0
+            append rel physics:body0 = </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link>
+            custom rel physics:body1
+            append rel physics:body1 = </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link/finger_left_link>
+            point3f physics:localPos0 = (-0.03861387, 0, 0.05315)
+            point3f physics:localPos1 = (0, 0, 0)
+            quatf physics:localRot0 = (4.7750246e-15, 0.70710677, 5.0515148e-15, -0.70710677)
+            quatf physics:localRot1 = (0, -1, 0, 0)
+            float physics:lowerLimit = 0
+            float physics:upperLimit = 0.0265
+            custom float urdf:limit:effort = 20
+        }
+
+        def PhysicsPrismaticJoint "gripper_right_joint" (
+            prepend apiSchemas = ["NewtonJointAPI", "NewtonMimicAPI", "PhysicsDriveAPI:linear", "PhysicsJointStateAPI:linear"]
+        )
+        {
+            float drive:linear:physics:maxForce = 20
+            rel newton:mimicJoint = </beebot/Physics/gripper_left_joint>
+            float newton:velocityLimit = 0.07
+            uniform token physics:axis = "Z"
+            custom rel physics:body0
+            append rel physics:body0 = </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link>
+            custom rel physics:body1
+            append rel physics:body1 = </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link/finger_right_link>
+            point3f physics:localPos0 = (0.03861387, 0, 0.05315)
+            point3f physics:localPos1 = (0, 0, 0)
+            quatf physics:localRot0 = (0.70710677, -5.031729e-15, 0.70710677, 5.162537e-15)
+            quatf physics:localRot1 = (0, -1, 0, 0)
+            float physics:lowerLimit = 0
+            float physics:upperLimit = 0.0265
+            custom float urdf:limit:effort = 20
+        }
+
+        def PhysicsFixedJoint "base_joint"
+        {
+            custom rel physics:body0
+            append rel physics:body0 = </beebot>
+            custom rel physics:body1
+            append rel physics:body1 = </beebot/Geometry/base_footprint/base_link>
+            point3f physics:localPos0 = (0, 0, 0.01)
+            point3f physics:localPos1 = (0, 0, 0)
+            quatf physics:localRot0 = (1, 0, 0, 0)
+            quatf physics:localRot1 = (1, 0, 0, 0)
+        }
+
+        def PhysicsFixedJoint "front_pole_cam_joint"
+        {
+            custom rel physics:body0
+            append rel physics:body0 = </beebot/Geometry/base_footprint/base_link>
+            custom rel physics:body1
+            append rel physics:body1 = </beebot/Geometry/base_footprint/base_link/front_pole_cam_link>
+            point3f physics:localPos0 = (-0.137869, 0.000185, 0.434932)
+            point3f physics:localPos1 = (0, 0, 0)
+            quatf physics:localRot0 = (0.98768836, 0, 0.15643433, 0)
+            quatf physics:localRot1 = (1, 0, 0, 0)
+        }
+
+        def PhysicsFixedJoint "arm_mount_joint"
+        {
+            custom rel physics:body0
+            append rel physics:body0 = </beebot/Geometry/base_footprint/base_link>
+            custom rel physics:body1
+            append rel physics:body1 = </beebot/Geometry/base_footprint/base_link/arm_base_link>
+            point3f physics:localPos0 = (0.047985, -0.00023, 0.130175)
+            point3f physics:localPos1 = (0, 0, 0)
+            quatf physics:localRot0 = (1, 0, 0, 0)
+            quatf physics:localRot1 = (1, 0, 0, 0)
+        }
+
+        def PhysicsFixedJoint "gripper_cam_joint"
+        {
+            custom rel physics:body0
+            append rel physics:body0 = </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link>
+            custom rel physics:body1
+            append rel physics:body1 = </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link/gripper_cam_link>
+            point3f physics:localPos0 = (0.000273, -0.040325, 0.081681)
+            point3f physics:localPos1 = (0, 0, 0)
+            quatf physics:localRot0 = (-0.57158357, -0.4169121, 0.41636932, -0.57106316)
+            quatf physics:localRot1 = (1, 0, 0, 0)
+        }
+    }
+}
+

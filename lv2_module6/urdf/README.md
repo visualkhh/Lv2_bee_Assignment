@@ -8,52 +8,58 @@ BEE 로봇(TurtleBot3 Waffle Pi 베이스 + RM-X52 팔 + 그리퍼 + 카메라 2
 
 | 폴더 | xacro 파일 | 내용 |
 | --- | --- | --- |
-| `default` | `beetbot.urdf.xacro` | 기본 모델. 실측 CAD 메시 + Gazebo 블록(RGBD 카메라 2대, IMU, DiffDrive, 팔 JointPositionController). `xacro:arg` 기본값이 없어서 인자 4개(`mesh_uri`·`mock_hardware`·`mock_effort`·`port`)를 모두 넘겨야 한다 |
-| `beebot_mesh` | `beebot.urdf.xacro` | 실측 CAD 메시 모델 (Gazebo 블록 없음). `make_xacro.py` 생성본이고, 변환·검수 스크립트가 이 폴더에 있다 |
+| `default` | `urdf.xacro` | 기본 모델(팀 배포본). `beebot_mesh`를 `deploy_default.sh`로 복사한 것 + Gazebo 블록(RGBD 카메라 2대, IMU, DiffDrive, 팔 JointPositionController). 직접 고치지 않는다 |
+| `beebot_mesh` | `urdf.xacro` | 작업용 원본. 실측 CAD 메시 모델 (Gazebo 블록 없음). 변환·검수·배포 스크립트가 이 폴더에 있다 |
 | `beebot_normal` | `urdf.xacro` | 기본 도형으로 만든 더미 치수 모델 (메시 없음). TurtleBot3 Waffle Pi + OM-X + 손목 roll + 그리퍼 |
 | `beebot_slam` | `urdf.xacro` | SLAM 전용 더미 모델. 팔·그리퍼·gripper_cam을 빼고 폴 뒤쪽 카메라 `pole_rear_cam`을 더했다 |
 
-`default/beetbot.urdf`는 `beetbot.urdf.xacro`를 기본 인자로 펼친 순수 URDF다 (메시 경로 `package://ros_system/urdf/default/meshes`). xacro를 고치면 다시 만든다:
+작업은 `beebot_mesh/`에서만 하고, 팀에 배포할 때 `default/`로 덮어쓴다:
 
 ```bash
-cd default && xacro beetbot.urdf.xacro mesh_uri:=package://ros_system/urdf/default/meshes \
-  mock_hardware:=false mock_effort:=0.0 port:=/dev/opencr -o beetbot.urdf && check_urdf beetbot.urdf
+beebot_mesh/scripts/deploy_default.sh
 ```
 
-`default/meshes/maze.stl`은 xacro가 쓰지 않는 파일이다.
+- `beebot_mesh/urdf.xacro` → `default/urdf.xacro`, `beebot_mesh/meshes/` → `default/meshes/`로 덮어쓴다.
+- `default/urdf.xacro`의 Gazebo 블록(`<!-- Gazebo` 주석부터 `</robot>` 앞까지)은 떼어 두었다가 새 xacro 끝에 다시 붙인다. Gazebo 블록이 없으면 덮어쓰지 않고 멈춘다.
+- 덮어쓰기 전에 xacro를 펼쳐 `check_urdf`로 확인한다. 실패하면 `default/`는 그대로다.
+- `default/meshes/`에만 있는 파일은 지우지 않는다. `default/meshes/maze.stl`은 xacro가 쓰지 않는 파일이다.
+
+`default/`를 직접 고치면 다음 배포 때 Gazebo 블록 말고는 모두 덮어써진다. Gazebo 설정만 `default/urdf.xacro`에서 고친다.
 
 ## 폴더 구조
 
 ```
 urdf/
-├── default/
-│   ├── beetbot.urdf.xacro     # 기본 모델 (Gazebo 블록 포함)
-│   ├── beetbot.urdf           # 위 xacro를 펼친 순수 URDF
-│   └── meshes/                # 링크별 STL + storage_collision/ 9개 (+ maze.stl)
-├── beebot_mesh/
-│   ├── beebot.urdf.xacro      # ROS용 xacro (인자: mock_hardware·mock_effort·port·mesh_uri). make_xacro.py 생성본
+├── default/                   # 팀 배포본 (deploy_default.sh가 덮어씀)
+│   ├── urdf.xacro             # beebot_mesh/urdf.xacro + Gazebo 블록
+│   └── meshes/                # beebot_mesh/meshes 복사본 (+ maze.stl)
+├── beebot_mesh/               # 작업용 원본
+│   ├── urdf.xacro             # ROS용 xacro (인자: mock_hardware·mock_effort·port·mesh_uri)
+│   ├── beebot.urdf            # Isaac Sim용 순수 URDF. make_urdf.sh 생성본, 레포에 넣지 않음
 │   ├── meshes/                # 링크별 STL + storage_collision/ 9개 (단위 mm, URDF에서 scale 0.001로 m 변환)
-│   └── scripts/               # 변환(urdf ↔ xacro)·검증·분석 스크립트
+│   └── scripts/               # 변환(urdf ↔ xacro)·검증·분석·배포 스크립트
 ├── beebot_normal/urdf.xacro   # 더미 치수 모델
 └── beebot_slam/urdf.xacro     # SLAM 전용 더미 모델
 ```
 
-`beebot_mesh/beebot.urdf.xacro`와 `beebot_mesh/beebot.urdf`(Isaac Sim URDF Importer용, 메시 경로가 상대 경로 `meshes/`)는 서로 변환된다. `beebot.urdf`는 레포에 없으므로 처음에는 `make_urdf.sh`로 만든다. 한쪽을 고쳤으면 다른 쪽을 다시 만들고 검수까지 돌린다. 스크립트는 어디서 실행해도 `beebot_mesh/`에서 동작한다.
+`beebot_mesh/urdf.xacro`와 `beebot_mesh/beebot.urdf`(Isaac Sim URDF Importer용, 메시 경로가 상대 경로 `meshes/`)는 서로 변환된다. `beebot.urdf`는 레포에 없으므로 처음에는 `make_urdf.sh`로 만든다. 한쪽을 고쳤으면 다른 쪽을 다시 만들고 검수까지 돌린다. 스크립트는 어디서 실행해도 `beebot_mesh/`에서 동작한다.
 
 ```bash
 # beebot.urdf를 고쳤을 때
 python3 beebot_mesh/scripts/make_xacro.py
-# beebot.urdf.xacro를 고쳤을 때
+# urdf.xacro를 고쳤을 때
 beebot_mesh/scripts/make_urdf.sh
 # 검수 (둘 다 고친 뒤 항상)
 beebot_mesh/scripts/check_urdf.sh
+# 팀 배포: urdf.xacro·meshes/ 를 default/ 에 덮어쓰기 (default 의 Gazebo 블록은 유지)
+beebot_mesh/scripts/deploy_default.sh
 ```
 
 `.sh`는 bash 스크립트라 그대로 실행한다(`python3`로 돌리면 `SyntaxError`). `.py`는 `python3`로 돌린다.
 
 ### xacro 인자
 
-`beebot_mesh` 기준이다. `default`는 같은 인자를 쓰지만 기본값이 없다. `beebot_normal`·`beebot_slam`은 `mesh_uri`가 없다.
+`beebot_mesh` 기준이다. `default`는 배포본이라 같다. `beebot_normal`·`beebot_slam`은 `mesh_uri`가 없다.
 
 | 인자 | 기본값 | 용도 |
 | --- | --- | --- |
@@ -63,7 +69,7 @@ beebot_mesh/scripts/check_urdf.sh
 | `mesh_uri` | `package://ros_system/urdf/meshes` | 메시 경로 앞부분. `make_urdf.sh`는 기본값을 상대 경로 `meshes/`로 바꿔 `beebot_mesh/beebot.urdf`를 만든다 |
 
 ```bash
-xacro beebot_mesh/beebot.urdf.xacro mock_hardware:=true > /tmp/beebot.urdf && check_urdf /tmp/beebot.urdf
+xacro beebot_mesh/urdf.xacro mock_hardware:=true > /tmp/beebot.urdf && check_urdf /tmp/beebot.urdf
 ```
 
 기본값은 `make_xacro.py`가 돌 때 `beebot_mesh/beebot.urdf`의 `<ros2_control>` 값을 그대로 가져온다. 없는 인자를 넘기면 xacro는 에러 없이 무시하므로, 인자를 추가하면 `make_xacro.py`와 `check_xacro.py`도 같이 고친다.
@@ -76,8 +82,8 @@ xacro beebot_mesh/beebot.urdf.xacro mock_hardware:=true > /tmp/beebot.urdf && ch
 base_footprint
 └─ base_link                      바퀴 축 아래 10 mm. x 앞, y 왼쪽, z 위
    ├─ wheel_left_link / wheel_right_link   continuous, 축 y
-   ├─ pole_cam_link                        뒤 카메라 (고정)
-   │   └─ pole_cam_color_optical_frame
+   ├─ front_pole_cam_link                  폴 앞쪽 카메라 (고정)
+   │   └─ front_pole_cam_color_optical_frame
    ├─ imu_link                             (고정)
    ├─ basket_slot_0 ~ 11                   바구니 칸 바닥 중심 (고정, 방향은 base_link와 같음)
    └─ arm_base_link                        팔 받침 (고정)
@@ -104,7 +110,7 @@ base_footprint
 | --- | --- | --- |
 | `base_link.stl` | base_link | 와플 판, 바구니, 기둥 등 베이스 전체를 한 덩어리로 합친 메시. 55만 삼각형을 3 mm 격자로 간략화한 것 (약 6 MB) |
 | `wheel_left_link.stl`, `wheel_right_link.stl` | wheel_left/right_link | 바퀴 |
-| `camera_rear_link.stl` | pole_cam_link | 뒤 카메라 |
+| `camera_rear_link.stl` | front_pole_cam_link | 폴 앞쪽 카메라 |
 | `arm_base_1.stl` | arm_base_link | 팔 받침 |
 | `shoulder_1.stl` | shoulder_link | 어깨 |
 | `link1_1.stl` | upper_arm_link | 위팔 |
@@ -124,7 +130,7 @@ base_footprint
 | --- | --- |
 | base_link | 2400.6 |
 | wheel_left/right_link | 28.5 × 2 |
-| pole_cam_link | 72.0 |
+| front_pole_cam_link | 72.0 |
 | arm_base_link | 81.1 |
 | shoulder_link | 85.8 |
 | upper_arm_link | 128.9 |
@@ -139,15 +145,16 @@ base_footprint
 
 ## 스크립트 (`beebot_mesh/scripts`)
 
-아래 `beebot.urdf`·`beebot.urdf.xacro`는 모두 `beebot_mesh/` 안의 파일이다.
+아래 `beebot.urdf`·`urdf.xacro`는 모두 `beebot_mesh/` 안의 파일이다.
 
 | 스크립트 | 용도 | 입력 → 출력 |
 | --- | --- | --- |
-| `make_urdf.sh` | `beebot.urdf.xacro`를 펼쳐 `beebot.urdf`를 만들고 `check_urdf`로 확인한다 | xacro → `beebot.urdf` |
-| `check_urdf.sh` | 검수 묶음. `check_urdf`, `verify.py`, `check_xacro.py`를 차례로 돌리고 하나라도 실패하면 종료 코드 1을 낸다 (ROS 환경을 알아서 불러옴) | `beebot.urdf`, `beebot.urdf.xacro` → 콘솔 |
-| `make_xacro.py` | `beebot.urdf`를 xacro로 바꾼다. 메시 경로와 ros2_control 하드웨어 값을 xacro 인자로 되돌린다 | `beebot.urdf` → `beebot.urdf.xacro` |
+| `make_urdf.sh` | `urdf.xacro`를 펼쳐 `beebot.urdf`를 만들고 `check_urdf`로 확인한다 | xacro → `beebot.urdf` |
+| `check_urdf.sh` | 검수 묶음. `check_urdf`, `verify.py`, `check_xacro.py`를 차례로 돌리고 하나라도 실패하면 종료 코드 1을 낸다 (ROS 환경을 알아서 불러옴) | `beebot.urdf`, `urdf.xacro` → 콘솔 |
+| `make_xacro.py` | `beebot.urdf`를 xacro로 바꾼다. 메시 경로와 ros2_control 하드웨어 값을 xacro 인자로 되돌린다 | `beebot.urdf` → `urdf.xacro` |
 | `verify.py` | URDF를 검증한다 (트리, 관성 유효성, visual·collision 메시 전부 존재, 팔 조인트 위치. Fusion 추출본 `raw/`가 있을 때만 메시 왕복 위치도 보는데, 이 레포에는 `raw/`가 없어 건너뛴다) | `beebot.urdf` → 콘솔 |
-| `check_xacro.py` | `beebot.urdf.xacro`를 펼쳐 `beebot.urdf`와 비교한다 (이름, 그리퍼 방향과 mimic, 영점 형상 일치, end_effector·optical frame, ros2_control 조인트, xacro 인자 반영). 어긋나면 `make_urdf.sh`로 다시 만든다 | `beebot.urdf.xacro`, `beebot.urdf` → 콘솔 (ROS 환경 필요) |
+| `check_xacro.py` | `urdf.xacro`를 펼쳐 `beebot.urdf`와 비교한다 (이름, 그리퍼 방향과 mimic, 영점 형상 일치, end_effector·optical frame, ros2_control 조인트, xacro 인자 반영). 어긋나면 `make_urdf.sh`로 다시 만든다 | `urdf.xacro`, `beebot.urdf` → 콘솔 (ROS 환경 필요) |
+| `deploy_default.sh` | `urdf.xacro`·`meshes/`를 `default/`에 덮어쓴다. `default`의 Gazebo 블록과 `default/meshes/`에만 있는 파일은 남긴다. 덮어쓰기 전에 `check_urdf`로 확인한다 | `urdf.xacro`, `meshes/` → `default/` |
 | `stlio.py` | 바이너리 STL 읽기·쓰기 도우미 (`verify.py`가 씀) | 라이브러리 |
 | `torque_check.py` | 팔 joint2~5의 정적 중력 토크를 계산하고 XM430-W350 정지 토크와 비교한다 | `beebot.urdf` → 콘솔 |
 | `bracket_check.py` | 롤 브라켓의 강도·강성을 손계산한다 (FEA 아님) | `beebot.urdf` → 콘솔 |

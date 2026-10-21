@@ -1,11 +1,11 @@
-"""beebot.urdf.xacro(원본) 점검 — xacro로 펼쳐 beebot.urdf와 비교한다 (ROS 환경 필요). 어긋나면 make_urdf.sh로 beebot.urdf를 다시 만든다.
+"""urdf.xacro(원본) 점검 — xacro로 펼쳐 beebot.urdf와 비교한다 (ROS 환경 필요). 어긋나면 make_urdf.sh로 beebot.urdf를 다시 만든다.
 트리·이름, 그리퍼 + = 열림과 mimic, 손가락 좌우, end_effector 위치, 원본 beebot.urdf와 영점 형상 일치, ros2_control 조인트 확인.
 """
 import math, os, subprocess, xml.etree.ElementTree as ET
 import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-XACRO = os.path.join(HERE, '..', 'beebot.urdf.xacro')
+XACRO = os.path.join(HERE, '..', 'urdf.xacro')
 SRC = os.path.join(HERE, '..', 'beebot.urdf')
 EXP = ET.fromstring(subprocess.run(['xacro', XACRO], check=True, capture_output=True, text=True).stdout
                    .replace('package://ros_system/urdf/meshes/', 'meshes/'))   # make_urdf.sh와 같은 치환
@@ -84,7 +84,7 @@ Tr = fk(e, {'joint5': math.pi / 2})
 check(np.linalg.norm(Tr['end_effector_link'][:3, 3] - Te['end_effector_link'][:3, 3]) < 0.002, 'joint5 롤 90°에 end_effector 위치 유지 (롤 축 위, 2 mm 이내)')
 
 # optical frame
-for cam in ('pole_cam', 'gripper_cam'):
+for cam in ('front_pole_cam', 'gripper_cam'):
     Tl, To = Te[f'{cam}_link'], Te[f'{cam}_color_optical_frame']
     check(np.allclose(To[:3, 2], Tl[:3, 0], atol=1e-6) and np.allclose(To[:3, 0], -Tl[:3, 1], atol=1e-6), f'{cam}_color_optical_frame: z=렌즈, x=오른쪽')
 

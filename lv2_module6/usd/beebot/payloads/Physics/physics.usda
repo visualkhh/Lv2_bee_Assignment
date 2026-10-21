@@ -116,7 +116,7 @@ over "beebot"
                     }
                 }
 
-                over "pole_cam_link" (
+                over "front_pole_cam_link" (
                     prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI", "NewtonMassAPI"]
                 )
                 {
@@ -459,13 +459,13 @@ over "beebot"
             quatf physics:localRot1 = (1, 0, 0, 0)
         }
 
-        def PhysicsFixedJoint "pole_cam_joint"
+        def PhysicsFixedJoint "front_pole_cam_joint"
         {
             custom rel physics:body0
             append rel physics:body0 = </beebot/Geometry/base_footprint/base_link>
             custom rel physics:body1
-            append rel physics:body1 = </beebot/Geometry/base_footprint/base_link/pole_cam_link>
-            point3f physics:localPos0 = (-0.137869, 0.000185, 0.417108)
+            append rel physics:body1 = </beebot/Geometry/base_footprint/base_link/front_pole_cam_link>
+            point3f physics:localPos0 = (-0.137869, 0.000185, 0.434932)
             point3f physics:localPos1 = (0, 0, 0)
             quatf physics:localRot0 = (0.98768836, 0, 0.15643433, 0)
             quatf physics:localRot1 = (1, 0, 0, 0)

@@ -74,13 +74,13 @@ def Xform "beebot" (
                     }
                 }
 
-                over "pole_cam_link"
+                over "front_pole_cam_link"
                 {
                     string isaac:nameOverride (
                         displayName = "Name Override"
                     )
 
-                    over "pole_cam_color_optical_frame"
+                    over "front_pole_cam_color_optical_frame"
                     {
                         string isaac:Description (
                             displayName = "Reference Description"
@@ -89,7 +89,7 @@ def Xform "beebot" (
                             displayName = "Forward Axis"
                         )
 
-                        def Camera "pole_cam_rgb" (
+                        def Camera "front_pole_cam_rgb" (
                             prepend apiSchemas = ["OmniRtxCameraAutoExposureAPI_1", "OmniRtxCameraExposureAPI_1"]
                         )
                         {
@@ -391,7 +391,7 @@ def "Render" (
                 bool omni:rtx:scene:hydra:mdlMaterialWarmup = 1
                 rel orderedVars = </Render/Vars/LdrColor>
                 custom bool overrideClipRange = 0
-                uniform int2 resolution = (687, 405)
+                uniform int2 resolution = (818, 577)
             }
         }
     }

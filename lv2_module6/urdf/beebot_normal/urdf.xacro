@@ -8,7 +8,7 @@
     - 상판(deck): 차체 위 앞쪽 절반만 덮는 판넬, 스탠드오프 0.05m 위
     - 매니퓰레이터: 상판 위 OpenMANIPULATOR-X + 손목 roll — 구동 관절 6개
         joint1 yaw · joint2~4 pitch (OM-X) · joint5 손목 roll (추가) · gripper_left_joint (평행 그리퍼)
-    - 선가이드 폴: 차체 위 뒤쪽 끝, 전원선이 위에서 내려온다. pole_cam은 이 폴 위에 전방 하향으로 단다 (가정)
+    - 선가이드 폴: 차체 위 뒤쪽 끝, 전원선이 위에서 내려온다. front_pole_cam은 이 폴 위에 전방 하향으로 단다 (가정)
     - gripper_cam: 그리퍼 몸체(gripper_link) 위에 얹은 RealSense
 
   xacro 인자:
@@ -198,7 +198,7 @@
       <origin rpy="${-PI/2} 0 ${-PI/2}"/>
     </joint>
   </xacro:macro>
-  <xacro:camera name="pole_cam" parent="base_link">
+  <xacro:camera name="front_pole_cam" parent="base_link">
     <origin xyz="${pole_x + 0.020} 0 ${body_top + pole_h}" rpy="0 0.6 0"/>   <!-- 폴 꼭대기 앞, 전방 하향 약 34° -->
   </xacro:camera>
 
