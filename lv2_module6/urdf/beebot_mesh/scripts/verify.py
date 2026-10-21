@@ -24,9 +24,11 @@ def check(cond, msg):
     print(('PASS ' if cond else 'FAIL ') + msg); ok &= bool(cond)
 
 FUSION_JOINTS_MM = {   # Fusion WAFFLE_PI_ASSY 안 rm-x52:1 조인트 원점(조립 좌표, mm) — 2026-10-13 읽음
-    'joint1': (115.045, 0, 175.945), 'joint2': (115.045, -18.75, 217.545), 'joint3': (139.045, -18.75, 345.545),
-    'joint4': (263.045, -18.75, 345.545), 'joint5': (325.945, 0, 345.545),
-    'gripper_left_joint': (379.095, 38.614, 345.545), 'gripper_right_joint': (379.095, -38.614, 345.545)}
+    # rm-x52:1 조인트 원점 + 팔 메시 보정 (−3.06, −0.23, −4.62) mm (build.py ARM_MESH_FIX_ASM_M). 메시만 옮기면 서보 축이 메시 회전 중심에서
+    # 3~5.5 mm 벗어나므로 조인트도 같이 옮긴다 (2026-10-19, 메시 원형부 중심 맞춤으로 확인)
+    'joint1': (111.985, -0.23, 171.325), 'joint2': (111.985, -18.98, 212.925), 'joint3': (135.985, -18.98, 340.925),
+    'joint4': (259.985, -18.98, 340.925), 'joint5': (322.885, -0.23, 340.925),
+    'gripper_left_joint': (376.035, 38.384, 340.925), 'gripper_right_joint': (376.035, -38.844, 340.925)}
 BASE_FOOTPRINT_ASM_MM = np.array([64.0, 0.0, -9.75])
 
 for fn in ('beebot.urdf',):
@@ -74,7 +76,7 @@ for fn in ('beebot.urdf',):
     check(not missing, f'메시 파일 {len(refs)}개 전부 있음' if not missing else f'메시 파일 없음: {missing}')
     # 메시 왕복 위치: 베이스 쪽 메시를 Fusion 추출본(raw/)과 비교 — raw/가 있을 때만
     RAW_NAME = {'base_link': 'base_link', 'wheel_left_link': 'wheel_left', 'wheel_right_link': 'wheel_right',
-                'pole_cam_link': 'camera_rear', 'gripper_cam_link': 'camera_wrist'}
+                'front_pole_cam_link': 'camera_rear', 'gripper_cam_link': 'camera_wrist'}
     if not os.path.isdir(os.path.join(HERE, 'raw')):
         print('INFO raw/ 없음, 메시 왕복 위치 확인 건너뜀')
     for n, l in links.items():

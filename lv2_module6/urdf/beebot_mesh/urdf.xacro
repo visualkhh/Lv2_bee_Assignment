@@ -2,7 +2,7 @@
 <!--
   beebot — 실측 CAD(bee.urdf, SolidWorks 내보내기)에서 만든 모델. bee.urdf를 새로 받으면 이 파일을 다시 만든다:
     · 메시 경로: meshes/x.stl → meshes/x.stl
-    · 이름 맞춤(제어·시뮬레이터가 쓰는 이름): camera_rear → pole_cam, camera_wrist → gripper_cam,
+    · 이름 맞춤(제어·시뮬레이터가 쓰는 이름): camera_rear → front_pole_cam, camera_wrist → gripper_cam,
       gripper_joint → gripper_left_joint, gripper_mimic_joint → gripper_right_joint, tcp → end_effector
     · 추가: imu_link · <ros2_control> 블록(BeebotSystemHardware) · xacro 인자
   설계: documents/ros2-design/07-tf.md (TF 트리), 08-ctrl.md (ros2_control)
@@ -188,12 +188,12 @@
       </geometry>
     </collision>
   </link>
-  <joint name="pole_cam_joint" type="fixed">
+  <joint name="front_pole_cam_joint" type="fixed">
     <parent link="base_link"/>
-    <child link="pole_cam_link"/>
-    <origin rpy="0.000000 0.314159 0.000000" xyz="-0.137869 0.000185 0.417108"/>
+    <child link="front_pole_cam_link"/>
+    <origin rpy="0.000000 0.314159 0.000000" xyz="-0.137869 0.000185 0.434932"/>
   </joint>
-  <link name="pole_cam_link">
+  <link name="front_pole_cam_link">
     <inertial>
       <origin rpy="0 0 0" xyz="-0.013393 0.001408 -0.000023"/>
       <mass value="0.072000"/>
@@ -215,7 +215,7 @@
   <joint name="arm_mount_joint" type="fixed">
     <parent link="base_link"/>
     <child link="arm_base_link"/>
-    <origin rpy="-0.000000 0.000000 0.000000" xyz="0.051045 -0.000000 0.134795"/>
+    <origin rpy="-0.000000 0.000000 0.000000" xyz="0.047985 -0.00023 0.130175"/>
   </joint>
   <link name="arm_base_link">
     <inertial>
@@ -422,13 +422,13 @@
   <joint name="gripper_cam_joint" type="fixed">
     <parent link="gripper_link"/>
     <child link="gripper_cam_link"/>
-    <origin rpy="2.852763 -1.567096 -1.282111" xyz="0.000504 -0.050245 0.080871"/>
+    <origin rpy="0.003448 -1.260182 1.567371" xyz="0.000273 -0.040325 0.081681"/>
   </joint>
   <link name="gripper_cam_link">
     <inertial>
-      <origin rpy="0 0 0" xyz="-0.018065 0.001229 -0.001118"/>
+      <origin rpy="0 0 0" xyz="-0.017727 0.001229 -0.001059"/>
       <mass value="0.088370"/>
-      <inertia ixx="5.1972e-05" ixy="6.5780e-08" ixz="-2.7719e-06" iyy="1.8951e-05" iyz="-6.0902e-08" izz="6.0643e-05"/>
+      <inertia ixx="5.1824e-05" ixy="8.5769e-08" ixz="-2.1898e-06" iyy="1.7218e-05" iyz="-5.7372e-08" izz="5.9057e-05"/>
     </inertial>
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
@@ -437,9 +437,9 @@
       </geometry>
     </visual>
     <collision>
-      <origin rpy="0.000000 0.000000 0.000000" xyz="-0.027566 -0.000058 -0.009755"/>
+      <origin rpy="0.000000 0.000000 0.000000" xyz="-0.027525 -0.000058 -0.010207"/>
       <geometry>
-        <box size="0.055131 0.089714 0.044510"/>
+        <box size="0.055050 0.089714 0.045413"/>
       </geometry>
     </collision>
   </link>
@@ -449,16 +449,18 @@
     <origin rpy="-0.000000 0.000000 1.570796" xyz="-0.000000 0.000000 0.109055"/>
   </joint>
   <link name="end_effector_link"/>
-  <joint name="pole_cam_optical_joint" type="fixed">
-    <parent link="pole_cam_link"/>
-    <child link="pole_cam_color_optical_frame"/>
-    <origin rpy="-1.570796 0.000000 -1.570796" xyz="0.000000 0.000000 0.000000"/>
+  <joint name="front_pole_cam_optical_joint" type="fixed">
+    <parent link="front_pole_cam_link"/>
+    <child link="front_pole_cam_color_optical_frame"/>
+    <!-- D435 RGB lens: +32.5 mm left of body center, 4.3 mm behind front glass (realsense-ros _d435.urdf.xacro) -->
+    <origin rpy="-1.570796 0.000000 -1.570796" xyz="-0.004300 0.032500 0.000000"/>
   </joint>
-  <link name="pole_cam_color_optical_frame"/>
+  <link name="front_pole_cam_color_optical_frame"/>
   <joint name="gripper_cam_optical_joint" type="fixed">
     <parent link="gripper_cam_link"/>
     <child link="gripper_cam_color_optical_frame"/>
-    <origin rpy="-1.570796 0.000000 -1.570796" xyz="0.000000 0.000000 0.000000"/>
+    <!-- D435 RGB lens: +32.5 mm left of body center, 4.3 mm behind front glass (realsense-ros _d435.urdf.xacro) -->
+    <origin rpy="-1.570796 0.000000 -1.570796" xyz="-0.004300 0.032500 0.000000"/>
   </joint>
   <link name="gripper_cam_color_optical_frame"/>
   <link name="imu_link"/>
@@ -467,6 +469,79 @@
     <child link="imu_link"/>
     <origin rpy="0 0 0" xyz="-0.064 0 0.068"/>
   </joint>
+  <!-- basket slots: cell floor center, 3 rows (x, pole -> arm) x 4 cols (y, -y -> +y) -->
+  <joint name="basket_slot_0_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="basket_slot_0"/>
+    <origin rpy="0 0 0" xyz="-0.16984 -0.0975 0.09125"/>
+  </joint>
+  <link name="basket_slot_0"/>
+  <joint name="basket_slot_1_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="basket_slot_1"/>
+    <origin rpy="0 0 0" xyz="-0.16984 -0.0325 0.09125"/>
+  </joint>
+  <link name="basket_slot_1"/>
+  <joint name="basket_slot_2_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="basket_slot_2"/>
+    <origin rpy="0 0 0" xyz="-0.16984 0.0325 0.09125"/>
+  </joint>
+  <link name="basket_slot_2"/>
+  <joint name="basket_slot_3_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="basket_slot_3"/>
+    <origin rpy="0 0 0" xyz="-0.16984 0.0975 0.09125"/>
+  </joint>
+  <link name="basket_slot_3"/>
+  <joint name="basket_slot_4_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="basket_slot_4"/>
+    <origin rpy="0 0 0" xyz="-0.10484 -0.0975 0.09125"/>
+  </joint>
+  <link name="basket_slot_4"/>
+  <joint name="basket_slot_5_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="basket_slot_5"/>
+    <origin rpy="0 0 0" xyz="-0.10484 -0.0325 0.09125"/>
+  </joint>
+  <link name="basket_slot_5"/>
+  <joint name="basket_slot_6_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="basket_slot_6"/>
+    <origin rpy="0 0 0" xyz="-0.10484 0.0325 0.09125"/>
+  </joint>
+  <link name="basket_slot_6"/>
+  <joint name="basket_slot_7_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="basket_slot_7"/>
+    <origin rpy="0 0 0" xyz="-0.10484 0.0975 0.09125"/>
+  </joint>
+  <link name="basket_slot_7"/>
+  <joint name="basket_slot_8_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="basket_slot_8"/>
+    <origin rpy="0 0 0" xyz="-0.03984 -0.0975 0.09125"/>
+  </joint>
+  <link name="basket_slot_8"/>
+  <joint name="basket_slot_9_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="basket_slot_9"/>
+    <origin rpy="0 0 0" xyz="-0.03984 -0.0325 0.09125"/>
+  </joint>
+  <link name="basket_slot_9"/>
+  <joint name="basket_slot_10_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="basket_slot_10"/>
+    <origin rpy="0 0 0" xyz="-0.03984 0.0325 0.09125"/>
+  </joint>
+  <link name="basket_slot_10"/>
+  <joint name="basket_slot_11_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="basket_slot_11"/>
+    <origin rpy="0 0 0" xyz="-0.03984 0.0975 0.09125"/>
+  </joint>
+  <link name="basket_slot_11"/>
   <!-- ================= ros2_control ================= -->
   <ros2_control name="BeebotSystem" type="system">
     <hardware>

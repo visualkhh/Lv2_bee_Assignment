@@ -1,11 +1,11 @@
-"""beebot.urdf.xacro(원본) 점검 — xacro로 펼쳐 beebot.urdf와 비교한다 (ROS 환경 필요). 어긋나면 make_urdf.sh로 beebot.urdf를 다시 만든다.
+"""urdf.xacro(원본) 점검 — xacro로 펼쳐 beebot.urdf와 비교한다 (ROS 환경 필요). 어긋나면 make_urdf.sh로 beebot.urdf를 다시 만든다.
 트리·이름, 그리퍼 + = 열림과 mimic, 손가락 좌우, end_effector 위치, 원본 beebot.urdf와 영점 형상 일치, ros2_control 조인트 확인.
 """
 import math, os, subprocess, xml.etree.ElementTree as ET
 import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-XACRO = os.path.join(HERE, '..', 'beebot.urdf.xacro')
+XACRO = os.path.join(HERE, '..', 'urdf.xacro')
 SRC = os.path.join(HERE, '..', 'beebot.urdf')
 EXP = ET.fromstring(subprocess.run(['xacro', XACRO], check=True, capture_output=True, text=True).stdout
                    .replace('package://ros_system/urdf/meshes/', 'meshes/'))   # make_urdf.sh와 같은 치환
@@ -58,7 +58,7 @@ root, links, joints, parent = e
 roots = [l for l in links if l not in parent]
 check(roots == ['base_footprint'], f'루트 = base_footprint ({roots})')
 check(set(links) == set(s[1]) and set(joints) == set(s[2]), f'링크 {len(links)} / 조인트 {len(joints)}: beebot.urdf와 이름 집합 같음')
-check(not any(n.endswith('_1') for n in links), '링크 이름에 _1 없음')
+check(not any(n.endswith('_1') and not n.startswith('basket_slot_') for n in links), '링크 이름에 _1 없음 (basket_slot_1 제외)')
 check(all(l.find('visual/geometry/mesh').get('filename').startswith('meshes/') for l in links.values() if l.find('visual') is not None), '메시 경로가 meshes/ 아래')
 
 # 영점 형상: 이름 매핑 후 링크 프레임이 원본과 같아야 함
@@ -76,17 +76,27 @@ gl = joints['gripper_left_joint'].find('limit'); ml = joints['gripper_right_join
 check(float(gl.get('lower')) == 0 and abs(float(gl.get('upper')) - 0.0265) < 1e-9, f'gripper 범위 {gl.get("lower")} ~ {gl.get("upper")} m')
 check(ml is not None and ml.get('joint') == 'gripper_left_joint', 'gripper_right_joint → gripper_left_joint mimic')
 
-# tcp
+# tcp (팔 장착 위치 수정으로 (−3.026, +0.012, −4.646) mm, 2026-10-17)
 tcp = Te['end_effector_link'][:3, 3] * 1000
-check(np.allclose(tcp, [435.0, 0.0, 345.545], atol=0.01), f'end_effector 위치 {tcp.round(2)} mm (집는 점)')
+check(np.allclose(tcp, [431.94, -0.23, 340.925], atol=0.01), f'end_effector 위치 {tcp.round(2)} mm (집는 점)')
 check(np.allclose(Te['end_effector_link'][:3, 2], [1, 0, 0], atol=1e-6), 'end_effector z축 = 접근 방향(전방 +X)')
 Tr = fk(e, {'joint5': math.pi / 2})
 check(np.linalg.norm(Tr['end_effector_link'][:3, 3] - Te['end_effector_link'][:3, 3]) < 0.002, 'joint5 롤 90°에 end_effector 위치 유지 (롤 축 위, 2 mm 이내)')
 
 # optical frame
-for cam in ('pole_cam', 'gripper_cam'):
+for cam in ('front_pole_cam', 'gripper_cam'):
     Tl, To = Te[f'{cam}_link'], Te[f'{cam}_color_optical_frame']
     check(np.allclose(To[:3, 2], Tl[:3, 0], atol=1e-6) and np.allclose(To[:3, 0], -Tl[:3, 1], atol=1e-6), f'{cam}_color_optical_frame: z=렌즈, x=오른쪽')
+
+# 바구니 칸: base_link 자식 12개, 3행(x, 기둥 → 팔) × 4열(y, -y → +y), 간격 65 mm, 칸 바닥 z 91.25 mm, 방향은 base_link와 같음
+slots = sorted((n for n in links if n.startswith('basket_slot_')), key=lambda n: int(n.rsplit('_', 1)[1]))
+check(slots == [f'basket_slot_{k}' for k in range(12)] and all(parent[n].find('parent').get('link') == 'base_link' for n in slots),
+      f'basket_slot_0~11 이 base_link 자식 ({len(slots)}개)')
+if len(slots) == 12:
+    P = np.array([(np.linalg.inv(Te['base_link']) @ Te[n])[:3, 3] for n in slots]).reshape(3, 4, 3) * 1000
+    check(np.allclose(np.diff(P[:, :, 0], axis=0), 65, atol=1e-6) and np.allclose(np.diff(P[:, :, 1], axis=1), 65, atol=1e-6)
+          and np.allclose(P[:, :, 2], 91.25, atol=1e-6), f'칸 순서·간격 65 mm·z 91.25 mm (0번 {P[0, 0].round(2)}, 11번 {P[2, 3].round(2)})')
+    check(all(np.allclose(Te[n][:3, :3], Te['base_link'][:3, :3], atol=1e-9) for n in slots), '칸 방향 = base_link')
 
 # limits / ros2_control
 for n, j in joints.items():
