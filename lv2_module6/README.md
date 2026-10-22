@@ -217,6 +217,7 @@ lv2_module6/
 ├── course/                   대회 코스 (미로 — 원본 + 세로 벽 보강한 상자 모델 · Gazebo 월드)
 ├── urdf/<이름>/urdf.xacro    로봇 모델 (폴더 하나 = 모델 하나, launch urdf:= · 기본 beebot_mesh) (더미 치수 — 팔은 ROBOTIS OM-X 원본 값 + 손목 roll)
 ├── firmware/beebot_opencr/   OpenCR 펌웨어 (호스트 BeebotSystemHardware와 같은 시리얼 프로토콜)
+├── isaac/                    Isaac Sim 장면·로봇 USD(sim/) + Isaac Lab 학습(lab/) — isaac/README.md
 ├── simulator/                SIL 시뮬레이터 (main.py · 수동 조작 창 manual_window.py · opencr.py = fake_opencr 연결, 읽기·요청만)
 ├── ros2_ws/
 │   ├── start.sh · firmware-upload.sh · download-artifact.sh · monitor.sh   실기·배포 패키지용 스크립트

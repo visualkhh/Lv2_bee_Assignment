@@ -7,8 +7,8 @@
                 double radius = 5
             }
             dictionary Perspective = {
-                double3 position = (1.2744948457272676, -1.023312538514494, 0.6892844960604337)
-                double3 target = (0.6540738188454749, -0.03343529024628111, 0.4593575535020348)
+                double3 position = (1.1031595593197179, -1.181574447382035, 0.38326257394340174)
+                double3 target = (0.5223098300667993, -0.14552043625092148, 0.3004900290006276)
             }
             dictionary Right = {
                 double3 position = (0, -5, 0)
@@ -101,11 +101,11 @@ def Xform "World"
                 float inputs:albedo_desaturation = 0
                 float inputs:detail_bump_factor = 0.3
                 color3f inputs:diffuse_color_constant = (0.9999933, 0.99999, 1)
-                asset inputs:diffuse_texture = @./source/texture/class_room_floor/class_room_floor_albedo.png@ (
+                asset inputs:diffuse_texture = @../source/texture/class_room_floor/class_room_floor_albedo.png@ (
                     colorSpace = "auto"
                 )
                 color3f inputs:diffuse_tint = (0.90250957, 0.8746739, 0.980695)
-                asset inputs:normalmap_texture = @./source/texture/class_room_floor/class_room_floor_normal.png@ (
+                asset inputs:normalmap_texture = @../source/texture/class_room_floor/class_room_floor_normal.png@ (
                     colorSpace = "raw"
                 )
                 float inputs:reflection_roughness_constant = 1
@@ -264,7 +264,7 @@ def Xform "Environment"
         float inputs:shaping:focus
         color3f inputs:shaping:focusTint
         asset inputs:shaping:ies:file
-        asset inputs:texture:file = @./source/HDRI/class_room_03_4k.exr@
+        asset inputs:texture:file = @../source/HDRI/class_room_03_4k.exr@
         token inputs:texture:format = "latlong"
         token omni:rtx:domeLight:mode = "sphere"
         custom int omni:rtx:usdluxVersion = 2505
@@ -323,7 +323,7 @@ def "Render" (
                 bool omni:rtx:scene:useViewLightingMode
                 rel orderedVars = </Render/Vars/LdrColor>
                 custom bool overrideClipRange = 0
-                uniform int2 resolution = (1285, 654)
+                uniform int2 resolution = (1285, 554)
             }
         }
     }
@@ -374,9 +374,9 @@ over "OmniverseKit_Persp" (
     float focalLength = 18.147562
     float focusDistance = 400
     custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -1.1906492414436591)
-    float3 xformOp:rotateXYZ = (78.86563, -4.8662485e-13, 32.07807)
+    float3 xformOp:rotateXYZ = (86.01365, -4.707221e-13, 29.276583)
     float3 xformOp:scale = (1, 1, 1)
-    double3 xformOp:translate = (1.2744948457272676, -1.023312538514494, 0.6892844960604337)
+    double3 xformOp:translate = (1.1031595593197179, -1.181574447382035, 0.38326257394340174)
     uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
 }
 
