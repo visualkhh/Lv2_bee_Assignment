@@ -21,7 +21,6 @@ over "beebot"
                 prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsArticulationRootAPI", "NewtonArticulationRootAPI", "PhysicsMassAPI", "NewtonMassAPI"]
             )
             {
-                bool newton:selfCollisionEnabled = 1
                 double[] newton:inertia = [0.02813, 0.032644, 0.027766, -0.000021613, 0.0064439, -0.0000014858]
                 point3f physics:centerOfMass = (-0.085426, -0.000171, 0.080461)
                 float3 physics:diagonalInertia = (0.021501513, 0.032643862, 0.034394626)

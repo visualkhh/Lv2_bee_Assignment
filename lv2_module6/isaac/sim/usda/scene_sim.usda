@@ -7,8 +7,8 @@
                 double radius = 5
             }
             dictionary Perspective = {
-                double3 position = (1.3162224632226172, 0.7003763546948254, 0.6039990972985667)
-                double3 target = (0.3937502222310253, -0.40203905912342175, 0.34233921795030275)
+                double3 position = (1.0144975022522387, 1.230113881618806, 0.3260251159997895)
+                double3 target = (0.6208703439427976, 0.10795793860732639, 0.32844344694249006)
             }
             dictionary Right = {
                 double3 position = (0, -5, 0)
@@ -18,7 +18,7 @@
                 double3 position = (0, 0, 5)
                 double radius = 5
             }
-            string boundCamera = "/World/beebot/Geometry/base_footprint/base_link/pole_front_cam_link/pole_front_cam_color_optical_frame/pole_front_cam_rgb"
+            string boundCamera = "/OmniverseKit_Persp"
         }
         dictionary omni_layer = {
             string authoring_layer = "./scene_sim.usda"
@@ -44,75 +44,16 @@ def Xform "World"
         prepend payload = @./puck/puck_blue_box.usda@
     )
     {
-        quatd xformOp:orient = (1, 0, 0, 0)
+        quatd xformOp:orient = (0.9695976136912257, 0, 0, 0.24470485799076558)
         double3 xformOp:scale = (1, 1, 1)
         double3 xformOp:translate = (0.002284250496738749, 0.058316530900373115, 0.22999999999999932)
         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
-    }
 
-    def Xform "GroundPlane" (
-        prepend apiSchemas = ["MaterialBindingAPI"]
-    )
-    {
-        rel material:binding = </World/GroundPlane/class_room_floor> (
-            bindMaterialAs = "weakerThanDescendants"
-        )
-        token visibility = "inherited"
-        quatf xformOp:orient = (1, 0, 0, 0)
-        float3 xformOp:scale = (1, 1, 1)
-        double3 xformOp:translate = (0, 0, 0)
-        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
-
-        def Mesh "CollisionMesh"
+        over "OmniPBR"
         {
-            uniform bool doubleSided = 0
-            int[] faceVertexCounts = [4]
-            int[] faceVertexIndices = [0, 1, 2, 3]
-            normal3f[] normals = [(0, 0, 1), (0, 0, 1), (0, 0, 1), (0, 0, 1)]
-            point3f[] points = [(-25, -25, 0), (25, -25, 0), (25, 25, 0), (-25, 25, 0)]
-            color3f[] primvars:displayColor = [(0.5, 0.5, 0.5)]
-            texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
-                interpolation = "varying"
-            )
-            token visibility = "inherited"
-        }
-
-        def Plane "CollisionPlane" (
-            prepend apiSchemas = ["PhysicsCollisionAPI"]
-        )
-        {
-            uniform token axis = "Z"
-            uniform token purpose = "guide"
-            token visibility = "inherited"
-        }
-
-        def Material "class_room_floor"
-        {
-            token outputs:mdl:displacement.connect = </World/GroundPlane/class_room_floor/Shader.outputs:out>
-            token outputs:mdl:surface.connect = </World/GroundPlane/class_room_floor/Shader.outputs:out>
-            token outputs:mdl:volume.connect = </World/GroundPlane/class_room_floor/Shader.outputs:out>
-
-            def Shader "Shader"
+            over "Shader"
             {
-                uniform token info:implementationSource = "sourceAsset"
-                uniform asset info:mdl:sourceAsset = @OmniPBR.mdl@
-                uniform token info:mdl:sourceAsset:subIdentifier = "OmniPBR"
-                float inputs:albedo_add = 0.07
-                float inputs:albedo_desaturation = 0
-                float inputs:detail_bump_factor = 0.3
-                color3f inputs:diffuse_color_constant = (0.9999933, 0.99999, 1)
-                asset inputs:diffuse_texture = @../source/texture/class_room_floor/class_room_floor_albedo.png@ (
-                    colorSpace = "auto"
-                )
-                color3f inputs:diffuse_tint = (0.90250957, 0.8746739, 0.980695)
-                asset inputs:normalmap_texture = @../source/texture/class_room_floor/class_room_floor_normal.png@ (
-                    colorSpace = "raw"
-                )
-                float inputs:reflection_roughness_constant = 1
-                float2 inputs:texture_scale = (50, 50)
-                token outputs:out (
-                    renderType = "material"
-                )
+                color3f inputs:diffuse_tint = (0.039653555, 0.0785576, 0.5405406)
             }
         }
     }
@@ -132,46 +73,131 @@ def Xform "World"
             {
                 over "base_link"
                 {
+                    rel physics:simulationOwner
+
                     over "wheel_left_link"
                     {
+                        rel physics:simulationOwner
+
+                        over "cylinder"
+                        {
+                            rel physics:simulationOwner
+                        }
                     }
 
                     over "wheel_right_link"
                     {
+                        rel physics:simulationOwner
+
+                        over "cylinder"
+                        {
+                            rel physics:simulationOwner
+                        }
                     }
 
                     over "pole_front_cam_link"
                     {
+                        rel physics:simulationOwner
+
+                        over "box"
+                        {
+                            rel physics:simulationOwner
+                        }
                     }
 
                     over "arm_base_link"
                     {
+                        rel physics:simulationOwner
+
                         over "shoulder_link"
                         {
+                            rel physics:simulationOwner
+
                             over "upper_arm_link"
                             {
+                                rel physics:simulationOwner
+
                                 over "forearm_link"
                                 {
+                                    rel physics:simulationOwner
+
                                     over "wrist_link"
                                     {
+                                        rel physics:simulationOwner
+
                                         over "gripper_link"
                                         {
+                                            rel physics:simulationOwner
+
                                             over "finger_left_link"
                                             {
+                                                rel physics:simulationOwner
                                             }
 
                                             over "finger_right_link"
                                             {
+                                                rel physics:simulationOwner
                                             }
 
                                             over "gripper_cam_link"
                                             {
+                                                rel physics:simulationOwner
+
+                                                over "box"
+                                                {
+                                                    rel physics:simulationOwner
+                                                }
                                             }
                                         }
                                     }
                                 }
                             }
                         }
+                    }
+
+                    over "box"
+                    {
+                        rel physics:simulationOwner
+                    }
+
+                    over "box_1"
+                    {
+                        rel physics:simulationOwner
+                    }
+
+                    over "box_2"
+                    {
+                        rel physics:simulationOwner
+                    }
+
+                    over "box_3"
+                    {
+                        rel physics:simulationOwner
+                    }
+
+                    over "box_4"
+                    {
+                        rel physics:simulationOwner
+                    }
+
+                    over "sphere"
+                    {
+                        rel physics:simulationOwner
+                    }
+
+                    over "sphere_1"
+                    {
+                        rel physics:simulationOwner
+                    }
+
+                    over "sphere_2"
+                    {
+                        rel physics:simulationOwner
+                    }
+
+                    over "sphere_3"
+                    {
+                        rel physics:simulationOwner
                     }
                 }
             }
@@ -181,56 +207,163 @@ def Xform "World"
         {
             over "wheel_left_joint"
             {
+                float physics:lowerLimit = -inf
+                float physics:upperLimit = inf
                 float state:angular:physics:position = 0
                 float state:angular:physics:velocity = 0
             }
 
             over "wheel_right_joint"
             {
+                bool[] isaac:actuator (
+                    displayName = "Actuator"
+                )
+                string isaac:NameOverride (
+                    displayName = "Joint Name Override"
+                )
+                token[] isaac:physics:DofOffsetOpOrder (
+                    displayName = "Dof Offset Op Order"
+                )
+                float physics:lowerLimit = -inf
+                float physics:upperLimit = inf
                 float state:angular:physics:position = 0
                 float state:angular:physics:velocity = 0
             }
 
             over "joint1"
             {
+                float drive:angular:physics:targetPosition = 0
+                bool[] isaac:actuator (
+                    displayName = "Actuator"
+                )
+                string isaac:NameOverride (
+                    displayName = "Joint Name Override"
+                )
+                token[] isaac:physics:DofOffsetOpOrder (
+                    displayName = "Dof Offset Op Order"
+                )
+                float physics:lowerLimit = -179.99985
+                float physics:upperLimit = 179.99985
                 float state:angular:physics:position = 0
                 float state:angular:physics:velocity = 0
             }
 
             over "joint2"
             {
+                float drive:angular:physics:targetPosition = -110
+                bool[] isaac:actuator (
+                    displayName = "Actuator"
+                )
+                string isaac:NameOverride (
+                    displayName = "Joint Name Override"
+                )
+                token[] isaac:physics:DofOffsetOpOrder (
+                    displayName = "Dof Offset Op Order"
+                )
+                float physics:lowerLimit = -110
+                float physics:upperLimit = 109.99999
                 float state:angular:physics:position = 0
                 float state:angular:physics:velocity = 0
             }
 
             over "joint3"
             {
+                float drive:angular:physics:targetPosition = 80
+                bool[] isaac:actuator (
+                    displayName = "Actuator"
+                )
+                string isaac:NameOverride (
+                    displayName = "Joint Name Override"
+                )
+                token[] isaac:physics:DofOffsetOpOrder (
+                    displayName = "Dof Offset Op Order"
+                )
+                float physics:lowerLimit = -89.999985
+                float physics:upperLimit = 80
                 float state:angular:physics:position = 0
                 float state:angular:physics:velocity = 0
             }
 
             over "joint4"
             {
+                float drive:angular:physics:targetPosition = 30
+                bool[] isaac:actuator (
+                    displayName = "Actuator"
+                )
+                string isaac:NameOverride (
+                    displayName = "Joint Name Override"
+                )
+                token[] isaac:physics:DofOffsetOpOrder (
+                    displayName = "Dof Offset Op Order"
+                )
+                float physics:lowerLimit = -97.402824
+                float physics:upperLimit = 112.87269
                 float state:angular:physics:position = 0
                 float state:angular:physics:velocity = 0
             }
 
             over "joint5"
             {
+                bool[] isaac:actuator (
+                    displayName = "Actuator"
+                )
+                string isaac:NameOverride (
+                    displayName = "Joint Name Override"
+                )
+                token[] isaac:physics:DofOffsetOpOrder (
+                    displayName = "Dof Offset Op Order"
+                )
+                float physics:lowerLimit = -180.00002
+                float physics:upperLimit = 180.00002
                 float state:angular:physics:position = 0
                 float state:angular:physics:velocity = 0
             }
 
             over "gripper_left_joint"
             {
+                bool[] isaac:actuator (
+                    displayName = "Actuator"
+                )
+                string isaac:NameOverride (
+                    displayName = "Joint Name Override"
+                )
+                token[] isaac:physics:DofOffsetOpOrder (
+                    displayName = "Dof Offset Op Order"
+                )
+                float physics:lowerLimit = 0
+                float physics:upperLimit = 0.0265
                 float state:linear:physics:position = 0
                 float state:linear:physics:velocity = 0
             }
 
             over "gripper_right_joint"
             {
+                bool[] isaac:actuator (
+                    displayName = "Actuator"
+                )
+                string isaac:NameOverride (
+                    displayName = "Joint Name Override"
+                )
+                token[] isaac:physics:DofOffsetOpOrder (
+                    displayName = "Dof Offset Op Order"
+                )
+                float physics:lowerLimit = 0
+                float physics:upperLimit = 0.0265
                 float state:linear:physics:position = 0
                 float state:linear:physics:velocity = 0
+            }
+
+            over "arm_mount_joint"
+            {
+                bool[] isaac:actuator (
+                    displayName = "Actuator"
+                )
+                string isaac:NameOverride (
+                    displayName = "Joint Name Override"
+                )
+                token[] isaac:physics:DofOffsetOpOrder (
+                    displayName = "Dof Offset Op Order"
+                )
             }
         }
     }
@@ -244,34 +377,101 @@ def Xform "World"
         double3 xformOp:translate = (0, 0, 0.2)
         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
     }
-}
 
-def Xform "Environment"
-{
-    quatd xformOp:orient = (1, 0, 0, 0)
-    double3 xformOp:scale = (1, 1, 1)
-    double3 xformOp:translate = (0, 0, 0)
-    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
-
-    def DomeLight "DomeLight" (
-        prepend apiSchemas = ["ShapingAPI"]
-    )
+    def Xform "Environment"
     {
-        float inputs:exposure = 1.25
-        float inputs:intensity = 1000
-        float inputs:shaping:cone:angle = 180
-        float inputs:shaping:cone:softness
-        float inputs:shaping:focus
-        color3f inputs:shaping:focusTint
-        asset inputs:shaping:ies:file
-        asset inputs:texture:file = @../source/HDRI/class_room_03_4k.exr@
-        token inputs:texture:format = "latlong"
-        token omni:rtx:domeLight:mode = "sphere"
-        custom int omni:rtx:usdluxVersion = 2505
-        quatd xformOp:orient = (0.4999999999999999, 0.5, -0.5000000000000001, -0.5)
+        quatd xformOp:orient = (1, 0, 0, 0)
         double3 xformOp:scale = (1, 1, 1)
         double3 xformOp:translate = (0, 0, 0)
         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+
+        def DomeLight "DomeLight" (
+            prepend apiSchemas = ["ShapingAPI"]
+        )
+        {
+            float inputs:exposure = 1.25
+            float inputs:intensity = 1000
+            float inputs:shaping:cone:angle = 180
+            float inputs:shaping:cone:softness
+            float inputs:shaping:focus
+            color3f inputs:shaping:focusTint
+            asset inputs:shaping:ies:file
+            asset inputs:texture:file = @../source/HDRI/class_room_03_4k.exr@
+            token inputs:texture:format = "latlong"
+            token omni:rtx:domeLight:mode = "sphere"
+            custom int omni:rtx:usdluxVersion = 2505
+            quatd xformOp:orient = (0.4999999999999999, 0.5, -0.5000000000000001, -0.5)
+            double3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (0, 0, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+        }
+
+        def Xform "GroundPlane" (
+            prepend apiSchemas = ["MaterialBindingAPI"]
+        )
+        {
+            rel material:binding = </World/Environment/GroundPlane/class_room_floor> (
+                bindMaterialAs = "weakerThanDescendants"
+            )
+            token visibility = "inherited"
+            quatf xformOp:orient = (1, 0, 0, 0)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (0, 0, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+
+            def Mesh "CollisionMesh"
+            {
+                uniform bool doubleSided = 0
+                int[] faceVertexCounts = [4]
+                int[] faceVertexIndices = [0, 1, 2, 3]
+                normal3f[] normals = [(0, 0, 1), (0, 0, 1), (0, 0, 1), (0, 0, 1)]
+                point3f[] points = [(-25, -25, 0), (25, -25, 0), (25, 25, 0), (-25, 25, 0)]
+                color3f[] primvars:displayColor = [(0.5, 0.5, 0.5)]
+                texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
+                    interpolation = "varying"
+                )
+                token visibility = "inherited"
+            }
+
+            def Plane "CollisionPlane" (
+                prepend apiSchemas = ["PhysicsCollisionAPI"]
+            )
+            {
+                uniform token axis = "Z"
+                uniform token purpose = "guide"
+                token visibility = "inherited"
+            }
+
+            def Material "class_room_floor"
+            {
+                token outputs:mdl:displacement.connect = </World/Environment/GroundPlane/class_room_floor/Shader.outputs:out>
+                token outputs:mdl:surface.connect = </World/Environment/GroundPlane/class_room_floor/Shader.outputs:out>
+                token outputs:mdl:volume.connect = </World/Environment/GroundPlane/class_room_floor/Shader.outputs:out>
+
+                def Shader "Shader"
+                {
+                    uniform token info:implementationSource = "sourceAsset"
+                    uniform asset info:mdl:sourceAsset = @OmniPBR.mdl@
+                    uniform token info:mdl:sourceAsset:subIdentifier = "OmniPBR"
+                    float inputs:albedo_add = 0.07
+                    float inputs:albedo_desaturation = 0
+                    float inputs:detail_bump_factor = 0.3
+                    color3f inputs:diffuse_color_constant = (0.9999933, 0.99999, 1)
+                    asset inputs:diffuse_texture = @../source/texture/class_room_floor/class_room_floor_albedo.png@ (
+                        colorSpace = "auto"
+                    )
+                    color3f inputs:diffuse_tint = (0.90250957, 0.8746739, 0.980695)
+                    asset inputs:normalmap_texture = @../source/texture/class_room_floor/class_room_floor_normal.png@ (
+                        colorSpace = "raw"
+                    )
+                    float inputs:reflection_roughness_constant = 1
+                    float2 inputs:texture_scale = (50, 50)
+                    token outputs:out (
+                        renderType = "material"
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -293,7 +493,7 @@ def "Render" (
                 no_delete = true
             )
             {
-                rel camera = </World/beebot/Geometry/base_footprint/base_link/pole_front_cam_link/pole_front_cam_color_optical_frame/pole_front_cam_rgb>
+                rel camera = </OmniverseKit_Persp>
                 token omni:rtx:ambientOcclusion:denoiserMode = "none"
                 token omni:rtx:background:source:texture:textureMode = "repeatMirrored"
                 token omni:rtx:background:source:type = "domeLight"
@@ -323,7 +523,7 @@ def "Render" (
                 bool omni:rtx:scene:useViewLightingMode
                 rel orderedVars = </Render/Vars/LdrColor>
                 custom bool overrideClipRange = 0
-                uniform int2 resolution = (1285, 654)
+                uniform int2 resolution = (1285, 761)
             }
         }
     }
@@ -373,10 +573,10 @@ over "OmniverseKit_Persp" (
     float exposure:time = 0.02
     float focalLength = 18.147562
     float focusDistance = 400
-    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -1.4610751768764856)
-    float3 xformOp:rotateXYZ = (79.6834, -5.5023596e-13, 140.0783)
+    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -1.1891939070308497)
+    float3 xformOp:rotateXYZ = (90.116516, -7.951387e-13, 160.67027)
     float3 xformOp:scale = (1, 1, 1)
-    double3 xformOp:translate = (1.3162224632226172, 0.7003763546948254, 0.6039990972985667)
+    double3 xformOp:translate = (1.0144975022522387, 1.230113881618806, 0.3260251159997895)
     uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
 }
 
