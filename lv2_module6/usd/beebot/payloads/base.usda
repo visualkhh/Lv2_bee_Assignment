@@ -341,7 +341,7 @@ def Xform "beebot" (
                 {
                     quatf xformOp:orient = (0.98768836, 0, 0.15643433, 0)
                     float3 xformOp:scale = (1, 1, 1)
-                    double3 xformOp:translate = (-0.137869, 0.000185, 0.417108)
+                    double3 xformOp:translate = (-0.137869, 0.000185, 0.434932)
                     uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
 
                     def Xform "camera_rear_link" (

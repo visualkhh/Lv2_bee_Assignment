@@ -205,7 +205,7 @@
   <joint name="pole_front_cam_joint" type="fixed">
     <parent link="base_link"/>
     <child link="pole_front_cam_link"/>
-    <origin rpy="0.000000 0.314159 0.000000" xyz="-0.137869 0.000185 0.417108"/>
+    <origin rpy="0.000000 0.314159 0.000000" xyz="-0.137869 0.000185 0.434932"/>
   </joint>
   <link name="pole_front_cam_link">
     <inertial>
