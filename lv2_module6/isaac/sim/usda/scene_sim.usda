@@ -7,8 +7,8 @@
                 double radius = 5
             }
             dictionary Perspective = {
-                double3 position = (1.1031595593197179, -1.181574447382035, 0.38326257394340174)
-                double3 target = (0.5223098300667993, -0.14552043625092148, 0.3004900290006276)
+                double3 position = (1.3162224632226172, 0.7003763546948254, 0.6039990972985667)
+                double3 target = (0.3937502222310253, -0.40203905912342175, 0.34233921795030275)
             }
             dictionary Right = {
                 double3 position = (0, -5, 0)
@@ -18,7 +18,7 @@
                 double3 position = (0, 0, 5)
                 double radius = 5
             }
-            string boundCamera = "/OmniverseKit_Persp"
+            string boundCamera = "/World/beebot/Geometry/base_footprint/base_link/pole_front_cam_link/pole_front_cam_color_optical_frame/pole_front_cam_rgb"
         }
         dictionary omni_layer = {
             string authoring_layer = "./scene_sim.usda"
@@ -257,7 +257,7 @@ def Xform "Environment"
         prepend apiSchemas = ["ShapingAPI"]
     )
     {
-        float inputs:exposure = 0.5
+        float inputs:exposure = 1.25
         float inputs:intensity = 1000
         float inputs:shaping:cone:angle = 180
         float inputs:shaping:cone:softness
@@ -293,7 +293,7 @@ def "Render" (
                 no_delete = true
             )
             {
-                rel camera = </OmniverseKit_Persp>
+                rel camera = </World/beebot/Geometry/base_footprint/base_link/pole_front_cam_link/pole_front_cam_color_optical_frame/pole_front_cam_rgb>
                 token omni:rtx:ambientOcclusion:denoiserMode = "none"
                 token omni:rtx:background:source:texture:textureMode = "repeatMirrored"
                 token omni:rtx:background:source:type = "domeLight"
@@ -323,7 +323,7 @@ def "Render" (
                 bool omni:rtx:scene:useViewLightingMode
                 rel orderedVars = </Render/Vars/LdrColor>
                 custom bool overrideClipRange = 0
-                uniform int2 resolution = (1285, 554)
+                uniform int2 resolution = (1285, 654)
             }
         }
     }
@@ -373,10 +373,10 @@ over "OmniverseKit_Persp" (
     float exposure:time = 0.02
     float focalLength = 18.147562
     float focusDistance = 400
-    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -1.1906492414436591)
-    float3 xformOp:rotateXYZ = (86.01365, -4.707221e-13, 29.276583)
+    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -1.4610751768764856)
+    float3 xformOp:rotateXYZ = (79.6834, -5.5023596e-13, 140.0783)
     float3 xformOp:scale = (1, 1, 1)
-    double3 xformOp:translate = (1.1031595593197179, -1.181574447382035, 0.38326257394340174)
+    double3 xformOp:translate = (1.3162224632226172, 0.7003763546948254, 0.6039990972985667)
     uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
 }
 

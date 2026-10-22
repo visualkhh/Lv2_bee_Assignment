@@ -7,8 +7,8 @@
                 double radius = 5
             }
             dictionary Perspective = {
-                double3 position = (0.17638480206853652, -0.11333587089661509, 0.08826771624075229)
-                double3 target = (-0.041421693098958046, 0.014696414230822297, 0.013219365982381479)
+                double3 position = (0.10453547740156371, -0.01431625289413326, 0.019477915755730928)
+                double3 target = (-0.0015697699935680598, 0.00842648214424629, 0.0026066675839563763)
             }
             dictionary Right = {
                 double3 position = (0, -5, 0)
@@ -28,6 +28,17 @@
             }
         }
         dictionary renderSettings = {
+            double "rtx:directLighting:sampledLighting:maxRayUnexposedIntensity" = 6399.9990234375
+            double "rtx:indirectDiffuse:maxRayUnexposedIntensity" = 6399.9990234375
+            double "rtx:pathtracing:fireflyFilter:maxPerEmissiveUnexposedIntensity" = 3199.99951171875
+            double "rtx:pathtracing:fireflyFilter:maxUnexposedIntensityPerSample" = 3199.99951171875
+            double "rtx:pathtracing:fireflyFilter:maxUnexposedIntensityPerSampleDiffuse" = 3199.99951171875
+            double "rtx:raytracing:inscattering:maxRTSampleUnexposedIntensity" = 204799.96875
+            token "rtx:rendermode" = "PathTracing"
+            double "rtx:rtpt:fireflyFilter:maxPerEmissiveUnexposedIntensity" = 3199.99951171875
+            double "rtx:rtpt:fireflyFilter:maxUnexposedIntensityPerSample" = 3199.99951171875
+            double "rtx:rtpt:fireflyFilter:maxUnexposedIntensityPerSampleDiffuse" = 3199.99951171875
+            double "rtx:translucency:maxRayUnexposedIntensity" = 19199.998046875
         }
     }
     defaultPrim = "puck_blue_box"
@@ -91,9 +102,34 @@ def Xform "puck_blue_box" (
             uniform token info:implementationSource = "sourceAsset"
             uniform asset info:mdl:sourceAsset = @OmniPBR.mdl@
             uniform token info:mdl:sourceAsset:subIdentifier = "OmniPBR"
+            float inputs:albedo_add = 0
+            float inputs:albedo_desaturation = 0
+            float inputs:bump_factor = 1 (
+                customData = {
+                    dictionary omni = {
+                        dictionary kit = {
+                            dictionary property = {
+                                dictionary usd = {
+                                    float2 soft_range_ui = (0, 2)
+                                }
+                            }
+                        }
+                    }
+                }
+            )
+            float inputs:detail_bump_factor = 1
             color3f inputs:diffuse_color_constant = (0.003, 0.0222, 0.2502)
-            color3f inputs:diffuse_tint = (2, 2, 2)
-            float inputs:reflection_roughness_constant = 0.3
+            asset inputs:diffuse_texture = @../../source/texture/puck/puck_albedo_mono.png@ (
+                colorSpace = "auto"
+            )
+            color3f inputs:diffuse_tint = (0.003, 0.0222, 0.2502)
+            asset inputs:normalmap_texture = @../../source/texture/puck/puck_normal.png@ (
+                colorSpace = "raw"
+            )
+            float inputs:reflection_roughness_constant = 0.5
+            float inputs:texture_rotate = 90
+            float2 inputs:texture_scale = (2.5, 2.5)
+            bool inputs:world_or_object = 0
             token outputs:out (
                 renderType = "material"
             )
@@ -133,22 +169,32 @@ def "Render" (
                 bool omni:rtx:post:registeredCompositing:invertToneMap = 1
                 bool omni:rtx:pt:adaptiveSampling:filterError = 0
                 uint omni:rtx:pt:adaptiveSampling:fixedSppIterations = 2
+                float omni:rtx:pt:fireflyFilter:maxPerEmissiveUnexposedIntensity = 3199.9995
+                float omni:rtx:pt:fireflyFilter:maxUnexposedIntensityPerSample = 3199.9995
+                float omni:rtx:pt:fireflyFilter:maxUnexposedIntensityPerSampleDiffuse = 3199.9995
                 uint omni:rtx:pt:maxSamplesPerLaunch = 2073600
                 uint omni:rtx:pt:mgpu:maxPixelsPerRegionExponent = 12
                 bool omni:rtx:reflections:denoiser:enabled = 0
-                token omni:rtx:rendermode = "RealTimePathTracing"
+                token omni:rtx:rendermode = "PathTracing"
                 color3f omni:rtx:rt:ambientLight:color = (0.1, 0.1, 0.1)
                 bool omni:rtx:rt:demoire = 0
+                float omni:rtx:rt:directLighting:maxRayUnexposedIntensity = 6399.999
                 bool omni:rtx:rt:ecoMode:enabled
+                float omni:rtx:rt:indirectdiffuse:maxRayUnexposedIntensity = 6399.999
+                float omni:rtx:rt:inscattering:maxRTSampleUnexposedIntensity = 204799.97
                 bool omni:rtx:rt:lightcache:spatialCache:dontResolveConflicts = 1
+                float omni:rtx:rt:refractions:maxRayUnexposedIntensity = 19199.998
                 int omni:rtx:rt:sss:samples = 1
+                float omni:rtx:rtpt:fireflyFilter:maxPerEmissiveUnexposedIntensity = 3199.9995
+                float omni:rtx:rtpt:fireflyFilter:maxUnexposedIntensityPerSample = 3199.9995
+                float omni:rtx:rtpt:fireflyFilter:maxUnexposedIntensityPerSampleDiffuse = 3199.9995
                 uint omni:rtx:rtpt:maxVolumeBounces = 15
                 float omni:rtx:rtpt:modulatingRoughnessThreshold = 0.08
                 bool omni:rtx:scene:hydra:materialSyncLoads = 1
                 bool omni:rtx:scene:hydra:mdlMaterialWarmup = 1
                 rel orderedVars = </Render/Vars/LdrColor>
                 custom bool overrideClipRange = 0
-                uniform int2 resolution = (916, 654)
+                uniform int2 resolution = (1285, 654)
             }
         }
     }
@@ -198,10 +244,10 @@ over "OmniverseKit_Persp" (
     float exposure:time = 0.02
     float focalLength = 18.147562
     float focusDistance = 400
-    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -0.263560600713772)
-    float3 xformOp:rotateXYZ = (73.456215, 3.180555e-14, 59.551888)
+    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -0.10981891702562752)
+    float3 xformOp:rotateXYZ = (81.16277, 8.2694424e-14, 77.9022)
     float3 xformOp:scale = (1, 1, 1)
-    double3 xformOp:translate = (0.17638480206853652, -0.11333587089661509, 0.08826771624075229)
+    double3 xformOp:translate = (0.10453547740156371, -0.01431625289413326, 0.019477915755730928)
     uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
 }
 
