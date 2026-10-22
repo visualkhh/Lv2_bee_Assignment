@@ -637,8 +637,8 @@ def Xform "beebot" (
                                                 uniform token purpose = "guide"
                                                 double size = 1
                                                 quatf xformOp:orient = (1, 0, 0, 0)
-                                                float3 xformOp:scale = (0.05505, 0.089714, 0.045413)
-                                                double3 xformOp:translate = (-0.027525, -0.000058, -0.010207)
+                                                float3 xformOp:scale = (0.02505, 0.089714, 0.025)
+                                                double3 xformOp:translate = (-0.012525, -0.000058, 0)
                                                 uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
                                             }
 

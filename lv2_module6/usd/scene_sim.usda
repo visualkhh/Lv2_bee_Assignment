@@ -7,8 +7,8 @@
                 double radius = 5
             }
             dictionary Perspective = {
-                double3 position = (2.525994160921774, -1.307870692690667, 0.781078483505465)
-                double3 target = (0.5219597337130826, -0.02781026078711668, 0.1971547303907164)
+                double3 position = (1.2744948457272676, -1.023312538514494, 0.6892844960604337)
+                double3 target = (0.6540738188454749, -0.03343529024628111, 0.4593575535020348)
             }
             dictionary Right = {
                 double3 position = (0, -5, 0)
@@ -257,14 +257,14 @@ def Xform "Environment"
         prepend apiSchemas = ["ShapingAPI"]
     )
     {
-        float inputs:exposure = 0
+        float inputs:exposure = 0.5
         float inputs:intensity = 1000
         float inputs:shaping:cone:angle = 180
         float inputs:shaping:cone:softness
         float inputs:shaping:focus
         color3f inputs:shaping:focusTint
         asset inputs:shaping:ies:file
-        asset inputs:texture:file = @./source/HDRI/class_room_02_4k.exr@
+        asset inputs:texture:file = @./source/HDRI/class_room_03_4k.exr@
         token inputs:texture:format = "latlong"
         token omni:rtx:domeLight:mode = "sphere"
         custom int omni:rtx:usdluxVersion = 2505
@@ -373,10 +373,10 @@ over "OmniverseKit_Persp" (
     float exposure:time = 0.02
     float focalLength = 18.147562
     float focusDistance = 400
-    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -2.44860687825024)
-    float3 xformOp:rotateXYZ = (76.203636, -3.371388e-13, 57.43193)
+    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -1.1906492414436591)
+    float3 xformOp:rotateXYZ = (78.86563, -4.8662485e-13, 32.07807)
     float3 xformOp:scale = (1, 1, 1)
-    double3 xformOp:translate = (2.525994160921774, -1.307870692690667, 0.781078483505465)
+    double3 xformOp:translate = (1.2744948457272676, -1.023312538514494, 0.6892844960604337)
     uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
 }
 

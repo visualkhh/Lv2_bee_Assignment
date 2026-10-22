@@ -24,7 +24,7 @@ over "beebot"
                 prepend apiSchemas = ["PhysxArticulationAPI"]
             )
             {
-                bool physxArticulation:enabledSelfCollisions = 0
+                bool physxArticulation:enabledSelfCollisions = 1
                 float physxArticulation:sleepThreshold = 0
                 float physxArticulation:stabilizationThreshold = 0
             }

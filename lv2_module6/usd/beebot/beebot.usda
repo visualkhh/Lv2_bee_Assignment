@@ -7,8 +7,8 @@
                 double radius = 5
             }
             dictionary Perspective = {
-                double3 position = (0.29118824731497, 0.6821160329464087, 0.4856847624943629)
-                double3 target = (0.056466071723541955, -0.08962342903834453, 0.2207931749729105)
+                double3 position = (0.021920866057156544, 1.262208747333183, 0.3300627283281402)
+                double3 target = (0.09884253816433035, -0.09063623653779307, 0.14966825821194346)
             }
             dictionary Right = {
                 double3 position = (0.16547105246210667, -5, 0.2745266802491831)
@@ -49,8 +49,6 @@ def Xform "beebot" (
                 string isaac:nameOverride (
                     displayName = "Name Override"
                 )
-                quatf xformOp:orient = (1, -1.0500533e-7, 0.0000015798247, -3.3760028e-9)
-                double3 xformOp:translate = (-0.000029705464839935303, -5.555921234190464e-8, 0.010002948343753815)
 
                 over "wheel_left_link"
                 {
@@ -232,6 +230,7 @@ def Xform "beebot" (
 
         over "joint2"
         {
+            float drive:angular:physics:targetPosition = 0
             bool[] isaac:actuator (
                 displayName = "Actuator"
             )
@@ -262,12 +261,31 @@ def Xform "beebot" (
 
         over "joint4"
         {
+            bool[] isaac:actuator (
+                displayName = "Actuator"
+            )
+            string isaac:NameOverride (
+                displayName = "Joint Name Override"
+            )
+            token[] isaac:physics:DofOffsetOpOrder (
+                displayName = "Dof Offset Op Order"
+            )
             float state:angular:physics:position = 0
             float state:angular:physics:velocity = 0
         }
 
         over "joint5"
         {
+            float drive:angular:physics:targetPosition = 0
+            bool[] isaac:actuator (
+                displayName = "Actuator"
+            )
+            string isaac:NameOverride (
+                displayName = "Joint Name Override"
+            )
+            token[] isaac:physics:DofOffsetOpOrder (
+                displayName = "Dof Offset Op Order"
+            )
             float state:angular:physics:position = 0
             float state:angular:physics:velocity = 0
         }
@@ -291,6 +309,32 @@ def Xform "beebot" (
         {
             float state:linear:physics:position = 0
             float state:linear:physics:velocity = 0
+        }
+
+        over "base_joint"
+        {
+            bool[] isaac:actuator (
+                displayName = "Actuator"
+            )
+            string isaac:NameOverride (
+                displayName = "Joint Name Override"
+            )
+            token[] isaac:physics:DofOffsetOpOrder (
+                displayName = "Dof Offset Op Order"
+            )
+        }
+
+        over "gripper_cam_joint"
+        {
+            bool[] isaac:actuator (
+                displayName = "Actuator"
+            )
+            string isaac:NameOverride (
+                displayName = "Joint Name Override"
+            )
+            token[] isaac:physics:DofOffsetOpOrder (
+                displayName = "Dof Offset Op Order"
+            )
         }
     }
     variantSet "Physics" = {
@@ -362,7 +406,7 @@ def "Render" (
                 bool omni:rtx:scene:hydra:mdlMaterialWarmup = 1
                 rel orderedVars = </Render/Vars/LdrColor>
                 custom bool overrideClipRange = 0
-                uniform int2 resolution = (1285, 654)
+                uniform int2 resolution = (1285, 582)
             }
         }
     }
@@ -412,10 +456,10 @@ over "OmniverseKit_Persp" (
     float exposure:time = 0.02
     float focalLength = 18.147562
     float focusDistance = 400
-    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -0.8490252352189094)
-    float3 xformOp:rotateXYZ = (71.8205, -1.6220829e-13, 163.08302)
+    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -1.3669852445703752)
+    float3 xformOp:rotateXYZ = (82.41683, -1.7970133e-13, -176.74571)
     float3 xformOp:scale = (1, 1, 1)
-    double3 xformOp:translate = (0.29118824731497, 0.6821160329464087, 0.4856847624943629)
+    double3 xformOp:translate = (0.021920866057156544, 1.262208747333183, 0.3300627283281402)
     uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
 }
 
