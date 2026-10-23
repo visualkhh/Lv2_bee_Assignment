@@ -24,8 +24,9 @@ def check(cond, msg):
     print(('PASS ' if cond else 'FAIL ') + msg); ok &= bool(cond)
 
 FUSION_JOINTS_MM = {   # Fusion WAFFLE_PI_ASSY 안 rm-x52:1 조인트 원점(조립 좌표, mm) — 2026-10-13 읽음
-    'joint1': (115.045, 0, 175.945), 'joint2': (115.045, -18.75, 217.545), 'joint3': (139.045, -18.75, 345.545),
-    'joint4': (263.045, -18.75, 345.545), 'joint5': (325.945, 0, 345.545),
+    # joint2~4: Fusion 원점은 y -18.75 (서보 옆면). URDF는 이 원점을 각자 회전축(y) 따라 중심선(y 0)으로 옮겼다 — 같은 축 직선 위라 기구학 동일
+    'joint1': (115.045, 0, 175.945), 'joint2': (115.045, 0, 217.545), 'joint3': (139.045, 0, 345.545),
+    'joint4': (263.045, 0, 345.545), 'joint5': (325.945, 0, 345.545),
     'gripper_left_joint': (379.095, 38.614, 345.545), 'gripper_right_joint': (379.095, -38.614, 345.545)}
 BASE_FOOTPRINT_ASM_MM = np.array([64.0, 0.0, -9.75])
 

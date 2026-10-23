@@ -420,7 +420,7 @@ def Xform "beebot" (
                         {
                             quatd xformOp:orient = (1, 0, 0, 0)
                             double3 xformOp:scale = (0.001000000047, 0.001000000047, 0.001000000047)
-                            double3 xformOp:translate = (2.493290126e-18, -9.08159329e-18, -0.0409)
+                            double3 xformOp:translate = (0, 0, -0.0409)
                             uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
                         }
 
@@ -431,15 +431,15 @@ def Xform "beebot" (
                         {
                             quatd xformOp:orient = (1, 0, 0, 0)
                             double3 xformOp:scale = (0.001000000047, 0.001000000047, 0.001000000047)
-                            double3 xformOp:translate = (2.493290126e-18, -9.08159329e-18, -0.0409)
+                            double3 xformOp:translate = (0, 0, -0.0409)
                             uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
                         }
 
                         def Xform "upper_arm_link"
                         {
-                            quatf xformOp:orient = (7.58092e-11, 7.580929e-11, 0.70710677, 0.70710677)
+                            quatf xformOp:orient = (1, 0, 0, 0)
                             float3 xformOp:scale = (1, 1, 1)
-                            double3 xformOp:translate = (-2.53596257304049e-18, -0.018749999999999992, 0.041600000000000005)
+                            double3 xformOp:translate = (0, 0, 0.0416)
                             uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
 
                             def Xform "upper_arm_link_visual" (
@@ -447,9 +447,9 @@ def Xform "beebot" (
                                 prepend references = @./instances.usda@</Instances/upper_arm_link_visual>
                             )
                             {
-                                quatd xformOp:orient = (0, 0, 0.7071067691, 0.7071067691)
+                                quatd xformOp:orient = (1, 0, 0, 0)
                                 double3 xformOp:scale = (0.001000000047, 0.001000000047, 0.001000000047)
-                                double3 xformOp:translate = (4.020392422e-12, -0.0825, 0.01875)
+                                double3 xformOp:translate = (0, 0, -0.0825)
                                 uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
                             }
 
@@ -458,9 +458,9 @@ def Xform "beebot" (
                                 prepend references = @./instances.usda@</Instances/upper_arm_link_visual_1>
                             )
                             {
-                                quatd xformOp:orient = (0, 0, 0.7071067691, 0.7071067691)
+                                quatd xformOp:orient = (1, 0, 0, 0)
                                 double3 xformOp:scale = (0.001000000047, 0.001000000047, 0.001000000047)
-                                double3 xformOp:translate = (4.020392422e-12, -0.0825, 0.01875)
+                                double3 xformOp:translate = (0, 0, -0.0825)
                                 uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
                             }
 
@@ -468,7 +468,7 @@ def Xform "beebot" (
                             {
                                 quatf xformOp:orient = (1, 0, 0, 0)
                                 float3 xformOp:scale = (1, 1, 1)
-                                double3 xformOp:translate = (-0.024, 0.128, 5.195441854510818e-12)
+                                double3 xformOp:translate = (0.024, 0, 0.128)
                                 uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
 
                                 def Xform "forearm_link_visual" (
@@ -476,9 +476,9 @@ def Xform "beebot" (
                                     prepend references = @./instances.usda@</Instances/forearm_link_visual>
                                 )
                                 {
-                                    quatd xformOp:orient = (0, 0, 0.7071067691, 0.7071067691)
+                                    quatd xformOp:orient = (1, 0, 0, 0)
                                     double3 xformOp:scale = (0.001000000047, 0.001000000047, 0.001000000047)
-                                    double3 xformOp:translate = (0.024, -0.2105, 0.01874999999)
+                                    double3 xformOp:translate = (-0.024, 0, -0.2105)
                                     uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
                                 }
 
@@ -487,9 +487,9 @@ def Xform "beebot" (
                                     prepend references = @./instances.usda@</Instances/forearm_link_visual_1>
                                 )
                                 {
-                                    quatd xformOp:orient = (0, 0, 0.7071067691, 0.7071067691)
+                                    quatd xformOp:orient = (1, 0, 0, 0)
                                     double3 xformOp:scale = (0.001000000047, 0.001000000047, 0.001000000047)
-                                    double3 xformOp:translate = (0.024, -0.2105, 0.01874999999)
+                                    double3 xformOp:translate = (-0.024, 0, -0.2105)
                                     uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
                                 }
 
@@ -497,7 +497,7 @@ def Xform "beebot" (
                                 {
                                     quatf xformOp:orient = (1, 0, 0, 0)
                                     float3 xformOp:scale = (1, 1, 1)
-                                    double3 xformOp:translate = (-0.12400000000000003, 0, 2.657112530002337e-11)
+                                    double3 xformOp:translate = (0.124, 0, 0)
                                     uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
 
                                     def Xform "wrist_link_visual" (
@@ -505,9 +505,9 @@ def Xform "beebot" (
                                         prepend references = @./instances.usda@</Instances/wrist_link_visual>
                                     )
                                     {
-                                        quatd xformOp:orient = (0, 0, 0.7071067691, 0.7071067691)
+                                        quatd xformOp:orient = (1, 0, 0, 0)
                                         double3 xformOp:scale = (0.001000000047, 0.001000000047, 0.001000000047)
-                                        double3 xformOp:translate = (0.148, -0.2105, 0.01874999997)
+                                        double3 xformOp:translate = (-0.148, 0, -0.2105)
                                         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
                                     }
 
@@ -516,17 +516,17 @@ def Xform "beebot" (
                                         prepend references = @./instances.usda@</Instances/wrist_link_visual_1>
                                     )
                                     {
-                                        quatd xformOp:orient = (0, 0, 0.7071067691, 0.7071067691)
+                                        quatd xformOp:orient = (1, 0, 0, 0)
                                         double3 xformOp:scale = (0.001000000047, 0.001000000047, 0.001000000047)
-                                        double3 xformOp:translate = (0.148, -0.2105, 0.01874999997)
+                                        double3 xformOp:translate = (-0.148, 0, -0.2105)
                                         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
                                     }
 
                                     def Xform "gripper_link"
                                     {
-                                        quatf xformOp:orient = (6.123234e-17, -0.70710677, 6.7817633e-19, 0.70710677)
+                                        quatf xformOp:orient = (1, 0, 0, 0)
                                         float3 xformOp:scale = (1, 1, 1)
-                                        double3 xformOp:translate = (-0.06289999999598264, -2.1316282072803005e-16, 0.018750000013476882)
+                                        double3 xformOp:translate = (0.0629, 0, 0)
                                         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
 
                                         def Xform "gripper_link_visual" (
@@ -534,9 +534,9 @@ def Xform "beebot" (
                                             prepend references = @./instances.usda@</Instances/gripper_link_visual>
                                         )
                                         {
-                                            quatd xformOp:orient = (0.5, 0.5, -0.5, 0.5)
+                                            quatd xformOp:orient = (1, 0, 0, 0)
                                             double3 xformOp:scale = (0.001000000047, 0.001000000047, 0.001000000047)
-                                            double3 xformOp:translate = (4.518721445e-11, 0.2105, -0.2109)
+                                            double3 xformOp:translate = (-0.2109, 0, -0.2105)
                                             uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
                                         }
 
@@ -545,17 +545,17 @@ def Xform "beebot" (
                                             prepend references = @./instances.usda@</Instances/gripper_link_visual_1>
                                         )
                                         {
-                                            quatd xformOp:orient = (0.5, 0.5, -0.5, 0.5)
+                                            quatd xformOp:orient = (1, 0, 0, 0)
                                             double3 xformOp:scale = (0.001000000047, 0.001000000047, 0.001000000047)
-                                            double3 xformOp:translate = (4.518721445e-11, 0.2105, -0.2109)
+                                            double3 xformOp:translate = (-0.2109, 0, -0.2105)
                                             uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
                                         }
 
                                         def Xform "finger_left_link"
                                         {
-                                            quatf xformOp:orient = (0.70710677, -5.0242958e-15, 0.70710677, 5.0242958e-15)
+                                            quatf xformOp:orient = (1, 0, 0, -1.49e-8)
                                             float3 xformOp:scale = (1, 1, 1)
-                                            double3 xformOp:translate = (-0.038613870011387864, 0, 0.053149999991726635)
+                                            double3 xformOp:translate = (0.05315, 0.03861387, 0)
                                             uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
 
                                             def Xform "finger_left_link_visual" (
@@ -563,9 +563,9 @@ def Xform "beebot" (
                                                 prepend references = @./instances.usda@</Instances/finger_left_link_visual>
                                             )
                                             {
-                                                quatd xformOp:orient = (0, 0, 0.7071067691, -0.7071067691)
+                                                quatd xformOp:orient = (1, 0, 0, 0)
                                                 double3 xformOp:scale = (0.001000000047, 0.001000000047, 0.001000000047)
-                                                double3 xformOp:translate = (0.26405, 0.2105, 0.03861387)
+                                                double3 xformOp:translate = (-0.26405, -0.03861387, -0.2105)
                                                 uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
                                             }
 
@@ -574,18 +574,18 @@ def Xform "beebot" (
                                                 prepend references = @./instances.usda@</Instances/finger_left_link_visual_1>
                                             )
                                             {
-                                                quatd xformOp:orient = (0, 0, 0.7071067691, -0.7071067691)
+                                                quatd xformOp:orient = (1, 0, 0, 0)
                                                 double3 xformOp:scale = (0.001000000047, 0.001000000047, 0.001000000047)
-                                                double3 xformOp:translate = (0.26405, 0.2105, 0.03861387)
+                                                double3 xformOp:translate = (-0.26405, -0.03861387, -0.2105)
                                                 uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
                                             }
                                         }
 
                                         def Xform "finger_right_link"
                                         {
-                                            quatf xformOp:orient = (5.1682583e-15, 0.70710677, 5.0446e-15, -0.70710677)
+                                            quatf xformOp:orient = (1, 0, 0, -1.49e-8)
                                             float3 xformOp:scale = (1, 1, 1)
-                                            double3 xformOp:translate = (0.03861386998861214, 0, 0.0531500000082734)
+                                            double3 xformOp:translate = (0.05315, -0.03861387, 0)
                                             uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
 
                                             def Xform "finger_right_link_visual" (
@@ -593,9 +593,9 @@ def Xform "beebot" (
                                                 prepend references = @./instances.usda@</Instances/finger_right_link_visual>
                                             )
                                             {
-                                                quatd xformOp:orient = (0, 0, 0.7071067691, 0.7071067691)
+                                                quatd xformOp:orient = (1, 0, 0, 0)
                                                 double3 xformOp:scale = (0.001000000047, 0.001000000047, 0.001000000047)
-                                                double3 xformOp:translate = (0.26405, -0.2105, 0.03861387)
+                                                double3 xformOp:translate = (-0.26405, 0.03861387, -0.2105)
                                                 uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
                                             }
 
@@ -604,18 +604,18 @@ def Xform "beebot" (
                                                 prepend references = @./instances.usda@</Instances/finger_right_link_visual_1>
                                             )
                                             {
-                                                quatd xformOp:orient = (0, 0, 0.7071067691, 0.7071067691)
+                                                quatd xformOp:orient = (1, 0, 0, 0)
                                                 double3 xformOp:scale = (0.001000000047, 0.001000000047, 0.001000000047)
-                                                double3 xformOp:translate = (0.26405, -0.2105, 0.03861387)
+                                                double3 xformOp:translate = (-0.26405, 0.03861387, -0.2105)
                                                 uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
                                             }
                                         }
 
                                         def Xform "gripper_cam_link"
                                         {
-                                            quatf xformOp:orient = (0.57158357, 0.4169121, -0.41636932, 0.57106316)
+                                            quatf xformOp:orient = (0.9879641, 0.0000111908, 0.15468265, -0.000531599)
                                             float3 xformOp:scale = (1, 1, 1)
-                                            double3 xformOp:translate = (0.000273, -0.040325, 0.081681)
+                                            double3 xformOp:translate = (0.081681, -0.000273, 0.040325)
                                             uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
 
                                             def Xform "camera_wrist_link" (
@@ -653,9 +653,9 @@ def Xform "beebot" (
 
                                         def Xform "end_effector_link"
                                         {
-                                            quatf xformOp:orient = (0.7071069, 0, 0, 0.70710665)
+                                            quatf xformOp:orient = (0.70710677, -1.191e-7, 0.70710677, -1.193e-7)
                                             float3 xformOp:scale = (1, 1, 1)
-                                            double3 xformOp:translate = (0, 0, 0.109055)
+                                            double3 xformOp:translate = (0.109055, 0, 0)
                                             uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
                                         }
                                     }
