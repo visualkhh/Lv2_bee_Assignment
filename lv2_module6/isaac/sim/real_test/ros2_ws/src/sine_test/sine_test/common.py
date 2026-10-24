@@ -36,7 +36,8 @@ class Quit(Exception):
 
 
 def dur(t):
-    return Duration(sec=int(t), nanosec=int(round((t - int(t)) * 1e9)))
+    sec, nsec = divmod(int(round(t * 1e9)), 1_000_000_000)  # 6.9999999999 s -> 7 s, never nanosec = 1e9
+    return Duration(sec=sec, nanosec=nsec)
 
 
 def limits_from_urdf(text):
@@ -116,9 +117,9 @@ class KeyWatcher:
 class ArmNode(Node):
     """Config + URDF limits + latest /joint_states + latest JTC reference, and spin helpers that honor `q`."""
 
-    def __init__(self, name):
+    def __init__(self, name, config=DEFAULT_CONFIG):
         super().__init__(name)
-        self.cfg_path = self.declare_parameter('config', DEFAULT_CONFIG).value
+        self.cfg_path = self.declare_parameter('config', config).value
         self.cfg = yaml.safe_load(Path(self.cfg_path).read_text())
         self.state = None      # {joint: (pos, vel, effort)} from /joint_states
         self.state_msg = None

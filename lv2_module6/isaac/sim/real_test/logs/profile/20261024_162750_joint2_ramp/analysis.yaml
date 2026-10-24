@@ -1,0 +1,14 @@
+speed_deg_s: 2.0
+err_plus_deg: 1.272
+err_minus_deg: 4.989
+hysteresis_deg: 3.716
+delay_part_deg: 0.4
+mean_offset_deg: 3.13
+current_plus_A: -0.2873
+current_minus_A: -0.8245
+friction_current_A: 0.2686
+friction_torque_Nm: 0.479
+gravity_current_A: -0.5559
+gravity_torque_Nm: 0.991
+urdf_gravity_torque_Nm: 1.26
+measured_over_urdf: 0.787

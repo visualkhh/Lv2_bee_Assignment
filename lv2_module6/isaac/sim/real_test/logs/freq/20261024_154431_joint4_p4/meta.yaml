@@ -1,0 +1,83 @@
+joint: joint4
+spec: &id001
+  amplitude: 10.0
+  offset: 0.0
+  period: 4
+  cycles: 2
+config:
+  tag: p4
+  out_subdir: freq
+  sample_hz: 50
+  ramp_cycles: 1.0
+  settle_s: 1.0
+  move_s: 3.0
+  speed_margin: 0.7
+  limit_margin:
+    deg: 5.0
+    m: 0.001
+  joints:
+    joint1:
+      amplitude: 10.0
+      offset: 0.0
+      period: 4
+      cycles: 2
+    joint2:
+      amplitude: 10.0
+      offset: 0.0
+      period: 4
+      cycles: 2
+    joint3:
+      amplitude: 10.0
+      offset: 0.0
+      period: 4
+      cycles: 2
+    joint4: *id001
+    joint5:
+      amplitude: 10.0
+      offset: 0.0
+      period: 4
+      cycles: 2
+    gripper_left_joint:
+      amplitude: 0.003
+      offset: 0.0
+      period: 4
+      cycles: 2
+config_path: /home/bee/sjh/Lv2_bee_Assignment/lv2_module6/isaac/sim/real_test/ros2_ws/install/sine_test/share/sine_test/config/sine_p4.yaml
+hold_pose:
+  joint1: 0.0
+  joint2: 0.0
+  joint3: 0.0
+  joint4: 0.0
+  joint5: 0.00084
+  gripper_left_joint: 0.01481
+sine:
+  center: 0.0
+  amplitude: 0.17453292519943295
+  total_s: 16.0
+limits:
+  joint1:
+  - -3.14159
+  - 3.14159
+  - 4.817
+  joint2:
+  - -1.919862
+  - 1.919862
+  - 4.817
+  joint3:
+  - -1.570796
+  - 1.396263
+  - 4.817
+  joint4:
+  - -1.7
+  - 1.97
+  - 4.817
+  joint5:
+  - -3.141593
+  - 3.141593
+  - 4.817
+  gripper_left_joint:
+  - 0.0
+  - 0.0265
+  - 0.07
+columns: t [s since sine start], joint, cmd_pos, cmd_vel, pos, vel (rad, rad/s | m,
+  m/s), effort [A]

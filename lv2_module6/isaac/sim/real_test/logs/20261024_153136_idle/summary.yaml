@@ -1,0 +1,10 @@
+# 60 s idle, arm holding (cmd j2 4.36 / j3 2.34 / j4 0.93 deg), update_rate 50
+joint_states_period_ms: {mean: 20.0, p95: 20.3, max: 24.3}
+state_update_period_ms: {mean: 59.1, median: 60.0, p5: 40.0, p95: 60.1, max: 120.0}   # S line actually changing
+encoder: {resolution_deg: 0.088, noise_p2p_ticks: 1}   # every joint flips between 2 adjacent ticks
+gripper: {noise_p2p_mm: 0.03}
+current_noise_std_A: {joint1: 0.001, joint2: 0.001, joint3: 0.002, joint4: 0.003, joint5: 0.001}
+hold:   # measured - cmd, current, stiffness = current * 4.1/2.3 Nm/A / sag
+  joint2: {sag_deg: 2.55, current_A: -0.460, stiffness_Nm_per_deg: 0.32}
+  joint3: {sag_deg: 1.59, current_A: -0.309, stiffness_Nm_per_deg: 0.35}
+  joint4: {sag_deg: 0.53, current_A: -0.100, stiffness_Nm_per_deg: 0.34}

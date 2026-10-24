@@ -57,6 +57,15 @@ hw.launch 시작 순서: 하드웨어를 inactive 로 띄워 OpenCR 상태를 �
 2. 다른 팔 관절이 0° 에서 2° 넘게 떨어져 있으면 경고 (set_center 먼저)
 3. 해당 관절을 사인 center 로 천천히 이동 → 사인 (fade-in → cycles → fade-out) → center 에서 `settle_s` 기록 후 **그 자리에 정지**하고 종료
 
+### profile_test (action)
+`profile_test <관절> <hold|step|ramp>`. 설정은 `config/profile.yaml` 의 `joints.<이름>.<모드>`, 결과는 `logs/profile/<ts>_<관절>_<모드>/` (형식은 sin_test 와 같음).
+흐름(시작 위치로 천천히 이동 → 한 goal → center 에서 정지)과 `q` 정지도 sin_test 와 같다.
+- `hold`: 각도 목록마다 천천히 이동해 `dwell_s` 유지 → 자세별 처짐·유지 전류 (중력 토크 → 링크 질량 검증). joint2·3·4 만
+- `step`: +size → 0 → −size → 0 으로 명령이 바로 바뀜 → 속도 포화, 오버슈트, 정착 시간. 속도 검사를 하지 않는다 (서보가 최고 속도로 움직임)
+- `ramp`: 일정 속도(`speed` deg/s)로 ±amplitude 왕복 → 방향이 바뀔 때 멈춰 있는 폭(백래시)과 전류 변화(마찰)
+
+분석: `python3 profile_analysis.py` (ROS source 필요 — URDF 중력 토크 계산에 xacro 사용) → `<run>/plot.png`·`analysis.yaml`, `logs/profile/profile_summary.yaml`·`ramp_hysteresis.png`.
+
 ### 움직이지 않는 관절의 자세 유지 기준
 `allow_partial_joints_goal: false` 라 궤적마다 6 개 관절 값을 모두 보낸다. 움직이지 않는 관절에는 **측정값(`/joint_states`)이 아니라
 JTC 가 지금 명령하고 있는 값**(`/arm_controller/controller_state` 의 `reference`)을 그대로 넣는다.
@@ -76,6 +85,13 @@ JTC 가 지금 명령하고 있는 값**(`/arm_controller/controller_state` 의 
   (Gain Tuner 는 팔도 범위 가운데가 중심이다 — joint3 −5°, joint4 +7.7°. 비교할 때는 Gain Tuner 에 같은 중심을 준다)
 - `period`[s], `cycles`
 
+주기별 응답 (`config/sine_p0.5.yaml`, `sine_p1.yaml`, `sine_p2.yaml`, `sine_p4.yaml`): 모든 주기에서 진폭을 ±10°(그리퍼 ±3 mm)로 같게 두어
+주기만 바뀌게 했다. `tag`(폴더 이름 뒤에 붙음)와 `out_subdir: freq` 때문에 결과는 `logs/freq/<ts>_<joint>_p<주기>/` 에 쌓이고 logs/ 요약 그림에는 섞이지 않는다.
+
+```bash
+ros2 run sine_test sin_test joint3 --ros-args -p config:=$(ros2 pkg prefix sine_test)/share/sine_test/config/sine_p0.5.yaml
+```
+
 명령 = center + env(t) · amplitude · sin(2πt/period). Gain Tuner 와 다른 점: env 가 첫·마지막 `ramp_cycles` 주기 동안 0↔1 로 부드럽게 바뀐다 (실기가 튀지 않게).
 
 ## 출력 (`<out_dir>/<YYYYmmdd_HHMMSS>_<joint>/`, 기본 out_dir = 이 폴더의 logs/)
@@ -83,6 +99,10 @@ JTC 가 지금 명령하고 있는 값**(`/arm_controller/controller_state` 의 
 - `log.csv`: `t`(사인 시작 기준 s), `joint`, `cmd_pos`, `cmd_vel`, `pos`, `vel`(rad·rad/s, 그리퍼 m·m/s), `effort_A`(서보 전류 A — Nm 아님)
 - `meta.yaml`: 관절 설정, 전체 설정, 유지 자세, 사인 center·진폭, URDF 한계
 - `summary.yaml`: Peak / RMS 오차(deg 또는 mm, Gain Tuner 와 같은 정의), 최대 전류, `interrupted`(q 로 중단했는지)
+
+## 정지 기록 (`idle_record.py`)
+`python3 idle_record.py 60`: 테스트 노드 없이 팔이 멈춰 있는 동안 `/joint_states` 를 60 초 기록한다 → `logs/<ts>_idle/log.csv`.
+엔코더·전류 노이즈, 상태 갱신 주기, 처짐을 본다 (meta.yaml 이 없어 plot_logs.py 는 건너뛴다).
 
 ## 실기 전 주의
 

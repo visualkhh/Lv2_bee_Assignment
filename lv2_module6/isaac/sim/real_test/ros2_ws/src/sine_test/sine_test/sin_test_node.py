@@ -27,7 +27,7 @@ from rclpy.action import ActionClient
 from rclpy.utilities import remove_ros_args
 from trajectory_msgs.msg import JointTrajectoryPoint
 
-from sine_test.common import (ARM, CONTROLLER, DEFAULT_OUT_DIR, JOINTS, LINEAR, ArmNode, Quit, SineTest, center, dur,
+from sine_test.common import (ARM, CONTROLLER, DEFAULT_CONFIG, DEFAULT_OUT_DIR, JOINTS, LINEAR, ArmNode, Quit, SineTest, center, dur,
                               move_time, run_main)
 
 ACTION = CONTROLLER + '/follow_joint_trajectory'
@@ -36,8 +36,8 @@ CENTER_WARN = math.radians(2.0)  # warn when another arm joint is this far from 
 
 
 class SinTest(ArmNode):
-    def __init__(self, joint):
-        super().__init__('sin_test')
+    def __init__(self, joint, name='sin_test', config=DEFAULT_CONFIG):
+        super().__init__(name, config)
         self.joint = joint
         self.out_root = Path(self.declare_parameter('out_dir', DEFAULT_OUT_DIR).value)
         self.client = ActionClient(self, FollowJointTrajectory, ACTION)
@@ -46,6 +46,15 @@ class SinTest(ArmNode):
         self.recording = None      # (SineTest, t0) while the sine is logged
         self.rows = []
         self.on_state = self.log_row
+        self.mode = 'sine'
+
+    def run_tag(self):
+        """Run folder name suffix: optional yaml key `tag` (e.g. p0.5 for the period sweep)."""
+        return f'_{self.cfg["tag"]}' if self.cfg.get('tag') else ''
+
+    def describe(self, spec, sine):
+        return (f'center {self.fmt(self.joint, sine.c)}, amplitude {self.fmt(self.joint, sine.a)}, period {spec["period"]} s, '
+                f'{spec["cycles"]} cycles (+fade)')
 
     def log_row(self, msg):
         if not self.recording: return
@@ -128,15 +137,14 @@ class SinTest(ArmNode):
         if far: self.get_logger().warning(f'not at center: {", ".join(f"{n} {self.fmt(n, pose[n])}" for n in far)} — run set_center first?')
         self.spin_until(lambda: self.client.wait_for_server(timeout_sec=0.05), 10.0, ACTION)
 
-        out = self.out_root / f'{time.strftime("%Y%m%d_%H%M%S")}_{j}'
+        out = self.out_root / self.cfg.get('out_subdir', '') / f'{time.strftime("%Y%m%d_%H%M%S")}_{j}{self.run_tag()}'
         out.mkdir(parents=True, exist_ok=True)
-        meta = {'joint': j, 'spec': spec, 'config': self.cfg, 'config_path': self.cfg_path, 'hold_pose': pose,
+        meta = {'joint': j, 'mode': self.mode, 'spec': spec, 'config': self.cfg, 'config_path': self.cfg_path, 'hold_pose': pose,
                 'sine': {'center': sine.c, 'amplitude': sine.a, 'total_s': sine.total},
                 'limits': {n: list(v) for n, v in self.lim.items()},
                 'columns': 't [s since sine start], joint, cmd_pos, cmd_vel, pos, vel (rad, rad/s | m, m/s), effort [A]'}
         (out / 'meta.yaml').write_text(yaml.safe_dump(meta, sort_keys=False))
-        self.get_logger().info(f'{j}: center {self.fmt(j, sine.c)}, amplitude {self.fmt(j, sine.a)}, period {spec["period"]} s, '
-                               f'{spec["cycles"]} cycles (+fade), {sine.total:.1f} s (q: stop)')
+        self.get_logger().info(f'{j}: {self.describe(spec, sine)}, {sine.total:.1f} s (q: stop)')
         hold = lambda over: {n: (pose[n], 0.0) for n in JOINTS} | over
         summary, interrupted = None, False
         try:
@@ -145,7 +153,8 @@ class SinTest(ArmNode):
                 self.get_logger().info(f'{j}: {self.fmt(j, pose[j])} -> {self.fmt(j, sine.c)} in {t:.1f} s')
                 self.send([(t, hold({j: (sine.c, 0.0)}))], self.now() + START_DELAY)
             dt = 1.0 / self.cfg['sample_hz']
-            pts = [(t, hold({j: sine(t)})) for t in (min(i * dt, sine.total) for i in range(1, math.ceil(sine.total / dt) + 1))]
+            ts = [i * dt for i in range(1, math.ceil(sine.total / dt)) if i * dt < sine.total - 1e-3] + [sine.total]
+            pts = [(t, hold({j: sine(t)})) for t in ts]  # strictly increasing, last point exactly at the end
             pts.append((sine.total + self.cfg['settle_s'], hold({j: (sine.c, 0.0)})))  # settle at the center and stay
             t0 = self.now() + START_DELAY
             self.recording = (sine, t0)

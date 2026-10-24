@@ -1,0 +1,12 @@
+speed_mm_s: 2.0
+err_plus_mm: -1.279
+err_minus_mm: 0.031
+hysteresis_mm: 1.311
+delay_part_mm: 0.4
+mean_offset_mm: -0.624
+current_plus_A: 0.6584
+current_minus_A: 0.0609
+friction_current_A: 0.2987
+friction_torque_Nm: 0.533
+gravity_current_A: 0.3597
+gravity_torque_Nm: -0.641

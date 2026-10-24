@@ -1,0 +1,16 @@
+dwell:
+- target_mm: 2.0
+  approach: +
+  measured_mm: 2.01
+  sag_mm: 0.01
+  current_A: 0.0001
+- target_mm: 9.0
+  approach: +
+  measured_mm: 8.333
+  sag_mm: -0.667
+  current_A: 0.4323
+- target_mm: 2.0
+  approach: '-'
+  measured_mm: 2.01
+  sag_mm: 0.01
+  current_A: 0.0

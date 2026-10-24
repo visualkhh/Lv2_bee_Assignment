@@ -17,5 +17,6 @@ setup(
     entry_points={'console_scripts': [
         'set_center = sine_test.set_center_node:main',
         'sin_test = sine_test.sin_test_node:main',
+        'profile_test = sine_test.profile_test_node:main',
     ]},
 )

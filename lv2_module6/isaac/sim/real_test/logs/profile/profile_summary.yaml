@@ -1,0 +1,246 @@
+hold:
+  gripper_left_joint:
+    run: 20261024_171111_gripper_left_joint_hold
+    dwell:
+    - target_mm: 2.0
+      approach: '-'
+      measured_mm: 2.01
+      sag_mm: 0.01
+      current_A: 0.0
+    - target_mm: 6.0
+      approach: +
+      measured_mm: 6.0
+      sag_mm: 0.0
+      current_A: -0.0
+    - target_mm: 10.0
+      approach: +
+      measured_mm: 10.0
+      sag_mm: 0.0
+      current_A: 0.0
+    - target_mm: 13.25
+      approach: +
+      measured_mm: 13.2
+      sag_mm: -0.05
+      current_A: 0.0
+    - target_mm: 17.0
+      approach: +
+      measured_mm: 16.859
+      sag_mm: -0.141
+      current_A: 0.1003
+  joint2:
+    run: 20261024_162438_joint2_hold
+    dwell:
+    - target_deg: -30.0
+      approach: '-'
+      measured_deg: -27.408
+      sag_deg: 2.592
+      current_A: -0.4834
+      torque_Nm: 0.862
+      urdf_torque_Nm: 0.646
+    - target_deg: -15.0
+      approach: +
+      measured_deg: -13.768
+      sag_deg: 1.232
+      current_A: -0.245
+      torque_Nm: 0.437
+      urdf_torque_Nm: 0.994
+    - target_deg: 15.0
+      approach: +
+      measured_deg: 16.504
+      sag_deg: 1.504
+      current_A: -0.2959
+      torque_Nm: 0.527
+      urdf_torque_Nm: 1.469
+    - target_deg: 30.0
+      approach: +
+      measured_deg: 31.109
+      sag_deg: 1.109
+      current_A: -0.2642
+      torque_Nm: 0.471
+      urdf_torque_Nm: 1.563
+  joint3:
+    run: 20261024_162602_joint3_hold
+    dwell:
+    - target_deg: -45.0
+      approach: '-'
+      measured_deg: -42.016
+      sag_deg: 2.984
+      current_A: -0.5452
+      torque_Nm: 0.972
+      urdf_torque_Nm: 0.757
+    - target_deg: -30.0
+      approach: +
+      measured_deg: -28.93
+      sag_deg: 1.07
+      current_A: -0.1897
+      torque_Nm: 0.338
+      urdf_torque_Nm: 0.948
+    - target_deg: -15.0
+      approach: +
+      measured_deg: -13.771
+      sag_deg: 1.229
+      current_A: -0.2149
+      torque_Nm: 0.383
+      urdf_torque_Nm: 1.075
+    - target_deg: 15.0
+      approach: +
+      measured_deg: 16.064
+      sag_deg: 1.064
+      current_A: -0.2325
+      torque_Nm: 0.414
+      urdf_torque_Nm: 1.105
+    - target_deg: 30.0
+      approach: +
+      measured_deg: 30.776
+      sag_deg: 0.776
+      current_A: -0.1561
+      torque_Nm: 0.278
+      urdf_torque_Nm: 1.006
+    - target_deg: 45.0
+      approach: +
+      measured_deg: 45.544
+      sag_deg: 0.544
+      current_A: -0.1012
+      torque_Nm: 0.18
+      urdf_torque_Nm: 0.839
+  joint4:
+    run: 20261024_162651_joint4_hold
+    dwell:
+    - target_deg: -60.0
+      approach: '-'
+      measured_deg: -59.325
+      sag_deg: 0.675
+      current_A: -0.1168
+      torque_Nm: 0.208
+      urdf_torque_Nm: 0.179
+    - target_deg: -30.0
+      approach: +
+      measured_deg: -29.624
+      sag_deg: 0.376
+      current_A: -0.0573
+      torque_Nm: 0.102
+      urdf_torque_Nm: 0.369
+    - target_deg: 30.0
+      approach: +
+      measured_deg: 30.222
+      sag_deg: 0.222
+      current_A: -0.0012
+      torque_Nm: 0.002
+      urdf_torque_Nm: 0.427
+    - target_deg: 60.0
+      approach: +
+      measured_deg: 60.143
+      sag_deg: 0.143
+      current_A: 0.0
+      torque_Nm: -0.0
+      urdf_torque_Nm: 0.28
+hold_grip:
+  gripper_left_joint:
+    run: 20261024_173658_gripper_left_joint_hold_grip
+    dwell:
+    - target_mm: 2.0
+      approach: +
+      measured_mm: 2.01
+      sag_mm: 0.01
+      current_A: 0.0001
+    - target_mm: 9.0
+      approach: +
+      measured_mm: 8.333
+      sag_mm: -0.667
+      current_A: 0.4323
+    - target_mm: 2.0
+      approach: '-'
+      measured_mm: 2.01
+      sag_mm: 0.01
+      current_A: 0.0
+ramp:
+  gripper_left_joint:
+    run: 20261024_170728_gripper_left_joint_ramp
+    speed_mm_s: 2.0
+    err_plus_mm: -0.116
+    err_minus_mm: 0.111
+    hysteresis_mm: 0.228
+    delay_part_mm: 0.4
+    mean_offset_mm: -0.002
+    current_plus_A: -0.0049
+    current_minus_A: 0.0003
+    friction_current_A: 0.0026
+  joint2:
+    run: 20261024_162750_joint2_ramp
+    speed_deg_s: 2.0
+    err_plus_deg: 1.272
+    err_minus_deg: 4.989
+    hysteresis_deg: 3.716
+    delay_part_deg: 0.4
+    mean_offset_deg: 3.13
+    current_plus_A: -0.2873
+    current_minus_A: -0.8245
+    friction_current_A: 0.2686
+    friction_torque_Nm: 0.479
+    gravity_current_A: -0.5559
+    gravity_torque_Nm: 0.991
+    urdf_gravity_torque_Nm: 1.26
+    measured_over_urdf: 0.787
+  joint3:
+    run: 20261024_162835_joint3_ramp
+    speed_deg_s: 2.0
+    err_plus_deg: 0.965
+    err_minus_deg: 3.794
+    hysteresis_deg: 2.83
+    delay_part_deg: 0.4
+    mean_offset_deg: 2.38
+    current_plus_A: -0.2232
+    current_minus_A: -0.6429
+    friction_current_A: 0.2098
+    friction_torque_Nm: 0.374
+    gravity_current_A: -0.4331
+    gravity_torque_Nm: 0.772
+    urdf_gravity_torque_Nm: 1.115
+    measured_over_urdf: 0.692
+  joint4:
+    run: 20261024_162929_joint4_ramp
+    speed_deg_s: 2.0
+    err_plus_deg: 0.222
+    err_minus_deg: 1.455
+    hysteresis_deg: 1.232
+    delay_part_deg: 0.4
+    mean_offset_deg: 0.839
+    current_plus_A: -0.0603
+    current_minus_A: -0.2354
+    friction_current_A: 0.0875
+    friction_torque_Nm: 0.156
+    gravity_current_A: -0.1478
+    gravity_torque_Nm: 0.264
+    urdf_gravity_torque_Nm: 0.454
+    measured_over_urdf: 0.581
+step:
+  gripper_left_joint:
+    run: 20261024_174048_gripper_left_joint_step
+    largest_step_mm: 3.5
+    peak_speed_largest_mm_s: 36.8
+    overshoot_largest_mm: 0.14
+  joint1:
+    run: 20261024_163212_joint1_step
+    largest_step_deg: 30.0
+    peak_speed_largest_deg_s: 177.2
+    overshoot_largest_deg: 1.728
+  joint2:
+    run: 20261024_163145_joint2_step
+    largest_step_deg: 30.0
+    peak_speed_largest_deg_s: 196.5
+    overshoot_largest_deg: 5.064
+  joint3:
+    run: 20261024_163109_joint3_step
+    largest_step_deg: 30.0
+    peak_speed_largest_deg_s: 211.6
+    overshoot_largest_deg: 2.424
+  joint4:
+    run: 20261024_163044_joint4_step
+    largest_step_deg: 30.0
+    peak_speed_largest_deg_s: 217.1
+    overshoot_largest_deg: 0.664
+  joint5:
+    run: 20261024_163018_joint5_step
+    largest_step_deg: 30.0
+    peak_speed_largest_deg_s: 213.0
+    overshoot_largest_deg: 0.144

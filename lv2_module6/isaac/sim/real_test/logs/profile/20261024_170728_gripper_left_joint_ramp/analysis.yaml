@@ -1,0 +1,9 @@
+speed_mm_s: 2.0
+err_plus_mm: -0.116
+err_minus_mm: 0.111
+hysteresis_mm: 0.228
+delay_part_mm: 0.4
+mean_offset_mm: -0.002
+current_plus_A: -0.0049
+current_minus_A: 0.0003
+friction_current_A: 0.0026

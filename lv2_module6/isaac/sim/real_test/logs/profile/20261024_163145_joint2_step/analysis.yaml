@@ -1,0 +1,46 @@
+edges:
+- size_deg: -10.0
+  peak_speed_deg_s: 60.5
+  dead_ms: 100
+  rise_10_90_ms: null
+  overshoot_deg: 0.0
+  final_error_deg: 2.424
+- size_deg: -10.0
+  peak_speed_deg_s: 60.5
+  dead_ms: 100
+  rise_10_90_ms: null
+  overshoot_deg: 0.0
+  final_error_deg: 2.128
+- size_deg: 10.0
+  peak_speed_deg_s: 83.8
+  dead_ms: 0
+  rise_10_90_ms: 120
+  overshoot_deg: 3.04
+  final_error_deg: 2.384
+- size_deg: 30.0
+  peak_speed_deg_s: 186.9
+  dead_ms: 60
+  rise_10_90_ms: 120
+  overshoot_deg: 4.544
+  final_error_deg: 2.218
+- size_deg: -30.0
+  peak_speed_deg_s: 137.4
+  dead_ms: 140
+  rise_10_90_ms: 160
+  overshoot_deg: 0.0
+  final_error_deg: 2.437
+- size_deg: -30.0
+  peak_speed_deg_s: 141.5
+  dead_ms: 80
+  rise_10_90_ms: 240
+  overshoot_deg: 0.488
+  final_error_deg: 1.523
+- size_deg: 30.0
+  peak_speed_deg_s: 196.5
+  dead_ms: 40
+  rise_10_90_ms: 180
+  overshoot_deg: 5.064
+  final_error_deg: 2.525
+largest_step_deg: 30.0
+peak_speed_largest_deg_s: 196.5
+overshoot_largest_deg: 5.064

@@ -1,0 +1,15 @@
+joint: gripper_left_joint
+unit: mm
+period_s: 4
+amplitude_cmd: 3.0
+amplitude_meas: 2.978
+gain: 0.9926
+lag_ms: 52.0
+phase_deg: 4.7
+offset_meas: 13.242
+peak_error: 0.416
+rms_error: 0.159
+rms_error_lag_removed: 0.067
+peak_error_lag_removed: 0.231
+rms_error_lag_offset_removed: 0.067
+max_abs_current_A: 0.339

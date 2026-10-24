@@ -201,7 +201,7 @@ def plot_joints(items, out):
 
 
 def main():
-    runs = [Path(p) for p in sys.argv[1:]] or sorted(p for p in (HERE / 'logs').iterdir() if (p / 'log.csv').exists())
+    runs = [Path(p) for p in sys.argv[1:]] or sorted(p for p in (HERE / 'logs').iterdir() if (p / 'meta.yaml').exists())
     results, latest = [], {}
     for run in runs:
         meta, a = load(run)
