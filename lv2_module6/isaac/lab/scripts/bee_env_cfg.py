@@ -171,7 +171,7 @@ class BeeIKEnvCfg(BeeEnvCfg):
             asset_name = "robot",
             joint_names = ["joint[1-5]"],
             body_name = "gripper_link",
-            body_offset = DifferentialInverseKinematicsActionCfg.OffsetCfg(pos=(0.0, 0.0, 0.109055)),
+            body_offset = DifferentialInverseKinematicsActionCfg.OffsetCfg(pos=(0.109055, 0.0, 0.0),rot=(0.0, 0.7071068, 0.0, 0.7071068)),
             controller = DifferentialIKControllerCfg(command_type="pose", use_relative_mode=False, ik_method="dls")
             )
 
