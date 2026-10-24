@@ -1,24 +1,25 @@
-# Sine test plan — one joint at a time, the others hold the start pose.
-# Defaults mirror the Isaac Gain Tuner "Joints to test" table (Sinusoidal):
-#   center = middle of the URDF joint range + offset (arm deg, gripper m)   — or `center:` absolute
+# Settings for set_center and `sin_test <joint_name>` (one joint per run; a name missing under `joints:` is refused).
+# Values follow the Isaac Gain Tuner "Joints to test" table (Sinusoidal), except the arm center:
+#   center = arm: 0 deg (servo upright, 2048) + offset · gripper: middle of the URDF range + offset (m)
+#            Gain Tuner centers on the range middle: give it the same center to compare.
 #   amplitude_pct = % of half the joint range (Gain Tuner %)               — or `amplitude:` absolute (deg | m)
 #   command = center + env(t) * amplitude * sin(2*pi*t/period)
 # Difference from Gain Tuner: env fades 0 -> 1 over ramp_cycles periods and back to 0 at the end
-# (the real arm should not jump), and the arm first moves slowly from its start pose to the center.
+# (the real arm should not jump), and the joint first moves slowly to the center.
 sample_hz: 50          # trajectory points sent to JTC (JTC interpolates at 100 Hz)
 ramp_cycles: 1.0       # fade-in / fade-out length in periods
-settle_s: 1.0          # logged hold after each test
-move_s: 3.0            # minimum time to move to / back from the test center
+settle_s: 1.0          # logged hold at the center after the sine
+move_s: 3.0            # minimum time of a slow move (set_center per joint, sin_test to the sine center)
 speed_margin: 0.7      # reject if peak speed > speed_margin * URDF velocity limit
 limit_margin:          # keep the swing this far inside the URDF limits
   deg: 5.0
   m: 0.001
 
-# absolute values (URDF limits): j1 ±54° · j2 ±22° · j3 ±25.5° around -5° · j4 ±42.1° around +7.7° · j5 ±54° · gripper ±6.6 mm around 13.25 mm
+# absolute swing: j1 ±54° · j2 ±22° · j3 ±25.5° · j4 ±42.1° · j5 ±54° (all around 0°) · gripper ±6.6 mm around 13.25 mm
 joints:
-  joint1:             {test: false, amplitude_pct: 30.0, offset: 0.0, period: 2.5, cycles: 3}
-  joint2:             {test: false, amplitude_pct: 20.0, offset: 0.0, period: 2.0, cycles: 3}
-  joint3:             {test: false, amplitude_pct: 30.0, offset: 0.0, period: 2.0, cycles: 3}
-  joint4:             {test: false, amplitude_pct: 40.0, offset: 0.0, period: 2.0, cycles: 3}
-  joint5:             {test: false, amplitude_pct: 30.0, offset: 0.0, period: 2.0, cycles: 3}
-  gripper_left_joint: {test: true,  amplitude_pct: 50.0, offset: 0.0, period: 2.0, cycles: 3}
+  joint1:             {amplitude_pct: 30.0, offset: 0.0, period: 2.5, cycles: 3}
+  joint2:             {amplitude_pct: 20.0, offset: 0.0, period: 2.0, cycles: 3}
+  joint3:             {amplitude_pct: 30.0, offset: 0.0, period: 2.0, cycles: 3}
+  joint4:             {amplitude_pct: 40.0, offset: 0.0, period: 2.0, cycles: 3}
+  joint5:             {amplitude_pct: 30.0, offset: 0.0, period: 2.0, cycles: 3}
+  gripper_left_joint: {amplitude_pct: 50.0, offset: 0.0, period: 2.0, cycles: 3}

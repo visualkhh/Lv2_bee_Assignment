@@ -1,0 +1,15 @@
+joint: joint1
+unit: deg
+period_s: 2.5
+amplitude_cmd: 54.0
+amplitude_meas: 53.944
+gain: 0.999
+lag_ms: 112.9
+phase_deg: 16.3
+offset_meas: -0.044
+peak_error: 18.521
+rms_error: 9.518
+rms_error_lag_removed: 1.633
+peak_error_lag_removed: 4.995
+rms_error_lag_offset_removed: 1.633
+max_abs_current_A: 0.183

@@ -1,0 +1,7 @@
+joint1:
+  peak_error: 18.6585
+  rms_error: 9.5907
+  unit: deg
+  samples: 625
+  max_abs_current_A: 0.1426
+interrupted: false

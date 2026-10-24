@@ -14,5 +14,8 @@ setup(
     ],
     install_requires=['setuptools'],
     zip_safe=True,
-    entry_points={'console_scripts': ['sine_test_node = sine_test.sine_test_node:main']},
+    entry_points={'console_scripts': [
+        'set_center = sine_test.set_center_node:main',
+        'sin_test = sine_test.sin_test_node:main',
+    ]},
 )

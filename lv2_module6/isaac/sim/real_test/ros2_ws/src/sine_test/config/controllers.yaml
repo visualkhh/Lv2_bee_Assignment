@@ -2,7 +2,7 @@
 # no diff_drive / imu / gripper action controllers). Unclaimed commands: wheels -> 0, nothing else moves.
 controller_manager:
   ros__parameters:
-    update_rate: 100
+    update_rate: 50
     # BeebotSystemHardware::on_activate copies the position state into the command, but before the first
     # serial read that state is 0 -> every arm joint is commanded to 0 at startup. Start inactive (read() runs,
     # write() does not), let the real pose come in, then the launch activates it.

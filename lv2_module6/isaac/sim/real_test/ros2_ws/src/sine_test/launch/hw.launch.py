@@ -1,16 +1,17 @@
-"""Real-arm sine test: robot_state_publisher + ros2_control (BeebotSystemHardware from the main ws `control`
-package) + joint_state_broadcaster + JTC, then sine_test_node once the controllers are up.
+"""Real-arm test bringup: robot_state_publisher + ros2_control (BeebotSystemHardware from the main ws `control`
+package) + joint_state_broadcaster + arm_controller (JTC). Stays up; run the test nodes in another terminal:
 
-  ros2 launch sine_test sine_test.launch.py                       # real robot, /dev/opencr
-  ros2 launch sine_test sine_test.launch.py mock_hardware:=true   # no robot: hardware echoes commands
-  ros2 launch sine_test sine_test.launch.py config:=/path/my.yaml out_dir:=/path/logs
+  ros2 launch sine_test hw.launch.py                       # real robot, /dev/opencr
+  ros2 launch sine_test hw.launch.py mock_hardware:=true   # no robot: hardware echoes commands
+  ros2 run sine_test set_center                            # joint5 -> joint1 to 0 deg
+  ros2 run sine_test sin_test joint3                       # one joint's sine test (config/sine.yaml)
 
 The main bringup must be stopped (only one process can hold the OpenCR port).
 """
 from pathlib import Path
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, ExecuteProcess, RegisterEventHandler, Shutdown, TimerAction
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, RegisterEventHandler, TimerAction
 from launch.event_handlers import OnProcessExit
 from launch.substitutions import Command, LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
@@ -24,25 +25,23 @@ LV2 = WS.parents[3]
 
 def generate_launch_description():
     arg = LaunchConfiguration
-    share = FindPackageShare('sine_test')
-    controllers = PathJoinSubstitution([share, 'config', 'controllers.yaml'])
+    controllers = PathJoinSubstitution([FindPackageShare('sine_test'), 'config', 'controllers.yaml'])
     robot_description = ParameterValue(Command([
-        'xacro ', arg('urdf'), ' mock_hardware:=', arg('mock_hardware'), ' port:=', arg('port')]), value_type=str)
+        'xacro ', arg('urdf'), ' mock_hardware:=', arg('mock_hardware'), ' port:=', arg('port'),
+        ' mesh_uri:=', arg('mesh_uri')]), value_type=str)
     activate = ExecuteProcess(
         cmd=['ros2', 'control', 'set_hardware_component_state', 'BeebotSystem', 'active'], output='screen')
     spawner = Node(
         package='controller_manager', executable='spawner', output='screen',
         arguments=['joint_state_broadcaster', 'arm_controller', '--controller-manager', '/controller_manager',
                    '--param-file', controllers])
-    test = Node(
-        package='sine_test', executable='sine_test_node', output='screen', emulate_tty=True,
-        parameters=[{'config': arg('config'), 'out_dir': arg('out_dir'), 'mock_hardware': arg('mock_hardware')}])
     return LaunchDescription([
         DeclareLaunchArgument('mock_hardware', default_value='false', description='true: no robot, hardware echoes commands'),
         DeclareLaunchArgument('port', default_value='/dev/opencr', description='OpenCR serial port'),
         DeclareLaunchArgument('urdf', default_value=str(LV2 / 'urdf' / 'beebot_mesh' / 'urdf.xacro')),
-        DeclareLaunchArgument('config', default_value=PathJoinSubstitution([share, 'config', 'sine.yaml'])),
-        DeclareLaunchArgument('out_dir', default_value=str(WS.parent / 'logs')),
+        # resolved where the URDF is displayed (e.g. RViz on a PC): that machine needs ros_system installed
+        DeclareLaunchArgument('mesh_uri', default_value='package://ros_system/urdf/beebot_mesh/meshes',
+                              description='mesh folder URI written into the URDF (same as the main ros_system launch)'),
 
         Node(package='robot_state_publisher', executable='robot_state_publisher', output='screen',
              parameters=[{'robot_description': robot_description}]),
@@ -51,6 +50,4 @@ def generate_launch_description():
         # hardware starts inactive (controllers.yaml) so the real pose is read before anything is written
         TimerAction(period=2.0, actions=[activate]),
         RegisterEventHandler(OnProcessExit(target_action=activate, on_exit=[spawner])),
-        RegisterEventHandler(OnProcessExit(target_action=spawner, on_exit=[test])),
-        RegisterEventHandler(OnProcessExit(target_action=test, on_exit=[Shutdown(reason='sine test finished')])),
     ])
