@@ -26,138 +26,41 @@ over "maze"
             token outputs:mtlx:surface.connect = </maze/Looks/PLA/mtlxstandard_surface.outputs:out>
             token outputs:surface.connect = </maze/Looks/PLA/mtlxstandard_preview.outputs:surface>
 
-            def Shader "mtlxstandard_surface" (
-                prepend apiSchemas = ["NodeGraphNodeAPI"]
-            )
+            def Shader "mtlxstandard_surface"
             {
                 uniform token info:id = "ND_standard_surface_surfaceshader"
-                float inputs:base (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double default_value = 1
-                            string ogl_diff_intensity = "1"
-                        }
-                    }
-                )
-                color3f inputs:base_color = (0, 0, 0.5) (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double3 default_value = (0.8, 0.8, 0.8)
-                            string ogl_diff = "1"
-                        }
-                    }
-                )
+                float inputs:base
+                color3f inputs:base_color = (0, 0, 0.5)
                 color3f inputs:base_color.connect = </maze/Looks/PLA/mtlxpower1.outputs:out>
-                float inputs:coat (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double default_value = 0
-                            string ogl_coat_intensity = "1"
-                        }
-                    }
-                )
-                float inputs:coat_roughness (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double default_value = 0.1
-                            string ogl_coat_rough = "1"
-                        }
-                    }
-                )
-                float inputs:emission (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double default_value = 0
-                            string ogl_emit_intensity = "1"
-                        }
-                    }
-                )
-                color3f inputs:emission_color (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double3 default_value = (1, 1, 1)
-                            string ogl_emit = "1"
-                        }
-                    }
-                )
-                float inputs:metalness (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double default_value = 0
-                            string ogl_metallic = "1"
-                        }
-                    }
-                )
-                float inputs:specular (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double default_value = 1
-                            string ogl_spec_intensity = "1"
-                        }
-                    }
-                )
-                color3f inputs:specular_color (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double3 default_value = (1, 1, 1)
-                            string ogl_spec = "1"
-                        }
-                    }
-                )
-                float inputs:specular_IOR (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double default_value = 1.5
-                            string ogl_ior = "1"
-                        }
-                    }
-                )
-                float inputs:specular_roughness (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double default_value = 0.2
-                            string ogl_rough = "1"
-                        }
-                    }
-                )
-                float inputs:transmission (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double default_value = 0
-                            string ogl_transparency = "1"
-                        }
-                    }
-                )
+                float inputs:coat
+                float inputs:coat_roughness
+                float inputs:emission
+                color3f inputs:emission_color
+                float inputs:metalness
+                float inputs:specular
+                color3f inputs:specular_color
+                float inputs:specular_IOR
+                float inputs:specular_roughness
+                float inputs:transmission
                 token outputs:out
-                uniform float2 ui:nodegraph:node:pos = (-9.73701, 9.42316)
             }
 
-            def Shader "mtlxpower1" (
-                prepend apiSchemas = ["NodeGraphNodeAPI"]
-            )
+            def Shader "mtlxpower1"
             {
                 uniform token info:id = "ND_power_color3"
                 color3f inputs:in1 = (0.0392, 0.1608, 0.5373)
                 color3f inputs:in1.connect = None
                 color3f inputs:in2 = (2.2, 2.2, 2.2)
                 color3f outputs:out
-                uniform float2 ui:nodegraph:node:pos = (-12.3929, 8.25816)
             }
 
-            def Shader "mtlxdisplacement" (
-                prepend apiSchemas = ["NodeGraphNodeAPI"]
-            )
+            def Shader "mtlxdisplacement"
             {
                 uniform token info:id = "ND_displacement_float"
                 token outputs:out
-                uniform float2 ui:nodegraph:node:pos = (-9.73701, 5.13069)
             }
 
-            def Shader "mtlxstandard_preview" (
-                customData = {
-                    bool HoudiniIsAutoCreatedShader = 1
-                }
-            )
+            def Shader "mtlxstandard_preview"
             {
                 uniform token info:id = "UsdPreviewSurface"
                 float inputs:clearcoatRoughness = 0.1
@@ -178,125 +81,31 @@ over "maze"
             token outputs:mtlx:surface.connect = </maze/Looks/wall/mtlxstandard_surface.outputs:out>
             token outputs:surface.connect = </maze/Looks/wall/mtlxstandard_preview.outputs:surface>
 
-            def Shader "mtlxstandard_surface" (
-                prepend apiSchemas = ["NodeGraphNodeAPI"]
-            )
+            def Shader "mtlxstandard_surface"
             {
                 uniform token info:id = "ND_standard_surface_surfaceshader"
-                float inputs:base (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double default_value = 1
-                            string ogl_diff_intensity = "1"
-                        }
-                    }
-                )
-                color3f inputs:base_color = (0.0611, 0.0807, 0.163) (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double3 default_value = (0.8, 0.8, 0.8)
-                            string ogl_diff = "1"
-                        }
-                    }
-                )
-                float inputs:coat (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double default_value = 0
-                            string ogl_coat_intensity = "1"
-                        }
-                    }
-                )
-                float inputs:coat_roughness (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double default_value = 0.1
-                            string ogl_coat_rough = "1"
-                        }
-                    }
-                )
-                float inputs:emission (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double default_value = 0
-                            string ogl_emit_intensity = "1"
-                        }
-                    }
-                )
-                color3f inputs:emission_color (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double3 default_value = (1, 1, 1)
-                            string ogl_emit = "1"
-                        }
-                    }
-                )
-                float inputs:metalness (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double default_value = 0
-                            string ogl_metallic = "1"
-                        }
-                    }
-                )
-                float inputs:specular (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double default_value = 1
-                            string ogl_spec_intensity = "1"
-                        }
-                    }
-                )
-                color3f inputs:specular_color (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double3 default_value = (1, 1, 1)
-                            string ogl_spec = "1"
-                        }
-                    }
-                )
-                float inputs:specular_IOR (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double default_value = 1.5
-                            string ogl_ior = "1"
-                        }
-                    }
-                )
-                float inputs:specular_roughness = 0.02 (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double default_value = 0.2
-                            string ogl_rough = "1"
-                        }
-                    }
-                )
-                float inputs:transmission (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double default_value = 0
-                            string ogl_transparency = "1"
-                        }
-                    }
-                )
+                float inputs:base
+                color3f inputs:base_color = (0.0611, 0.0807, 0.163)
+                float inputs:coat
+                float inputs:coat_roughness
+                float inputs:emission
+                color3f inputs:emission_color
+                float inputs:metalness
+                float inputs:specular
+                color3f inputs:specular_color
+                float inputs:specular_IOR
+                float inputs:specular_roughness = 0.02
+                float inputs:transmission
                 token outputs:out
-                uniform float2 ui:nodegraph:node:pos = (-0.2883, 0.0376)
             }
 
-            def Shader "mtlxdisplacement" (
-                prepend apiSchemas = ["NodeGraphNodeAPI"]
-            )
+            def Shader "mtlxdisplacement"
             {
                 uniform token info:id = "ND_displacement_float"
                 token outputs:out
-                uniform float2 ui:nodegraph:node:pos = (-0.2883, -2.4334)
             }
 
-            def Shader "mtlxstandard_preview" (
-                customData = {
-                    bool HoudiniIsAutoCreatedShader = 1
-                }
-            )
+            def Shader "mtlxstandard_preview"
             {
                 uniform token info:id = "UsdPreviewSurface"
                 float inputs:clearcoatRoughness = 0.1
@@ -317,125 +126,31 @@ over "maze"
             token outputs:mtlx:surface.connect = </maze/Looks/profile/mtlxstandard_surface.outputs:out>
             token outputs:surface.connect = </maze/Looks/profile/mtlxstandard_preview.outputs:surface>
 
-            def Shader "mtlxstandard_surface" (
-                prepend apiSchemas = ["NodeGraphNodeAPI"]
-            )
+            def Shader "mtlxstandard_surface"
             {
                 uniform token info:id = "ND_standard_surface_surfaceshader"
-                float inputs:base (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double default_value = 1
-                            string ogl_diff_intensity = "1"
-                        }
-                    }
-                )
-                color3f inputs:base_color = (0.6667, 0.6667, 0.6667) (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double3 default_value = (0.8, 0.8, 0.8)
-                            string ogl_diff = "1"
-                        }
-                    }
-                )
-                float inputs:coat (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double default_value = 0
-                            string ogl_coat_intensity = "1"
-                        }
-                    }
-                )
-                float inputs:coat_roughness (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double default_value = 0.1
-                            string ogl_coat_rough = "1"
-                        }
-                    }
-                )
-                float inputs:emission (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double default_value = 0
-                            string ogl_emit_intensity = "1"
-                        }
-                    }
-                )
-                color3f inputs:emission_color (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double3 default_value = (1, 1, 1)
-                            string ogl_emit = "1"
-                        }
-                    }
-                )
-                float inputs:metalness = 0.847 (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double default_value = 0
-                            string ogl_metallic = "1"
-                        }
-                    }
-                )
-                float inputs:specular (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double default_value = 1
-                            string ogl_spec_intensity = "1"
-                        }
-                    }
-                )
-                color3f inputs:specular_color (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double3 default_value = (1, 1, 1)
-                            string ogl_spec = "1"
-                        }
-                    }
-                )
-                float inputs:specular_IOR (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double default_value = 1.5
-                            string ogl_ior = "1"
-                        }
-                    }
-                )
-                float inputs:specular_roughness (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double default_value = 0.2
-                            string ogl_rough = "1"
-                        }
-                    }
-                )
-                float inputs:transmission (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double default_value = 0
-                            string ogl_transparency = "1"
-                        }
-                    }
-                )
+                float inputs:base
+                color3f inputs:base_color = (0.6667, 0.6667, 0.6667)
+                float inputs:coat
+                float inputs:coat_roughness
+                float inputs:emission
+                color3f inputs:emission_color
+                float inputs:metalness = 0.847
+                float inputs:specular
+                color3f inputs:specular_color
+                float inputs:specular_IOR
+                float inputs:specular_roughness
+                float inputs:transmission
                 token outputs:out
-                uniform float2 ui:nodegraph:node:pos = (-0.2883, 0.0376)
             }
 
-            def Shader "mtlxdisplacement" (
-                prepend apiSchemas = ["NodeGraphNodeAPI"]
-            )
+            def Shader "mtlxdisplacement"
             {
                 uniform token info:id = "ND_displacement_float"
                 token outputs:out
-                uniform float2 ui:nodegraph:node:pos = (-0.2883, -2.4334)
             }
 
-            def Shader "mtlxstandard_preview" (
-                customData = {
-                    bool HoudiniIsAutoCreatedShader = 1
-                }
-            )
+            def Shader "mtlxstandard_preview"
             {
                 uniform token info:id = "UsdPreviewSurface"
                 float inputs:clearcoatRoughness = 0.1
@@ -457,125 +172,31 @@ over "maze"
             token outputs:mtlx:surface.connect = </maze/Looks/steel/mtlxstandard_surface.outputs:out>
             token outputs:surface.connect = </maze/Looks/steel/mtlxstandard_preview.outputs:surface>
 
-            def Shader "mtlxstandard_surface" (
-                prepend apiSchemas = ["NodeGraphNodeAPI"]
-            )
+            def Shader "mtlxstandard_surface"
             {
                 uniform token info:id = "ND_standard_surface_surfaceshader"
-                float inputs:base (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double default_value = 1
-                            string ogl_diff_intensity = "1"
-                        }
-                    }
-                )
-                color3f inputs:base_color = (1, 1, 1) (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double3 default_value = (0.8, 0.8, 0.8)
-                            string ogl_diff = "1"
-                        }
-                    }
-                )
-                float inputs:coat (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double default_value = 0
-                            string ogl_coat_intensity = "1"
-                        }
-                    }
-                )
-                float inputs:coat_roughness (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double default_value = 0.1
-                            string ogl_coat_rough = "1"
-                        }
-                    }
-                )
-                float inputs:emission (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double default_value = 0
-                            string ogl_emit_intensity = "1"
-                        }
-                    }
-                )
-                color3f inputs:emission_color (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double3 default_value = (1, 1, 1)
-                            string ogl_emit = "1"
-                        }
-                    }
-                )
-                float inputs:metalness = 0.9 (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double default_value = 0
-                            string ogl_metallic = "1"
-                        }
-                    }
-                )
-                float inputs:specular (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double default_value = 1
-                            string ogl_spec_intensity = "1"
-                        }
-                    }
-                )
-                color3f inputs:specular_color (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double3 default_value = (1, 1, 1)
-                            string ogl_spec = "1"
-                        }
-                    }
-                )
-                float inputs:specular_IOR (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double default_value = 1.5
-                            string ogl_ior = "1"
-                        }
-                    }
-                )
-                float inputs:specular_roughness (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double default_value = 0.2
-                            string ogl_rough = "1"
-                        }
-                    }
-                )
-                float inputs:transmission (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double default_value = 0
-                            string ogl_transparency = "1"
-                        }
-                    }
-                )
+                float inputs:base
+                color3f inputs:base_color = (1, 1, 1)
+                float inputs:coat
+                float inputs:coat_roughness
+                float inputs:emission
+                color3f inputs:emission_color
+                float inputs:metalness = 0.9
+                float inputs:specular
+                color3f inputs:specular_color
+                float inputs:specular_IOR
+                float inputs:specular_roughness
+                float inputs:transmission
                 token outputs:out
-                uniform float2 ui:nodegraph:node:pos = (-0.2883, 0.0376)
             }
 
-            def Shader "mtlxdisplacement" (
-                prepend apiSchemas = ["NodeGraphNodeAPI"]
-            )
+            def Shader "mtlxdisplacement"
             {
                 uniform token info:id = "ND_displacement_float"
                 token outputs:out
-                uniform float2 ui:nodegraph:node:pos = (-0.2883, -2.4334)
             }
 
-            def Shader "mtlxstandard_preview" (
-                customData = {
-                    bool HoudiniIsAutoCreatedShader = 1
-                }
-            )
+            def Shader "mtlxstandard_preview"
             {
                 uniform token info:id = "UsdPreviewSurface"
                 float inputs:clearcoatRoughness = 0.1

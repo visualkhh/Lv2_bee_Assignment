@@ -23,170 +23,64 @@ over "box"
         token outputs:mtlx:surface.connect = </box/Looks/mtlxstandard_surface.outputs:out>
         token outputs:surface.connect = </box/Looks/mtlxstandard_preview.outputs:surface>
 
-        def Shader "mtlxstandard_surface" (
-            prepend apiSchemas = ["NodeGraphNodeAPI"]
-        )
+        def Shader "mtlxstandard_surface"
         {
             uniform token info:id = "ND_standard_surface_surfaceshader"
-            float inputs:base (
-                customData = {
-                    dictionary HoudiniPreviewTags = {
-                        double default_value = 1
-                        string ogl_diff_intensity = "1"
-                    }
-                }
-            )
-            color3f inputs:base_color (
-                customData = {
-                    dictionary HoudiniPreviewTags = {
-                        double3 default_value = (0.8, 0.8, 0.8)
-                        string ogl_diff = "1"
-                    }
-                }
-            )
+            float inputs:base
+            color3f inputs:base_color
             color3f inputs:base_color.connect = </box/Looks/mtlxpower1.outputs:out>
-            float inputs:coat (
-                customData = {
-                    dictionary HoudiniPreviewTags = {
-                        double default_value = 0
-                        string ogl_coat_intensity = "1"
-                    }
-                }
-            )
-            float inputs:coat_roughness (
-                customData = {
-                    dictionary HoudiniPreviewTags = {
-                        double default_value = 0.1
-                        string ogl_coat_rough = "1"
-                    }
-                }
-            )
-            float inputs:emission (
-                customData = {
-                    dictionary HoudiniPreviewTags = {
-                        double default_value = 0
-                        string ogl_emit_intensity = "1"
-                    }
-                }
-            )
-            color3f inputs:emission_color (
-                customData = {
-                    dictionary HoudiniPreviewTags = {
-                        double3 default_value = (1, 1, 1)
-                        string ogl_emit = "1"
-                    }
-                }
-            )
-            float inputs:metalness (
-                customData = {
-                    dictionary HoudiniPreviewTags = {
-                        double default_value = 0
-                        string ogl_metallic = "1"
-                    }
-                }
-            )
+            float inputs:coat
+            float inputs:coat_roughness
+            float inputs:emission
+            color3f inputs:emission_color
+            float inputs:metalness
             vector3f inputs:normal.connect = </box/Looks/mtlxnormalmap2.outputs:out>
-            float inputs:specular (
-                customData = {
-                    dictionary HoudiniPreviewTags = {
-                        double default_value = 1
-                        string ogl_spec_intensity = "1"
-                    }
-                }
-            )
-            color3f inputs:specular_color (
-                customData = {
-                    dictionary HoudiniPreviewTags = {
-                        double3 default_value = (1, 1, 1)
-                        string ogl_spec = "1"
-                    }
-                }
-            )
-            float inputs:specular_IOR (
-                customData = {
-                    dictionary HoudiniPreviewTags = {
-                        double default_value = 1.5
-                        string ogl_ior = "1"
-                    }
-                }
-            )
-            float inputs:specular_roughness (
-                customData = {
-                    dictionary HoudiniPreviewTags = {
-                        double default_value = 0.2
-                        string ogl_rough = "1"
-                    }
-                }
-            )
+            float inputs:specular
+            color3f inputs:specular_color
+            float inputs:specular_IOR
+            float inputs:specular_roughness
             float inputs:specular_roughness.connect = </box/Looks/mtlximage5.outputs:out>
-            float inputs:transmission (
-                customData = {
-                    dictionary HoudiniPreviewTags = {
-                        double default_value = 0
-                        string ogl_transparency = "1"
-                    }
-                }
-            )
+            float inputs:transmission
             token outputs:out
-            uniform float2 ui:nodegraph:node:pos = (0.20998189, 1.0977697)
         }
 
-        def Shader "mtlxpower1" (
-            prepend apiSchemas = ["NodeGraphNodeAPI"]
-        )
+        def Shader "mtlxpower1"
         {
             uniform token info:id = "ND_power_color3"
             color3f inputs:in1.connect = </box/Looks/mtlximage1.outputs:out>
             color3f inputs:in2 = (2.2, 2.2, 2.2)
             color3f outputs:out
-            uniform float2 ui:nodegraph:node:pos = (-3.33949, 1.0977697)
         }
 
-        def Shader "mtlximage1" (
-            prepend apiSchemas = ["NodeGraphNodeAPI"]
-        )
+        def Shader "mtlximage1"
         {
             uniform token info:id = "ND_image_color3"
             asset inputs:file = @../../source/texture/shelf/box_basecolor.png@
             color3f outputs:out
-            uniform float2 ui:nodegraph:node:pos = (-5.4005284, 1.0977697)
         }
 
-        def Shader "mtlximage5" (
-            prepend apiSchemas = ["NodeGraphNodeAPI"]
-        )
+        def Shader "mtlximage5"
         {
             uniform token info:id = "ND_image_float"
             asset inputs:file = @../../source/texture/shelf/box_roughness.png@
             float outputs:out
-            uniform float2 ui:nodegraph:node:pos = (-3.33949, -1.4383252)
         }
 
-        def Shader "mtlxnormalmap2" (
-            prepend apiSchemas = ["NodeGraphNodeAPI"]
-        )
+        def Shader "mtlxnormalmap2"
         {
             uniform token info:id = "ND_normalmap_float"
             vector3f inputs:in.connect = </box/Looks/mtlximage4.outputs:out>
             vector3f outputs:out
-            uniform float2 ui:nodegraph:node:pos = (-0.74043316, -4.6934)
         }
 
-        def Shader "mtlximage4" (
-            prepend apiSchemas = ["NodeGraphNodeAPI"]
-        )
+        def Shader "mtlximage4"
         {
             uniform token info:id = "ND_image_vector3"
             asset inputs:file = @../../source/texture/shelf/box_normal.png@
             vector3f outputs:out
-            uniform float2 ui:nodegraph:node:pos = (-5.4005284, -3.9434)
         }
 
-        def Shader "mtlxstandard_preview" (
-            customData = {
-                bool HoudiniIsAutoCreatedShader = 1
-            }
-        )
+        def Shader "mtlxstandard_preview"
         {
             uniform token info:id = "UsdPreviewSurface"
             float inputs:clearcoatRoughness = 0.1
@@ -197,11 +91,7 @@ over "box"
             token outputs:surface
         }
 
-        def Shader "mtlxstandard_preview_uv" (
-            customData = {
-                bool HoudiniIsAutoCreatedShader = 1
-            }
-        )
+        def Shader "mtlxstandard_preview_uv"
         {
             uniform token info:id = "UsdPrimvarReader_float2"
             float2 inputs:fallback = (0, 0)
@@ -209,11 +99,7 @@ over "box"
             float2 outputs:result
         }
 
-        def Shader "mtlxstandard_preview_texture_roughness" (
-            customData = {
-                bool HoudiniIsAutoCreatedShader = 1
-            }
-        )
+        def Shader "mtlxstandard_preview_texture_roughness"
         {
             uniform token info:id = "UsdUVTexture"
             asset inputs:file = @../../source/texture/shelf/box_roughness.png@

@@ -26,224 +26,103 @@ over "puck"
             token outputs:mtlx:surface.connect = </puck/cyl/Looks/mtlxstandard_surface.outputs:out>
             token outputs:surface.connect = </puck/cyl/Looks/mtlxstandard_preview.outputs:surface>
 
-            def Shader "mtlxstandard_surface" (
-                prepend apiSchemas = ["NodeGraphNodeAPI"]
-            )
+            def Shader "mtlxstandard_surface"
             {
                 uniform token info:id = "ND_standard_surface_surfaceshader"
-                float inputs:base (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double default_value = 1
-                            string ogl_diff_intensity = "1"
-                        }
-                    }
-                )
-                color3f inputs:base_color (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double3 default_value = (0.8, 0.8, 0.8)
-                            string ogl_diff = "1"
-                        }
-                    }
-                )
+                float inputs:base
+                color3f inputs:base_color
                 color3f inputs:base_color.connect = </puck/cyl/Looks/mtlxmix1.outputs:out>
-                float inputs:coat (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double default_value = 0
-                            string ogl_coat_intensity = "1"
-                        }
-                    }
-                )
-                float inputs:coat_roughness (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double default_value = 0.1
-                            string ogl_coat_rough = "1"
-                        }
-                    }
-                )
-                float inputs:emission (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double default_value = 0
-                            string ogl_emit_intensity = "1"
-                        }
-                    }
-                )
-                color3f inputs:emission_color (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double3 default_value = (1, 1, 1)
-                            string ogl_emit = "1"
-                        }
-                    }
-                )
-                float inputs:metalness (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double default_value = 0
-                            string ogl_metallic = "1"
-                        }
-                    }
-                )
+                float inputs:coat
+                float inputs:coat_roughness
+                float inputs:emission
+                color3f inputs:emission_color
+                float inputs:metalness
                 vector3f inputs:normal.connect = </puck/cyl/Looks/mtlxnormalmap1.outputs:out>
-                float inputs:specular (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double default_value = 1
-                            string ogl_spec_intensity = "1"
-                        }
-                    }
-                )
-                color3f inputs:specular_color (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double3 default_value = (1, 1, 1)
-                            string ogl_spec = "1"
-                        }
-                    }
-                )
-                float inputs:specular_IOR (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double default_value = 1.5
-                            string ogl_ior = "1"
-                        }
-                    }
-                )
-                float inputs:specular_roughness (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double default_value = 0.2
-                            string ogl_rough = "1"
-                        }
-                    }
-                )
+                float inputs:specular
+                color3f inputs:specular_color
+                float inputs:specular_IOR
+                float inputs:specular_roughness
                 float inputs:specular_roughness.connect = </puck/cyl/Looks/mtlximage2.outputs:out>
-                float inputs:transmission (
-                    customData = {
-                        dictionary HoudiniPreviewTags = {
-                            double default_value = 0
-                            string ogl_transparency = "1"
-                        }
-                    }
-                )
+                float inputs:transmission
                 token outputs:out
-                uniform float2 ui:nodegraph:node:pos = (-8.75596, 9.77353)
             }
 
-            def Shader "mtlxmix1" (
-                prepend apiSchemas = ["NodeGraphNodeAPI"]
-            )
+            def Shader "mtlxmix1"
             {
                 uniform token info:id = "ND_mix_color3"
                 color3f inputs:bg.connect = </puck/cyl/Looks/mtlxpower1.outputs:out>
                 color3f inputs:fg.connect = </puck/cyl/Looks/mtlximage5.outputs:out>
                 float inputs:mix.connect = </puck/cyl/Looks/mtlximage4.outputs:out>
                 color3f outputs:out
-                uniform float2 ui:nodegraph:node:pos = (-10.735335, 12.1488)
             }
 
-            def Shader "mtlximage5" (
-                prepend apiSchemas = ["NodeGraphNodeAPI"]
-            )
+            def Shader "mtlximage5"
             {
                 uniform token info:id = "ND_image_color3"
                 asset inputs:file = @../../../source/texture/puck/puck_cyl_basecolor_id2.png@
                 color3f outputs:out
-                uniform float2 ui:nodegraph:node:pos = (-16.502302, 16.5424)
             }
 
-            def Shader "mtlxpower1" (
-                prepend apiSchemas = ["NodeGraphNodeAPI"]
-            )
+            def Shader "mtlxpower1"
             {
                 uniform token info:id = "ND_power_color3"
                 color3f inputs:in1.connect = </puck/cyl/Looks/mtlxmultiply2.outputs:out>
                 color3f inputs:in2 = (2.2, 2.2, 2.2)
                 color3f outputs:out
-                uniform float2 ui:nodegraph:node:pos = (-14.1869335, 13.767857)
             }
 
-            def Shader "mtlxmultiply2" (
-                prepend apiSchemas = ["NodeGraphNodeAPI"]
-            )
+            def Shader "mtlxmultiply2"
             {
                 uniform token info:id = "ND_multiply_color3FA"
                 color3f inputs:in1 = (0, 0.6824, 0.2588)
                 color3f inputs:in1.connect = None
                 float inputs:in2.connect = </puck/cyl/Looks/mtlxinvert1.outputs:out>
                 color3f outputs:out
-                uniform float2 ui:nodegraph:node:pos = (-17.47502, 13.271017)
             }
 
-            def Shader "mtlxinvert1" (
-                prepend apiSchemas = ["NodeGraphNodeAPI"]
-            )
+            def Shader "mtlxinvert1"
             {
                 uniform token info:id = "ND_invert_float"
                 float inputs:in.connect = </puck/cyl/Looks/mtlximage4.outputs:out>
                 float outputs:out
-                uniform float2 ui:nodegraph:node:pos = (-19.3796, 12.0738)
             }
 
-            def Shader "mtlximage4" (
-                prepend apiSchemas = ["NodeGraphNodeAPI"]
-            )
+            def Shader "mtlximage4"
             {
                 uniform token info:id = "ND_image_float"
                 asset inputs:file = @../../../source/texture/puck/puck_cyl_tagmask.png@
                 float outputs:out
-                uniform float2 ui:nodegraph:node:pos = (-23.1333, 13.7256)
             }
 
-            def Shader "mtlximage2" (
-                prepend apiSchemas = ["NodeGraphNodeAPI"]
-            )
+            def Shader "mtlximage2"
             {
                 uniform token info:id = "ND_image_float"
                 asset inputs:file = @../../../source/texture/puck/puck_cyl_roughness.png@
                 float outputs:out
-                uniform float2 ui:nodegraph:node:pos = (-13.3663, 8.63103)
             }
 
-            def Shader "mtlxnormalmap1" (
-                prepend apiSchemas = ["NodeGraphNodeAPI"]
-            )
+            def Shader "mtlxnormalmap1"
             {
                 uniform token info:id = "ND_normalmap_float"
                 vector3f inputs:in.connect = </puck/cyl/Looks/mtlximage3.outputs:out>
                 float inputs:scale = 2
                 vector3f outputs:out
-                uniform float2 ui:nodegraph:node:pos = (-11.4119, 4.16148)
             }
 
-            def Shader "mtlximage3" (
-                prepend apiSchemas = ["NodeGraphNodeAPI"]
-            )
+            def Shader "mtlximage3"
             {
                 uniform token info:id = "ND_image_vector3"
                 asset inputs:file = @../../../source/texture/puck/puck_cyl_normal.png@
                 vector3f outputs:out
-                uniform float2 ui:nodegraph:node:pos = (-14.0678, 4.53648)
             }
 
-            def Shader "mtlxdisplacement" (
-                prepend apiSchemas = ["NodeGraphNodeAPI"]
-            )
+            def Shader "mtlxdisplacement"
             {
                 uniform token info:id = "ND_displacement_float"
                 token outputs:out
-                uniform float2 ui:nodegraph:node:pos = (-8.75596, 1.37401)
             }
 
-            def Shader "mtlxstandard_preview" (
-                customData = {
-                    bool HoudiniIsAutoCreatedShader = 1
-                }
-            )
+            def Shader "mtlxstandard_preview"
             {
                 uniform token info:id = "UsdPreviewSurface"
                 float inputs:clearcoatRoughness = 0.1
@@ -254,11 +133,7 @@ over "puck"
                 token outputs:surface
             }
 
-            def Shader "mtlxstandard_preview_uv" (
-                customData = {
-                    bool HoudiniIsAutoCreatedShader = 1
-                }
-            )
+            def Shader "mtlxstandard_preview_uv"
             {
                 uniform token info:id = "UsdPrimvarReader_float2"
                 float2 inputs:fallback = (0, 0)
@@ -266,11 +141,7 @@ over "puck"
                 float2 outputs:result
             }
 
-            def Shader "mtlxstandard_preview_texture_roughness" (
-                customData = {
-                    bool HoudiniIsAutoCreatedShader = 1
-                }
-            )
+            def Shader "mtlxstandard_preview_texture_roughness"
             {
                 uniform token info:id = "UsdUVTexture"
                 asset inputs:file = @../../../source/texture/puck/puck_cyl_roughness.png@
