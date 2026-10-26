@@ -2,7 +2,8 @@
 perception:
   ros__parameters:
     rate_hz: 10.0            # /tracked_objects 발행 주기 (설계: 10Hz · reliable)
-    model_path: ""          # 비면 share/perception/model/best.pt 자동 탐색, 없으면 빈 목록
+    model_path: ""          # 비면 share/perception/model/model.pt(팀 모델) 자동 탐색, 없으면 빈 목록 · 파일 이름만 쓰면 그 폴더에서 찾음
+                            #   실물 로봇: "bee_yolo11n_v1.pt" (Isaac Sim + 실물 미세조정 — 실물 30장 mAP50 0.995 · 클래스 puck_red 등 색별)
     confidence: 0.4         # 검출 신뢰도 하한
     imgsz: 416              # YOLO 입력 한 변 (도커 CPU용)
     device: "cpu"           # 실기 GPU 있으면 cuda
@@ -24,3 +25,29 @@ perception:
     body_radius: 0.2        # 차체 원점에서 수평 이 안 · 높이 body_height 아래면 자기 몸 [m] (적재함·폴)
     body_height: 0.6
     self_arm_hits: 3        # 퍽이 아닌 검출 박스 안에 팔(TF 링크를 화면에 투영) 점이 이만큼 있으면 자기 팔 — 박스 일부만 팔이면 depth가 팔 뒤 바닥이라 위 3D 판정을 빠져나감 (0 = 안 봄)
+    # 안 보여도 기억 (퍽 · 목표 구역 · QR 판) — 2초 지나도 안 지우고, 그 자리가 잘 보이는데 연속 못 찾을 때만 지움 (팀 확인 10/22)
+    miss_count: 3           # 잘 보이는 자리에서 이만큼 연속 못 찾으면 지움 (옮겨짐 · 집어 감)
+    miss_max_range: 3.0     # 이보다 먼 자리는 못 찾아도 세지 않음 [m] (멀면 YOLO가 놓치기 쉬움)
+    miss_edge_px: 40        # 화면 가장자리 이만큼 안은 세지 않음 [px] (반쯤 잘려 놓칠 수 있음)
+    miss_occlusion_m: 0.10  # 그 자리 깊이가 물체까지 거리보다 이만큼 넘게 가까우면 가려진 것 — 세지 않음 [m]
+    remember_min_hits: 3    # 같은 자리에서 이만큼 잡혀야 기억 — 그 전엔 2초 규칙 (TF가 잠깐 어긋나 엉뚱한 자리에 찍힌 유령 퍽이 남지 않게)
+    # 퍽 판단 (실물 측정 10/21~22 · test/puck_tag_check.py) — 퍽 색·크기는 발제문이 나오면 여기서만 바꿀 것
+    puck_colors: ["red", "yellow", "green", "blue"]  # 퍽으로 볼 색 (가정: 빨강·노랑·초록 · 파랑 = 지금 실물 테스트용)
+    hue_tol: 10             # 기준 H(색상)에서 이만큼 안이어야 그 색 — 넘으면 other (주황 컵홀더 H12~13이 빨강으로 안 잡히게)
+    check_model_color: true # YOLO 이름의 색(puck_red)과 HSV 색이 다르면 퍽 아님
+    size_long_min_cm: 2.5   # 박스 긴 변 하한 [cm] (끝면·윗면 3×3만 보이면 2.5~3.9)
+    size_long_max_cm: 10.0  # 긴 변 상한 [cm] (누운 퍽 6.5~7.2 · 멀면 박스가 넉넉해져 8.5)
+    size_short_min_cm: 2.2  # 짧은 변 하한 [cm] (빨대 1.0~1.5 거름)
+    square_long_cm: 4.5     # 긴 변이 이보다 작고 정사각형에 가까우면 끝면·윗면 — 자세 모름
+    square_ratio: [0.8, 1.25]  # 정사각형으로 보는 높이÷폭 범위
+    stand_ratio: 0.8        # 높이÷폭 이 이상이면 서있음(puck), 미만이면 누움(puck_lying)
+    edge_px: 5              # 박스가 화면 가장자리 이 안에 닿으면 잘린 퍽 — 크기 하한·자세 안 봄 [px]
+    near_px: 70             # 깊이 없는데 박스 짧은 변이 이 이상이면 너무 가까운 퍽 — 위치 갱신 없이 마지막 위치 유지 [px]
+    depth_min_valid: 0.5    # 박스 가운데 깊이 화소가 이 비율보다 적으면 깊이 없음 (배경 몇 화소로 엉뚱한 거리 안 냄)
+# 자기 몸 점구름 필터 (C++ body_filter, 담당: 전승혜) — Nav2 costmap·collision_monitor 입력에서 팔·차체 점을 뺀다
+body_filter:
+  ros__parameters:
+    input_topic: /pole_front_cam/depth/color/points
+    output_topic: /pole_front_cam/depth/color/points_filtered   # Nav2 costmap·collision_monitor가 본다
+    padding: 0.03            # [m] 충돌 상자를 이만큼 키워서 뺀다 — 깊이 노이즈로 팔 가장자리 점이 남으면 키울 것
+    stride: 4                # RGBD 점구름 4점당 1점만 Nav2/collision_monitor에 전달 (성능)

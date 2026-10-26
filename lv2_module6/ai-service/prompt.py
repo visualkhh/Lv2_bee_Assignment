@@ -7,12 +7,16 @@
 
 import math
 
-ALLOWED = "navigate · pick · place · say"
-# 적재함 (coordinator target "tray") — MISSION ③ MOVE_TO_B는 손에 들고 옮기면 인정 안 됨
+ALLOWED = "navigate · pick · place · inspect · say"
+# 적재함 (coordinator target "tray") — 여러 퍽을 옮길 때는 손에 들고 다니지 않고 실어 나른다
 TRAY_RULE = ("적재함: pick·place의 target에 \"tray\"를 쓰면 로봇 뒤 적재함이다 — place tray = 손에 든 퍽을 다음 빈 칸에 싣기, "
-             "pick tray = 실은 퍽을 하나 꺼내기(나중에 실은 것부터). 최대 4개. MOVE_TO_B는 퍽마다 navigate·pick·place tray로 싣고 "
-             "B 지역으로 navigate한 뒤 실은 수만큼 pick tray·place <B 지역 id>로 내려놓는다 (손에 들고 옮기지 말 것). "
+             "pick tray = 실은 퍽을 하나 꺼내기(나중에 실은 것부터). 최대 4개. 여러 퍽을 옮길 때는 퍽마다 navigate·pick·place tray로 싣고 "
+             "목적지로 navigate한 뒤 실은 수만큼 pick tray·place <목적지 id>. "
              "같은 곳에 여러 번 place하면 coordinator가 겹치지 않게 비켜 놓는다.")
+# 표식 — 퍽 번호(윗면 16mm AprilTag)는 gripper_cam이 위에서 봐야 읽힘 → inspect
+MARKER_RULE = ("표식: 퍽 tag = 윗면 번호(빨강 0~3 · 초록 4~7 · 파랑 8~11, R1~R4·G1~G4·B1~B4). class location = 장소, tag 12·13·14 = L1·L2·L3. "
+               "class barcode의 content = 그 장소(가까운 location)에 붙은 작업 지시 문자열. "
+               "번호가 필요한데 tag가 없는 퍽은 먼저 inspect <퍽 id>(위에서 내려다보기 — 집지 않음)로 번호를 읽게 하라.")
 # pick·place는 팔이 닿아야 함 — 바닥 퍽은 로봇 중심에서 약 0.13~0.31m (simulator 팔 범위 · coordinator reach_m 0.30)
 REACH_M = 0.30
 REACH_RULE = (f"팔이 닿는 곳: 로봇 중심에서 약 {REACH_M:.2f}m 안. pick·place <물체 id>의 대상이 그보다 멀면 바로 앞 단계에 "
@@ -49,6 +53,9 @@ def build(req, system=""):
                 extra += f" dist={math.hypot(pos[0] - rxy[0], pos[1] - rxy[1]):.2f}m"
             if isinstance(o.get("color"), str) and o["color"]:
                 extra += f" color={o['color']}"
+            for key in ("tag", "content", "posture"):  # 퍽 번호 · 장소 태그 · 바코드 작업 지시 · 자세
+                if isinstance(o.get(key), str) and o[key]:
+                    extra += f" {key}={o[key]}"
             if isinstance(o.get("confidence"), (int, float)):
                 extra += f" conf={o['confidence']:.2f}"
             px = o.get("px", {})
@@ -73,6 +80,7 @@ def build(req, system=""):
                 lines.append(f"  - {h.get('role', '?')}: {text}")
     lines.append(REACH_RULE)
     lines.append(TRAY_RULE)
+    lines.append(MARKER_RULE)
     lines.append(f"허용 동작: {ALLOWED}. JSON 배열로만 답하라: "
                  '[{"step": 1, "skill": "...", "target": "<물체id|tray|말할내용>", "relation": "front|on|", "offset_m": 0.0}]')
     return "\n".join(lines)

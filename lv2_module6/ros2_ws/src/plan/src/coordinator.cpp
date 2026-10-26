@@ -1,6 +1,8 @@
 // coordinator 구현 — 노드 설명·입출력·멤버 선언은 include/plan/coordinator.hpp, main은 coordinator_main.cpp
 #include "plan/coordinator.hpp"
 
+#include <algorithm>
+
 #include <cmath>
 
 #include "shape_msgs/msg/solid_primitive.hpp"
@@ -46,15 +48,26 @@ Coordinator::Coordinator()
   place_spacing_ = declare_parameter<double>("place_spacing", 0.08);
   reach_m_ = declare_parameter<double>("reach_m", 0.30);
   approach_m_ = declare_parameter<double>("approach_m", 0.24);
+  inspect_height_m_ = declare_parameter<double>("inspect_height_m", 0.15);
+  inspect_wait_s_ = declare_parameter<double>("inspect_wait_s", 1.0);
+  initial_enabled_ = declare_parameter<bool>("initial_pose_enabled", true);
+  initial_joints_ = declare_parameter<std::vector<std::string>>(
+    "initial_pose_joints", {"joint1", "joint2", "joint3", "joint4", "joint5"});
+  initial_pose_ = declare_parameter<std::vector<double>>(
+    "initial_pose", {-0.0898, -1.8069, 1.3432, 1.6473, -0.0268});
+  initial_tol_ = declare_parameter<double>("initial_pose_tolerance", 0.05);
+  initial_move_s_ = declare_parameter<double>("initial_pose_move_s", 3.0);
+  arm_traj_pub_ = create_publisher<trajectory_msgs::msg::JointTrajectory>(
+    "/arm_controller/joint_trajectory", rclcpp::QoS(10));
   scan_joints_ = declare_parameter<std::vector<std::string>>("scan_pose_joints", {"joint1", "joint2", "joint3", "joint4", "joint5"});
   scan_pose_ = declare_parameter<std::vector<double>>("scan_pose", {2.618, 0.681, -1.414, 1.082, 0.0});
   scan_tol_ = declare_parameter<double>("scan_pose_tolerance", 0.05);
   tf_buffer_ = std::make_unique<tf2_ros::Buffer>(get_clock());
   tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
   const auto latched = rclcpp::QoS(10).reliable().transient_local();
-  status_pub_ = create_publisher<TaskStatus>("/task_status", latched);
-  say_pub_ = create_publisher<std_msgs::msg::String>("/robot_say", rclcpp::QoS(10).reliable());
-  goals_sub_ = create_subscription<SubGoalArray>("/sub_goals", latched,
+  status_pub_ = create_publisher<TaskStatus>("/task/status", latched);
+  say_pub_ = create_publisher<std_msgs::msg::String>("/robot/say", rclcpp::QoS(10).reliable());
+  goals_sub_ = create_subscription<SubGoalArray>("/task/sub_goals", latched,
     [this](SubGoalArray::ConstSharedPtr m) { on_plan(*m); });
   objects_sub_ = create_subscription<TrackedObjectArray>("/tracked_objects", rclcpp::QoS(5).reliable(),
     [this](TrackedObjectArray::ConstSharedPtr m) {
@@ -91,6 +104,8 @@ Coordinator::Coordinator()
     [this](sensor_msgs::msg::JointState::ConstSharedPtr m) {
       for (size_t i = 0; i < m->name.size() && i < m->position.size(); ++i) joints_[m->name[i]] = m->position[i];
     });
+  // 시작 자세는 1초부터 자주 확인 (팔이 늦게 뜨는 경우 대비), 스캔 자세는 기존대로 2초
+  initial_timer_ = create_wall_timer(std::chrono::seconds(1), [this]() { check_initial_pose(); });
   scan_timer_ = create_wall_timer(std::chrono::seconds(2), [this]() { check_scan_pose(); });
   nav_ = rclcpp_action::create_client<NavigateToPose>(this, "/navigate_to_pose");
   motion_plan_ = create_client<GetMotionPlan>("/plan_kinematic_path");
@@ -190,7 +205,7 @@ void Coordinator::on_plan(const SubGoalArray & plan) {
 }
 
 bool Coordinator::validate(const SubGoalArray & plan, std::string & why) const {
-  static const std::set<std::string> allowed = {"navigate", "pick", "place", "say"};
+  static const std::set<std::string> allowed = {"navigate", "pick", "place", "inspect", "say"};
   if (plan.goals.empty()) { why = "empty"; return false; }
   for (const auto & g : plan.goals) {
     if (!allowed.count(g.skill)) { why = "skill " + g.skill; return false; }
@@ -213,7 +228,9 @@ void Coordinator::run_step() {
   if (idx_ >= plan_.goals.size()) {
     running_ = false;
     status(plan_.goals.back().step, TaskStatus::SUCCEEDED, "");
-    say("퍽을 옮겼어요");
+    const bool carried = std::any_of(plan_.goals.begin(), plan_.goals.end(),
+      [](const SubGoal & s) { return s.skill == "place"; });
+    if (carried) say("퍽을 옮겼어요");  // inspect만 한 계획(퍽 번호 보기)은 말 없이 — planner가 이어서 계획
     return;
   }
   const auto & g = plan_.goals[idx_];
@@ -221,6 +238,7 @@ void Coordinator::run_step() {
   RCLCPP_INFO(get_logger(), "step %u: %s %s", g.step, g.skill.c_str(), g.target.c_str());
   if (g.skill == "navigate") navigate(g);
   else if (g.skill == "pick") pick(g);
+  else if (g.skill == "inspect") inspect(g);
   else if (g.skill == "place") {
     if (!ready_or_retry(motion_plan_->service_is_ready() && exec_->action_server_is_ready() &&
         gripper_->action_server_is_ready(), "arm_unavailable")) return;
@@ -301,6 +319,65 @@ bool Coordinator::at_scan_pose() const {
     if (std::abs(d) > scan_tol_) return false;
   }
   return true;
+}
+
+bool Coordinator::at_initial_pose() const {
+  for (size_t i = 0; i < initial_joints_.size() && i < initial_pose_.size(); ++i) {
+    const auto it = joints_.find(initial_joints_[i]);
+    if (it == joints_.end()) return false;
+    if (std::abs(std::remainder(it->second - initial_pose_[i], 2 * M_PI)) > initial_tol_) return false;
+  }
+  return !joints_.empty();
+}
+
+void Coordinator::publish_arm_targets(const std::vector<std::string> & names,
+                                      const std::vector<double> & pos, double seconds) {
+  if (!arm_traj_pub_) return;
+  trajectory_msgs::msg::JointTrajectory traj;
+  trajectory_msgs::msg::JointTrajectoryPoint point;
+  for (size_t i = 0; i < names.size() && i < pos.size(); ++i) {
+    traj.joint_names.push_back(names[i]);
+    point.positions.push_back(pos[i]);
+  }
+  point.time_from_start = rclcpp::Duration::from_seconds(seconds);
+  traj.points.push_back(point);
+  arm_traj_pub_->publish(traj);
+}
+
+void Coordinator::check_initial_pose() {
+  // bringup 직후 한 번, 손으로 잡아 둔 초기 자세로 팔을 옮긴다.
+  //  - MAPPING/EXPLORE면 스캔 자세가 우선이라 건너뜀
+  //  - estop·진행 중 작업·비상정지 중에는 안 함
+  //  - 이미 그 자세면 바로 완료
+  if (!initial_enabled_) return;
+  if (initial_waiting_) {
+    // 보낸 뒤 도달 확인 — 도달하면 타이머 자체를 끔, 6초 넘게 못 가면 한 번 더 보냄 (JTC 재시작·일시 거절 대비)
+    if (at_initial_pose()) {
+      initial_waiting_ = false;
+      initial_timer_->cancel();
+      RCLCPP_INFO(get_logger(), "팔 초기 자세 완료");
+    } else if (std::chrono::duration<double>(
+                 std::chrono::steady_clock::now() - initial_sent_).count() > initial_move_s_ + 3.0) {
+      initial_waiting_ = false;
+      RCLCPP_WARN(get_logger(), "팔 초기 자세 미도달 — 다시 보냄");
+    }
+    return;
+  }
+  if (estop_ || running_ || joints_.empty()) return;
+  if (map_mode_ == "MAPPING" || mode_ == "EXPLORE") {
+    initial_timer_->cancel();  // 스캔 자세(coordinator check_scan_pose)가 대신 잡는다
+    return;
+  }
+  if (at_initial_pose()) {
+    initial_timer_->cancel();
+    RCLCPP_INFO(get_logger(), "팔이 이미 초기 자세 — 이동 생략");
+    return;
+  }
+  if (arm_traj_pub_->get_subscription_count() == 0) return;  // JTC 아직 없음
+  initial_waiting_ = true;
+  initial_sent_ = std::chrono::steady_clock::now();
+  RCLCPP_INFO(get_logger(), "팔을 초기 자세로 이동 (%.1fs)", initial_move_s_);
+  publish_arm_targets(initial_joints_, initial_pose_, initial_move_s_);
 }
 
 void Coordinator::check_scan_pose() {
@@ -467,6 +544,31 @@ void Coordinator::pick(const SubGoal & g) {
         });
       });
     });
+}
+
+void Coordinator::inspect(const SubGoal & g) {
+  if (!ready_or_retry(motion_plan_->service_is_ready() && exec_->action_server_is_ready(), "arm_unavailable")) return;
+  if (!is_id(g.target) || !find(std::stoul(g.target))) { fail("inspect_no_target"); return; }
+  if (approach_if_far(g)) return;  // 팔 밖이면 먼저 다가감
+  const auto * o = find(std::stoul(g.target));
+  geometry_msgs::msg::PoseStamped above;
+  above.header.frame_id = "map";
+  above.header.stamp = now();
+  above.pose = o->pose.pose;
+  above.pose.position.z += o->size.z / 2 + inspect_height_m_;  // 윗면 위 — 손가락 아래라 gripper_cam이 윗면을 봄
+  const uint64_t gen = gen_;
+  move_arm(above, [this, gen, id = g.target](bool ok) {
+    if (!ok) { fail("inspect_failed"); return; }
+    inspect_timer_ = create_wall_timer(std::chrono::duration<double>(inspect_wait_s_), [this, gen, id]() {
+      inspect_timer_->cancel();
+      if (gen != gen_) return;  // 그새 취소됨
+      const auto * obj = find(std::stoul(id));
+      const bool read = obj && std::any_of(obj->details.begin(), obj->details.end(),
+        [](const diagnostic_msgs::msg::KeyValue & kv) { return kv.key == "tag"; });
+      RCLCPP_INFO(get_logger(), "inspect %s: 태그 %s", id.c_str(), read ? "읽음" : "못 읽음");
+      next();
+    });
+  });
 }
 
 void Coordinator::try_grasp(const ScoreGrasps::Response::SharedPtr & cands, size_t i) {

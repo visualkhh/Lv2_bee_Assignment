@@ -11,8 +11,8 @@
 //                                         시뮬레이터 지도에 점으로 (실기에 붙여도 monitor_manager만 띄우면 같은 파일)
 //                                         OccupancyGrid면 첫 줄 JSON {frame, stamp, resolution, width, height, origin:[x,y,yaw]}
 //                                         + '\n' + int8 칸 값 width×height (행 = y, 0 빈 곳 · 1~100 비용 · −1 모름) — /map · 코스트맵
-//   <debug_dir>/topic/list.json           {"topics": [{"name": "/task_status", "type": "plan/msg/TaskStatus"}]}
-//   예) /task_status → /debug/output/topic/task_status/message (호스트 lv2_module6/debug/output/topic/task_status/message)
+//   <debug_dir>/topic/list.json           {"topics": [{"name": "/task/status", "type": "plan/msg/TaskStatus"}]}
+//   예) /task/status → /debug/output/topic/task/status/message (호스트 lv2_module6/debug/output/topic/task/status/message)
 //   시작할 때 output/topic/ 을 비운다 — 지난 실행의 마지막 메시지가 지금 값처럼 보이지 않게 (바뀔 때만 오는 상태는 transient_local이라 다시 옴)
 // 그래프 기록 (예전 test-logger를 대신 — ros2 CLI 프로세스를 토픽·노드마다 띄우지 않고 이 노드 하나가 ROS API로 조회):
 //   <debug_dir>/topic/list · topic/<토픽>/type · topic/<토픽>/info   (타입 · 발행/구독 노드와 QoS — 2초마다, 바뀔 때만 다시 씀)
@@ -85,7 +85,7 @@ private:
 
   // 메시지: 발행자 QoS에 맞춰 구독 (ros2 topic echo와 같은 방식).
   // 발행자가 모두 transient_local이면 transient_local로 → 늦게 붙어도 저장된 마지막 값을 바로 받음
-  //   (예: /task_status·/sub_goals는 바뀔 때만 발행 → volatile이면 다음 발행까지 아무것도 못 받음)
+  //   (예: /task/status·/task/sub_goals는 바뀔 때만 발행 → volatile이면 다음 발행까지 아무것도 못 받음)
   // 발행자가 모두 reliable일 때만 reliable (best-effort 발행자가 있으면 reliable 구독은 연결 안 됨)
   rclcpp::QoS qos_for(const std::string & topic);
 

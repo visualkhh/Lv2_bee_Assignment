@@ -4,6 +4,8 @@
 #   ./start.sh                              # 📦(카메라·EKF·RTAB-Map·controller_manager) + 🛠 노드 전부, OpenCR 실기
 #   ./start.sh mock_hardware:=true          # OpenCR 없이 (명령을 상태로 되돌림 — launch 인자는 그대로 전달)
 #   ./start.sh port:=/dev/ttyACM1           # OpenCR 포트 지정 (기본 /dev/opencr — udev 규칙 99-opencr.rules)
+#   POLE_FRONT_CAM_SERIAL=... GRIPPER_CAM_SERIAL=... ./start.sh  # RealSense serial 고정 (권장)
+#   RCUTILS_DEFAULT_LOGGER_DEFAULT_LEVEL=WARN ./start.sh  # 로그 소음 줄이기 (기본 INFO — 전 노드 적용)
 #   ./start.sh learning_enabled:=false      # 학습 노드 끄고 (비교 기준)
 #   ./start.sh map:=slam                    # 지도 매핑 (새 폴더 map/<날짜_시각>/) — 기본 map:=saved = 저장 지도로 위치추정
 #   ./start.sh --build [launch 인자]        # 저장소에서 실행할 때 colcon build 후 실행
@@ -23,7 +25,7 @@ if [ "${1:-}" = --build ]; then
   shift
 fi
 case "${1:-}" in
-  -h | --help) sed -n '2,10p' "$0"; exit 0 ;;
+  -h | --help) sed -n '2,11p' "$0"; exit 0 ;;
 esac
 
 # --- 패키지 대상 OS 확인 (CI 배포 패키지에만 TARGET 파일이 있음)
@@ -46,6 +48,15 @@ ros_setup="/opt/ros/$ROS_DISTRO_NAME/setup.bash"
 # shellcheck disable=SC1090
 source "$ros_setup"
 
+# RTAB-Map을 별도 workspace에 소스 빌드한 경우 overlay를 자동으로 올린다.
+#   ~/ros2_rtabmap_ws/install/setup.bash
+# 없는 경우에도 계속 진행하고, RTAB-Map이 필요한 launch에서 원인이 드러난다.
+RTABMAP_WS="${RTABMAP_WS:-$HOME/ros2_rtabmap_ws}"
+if [ -f "$RTABMAP_WS/install/setup.bash" ]; then
+  # shellcheck disable=SC1091
+  source "$RTABMAP_WS/install/setup.bash"
+fi
+
 # --- 빌드 (저장소에서 실행할 때만)
 if [ "$build" = 1 ] || [ ! -f "$HERE/install/setup.bash" ]; then
   [ -d "$HERE/src" ] || { echo "FAIL: install/도 src/도 없음 ($HERE)"; exit 1; }
@@ -54,8 +65,13 @@ if [ "$build" = 1 ] || [ ! -f "$HERE/install/setup.bash" ]; then
 fi
 # shellcheck disable=SC1091
 source "$HERE/install/setup.bash"
-# Fast DDS TypeLookup 끔 — 노드 40개에서 UDP 폭주로 controller_manager가 못 뜨는 것 방지 (설명: ros_system/config/fastdds.xml)
-export FASTDDS_DEFAULT_PROFILES_FILE="${FASTDDS_DEFAULT_PROFILES_FILE:-$HERE/install/ros_system/share/ros_system/config/fastdds.xml}"
+# Fast DDS TypeLookup 끔 — 노드 40개에서 UDP 폭주로 controller_manager가 못 뜨는 것 방지 (설명: fastdds.xml)
+export FASTDDS_DEFAULT_PROFILES_FILE="${FASTDDS_DEFAULT_PROFILES_FILE:-$HERE/fastdds.xml}"
+[ -f "$FASTDDS_DEFAULT_PROFILES_FILE" ] || echo "WARN: Fast DDS 프로파일 없음: $FASTDDS_DEFAULT_PROFILES_FILE — 기본 전송으로 실행 (UDP 폭주 가능)"
+
+# 로그 소음 줄이기: RCUTILS_DEFAULT_LOGGER_DEFAULT_LEVEL=WARN ./start.sh (기본 INFO — 전 노드 적용, rcl 표준).
+# 우리 노드 중요 이벤트는 WARN 이상이라 WARN으로 올려도 운영에 지장 없음 (INFO 계획 상세·주기 상태는 안 나옴).
+export RCUTILS_DEFAULT_LOGGER_DEFAULT_LEVEL="${RCUTILS_DEFAULT_LOGGER_DEFAULT_LEVEL:-INFO}"
 
 # --- 아키텍처 확인: 다른 CPU용으로 빌드된 install/이면 노드가 Exec format error로 죽으므로 미리 멈춘다
 # (예: CI x86_64 패키지를 Raspberry Pi에서 실행). 실행 파일의 ELF 헤더 e_machine(오프셋 18)으로 판정.
@@ -89,6 +105,38 @@ for arg in "$@"; do
   esac
 done
 
+# --- Discovery Server: ROS_DISCOVERY_SERVER가 자기 자신을 가리키면 서버도 여기서 띄운다.
+#   127.0.0.1:11811·localhost:11811·자기IP:11811 → 로컬 서버 시작(없으면) 후 사용 (내가 서버 자리)
+#   남의 IP → 그쪽 서버에 붙기만 함 (서버 안 띄움)
+#   미설정 → 멀티캐스트 기본
+if [ -n "${ROS_DISCOVERY_SERVER:-}" ]; then
+  _ds_first="${ROS_DISCOVERY_SERVER%%;*}"
+  _ds_host="${_ds_first%%:*}"
+  _ds_port="${_ds_first##*:}"
+  [ "$_ds_port" = "$_ds_first" ] && _ds_port=11811
+  _ds_local=false
+  case "$_ds_host" in
+    127.0.0.1|localhost) _ds_local=true ;;
+  esac
+  if [ "$_ds_local" = false ]; then
+    # shellcheck disable=SC2046
+    for _ds_ip in $(hostname -I 2>/dev/null); do
+      if [ "$_ds_ip" = "$_ds_host" ]; then _ds_local=true; break; fi
+    done
+  fi
+  if [ "$_ds_local" = true ]; then
+    if pgrep -f "fastdds discovery -i 0 -p ${_ds_port}" >/dev/null 2>&1; then
+      echo "ok: discovery server already running (:${_ds_port})"
+    else
+      echo "=== fastdds discovery 시작 (:${_ds_port})"
+      setsid fastdds discovery -i 0 -p "$_ds_port" > /tmp/ds.log 2>&1 < /dev/null &
+    fi
+  fi
+  echo "Discovery: server ($ROS_DISCOVERY_SERVER)"
+else
+  echo "Discovery: multicast (기본)"
+fi
+
 if [ "$mock" = false ]; then
   # BeebotSystemHardware가 여는 포트 (URDF port → ros_system 인자 port)
   if [ ! -e "$port" ]; then
@@ -100,11 +148,14 @@ if [ "$mock" = false ]; then
   fi
 fi
 
+rs_count=0
+devices=''
 if [ "$use_cameras" = true ]; then
   # grep -q는 pipefail에서 앞 명령이 SIGPIPE로 실패할 수 있어 출력을 먼저 받아 둔다
   if command -v rs-enumerate-devices >/dev/null; then
     devices=$(rs-enumerate-devices -s 2>/dev/null || true)
     count=$(grep -c "Intel RealSense" <<<"$devices" || true)
+    rs_count=$count
     if [ "$count" -ge 2 ]; then
       echo "ok: RealSense ${count}대 (pole_front_cam · gripper_cam)"
     else
@@ -113,6 +164,96 @@ if [ "$use_cameras" = true ]; then
   else
     echo "WARN: rs-enumerate-devices 없음 — RealSense 연결 확인 생략"
   fi
+fi
+
+# RealSense serial_no를 정한다.
+#   우선순위: 명령줄 인자 > 환경변수
+#   환경변수: POLE_FRONT_CAM_SERIAL · GRIPPER_CAM_SERIAL
+# RealSense ROS 드라이버는 /dev 경로가 아니라 serial_no를 받는다.
+front_present=0
+gripper_present=0
+front_env_serial=''
+gripper_env_serial=''
+for spec in \
+  "pole_front_cam_serial:POLE_FRONT_CAM_SERIAL" \
+  "gripper_cam_serial:GRIPPER_CAM_SERIAL"; do
+  key=${spec%%:*}
+  env_name=${spec#*:}
+
+  set_by_user=0
+  for a in "$@"; do
+    case "$a" in "$key":=*) set_by_user=1 ;; esac
+  done
+  if [ "$set_by_user" = 1 ]; then
+    case "$key" in pole_front_cam_serial) front_present=1 ;; gripper_cam_serial) gripper_present=1 ;; esac
+    continue
+  fi
+
+  if [ -n "${!env_name:-}" ]; then
+    set -- "$@" "$key:=${!env_name}"
+    echo "ok: $key=${!env_name} (env $env_name)"
+    case "$key" in
+      pole_front_cam_serial) front_present=1; front_env_serial=${!env_name} ;;
+      gripper_cam_serial) gripper_present=1; gripper_env_serial=${!env_name} ;;
+    esac
+  fi
+done
+
+# 환경변수에 남아 있는 serial이 실제로 감지되지 않으면 그 카메라를 끈다.
+# (한 대만 꽂았는데 예전 GRIPPER_CAM_SERIAL이 남아 있는 경우가 대표적)
+# 명령줄로 직접 준 serial은 사용자의 의도일 수 있으므로 건드리지 않는다.
+if [ "$use_cameras" = true ] && [ "$rs_count" -gt 0 ]; then
+  if [ -n "$front_env_serial" ] && ! grep -Fq "$front_env_serial" <<<"$devices"; then
+    echo "WARN: POLE_FRONT_CAM_SERIAL=$front_env_serial 감지 안 됨 — use_pole_front_cam:=true를 직접 주지 않았으면 끔"
+    case " $* " in
+      *" use_pole_front_cam:="*) ;;
+      *) set -- "$@" "use_pole_front_cam:=false"; front_present=0 ;;
+    esac
+  fi
+  if [ -n "$gripper_env_serial" ] && ! grep -Fq "$gripper_env_serial" <<<"$devices"; then
+    echo "WARN: GRIPPER_CAM_SERIAL=$gripper_env_serial 감지 안 됨 — use_gripper_cam:=true를 직접 주지 않았으면 끔"
+    case " $* " in
+      *" use_gripper_cam:="*) ;;
+      *) set -- "$@" "use_gripper_cam:=false"; gripper_present=0 ;;
+    esac
+  fi
+fi
+
+# serial을 하나도 안 주면 RealSense 노드의 serial_no가 빈 문자열이 되어
+# 두 노드가 같은 첫 장치를 잡을 수 있다. 자동으로 임의 serial을 넣지 않고 경고만 한다.
+if [ "$use_cameras" = true ] && [ "$front_present" = 0 ] && [ "$gripper_present" = 0 ] \
+  && [ -z "$front_env_serial" ] && [ -z "$gripper_env_serial" ]; then
+  if [ "$rs_count" -ge 2 ]; then
+    echo "WARN: RealSense 2대인데 serial 미지정 — 두 노드가 같은 장치를 잡을 수 있음"
+    echo "      POLE_FRONT_CAM_SERIAL=... GRIPPER_CAM_SERIAL=... ./start.sh"
+  elif [ "$rs_count" -eq 1 ]; then
+    echo "WARN: RealSense 1대인데 serial 미지정 — 한쪽 카메라를 use_*_cam:=false로 끄거나 serial 지정"
+  fi
+fi
+
+# 한쪽 serial만 설정됐으면 나머지 카메라 노드는 끈다 (한 대만 연결한 상태에서
+# 빈 serial 노드가 같은 카메라를 잡으려는 충돌 방지). 직접 use_*_cam:= 인자를 준 경우는 존중한다.
+if [ "$front_present" = 1 ] && [ "$gripper_present" = 0 ]; then
+  case " $* " in
+    *" use_gripper_cam:="*) ;;
+    *) set -- "$@" "use_gripper_cam:=false"; echo "WARN: gripper_cam serial 없음 → use_gripper_cam:=false" ;;
+  esac
+fi
+if [ "$gripper_present" = 1 ] && [ "$front_present" = 0 ]; then
+  case " $* " in
+    *" use_pole_front_cam:="*) ;;
+    *) set -- "$@" "use_pole_front_cam:=false"; echo "WARN: pole_front_cam serial 없음 → use_pole_front_cam:=false" ;;
+  esac
+fi
+
+# MoveIt이 설치되어 있지 않으면 launch 전체가 "package not found"로 죽는다.
+# 명시적으로 use_moveit:=true/false를 준 경우는 존중하고, 아니면 스택이 뜨도록 false로 내린다.
+if ! ros2 pkg prefix moveit_ros_move_group >/dev/null 2>&1; then
+  case " $* " in
+    *" use_moveit:="*) ;;
+    *) set -- "$@" "use_moveit:=false" ;;
+  esac
+  echo "WARN: moveit_ros_move_group 없음 → use_moveit:=false (팔 pick/place는 사용 불가)"
 fi
 
 # 지도 폴더 기본 = 이 워크스페이스의 map/ (테스트베드 /ws/map 과 같은 자리) — map:=slam(새 폴더 매핑) · saved(저장 지도, 기본)

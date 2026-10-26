@@ -3,13 +3,14 @@
 <package format="3">
   <name>perception</name>
   <version>0.1.0</version>
-  <description>🛠 perception (YOLO nano, 담당: 전승혜) — 인지 + msg/TrackedObject(Array)</description>
+  <description>🛠 perception (YOLO nano, 담당: 전승혜) — 인지 + body_filter(카메라 점구름에서 자기 몸 점 제거, C++) + msg/TrackedObject(Array)</description>
   <maintainer email="todo@example.com">전승혜</maintainer>
   <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <depend>rclpy</depend>
+  <depend>rclcpp</depend>
   <depend>std_msgs</depend>
   <depend>builtin_interfaces</depend>
   <depend>geometry_msgs</depend>
@@ -19,11 +20,18 @@
   <depend>message_filters</depend>
   <depend>tf2_ros</depend>
   <depend>tf2_geometry_msgs</depend>
+  <depend>tf2</depend>
+  <depend>urdf</depend>
+  <depend>diagnostic_updater</depend>
+  <depend>ament_index_cpp</depend>
 
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
   <test_depend>ament_pep8</test_depend>
   <test_depend>ament_cmake_pytest</test_depend>
+  <test_depend>ament_cmake_gtest</test_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

@@ -12,6 +12,11 @@ build/
 
 .venv/
 
+# cli-test 가짜 상태 저장 (모드 유지용 휘발성)
+lv2_module6/tool/cli-test/.fake_state.json
+# cli-test 실패한 시나리오의 화면 덤프
+lv2_module6/tool/cli-test/.scenario-*.bin
+
 # 컨테이너 디버그 덤프 (topic echo 로그 등 휘발성, 커밋 금지)
 lv2_module5/debug/
 lv2_module6/debug/
@@ -32,9 +37,12 @@ lv2_module6/firmware/build/
 # 지도 DB(rtabmap.db)는 100MB 넘게 커서 커밋 안 함 — default 폴더도 미리보기(map.pgm·yaml)만
 /lv2_module6/ros2_ws/map/*/rtabmap.db
 
-# YOLO 가중치(best.pt, 약 5MB)는 커밋 — CI 인지 테스트에 필요. 나머지 학습 모델은 아직 제외
+# YOLO 가중치(model/yolo/model.pt, 약 5MB)는 커밋 — CI 인지 테스트에 필요. 나머지 학습 모델은 아직 제외
 /lv2_module6/ros2_ws/model/grasp_scorer/*.pt
 /lv2_module6/ros2_ws/model/arm_correction/*.pt
 /lv2_module6/ros2_ws/model/nav_correction/*.pt
 /lv2_module6/ros2_ws/model/nav_tuner/*.pt
 /lv2_module6/simulator/yolo_job.log
+/log/
+/.playwright-mcp/
+/lv2_module6/simulator/dataset/

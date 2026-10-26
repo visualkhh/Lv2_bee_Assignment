@@ -1,0 +1,604 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>beebot 사람 계획</title>
+<style>
+:root {
+  --bg: #f5f6f8; --panel: #ffffff; --line: #e1e4ea; --text: #1d232c; --mute: #6b7480; --soft: #eef1f5;
+  --accent: #2463eb; --accent-soft: #e6eefe; --ok: #138a4b; --ok-soft: #e3f5ea; --warn: #b46a00; --warn-soft: #fff3df;
+  --bad: #c62828; --bad-soft: #fde8e8;
+  --s-navigate: #2463eb; --s-pick: #b8457c; --s-place: #138a4b; --s-inspect: #8a5cd6; --s-say: #6b7480;
+  --map-bg: #fbfcfd; --map-grid: #e8ebf0;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #12151a; --panel: #1a1f26; --line: #2b323c; --text: #e3e7ec; --mute: #8d97a3; --soft: #222831;
+    --accent: #5b8cff; --accent-soft: #1d2a45; --ok: #3cc480; --ok-soft: #15301f; --warn: #f0a63a; --warn-soft: #33270f;
+    --bad: #ff6b6b; --bad-soft: #3a1b1b;
+    --s-navigate: #5b8cff; --s-pick: #e078ad; --s-place: #3cc480; --s-inspect: #b08cf0; --s-say: #8d97a3;
+    --map-bg: #161a20; --map-grid: #232a33;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--text); font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI", sans-serif; }
+button, input, select, textarea { font: inherit; color: inherit; }
+header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; }
+header h1 { font-size: 16px; margin: 0; font-weight: 650; }
+.badge { padding: 2px 8px; border-radius: 999px; font-size: 12px; background: var(--soft); color: var(--mute); white-space: nowrap; }
+.badge.ok { background: var(--ok-soft); color: var(--ok); }
+.badge.warn { background: var(--warn-soft); color: var(--warn); }
+.badge.bad { background: var(--bad-soft); color: var(--bad); }
+.grow { flex: 1; }
+.banner { margin: 10px 16px 0; padding: 10px 12px; border-radius: 8px; background: var(--warn-soft); color: var(--warn); }
+.banner code { background: transparent; }
+main { display: grid; grid-template-columns: 250px minmax(380px, 1fr) minmax(400px, 470px); gap: 12px; padding: 12px 16px 16px; }
+@media (max-width: 1180px) { main { grid-template-columns: 220px 1fr; } #editor { grid-column: 1 / -1; } }
+@media (max-width: 760px) { main { grid-template-columns: 1fr; } }
+section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; min-width: 0; }
+section > h2 { font-size: 13px; margin: 0; padding: 10px 12px; border-bottom: 1px solid var(--line); color: var(--mute); font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.pad { padding: 12px; }
+.col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.empty { color: var(--mute); padding: 18px 12px; text-align: center; }
+code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
+
+/* 대기 요청 */
+.req { padding: 10px 12px; border-bottom: 1px solid var(--line); cursor: pointer; }
+.req:hover { background: var(--soft); }
+.req.sel { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+.req .cmd { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.req .meta { display: flex; flex-wrap: wrap; gap: 4px 8px; margin-top: 4px; font-size: 12px; color: var(--mute); align-items: center; }
+.req .rp { margin-top: 4px; }
+.bar { height: 4px; background: var(--soft); border-radius: 2px; overflow: hidden; margin-top: 6px; }
+.bar > i { display: block; height: 100%; background: var(--accent); }
+.bar.low > i { background: var(--bad); }
+.hist { padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: 12.5px; }
+.hist .t { color: var(--mute); font-size: 12px; }
+
+/* 요청 보기 */
+.command { font-size: 18px; font-weight: 650; word-break: break-all; }
+.kv { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--mute); font-size: 12.5px; margin-top: 6px; }
+.replan { margin-top: 10px; padding: 8px 10px; border-radius: 8px; background: var(--warn-soft); color: var(--warn); font-size: 13px; }
+.tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 8px; }
+.tab { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); cursor: pointer; font-size: 12.5px; }
+.tab.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.cam { width: 100%; border-radius: 8px; display: block; background: #000; image-rendering: auto; }
+.twocol { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 1400px) { .twocol { grid-template-columns: 1fr; } }
+#map { width: 100%; height: 300px; display: block; border-radius: 8px; background: var(--map-bg); cursor: crosshair; touch-action: none; }
+.hint { color: var(--mute); font-size: 12px; margin-top: 6px; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+th { color: var(--mute); font-weight: 600; font-size: 12px; position: sticky; top: 0; background: var(--panel); }
+tr.hl td { background: var(--accent-soft); }
+tbody tr:hover td { background: var(--soft); }
+.dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: -1px; margin-right: 4px; border: 1px solid rgba(0,0,0,.2); }
+.tagchip { display: inline-block; padding: 0 6px; border-radius: 4px; background: var(--soft); font-size: 12px; }
+.mini { display: inline-flex; gap: 3px; }
+.mini button { padding: 2px 6px; font-size: 12px; border: 1px solid var(--line); background: var(--panel); border-radius: 5px; cursor: pointer; }
+.mini button:hover { border-color: var(--accent); color: var(--accent); }
+.objwrap { max-height: 320px; overflow: auto; }
+
+/* 편집기 */
+.toolbar { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.btn { padding: 6px 10px; border-radius: 7px; border: 1px solid var(--line); background: var(--panel); cursor: pointer; white-space: nowrap; }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.btn.primary:disabled { opacity: .45; cursor: not-allowed; }
+.btn.danger { color: var(--bad); }
+.btn.sk { border-left: 4px solid var(--c); }
+.steps { list-style: none; margin: 0; padding: 6px; min-height: 80px; }
+.step { display: grid; grid-template-columns: 22px 118px 1fr auto; gap: 6px; align-items: center; padding: 6px; border-radius: 8px; border: 1px solid transparent; }
+.step + .step { margin-top: 4px; }
+.step:hover { background: var(--soft); }
+.step.sel { border-color: var(--accent); background: var(--accent-soft); }
+.step.err { border-color: var(--bad); }
+.step .n { color: var(--mute); text-align: right; font-variant-numeric: tabular-nums; }
+.step select, .step input { width: 100%; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); min-width: 0; }
+.step select.skill { border-left: 4px solid var(--c); font-weight: 600; }
+.step .tgt { display: flex; gap: 6px; min-width: 0; }
+.step .tgt input.off { width: 56px; flex: none; }
+.step .ops { display: flex; gap: 2px; }
+.step .ops button { width: 26px; height: 26px; border: 1px solid var(--line); background: var(--panel); border-radius: 6px; cursor: pointer; padding: 0; color: var(--mute); }
+.step .ops button:hover { color: var(--text); border-color: var(--accent); }
+.step .msg { grid-column: 2 / -1; color: var(--bad); font-size: 12px; }
+.checks { padding: 8px 12px; border-top: 1px solid var(--line); font-size: 12.5px; }
+.checks div { padding: 2px 0; }
+.checks .bad { color: var(--bad); }
+.checks .warn { color: var(--warn); }
+.checks .ok { color: var(--ok); }
+.tray { display: flex; gap: 4px; align-items: center; color: var(--mute); font-size: 12px; }
+.tray i { width: 14px; height: 14px; border-radius: 3px; border: 1px solid var(--line); background: var(--soft); }
+.tray i.f { background: var(--s-pick); border-color: var(--s-pick); }
+.actions { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--line); align-items: center; flex-wrap: wrap; }
+.actions input { flex: 1; min-width: 140px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); }
+details summary { cursor: pointer; color: var(--mute); padding: 8px 12px; font-size: 12.5px; }
+pre { margin: 0; padding: 10px 12px; background: var(--soft); border-radius: 0 0 10px 10px; overflow: auto; max-height: 260px; font-size: 12px; white-space: pre-wrap; word-break: break-all; }
+.toast { position: fixed; right: 16px; bottom: 16px; padding: 10px 14px; border-radius: 8px; background: var(--text); color: var(--panel); opacity: 0; transform: translateY(8px); transition: .2s; pointer-events: none; max-width: 420px; }
+.toast.on { opacity: 1; transform: none; }
+.menu { position: fixed; z-index: 20; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.18); padding: 4px; display: none; min-width: 170px; }
+.menu button { display: block; width: 100%; text-align: left; padding: 6px 10px; border: 0; background: none; border-radius: 6px; cursor: pointer; }
+.menu button:hover { background: var(--soft); }
+.menu .h { padding: 4px 10px; color: var(--mute); font-size: 12px; }
+kbd { font-family: inherit; font-size: 11px; padding: 0 4px; border: 1px solid var(--line); border-radius: 4px; color: var(--mute); }
+</style>
+</head>
+<body>
+<header>
+  <h1>beebot 사람 계획</h1>
+  <span id="backend" class="badge">backend …</span>
+  <span id="conn" class="badge">연결 확인 중</span>
+  <span class="grow"></span>
+  <span class="badge" title="계획 보내기 Ctrl+Enter · 선택 단계 삭제 Delete · 단계 선택 ↑↓ · 순서 바꾸기 Alt+↑↓"><kbd>Ctrl</kbd>+<kbd>Enter</kbd> 보내기</span>
+</header>
+<div id="banner" class="banner" hidden></div>
+<main>
+  <div class="col">
+    <section>
+      <h2>대기 요청 <span id="pcount" class="badge">0</span></h2>
+      <div id="pending"><div class="empty">로봇의 계획 요청을 기다리는 중…<br><span class="hint">명령·바코드·재계획이 오면 여기 뜹니다</span></div></div>
+    </section>
+    <section>
+      <h2>지난 기록</h2>
+      <div id="history"><div class="empty">아직 없음</div></div>
+    </section>
+  </div>
+
+  <div class="col" id="view">
+    <section><div class="empty" style="padding:40px">왼쪽에서 요청을 고르세요</div></section>
+  </div>
+
+  <section id="editor">
+    <h2>계획 <span id="stepcount" class="badge">0단계</span><span class="grow"></span><span id="traybox" class="tray"></span></h2>
+    <div class="toolbar" id="toolbar"></div>
+    <ol class="steps" id="steps"></ol>
+    <div class="checks" id="checks"></div>
+    <details><summary>보낼 JSON</summary><pre id="json">[]</pre></details>
+    <div class="actions">
+      <button class="btn primary" id="submit" disabled>계획 보내기</button>
+      <input id="reason" placeholder="거절 사유 (로봇 화면에 보임)">
+      <button class="btn danger" id="reject" disabled>거절</button>
+    </div>
+  </section>
+</main>
+<div class="menu" id="menu"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+// ---------- 상태
+const SKILLS = {
+  navigate: { ko: "이동", hint: "물체 앞으로 (바라보며)" },
+  pick:     { ko: "집기", hint: "퍽 집기 · tray = 적재함에서 꺼내기" },
+  place:    { ko: "놓기", hint: "구역·장소 위에 놓기 · tray = 적재함에 싣기" },
+  inspect:  { ko: "보기", hint: "퍽 위에서 내려다봐 윗면 번호 읽기 (집지 않음)" },
+  say:      { ko: "말하기", hint: "사람에게 알림" },
+};
+const PUCK = new Set(["puck", "puck_lying"]);
+const TRAY_CAP = 4;
+const COLORS = { red: "#d64545", green: "#2f9e5b", blue: "#3b6fd6", yellow: "#e2b007", orange: "#ec7a1c", purple: "#8b56c9", white: "#f2f2f2", black: "#333", unknown: "#999", off: "#555", all: "#e2b007" };
+let allowed = Object.keys(SKILLS);
+let pending = [], history = [], cur = null, curId = null;
+const drafts = {};          // 요청 id → {steps, sel}
+let imgIdx = 0, hover = null, mapView = null, mapUser = false, objSel = new Set();
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+function toast(msg, ms = 2200) { const t = $("toast"); t.textContent = msg; t.classList.add("on"); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove("on"), ms); }
+function draft() { if (curId == null) return null; return drafts[curId] ??= { steps: [], sel: -1 }; }
+function objects() { return cur?.req?.objects ?? []; }
+function obj(id) { return objects().find((o) => String(o.id) === String(id)); }
+function robot() { const r = cur?.req?.robot; return r && typeof r.x === "number" ? r : null; }
+function detail(o, k) { return typeof o?.[k] === "string" ? o[k] : ""; }
+function dist(o) { const r = robot(), p = o.position; return r && p ? Math.hypot(p[0] - r.x, p[1] - r.y) : null; }
+function label(o) {
+  if (!o) return "?";
+  const tag = detail(o, "tag"), content = detail(o, "content");
+  const name = o.class_name === "location" && tag ? `장소 L${tag - 11} #${tag}` : o.class_name === "barcode" ? `바코드 ${content}` : `${o.class_name}${o.color ? " " + o.color : ""}${tag ? " #" + tag : ""}`;
+  return `${o.id} · ${name}`;
+}
+
+// ---------- 서버
+async function api(path, body) {
+  const r = await fetch(path, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {});
+  const j = await r.json().catch(() => ({ ok: false, error: `HTTP ${r.status}` }));
+  return j;
+}
+async function poll() {
+  try {
+    const j = await api("/human/pending");
+    $("conn").className = "badge ok"; $("conn").textContent = "연결됨";
+    allowed = j.allowed || allowed;
+    const be = $("backend"); be.textContent = `backend ${j.backend}`; be.className = "badge " + (j.backend === "human" ? "ok" : "warn");
+    const bn = $("banner");
+    if (j.backend !== "human") { bn.hidden = false; bn.innerHTML = `지금 ai-service backend가 <b>${esc(j.backend)}</b>라 로봇 요청이 여기 오지 않습니다. <code>./server.sh --config config/human.json</code>으로 켜거나 config.json의 <code>ai.backend</code>를 <code>"human"</code>으로.`; }
+    else bn.hidden = true;
+    const before = new Set(pending.map((p) => p.id));
+    pending = j.pending || []; history = j.history || [];
+    const fresh = pending.filter((p) => !before.has(p.id));
+    if (fresh.length && before.size === 0 && document.hidden === false) toast(`새 계획 요청 #${fresh[0].id}`);
+    document.title = (pending.length ? `(${pending.length}) ` : "") + "beebot 사람 계획";
+    if (curId != null && !pending.some((p) => p.id === curId)) { toast(`요청 #${curId}이 끝났습니다 (답했거나 시간 초과)`); curId = null; cur = null; renderView(); renderEditor(); }
+    if (curId == null && pending.length) select(pending[0].id);
+    renderList();
+  } catch (e) {
+    $("conn").className = "badge bad"; $("conn").textContent = "서버 끊김";
+  }
+}
+async function select(id) {
+  if (curId === id && cur) return;
+  curId = id; imgIdx = 0; objSel = new Set(); mapView = null; mapUser = false;
+  const j = await api(`/human/item?id=${id}`);
+  if (!j.ok) { toast(j.error || "요청을 못 읽음"); return; }
+  cur = j.item;
+  imgIdx = Math.max(0, (cur.images || []).findIndex((im) => im.kind === "marked"));  // 번호 마킹본부터
+  renderList(); renderView(); renderEditor();
+}
+
+// ---------- 왼쪽: 대기 · 기록
+function fmtS(s) { s = Math.max(0, Math.round(s)); return s >= 60 ? `${Math.floor(s / 60)}분 ${s % 60}초` : `${s}초`; }
+function renderList() {
+  $("pcount").textContent = pending.length;
+  $("pending").innerHTML = pending.length ? pending.map((p) => {
+    const frac = Math.max(0, Math.min(1, p.left_s / p.timeout_s));
+    return `<div class="req ${p.id === curId ? "sel" : ""}" data-id="${p.id}">
+      <div class="cmd">${esc(p.command || "(명령 없음)")}</div>
+      ${p.replan ? `<div class="rp"><span class="badge warn">재계획 · ${esc(p.replan.reason)}</span></div>` : ""}
+      <div class="meta"><span>#${p.id}</span><span>물체 ${p.n_objects}</span><span class="grow"></span><span>${fmtS(p.left_s)} 남음</span></div>
+      <div class="bar ${frac < 0.2 ? "low" : ""}"><i style="width:${frac * 100}%"></i></div></div>`;
+  }).join("") : `<div class="empty">로봇의 계획 요청을 기다리는 중…<br><span class="hint">명령·바코드·재계획이 오면 여기 뜹니다</span></div>`;
+  for (const el of document.querySelectorAll(".req")) el.onclick = () => select(+el.dataset.id);
+  $("history").innerHTML = history.length ? history.map((h) => `<div class="hist">
+      <div>${h.error ? `<span class="badge bad">거절·실패</span>` : `<span class="badge ok">${(h.goals || []).length}단계</span>`} ${esc(h.command || "")}</div>
+      <div class="t">#${h.id} · ${new Date(h.finished * 1000).toLocaleTimeString()}${h.error ? " · " + esc(h.error) : ""}</div></div>`).join("") : `<div class="empty">아직 없음</div>`;
+}
+
+// ---------- 가운데: 요청 보기
+function renderView() {
+  const v = $("view");
+  if (!cur) { v.innerHTML = `<section><div class="empty" style="padding:40px">${pending.length ? "왼쪽에서 요청을 고르세요" : "대기 중인 요청 없음"}</div></section>`; return; }
+  const r = robot(), rp = cur.req.replan;
+  const imgs = cur.images || [];
+  v.innerHTML = `
+  <section><div class="pad">
+    <div class="command">${esc(cur.command || "(명령 없음)")}</div>
+    <div class="kv"><span>요청 #${cur.id}</span><span>물체 ${objects().length}개</span>${r ? `<span>로봇 (${r.x.toFixed(2)}, ${r.y.toFixed(2)}) · ${(r.yaw * 180 / Math.PI).toFixed(0)}°</span>` : "<span>로봇 위치 모름</span>"}</div>
+    ${rp ? `<div class="replan">재계획 — 계획 ${esc(rp.plan_id)}의 ${esc(rp.failed_step)}단계 실패: <b>${esc(rp.reason)}</b>. 같은 실패를 반복하지 않게 방법을 바꾸세요.</div>` : ""}
+  </div></section>
+  <div class="twocol">
+    <section><h2>카메라 <span class="hint" style="margin:0">마킹 번호 = 물체 id</span></h2><div class="pad">
+      ${imgs.length ? `<div class="tabs">${imgs.map((im, i) => `<button class="tab ${i === imgIdx ? "on" : ""}" data-i="${i}">${esc(im.camera.replace("_cam", "").replace("pole_front", "pole"))} ${im.kind === "marked" ? "마킹" : "원본"}</button>`).join("")}</div>
+      <img class="cam" src="data:image/jpeg;base64,${imgs[imgIdx]?.data_b64 || ""}" alt="카메라 영상">` : `<div class="empty">이미지 없음</div>`}
+    </div></section>
+    <section><h2>지도 (위에서) <span class="grow"></span><button class="btn" id="fit" style="padding:2px 8px;font-size:12px">맞춤</button></h2><div class="pad">
+      <canvas id="map"></canvas>
+      <div class="hint">물체 클릭 = 고른 단계의 대상으로 · 빈 곳 클릭 = 그 좌표로 이동 단계 · 오른쪽 클릭 = 빠른 메뉴 · 휠 확대 · 끌기 이동</div>
+    </div></section>
+  </div>
+  <section><h2>물체 <span class="badge">${objects().length}</span><span class="grow"></span><span class="hint" style="margin:0">체크 후 [적재함으로 옮기기]</span></h2>
+    <div class="objwrap"><table><thead><tr><th></th><th>id</th><th>종류</th><th>색</th><th>표식</th><th>거리</th><th>추가</th></tr></thead><tbody>
+    ${objects().map((o) => {
+      const d = dist(o), tag = detail(o, "tag"), content = detail(o, "content"), posture = detail(o, "posture");
+      const isP = PUCK.has(o.class_name);
+      return `<tr data-id="${o.id}" class="${hover === o.id ? "hl" : ""}">
+        <td>${isP ? `<input type="checkbox" class="ck" ${objSel.has(o.id) ? "checked" : ""}>` : ""}</td>
+        <td class="mono">${o.id}</td><td>${esc(o.class_name)}${posture ? ` <span class="hint">${esc(posture)}</span>` : ""}</td>
+        <td>${o.color ? `<span class="dot" style="background:${COLORS[o.color] || "#999"}"></span>${esc(o.color)}` : ""}</td>
+        <td>${tag ? `<span class="tagchip">${o.class_name === "location" ? "L" + (tag - 11) + " · " : "#"}${esc(tag)}</span>` : ""}${content ? `<span class="tagchip">${esc(content)}</span>` : ""}${isP && !tag ? `<span class="hint">번호 모름</span>` : ""}</td>
+        <td class="mono">${d == null ? "" : d.toFixed(2) + "m"}</td>
+        <td><span class="mini">
+          <button data-a="navigate">이동</button>
+          ${isP ? `<button data-a="inspect">보기</button><button data-a="pick">집기</button>` : `<button data-a="place">놓기</button>`}
+        </span></td></tr>`;
+    }).join("") || `<tr><td colspan="7" class="empty">보이는 물체 없음</td></tr>`}
+    </tbody></table></div></section>
+  <details class="pad" style="padding:0"><summary>AI가 받았을 프롬프트 (참고)</summary><pre>${esc(cur.prompt || "")}</pre></details>`;
+  for (const b of v.querySelectorAll(".tab")) b.onclick = () => { imgIdx = +b.dataset.i; renderView(); };
+  for (const tr of v.querySelectorAll("tbody tr[data-id]")) {
+    const id = +tr.dataset.id;
+    tr.onmouseenter = () => { hover = id; drawMap(); };
+    tr.onmouseleave = () => { hover = null; drawMap(); };
+    const ck = tr.querySelector(".ck");
+    if (ck) ck.onchange = () => { ck.checked ? objSel.add(id) : objSel.delete(id); renderToolbar(); };
+    for (const b of tr.querySelectorAll("button[data-a]")) b.onclick = (e) => { e.stopPropagation(); addStep(b.dataset.a, String(id)); };
+    tr.onclick = (e) => { if (e.target.tagName !== "INPUT") assignTarget(String(id)); };
+  }
+  $("fit").onclick = () => { mapView = null; mapUser = false; drawMap(); };
+  setupMap();
+}
+
+// ---------- 지도
+function setupMap() {
+  const c = $("map"); if (!c) return;
+  let drag = null;
+  c.onwheel = (e) => { e.preventDefault(); mapUser = true; const v = view(); const k = e.deltaY < 0 ? 1.2 : 1 / 1.2; const p = toWorld(e.offsetX, e.offsetY); v.s *= k; v.cx = p[0] - (p[0] - v.cx) / k; v.cy = p[1] - (p[1] - v.cy) / k; drawMap(); };
+  c.onpointerdown = (e) => { drag = { x: e.offsetX, y: e.offsetY, moved: false }; c.setPointerCapture(e.pointerId); };
+  c.onpointermove = (e) => {
+    if (drag) { const dx = e.offsetX - drag.x, dy = e.offsetY - drag.y; if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true; if (drag.moved) { mapUser = true; const v = view(); v.cx -= dx / v.s; v.cy += dy / v.s; drag.x = e.offsetX; drag.y = e.offsetY; drawMap(); } return; }
+    const o = pickObj(e.offsetX, e.offsetY); const h = o ? o.id : null; if (h !== hover) { hover = h; drawMap(); highlightRow(); } c.title = o ? label(o) : "";
+  };
+  c.onpointerup = (e) => {
+    const d = drag; drag = null; if (!d || d.moved || e.button !== 0) return;
+    const o = pickObj(e.offsetX, e.offsetY);
+    if (o) assignTarget(String(o.id));
+    else { const p = toWorld(e.offsetX, e.offsetY); addStep("navigate", `${p[0].toFixed(2)},${p[1].toFixed(2)}`); toast(`좌표 (${p[0].toFixed(2)}, ${p[1].toFixed(2)})로 이동 단계 추가`); }
+  };
+  c.oncontextmenu = (e) => { e.preventDefault(); const o = pickObj(e.offsetX, e.offsetY); if (o) showMenu(e.clientX, e.clientY, o); };
+  new ResizeObserver(() => { if (!mapUser) mapView = null; drawMap(); }).observe(c);  // 사람이 움직이기 전엔 크기에 맞춰 다시 맞춤
+  drawMap();
+}
+function view() {
+  if (mapView) return mapView;
+  const c = $("map"); const pts = objects().filter((o) => o.position).map((o) => o.position);
+  const r = robot(); if (r) pts.push([r.x, r.y]);
+  if (!pts.length) pts.push([0, 0]);
+  const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
+  const w = Math.max(1, Math.max(...xs) - Math.min(...xs)), h = Math.max(1, Math.max(...ys) - Math.min(...ys));
+  const s = Math.min(c.clientWidth / (w + 0.6), c.clientHeight / (h + 0.6));
+  return (mapView = { cx: (Math.max(...xs) + Math.min(...xs)) / 2, cy: (Math.max(...ys) + Math.min(...ys)) / 2, s });
+}
+// 지도 좌표: map x 오른쪽 · y 위 (ROS map과 같은 방향)
+function toScreen(x, y) { const c = $("map"), v = view(); return [c.clientWidth / 2 + (x - v.cx) * v.s, c.clientHeight / 2 - (y - v.cy) * v.s]; }
+function toWorld(u, w) { const c = $("map"), v = view(); return [v.cx + (u - c.clientWidth / 2) / v.s, v.cy - (w - c.clientHeight / 2) / v.s]; }
+function pickObj(u, w) {
+  let best = null, bd = 14;
+  for (const o of objects()) { if (!o.position) continue; const [x, y] = toScreen(o.position[0], o.position[1]); const d = Math.hypot(x - u, y - w); if (d < bd) { bd = d; best = o; } }
+  return best;
+}
+function css(v) { return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
+function drawMap() {
+  const c = $("map"); if (!c || !cur) return;
+  const dpr = devicePixelRatio || 1; c.width = c.clientWidth * dpr; c.height = c.clientHeight * dpr;
+  const g = c.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, c.clientWidth, c.clientHeight);
+  const v = view();
+  // 격자 0.5m
+  g.strokeStyle = css("--map-grid"); g.lineWidth = 1;
+  const [x0, y1] = toWorld(0, 0), [x1, y0] = toWorld(c.clientWidth, c.clientHeight);
+  for (let x = Math.floor(x0 * 2) / 2; x <= x1; x += 0.5) { const [u] = toScreen(x, 0); g.beginPath(); g.moveTo(u, 0); g.lineTo(u, c.clientHeight); g.stroke(); }
+  for (let y = Math.floor(y0 * 2) / 2; y <= y1; y += 0.5) { const [, w] = toScreen(0, y); g.beginPath(); g.moveTo(0, w); g.lineTo(c.clientWidth, w); g.stroke(); }
+  // 계획 경로 (이동 대상 순서대로)
+  const d = draft(); const r = robot();
+  const path = []; if (r) path.push([r.x, r.y]);
+  for (const s of d?.steps || []) {
+    if (s.skill !== "navigate" && s.skill !== "inspect") continue;
+    const o = obj(s.target); if (o?.position) path.push(o.position);
+    else { const m = /^(-?[\d.]+),(-?[\d.]+)$/.exec(s.target || ""); if (m) path.push([+m[1], +m[2]]); }
+  }
+  if (path.length > 1) {
+    g.strokeStyle = css("--accent"); g.setLineDash([6, 5]); g.lineWidth = 2; g.beginPath();
+    path.forEach((p, i) => { const [u, w] = toScreen(p[0], p[1]); i ? g.lineTo(u, w) : g.moveTo(u, w); }); g.stroke(); g.setLineDash([]);
+  }
+  // 고른 단계의 대상
+  const selStep = d && d.sel >= 0 ? d.steps[d.sel] : null;
+  // 물체
+  for (const o of objects()) {
+    if (!o.position) continue;
+    const [u, w] = toScreen(o.position[0], o.position[1]);
+    const isP = PUCK.has(o.class_name), tag = detail(o, "tag");
+    g.fillStyle = o.color && COLORS[o.color] ? COLORS[o.color] : o.class_name === "location" ? css("--s-place") : o.class_name === "barcode" ? css("--s-inspect") : "#8a94a3";
+    g.strokeStyle = css("--text"); g.lineWidth = hover === o.id ? 2.5 : 1;
+    g.beginPath();
+    if (isP) g.arc(u, w, 7, 0, Math.PI * 2);
+    else if (o.class_name === "location") g.rect(u - 9, w - 9, 18, 18);
+    else if (o.class_name === "barcode") g.rect(u - 10, w - 4, 20, 8);
+    else { g.moveTo(u, w - 8); g.lineTo(u + 8, w + 7); g.lineTo(u - 8, w + 7); g.closePath(); }
+    g.fill(); g.stroke();
+    if (selStep && selStep.target === String(o.id)) { g.strokeStyle = css("--accent"); g.lineWidth = 3; g.beginPath(); g.arc(u, w, 13, 0, Math.PI * 2); g.stroke(); }
+    if (objSel.has(o.id)) { g.strokeStyle = css("--s-pick"); g.lineWidth = 2; g.setLineDash([3, 3]); g.beginPath(); g.arc(u, w, 11, 0, Math.PI * 2); g.stroke(); g.setLineDash([]); }
+    g.fillStyle = css("--text"); g.font = "11px ui-monospace, Menlo, monospace";
+    g.fillText(String(o.id) + (tag ? (o.class_name === "location" ? ` L${tag - 11}` : ` #${tag}`) : ""), u + 10, w - 8);
+  }
+  // 로봇
+  if (r) {
+    const [u, w] = toScreen(r.x, r.y); const a = -(r.yaw || 0);
+    g.save(); g.translate(u, w); g.rotate(a);
+    g.fillStyle = css("--accent"); g.beginPath(); g.moveTo(14, 0); g.lineTo(-9, 9); g.lineTo(-5, 0); g.lineTo(-9, -9); g.closePath(); g.fill();
+    g.restore(); g.fillStyle = css("--mute"); g.font = "11px sans-serif"; g.fillText("로봇", u + 12, w + 14);
+  }
+  // 축척
+  g.fillStyle = css("--mute"); g.font = "11px sans-serif"; g.fillRect(10, c.clientHeight - 14, v.s * 0.5, 2); g.fillText("0.5m", 10, c.clientHeight - 18);
+}
+function highlightRow() { for (const tr of document.querySelectorAll("tbody tr[data-id]")) tr.classList.toggle("hl", +tr.dataset.id === hover); }
+function showMenu(x, y, o) {
+  const m = $("menu"); const isP = PUCK.has(o.class_name);
+  const items = isP ? [["navigate", "이 퍽 앞으로 이동"], ["inspect", "번호 보기 (inspect)"], ["pick", "집기"], ["carry", "집어서 적재함에 싣기 (3단계)"]]
+    : [["navigate", "여기 앞으로 이동"], ["place", "여기에 놓기"], ["unload", "적재함에서 꺼내 여기 놓기 (2단계)"]];
+  m.innerHTML = `<div class="h">${esc(label(o))}</div>` + items.map(([a, t]) => `<button data-a="${a}">${t}</button>`).join("");
+  m.style.display = "block"; m.style.left = Math.min(x, innerWidth - 200) + "px"; m.style.top = Math.min(y, innerHeight - 180) + "px";
+  for (const b of m.querySelectorAll("button")) b.onclick = () => {
+    m.style.display = "none"; const id = String(o.id);
+    if (b.dataset.a === "carry") { addStep("navigate", id); addStep("pick", id); addStep("place", "tray"); }
+    else if (b.dataset.a === "unload") { addStep("pick", "tray"); addStep("place", id); }
+    else addStep(b.dataset.a, id);
+  };
+}
+document.addEventListener("click", (e) => { if (!e.target.closest(".menu")) $("menu").style.display = "none"; });
+
+// ---------- 오른쪽: 편집기
+function defaults(skill, target) {
+  return { skill, target: target ?? "", relation: skill === "navigate" ? "front" : skill === "place" ? "on" : "", offset_m: skill === "navigate" ? 0.2 : 0 };
+}
+function addStep(skill, target) {
+  const d = draft(); if (!d) { toast("먼저 요청을 고르세요"); return; }
+  const s = defaults(skill, target);
+  if (s.skill === "place" && s.target === "tray") s.relation = "";
+  const at = d.sel >= 0 ? d.sel + 1 : d.steps.length;
+  d.steps.splice(at, 0, s); d.sel = at; renderEditor(); drawMap();
+}
+function assignTarget(id) {
+  const d = draft(); if (!d) return;
+  if (d.sel < 0 || d.sel >= d.steps.length) { const o = obj(id); addStep(PUCK.has(o?.class_name) ? "navigate" : "place", id); return; }
+  const s = d.steps[d.sel];
+  if (s.skill === "say") { toast("말하기 단계에는 물체를 넣을 수 없어요"); return; }
+  s.target = id; renderEditor(); drawMap(); toast(`${d.sel + 1}단계 대상 → ${label(obj(id))}`);
+}
+function targetOptions(skill, val) {
+  const os = objects();
+  const groups = [];
+  if (skill === "pick") groups.push(["적재함", [["tray", "tray — 적재함에서 꺼내기 (나중에 실은 것부터)"]]]);
+  if (skill === "place") groups.push(["적재함", [["tray", "tray — 적재함에 싣기"]]]);
+  const pucks = os.filter((o) => PUCK.has(o.class_name)).map((o) => [String(o.id), label(o)]);
+  const places = os.filter((o) => ["location", "barcode"].includes(o.class_name)).map((o) => [String(o.id), label(o)]);
+  const rest = os.filter((o) => !PUCK.has(o.class_name) && !["location", "barcode"].includes(o.class_name)).map((o) => [String(o.id), label(o)]);
+  if (skill === "pick" || skill === "inspect") groups.push(["퍽", pucks]);
+  else if (skill === "place") { groups.push(["장소", places]); groups.push(["퍽(위에 놓기 — 비권장)", pucks]); groups.push(["기타", rest]); }
+  else { groups.push(["퍽", pucks]); groups.push(["장소", places]); groups.push(["기타", rest]); }
+  const known = new Set(groups.flatMap((g) => g[1].map((x) => x[0])));
+  let h = `<option value="" ${val ? "" : "selected"} disabled>대상 고르기…</option>`;
+  if (val && !known.has(val)) h += `<option value="${esc(val)}" selected>${esc(val)}${/^-?[\d.]+,-?[\d.]+$/.test(val) ? " (좌표)" : " (없는 물체)"}</option>`;
+  for (const [name, list] of groups) if (list.length) h += `<optgroup label="${name}">` + list.map(([v, t]) => `<option value="${esc(v)}" ${v === val ? "selected" : ""}>${esc(t)}</option>`).join("") + `</optgroup>`;
+  return h;
+}
+function renderToolbar() {
+  const tb = $("toolbar");
+  const n = objSel.size;
+  tb.innerHTML = Object.entries(SKILLS).filter(([k]) => allowed.includes(k)).map(([k, s]) => `<button class="btn sk" style="--c:var(--s-${k})" data-k="${k}" title="${s.hint}">+ ${s.ko}</button>`).join("") +
+    `<span class="grow"></span>
+     <button class="btn" id="m-carry" title="체크한 퍽들을 적재함에 싣고 장소로">적재함으로 옮기기${n ? ` (${n})` : ""}</button>
+     <button class="btn" id="m-inspect" title="번호(태그) 모르는 퍽을 가까운 순으로 모두 보기">번호 모르는 퍽 보기</button>
+     <button class="btn danger" id="m-clear">비우기</button>`;
+  for (const b of tb.querySelectorAll("button[data-k]")) b.onclick = () => addStep(b.dataset.k, b.dataset.k === "say" ? "" : undefined);
+  $("m-carry").onclick = macroCarry; $("m-inspect").onclick = macroInspect;
+  $("m-clear").onclick = () => { const d = draft(); if (d && d.steps.length && confirm("단계를 모두 지울까요?")) { d.steps = []; d.sel = -1; renderEditor(); drawMap(); } };
+}
+function macroCarry() {
+  const d = draft(); if (!d) return;
+  const pucks = [...objSel].map(String);
+  if (!pucks.length) { toast("물체 표에서 옮길 퍽을 체크하세요"); return; }
+  if (pucks.length > TRAY_CAP) { toast(`적재함은 ${TRAY_CAP}칸 — ${TRAY_CAP}개까지`); return; }
+  const places = objects().filter((o) => o.class_name === "location");
+  const dest = d.sel >= 0 && obj(d.steps[d.sel]?.target)?.class_name === "location" ? d.steps[d.sel].target : places[0] ? String(places[0].id) : "";
+  for (const p of pucks) { d.steps.push(defaults("navigate", p)); d.steps.push(defaults("pick", p)); d.steps.push({ ...defaults("place", "tray"), relation: "" }); }
+  d.steps.push(defaults("navigate", dest));
+  for (const _ of pucks) { d.steps.push(defaults("pick", "tray")); d.steps.push(defaults("place", dest)); }
+  d.sel = d.steps.length - 1; objSel.clear(); renderView(); renderEditor();
+  toast(dest ? `퍽 ${pucks.length}개 → ${label(obj(dest))}` : "목적지 장소를 아직 못 봤어요 — 이동·놓기 대상을 고르세요");
+}
+function macroInspect() {
+  const d = draft(); if (!d) return;
+  const us = objects().filter((o) => PUCK.has(o.class_name) && !detail(o, "tag")).sort((a, b) => (dist(a) ?? 0) - (dist(b) ?? 0));
+  if (!us.length) { toast("번호 모르는 퍽이 없어요"); return; }
+  for (const o of us) d.steps.push(defaults("inspect", String(o.id)));
+  d.sel = d.steps.length - 1; renderEditor(); drawMap(); toast(`퍽 ${us.length}개 보기 추가`);
+}
+// 검증 — 서버(coordinator)와 같은 규칙 + 미리 알 수 있는 실행 문제
+function check(steps) {
+  const ids = new Set(objects().map((o) => String(o.id)));
+  const per = steps.map(() => ""), notes = [];
+  let hand = null, tray = 0, trayMax = 0, trayErr = false;
+  steps.forEach((s, i) => {
+    if (!allowed.includes(s.skill)) per[i] = `허용 안 된 동작 ${s.skill}`;
+    else if (s.skill !== "say" && !s.target) per[i] = "대상을 고르세요";
+    else if (s.skill === "say" && !s.target.trim()) per[i] = "말할 내용을 쓰세요";
+    else if (/^\d+$/.test(s.target) && !ids.has(s.target) && s.skill !== "say") per[i] = `물체 ${s.target}이 지금 목록에 없음`;
+    else if (s.skill === "pick") {
+      if (hand) per[i] = `손에 이미 ${hand} — 먼저 놓기`;
+      else if (s.target === "tray") { if (tray <= 0) { per[i] = "적재함이 비어 있음"; trayErr = true; } else { tray--; hand = "적재함 퍽"; } }
+      else { const o = obj(s.target); if (o && !PUCK.has(o.class_name)) per[i] = "퍽이 아님"; hand = `퍽 ${s.target}`; }
+    } else if (s.skill === "place") {
+      if (!hand) per[i] = "손에 든 퍽이 없음";
+      else if (s.target === "tray") { if (tray >= TRAY_CAP) { per[i] = `적재함 ${TRAY_CAP}칸 꽉 참`; trayErr = true; } else { tray++; trayMax = Math.max(trayMax, tray); } hand = null; }
+      else hand = null;
+    } else if (s.skill === "inspect") { const o = obj(s.target); if (o && !PUCK.has(o.class_name)) per[i] = "퍽만 볼 수 있음"; }
+    else if (s.skill === "navigate" && !/^\d+$/.test(s.target) && !/^-?[\d.]+,-?[\d.]+$/.test(s.target)) per[i] = "물체 id 또는 \"x,y\"";
+  });
+  const errs = per.filter(Boolean).length;
+  if (!steps.length) notes.push(["bad", "단계가 없습니다"]);
+  if (errs) notes.push(["bad", `${errs}개 단계에 문제가 있습니다`]);
+  if (hand) notes.push(["warn", `끝났을 때 손에 ${hand}를 든 채`]);
+  if (tray > 0) notes.push(["warn", `끝났을 때 적재함에 ${tray}개 남음`]);
+  const far = steps.findIndex((s, i) => (s.skill === "pick" || s.skill === "place") && /^\d+$/.test(s.target) && (dist(obj(s.target)) ?? 0) > 0.3 && !steps.slice(0, i).some((p) => p.skill === "navigate" && p.target === s.target));
+  if (far >= 0) notes.push(["warn", `${far + 1}단계 대상이 0.3m 밖 — 앞에 이동이 없으면 coordinator가 알아서 다가감`]);
+  if (steps.length > 20) notes.push(["warn", `${steps.length}단계 — 길면 중간 실패 시 다시 짜기 어려움`]);
+  if (steps.length && !errs && !notes.length) notes.push(["ok", "보낼 수 있음"]);
+  return { per, notes, ok: steps.length > 0 && !errs, tray, trayErr };
+}
+function payload(steps) {
+  return steps.map((s, i) => ({ step: i + 1, skill: s.skill, target: String(s.target), relation: s.relation || "", offset_m: Number(s.offset_m) || 0 }));
+}
+function renderEditor() {
+  renderToolbar();
+  const d = draft(), ul = $("steps");
+  $("submit").disabled = $("reject").disabled = !cur;
+  if (!d) { ul.innerHTML = `<div class="empty">요청을 고르면 여기서 단계를 짭니다</div>`; $("checks").innerHTML = ""; $("json").textContent = "[]"; $("stepcount").textContent = "0단계"; $("traybox").innerHTML = ""; return; }
+  const c = check(d.steps);
+  $("stepcount").textContent = `${d.steps.length}단계`;
+  // 적재함 칸 (끝났을 때 상태)
+  $("traybox").innerHTML = `적재함 ${[...Array(TRAY_CAP)].map((_, i) => `<i class="${i < c.tray ? "f" : ""}"></i>`).join("")}`;
+  ul.innerHTML = d.steps.length ? d.steps.map((s, i) => `
+    <li class="step ${i === d.sel ? "sel" : ""} ${c.per[i] ? "err" : ""}" data-i="${i}">
+      <span class="n">${i + 1}</span>
+      <select class="skill" style="--c:var(--s-${s.skill})">${Object.entries(SKILLS).filter(([k]) => allowed.includes(k)).map(([k, v]) => `<option value="${k}" ${k === s.skill ? "selected" : ""}>${v.ko} ${k}</option>`).join("")}</select>
+      <span class="tgt">${s.skill === "say" ? `<input class="txt" value="${esc(s.target)}" placeholder="말할 내용">` : `<select class="target">${targetOptions(s.skill, s.target)}</select>`}
+        ${s.skill === "navigate" ? `<input class="off" type="number" step="0.05" min="0" max="1" value="${s.offset_m}" title="물체 앞 추가 거리 [m]">` : ""}</span>
+      <span class="ops"><button data-o="up" title="위로 (Alt+↑)">↑</button><button data-o="down" title="아래로 (Alt+↓)">↓</button><button data-o="dup" title="복제">⧉</button><button data-o="del" title="삭제 (Delete)">✕</button></span>
+      ${c.per[i] ? `<span class="msg">${esc(c.per[i])}</span>` : ""}
+    </li>`).join("") : `<div class="empty">위 버튼, 물체 표의 [이동]·[보기]·[집기], 지도 클릭으로 단계를 추가하세요</div>`;
+  for (const li of ul.querySelectorAll(".step")) {
+    const i = +li.dataset.i, s = d.steps[i];
+    li.onclick = (e) => { if (["SELECT", "INPUT", "BUTTON", "OPTION"].includes(e.target.tagName)) return; d.sel = d.sel === i ? -1 : i; renderEditor(); drawMap(); };
+    li.querySelector(".skill").onchange = (e) => { const k = e.target.value; Object.assign(s, defaults(k, k === "say" ? "" : s.target)); if (k === "place" && s.target === "tray") s.relation = ""; d.sel = i; renderEditor(); drawMap(); };
+    const t = li.querySelector(".target"); if (t) t.onchange = (e) => { s.target = e.target.value; if (s.skill === "place") s.relation = s.target === "tray" ? "" : "on"; d.sel = i; renderEditor(); drawMap(); };
+    const x = li.querySelector(".txt"); if (x) x.oninput = (e) => { s.target = e.target.value; refreshChecks(); };
+    const o = li.querySelector(".off"); if (o) o.oninput = (e) => { s.offset_m = e.target.value; refreshChecks(); };
+    for (const b of li.querySelectorAll("button[data-o]")) b.onclick = () => op(i, b.dataset.o);
+  }
+  refreshChecks();
+}
+function refreshChecks() {
+  const d = draft(); if (!d) return;
+  const c = check(d.steps);
+  $("checks").innerHTML = c.notes.map(([k, t]) => `<div class="${k}">${k === "ok" ? "✓" : k === "warn" ? "!" : "✕"} ${esc(t)}</div>`).join("");
+  $("json").textContent = JSON.stringify(payload(d.steps), null, 1);
+  $("submit").disabled = !c.ok;
+}
+function op(i, o) {
+  const d = draft(), st = d.steps;
+  if (o === "del") { st.splice(i, 1); d.sel = Math.min(i, st.length - 1); }
+  else if (o === "dup") { st.splice(i + 1, 0, { ...st[i] }); d.sel = i + 1; }
+  else { const j = o === "up" ? i - 1 : i + 1; if (j < 0 || j >= st.length) return; [st[i], st[j]] = [st[j], st[i]]; d.sel = j; }
+  renderEditor(); drawMap();
+}
+async function submit() {
+  const d = draft(); if (!d || !check(d.steps).ok) return;
+  const j = await api("/human/submit", { id: curId, goals: payload(d.steps) });
+  if (j.ok) { toast(`계획 #${curId} 보냄 (${d.steps.length}단계)`); delete drafts[curId]; curId = null; cur = null; renderView(); renderEditor(); poll(); }
+  else toast(j.error || "보내기 실패", 4000);
+}
+async function reject() {
+  if (!cur) return;
+  const why = $("reason").value.trim() || "사람이 거절";
+  const j = await api("/human/reject", { id: curId, error: why });
+  if (j.ok) { toast(`요청 #${curId} 거절`); $("reason").value = ""; curId = null; cur = null; renderView(); renderEditor(); poll(); }
+  else toast(j.error || "거절 실패", 4000);
+}
+$("submit").onclick = submit; $("reject").onclick = reject;
+document.addEventListener("keydown", (e) => {
+  const d = draft(); const typing = ["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName);
+  if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); submit(); return; }
+  if (!d || typing) return;
+  if (e.key === "Delete" || e.key === "Backspace") { if (d.sel >= 0) { e.preventDefault(); op(d.sel, "del"); } }
+  else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+    if (document.activeElement?.tagName === "SELECT") return;
+    e.preventDefault();
+    if (e.altKey && d.sel >= 0) op(d.sel, e.key === "ArrowUp" ? "up" : "down");
+    else { d.sel = Math.max(0, Math.min(d.steps.length - 1, d.sel + (e.key === "ArrowUp" ? -1 : 1))); renderEditor(); drawMap(); }
+  } else if (e.key === "Escape") { d.sel = -1; renderEditor(); drawMap(); }
+});
+renderEditor();
+poll();
+setInterval(poll, 1000);
+setInterval(() => { for (const p of pending) p.left_s -= 0.25; renderListTimers(); }, 250);
+function renderListTimers() {
+  for (const el of document.querySelectorAll(".req")) {
+    const p = pending.find((x) => x.id === +el.dataset.id); if (!p) continue;
+    const frac = Math.max(0, Math.min(1, p.left_s / p.timeout_s));
+    const bar = el.querySelector(".bar"); bar.classList.toggle("low", frac < 0.2); bar.firstElementChild.style.width = frac * 100 + "%";
+    el.querySelector(".meta span:last-child").textContent = `${fmtS(p.left_s)} 남음`;
+  }
+}
+</script>
+</body>
+</html>

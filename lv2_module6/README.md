@@ -3,8 +3,8 @@
 **미로 코스 안에서 로봇(beebot)이 스스로 주행하며 코스를 스캔하고, 흩어진 퍽을 찾아 집어 목표 구역으로 옮겨 놓는다.**
 가는 길의 장애물·끼어드는 사람은 피하거나 멈춘다 — 로봇 대회의 "물건 옮기고 위치시키기" 미션.
 
-- 처음이면 **[DEVELOP.md](develop/DEVELOP.md)** — 셋팅 · 도커 · 빌드 · 커스텀 메시지 · 파라미터 · 수동 조작 · 상태 진단 · 테스트 · 펌웨어 · 시뮬레이터 · CI
-- 설계(노드·토픽 상세): [documents/ros2-design](../documents/ros2-design/README.md)
+- 처음이면 **[DEVELOP.md](simulator/gazebo/DEVELOP.md)** — 셋팅 · 도커 · 빌드 · 커스텀 메시지 · 파라미터 · 수동 조작 · 상태 진단 · 테스트 · 펌웨어 · 시뮬레이터 · CI
+- 설계(노드·토픽 상세): [documents/project/ros](../documents/project/ros/README.md)
 - ROS 2 Lyrical (Ubuntu 26.04) · C++ (ament_cmake) · OpenCR 펌웨어 (Arduino)
 
 코드 구조: 노드마다 `include/<패키지>/<노드>.hpp`(선언) · `src/<노드>.cpp`(구현) · `src/<노드>_main.cpp`(main), 클래스는 `namespace <패키지>`.
@@ -153,6 +153,7 @@ sequenceDiagram
 | 지도 모드 (스캔 ↔ 위치추정) | `/cmd/map_mode` (std_msgs/String MAPPING·LOCALIZATION) | state_manager → RTAB-Map 모드 전환 → `/state/map_mode` |
 | 원격 조종 | `/cmd/manual/cmd_vel` (TwistStamped) | manual_control → `/cmd_vel_manual` → twist_mux(자동보다 우선) → 안전 체인 → 바퀴 |
 | 팔·그리퍼 | `/cmd/manual/arm` (JointState: joint1~5 rad · gripper_left_joint m) | manual_control → JTC `/arm_controller/joint_trajectory` · 그리퍼 액션 |
+| 모터 재부팅 | `/cmd/manual/reboot_motors` (Empty) — 과부하 등 Hardware Error 풀기 | manual_control → 📞 `/beebotsystem/reboot_motors` → 펌웨어 `R` (에러 난 모터만) |
 | 비상정지 | `/cmd/e_stop` (std_msgs/Bool true) | state_manager → `/state/emergency` → twist_mux 잠금 — 자동·수동 바퀴 명령 전부 차단 |
 
 시뮬레이터 수동 조작 창(바퀴 버튼 · 로봇/팔 3D에서 관절 드래그) · 키보드(`ros2 run teleop_twist_keyboard teleop_twist_keyboard --ros-args -p stamped:=true -r cmd_vel:=/cmd/manual/cmd_vel`) · `ros2 topic pub` 어느 것으로도 보낼 수 있다. 수동 바퀴 명령도 안전 체인(velocity_smoother · collision_monitor)을 지난다.
@@ -165,9 +166,9 @@ sequenceDiagram
 | 묶음 | 노드 · 주요 값 |
 | --- | --- |
 | 인지 | perception — pole_cam 영상 끊김, 발행 수 |
-| 계획·임무 | user_input — 못 보낸 명령 · vlm_task_planner — 계획 보류·재계획 · coordinator — 모드·단계·연속 실패·서버 대기 |
+| 계획·임무 | user_input — 못 보낸 명령 · vlm_task_planner — 계획 보류·재계획·신호등 미션·수납 확인 · signal_decoder — 깜빡임·단계·확정 · coordinator — 모드·단계·연속 실패·서버 대기 |
 | 학습 | grasp_scorer — enabled·요청 · rl_nav_tuner — 프리셋 · rl_nav_correction — /odom 끊김(Δ=0)·속도 상한 |
-| 제어 | arm_safety_monitor — 접촉 감지 · manual_control — 모드 · **beebotsystem: OpenCR 연결** — 마지막 S 수신·송수신 줄 수 · controller_manager |
+| 제어 | arm_safety_monitor — 접촉 감지 · manual_control — 모드·모터 재부팅 결과 · **beebotsystem: OpenCR 연결** — 마지막 S 수신·송수신 줄 수·모터 Hardware Error · controller_manager |
 | 제공 패키지 | EKF · twist_mux · … |
 
 ## SIL 테스트베드 (실기 없이)
@@ -219,15 +220,16 @@ lv2_module6/
 ├── firmware/beebot_opencr/   OpenCR 펌웨어 (호스트 BeebotSystemHardware와 같은 시리얼 프로토콜)
 ├── isaac/                    Isaac Sim 장면·로봇 USD(sim/) + Isaac Lab 학습(lab/) — isaac/README.md
 ├── simulator/                SIL 시뮬레이터 (main.py · 수동 조작 창 manual_window.py · opencr.py = fake_opencr 연결, 읽기·요청만)
+├── tool/                     운영 도구 (cli/ 수동 조작 CLI · run-rviz · rviz/)
 ├── ros2_ws/
 │   ├── start.sh · firmware-upload.sh · download-artifact.sh · monitor.sh   실기·배포 패키지용 스크립트
 │   └── src/
-│       ├── perception/   🛠 perception                                         + msg TrackedObject(Array)
-│       ├── control/      🛠 arm_safety_monitor · manual_control · body_filter · BeebotSystemHardware(ros2_control)  + msg ArmSafetyEvent
-│       ├── manager/      🛠 state_manager (상태의 주인 — /state/operation_mode · /state/map_mode · /state/map_name · /state/emergency)
+│       ├── perception/   🛠 perception · body_filter                           + msg TrackedObject(Array)
+│       ├── control/      🛠 arm_safety_monitor · manual_control · BeebotSystemHardware(ros2_control)  + msg ArmSafetyEvent · MotorStatus
+│       ├── manager/      🛠 state_manager (상태의 주인 — /state/operation_mode · /state/map_mode · /state/map_name · /state/emergency · /state/devices(모터 에러 포함))
 │       ├── ml/           🛠 grasp_scorer · rl_nav_tuner · rl_nav_correction · rl_arm_correction  + srv ScoreGrasps
-│       ├── plan/         🛠 user_input · vlm_task_planner · coordinator         + msg SubGoal(Array) · TaskStatus
-│       ├── ros_system/   📦 robot_state_publisher · controller_manager · twist_mux · RealSense ×2 · EKF · RTAB-Map · Nav2
+│       ├── plan/         🛠 user_input · vlm_task_planner · signal_decoder · explorer · coordinator  + msg SubGoal(Array) · TaskStatus · MissionSignal
+│       ├── ros_system/   🛠 scan_cam_gate · 📦 robot_state_publisher · controller_manager · twist_mux · RealSense ×2 · EKF · RTAB-Map · Nav2
 │       ├── bringup/      전체 실행 = ros_system + 🛠 노드 전부 + diagnostic_aggregator
 │       └── faker/        도커에 없는 📦·ML(GPU) 대역 + 호스트 파일 연동
 └── debug/                (gitignore) 테스트베드·시뮬레이터가 주고받는 파일
@@ -243,9 +245,12 @@ test-faker 0                              # 띄워 두기 (fake_opencr가 OpenCR
 test-faker 0 mock_hardware:=true          # OpenCR 없이 mock (물리 없음)
 
 # 실기 (라즈베리파이·PC, CI 배포 패키지 또는 저장소)
-./ros2_ws/firmware-upload.sh              # OpenCR 펌웨어 올리기
+./ros2_ws/firmware-upload.sh              # OpenCR 펌웨어 올리기 (내부에서 firmware/ 스크립트 호출)
 ./ros2_ws/start.sh                        # 장치 확인 → bringup
 ./ros2_ws/start.sh mock_hardware:=true    # OpenCR 없이
+./tool/run-cli                      # 대화형 운영 메뉴
+./tool/run-cli status             # 상태만 한 번 출력
+./tool/run-rviz                       # 카메라·지도 RViz (Best Effort QoS)
 ./ros2_ws/stop.sh                         # 떠 있는 ROS 전부 끄기
 ```
 

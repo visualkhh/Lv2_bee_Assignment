@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# run-cli — cli/{start,stop,restart}.sh 실행기. 기본은 start.
+#   ./run-cli [start] [...]      # CLI 시작 (기본)
+#   ./run-cli stop               # 실행 중인 CLI 종료
+#   ./run-cli restart            # CLI 프로세스 재시작 (인자 없을 때만)
+# 주의: `./run-cli restart <대상> --yes`는 프로세스 재시작이 아니라
+# state_manager에 보내는 재시작 '요청' 명령으로 그대로 전달된다.
+set -eo pipefail
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+cmd="${1:-start}"
+case "$cmd" in
+  start)
+    [ $# -gt 0 ] && shift
+    exec "$HERE/cli/start.sh" "$@"
+    ;;
+  stop)
+    [ $# -gt 0 ] && shift
+    exec "$HERE/cli/stop.sh" "$@"
+    ;;
+  restart)
+    if [ $# -eq 1 ]; then
+      exec "$HERE/cli/restart.sh"
+    fi
+    exec "$HERE/cli/start.sh" "$@"
+    ;;
+  *)
+    exec "$HERE/cli/start.sh" "$@"
+    ;;
+esac

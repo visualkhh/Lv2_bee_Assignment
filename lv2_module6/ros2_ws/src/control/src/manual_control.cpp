@@ -20,6 +20,9 @@ ManualControl::ManualControl()
     [this](TwistStamped::ConstSharedPtr m) { on_cmd_vel(*m); });
   arm_sub_ = create_subscription<sensor_msgs::msg::JointState>("/cmd/manual/arm", 10,
     [this](sensor_msgs::msg::JointState::ConstSharedPtr m) { on_arm(*m); });
+  reboot_cli_ = create_client<std_srvs::srv::Trigger>(declare_parameter<std::string>("reboot_service", "/beebotsystem/reboot_motors"));
+  reboot_sub_ = create_subscription<std_msgs::msg::Empty>("/cmd/manual/reboot_motors", 10,
+    [this](std_msgs::msg::Empty::ConstSharedPtr) { on_reboot(); });
   js_sub_ = create_subscription<sensor_msgs::msg::JointState>("/joint_states", 10,
     [this](sensor_msgs::msg::JointState::ConstSharedPtr m) {
       for (size_t i = 0; i < m->name.size() && i < m->position.size(); ++i) current_[m->name[i]] = m->position[i];
@@ -33,6 +36,8 @@ ManualControl::ManualControl()
     s.add("수동 바퀴 명령 수", vel_count_);
     s.add("수동 팔 명령 수", arm_count_);
     s.add("지도 만드는 중 막은 팔 명령", arm_blocked_);
+    s.add("모터 재부팅 요청 수", reboot_count_);
+    s.add("마지막 모터 재부팅", reboot_result_);
     s.add("마지막 바퀴 명령 [s 전]", vel_count_ ? (now() - last_vel_).seconds() : -1.0);
   });
 }
@@ -55,6 +60,25 @@ void ManualControl::on_cmd_vel(const TwistStamped & in) {
   last_vel_ = now();
   moving_ = true;
   ++vel_count_;
+}
+
+void ManualControl::on_reboot() {
+  if (!manual_) {  // 다른 수동 명령과 같음 — 자동 작업 중엔 받지 않는다
+    RCLCPP_WARN(get_logger(), "수동 모드가 아님 — 모터 재부팅 명령 버림");
+    return;
+  }
+  ++reboot_count_;
+  if (!reboot_cli_->service_is_ready()) {
+    reboot_result_ = "서비스 없음: " + std::string(reboot_cli_->get_service_name());
+    RCLCPP_WARN(get_logger(), "%s", reboot_result_.c_str());
+    return;
+  }
+  reboot_cli_->async_send_request(std::make_shared<std_srvs::srv::Trigger::Request>(),
+    [this](rclcpp::Client<std_srvs::srv::Trigger>::SharedFuture f) {
+      const auto res = f.get();
+      reboot_result_ = (res->success ? "" : "거절: ") + res->message;
+      RCLCPP_WARN(get_logger(), "모터 재부팅: %s", reboot_result_.c_str());
+    });
 }
 
 void ManualControl::watchdog() {

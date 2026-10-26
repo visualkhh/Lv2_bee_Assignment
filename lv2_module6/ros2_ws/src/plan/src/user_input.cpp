@@ -8,9 +8,9 @@ UserInput::UserInput()
   const auto command = declare_parameter<std::string>("command", "");
   if (!command.empty()) pending_.push_back(command);
   cmd_pub_ = create_publisher<String>("/cmd/user_command", rclcpp::QoS(10).reliable());
-  say_sub_ = create_subscription<String>("/robot_say", rclcpp::QoS(10).reliable(),
+  say_sub_ = create_subscription<String>("/robot/say", rclcpp::QoS(10).reliable(),
     [this](String::ConstSharedPtr m) { RCLCPP_INFO(get_logger(), "🔊 \"%s\"", m->data.c_str()); });
-  status_sub_ = create_subscription<TaskStatus>("/task_status", rclcpp::QoS(10).reliable().transient_local(),
+  status_sub_ = create_subscription<TaskStatus>("/task/status", rclcpp::QoS(10).reliable().transient_local(),
     [this](TaskStatus::ConstSharedPtr m) {
       RCLCPP_INFO(get_logger(), "task plan=%u step=%u state=%u %s", m->plan_id, m->step, m->state, m->reason.c_str());
     });

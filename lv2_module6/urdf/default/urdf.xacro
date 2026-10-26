@@ -5,7 +5,7 @@
     · 이름 맞춤(제어·시뮬레이터가 쓰는 이름): camera_rear → pole_front_cam, camera_wrist → gripper_cam,
       gripper_joint → gripper_left_joint, gripper_mimic_joint → gripper_right_joint, tcp → end_effector
     · 추가: imu_link · <ros2_control> 블록(BeebotSystemHardware) · xacro 인자
-  설계: documents/ros2-design/07-tf.md (TF 트리), 08-ctrl.md (ros2_control)
+  설계: documents/project/ros/07-tf.md (TF 트리), 08-ctrl.md (ros2_control)
 
   좌표: base_footprint(바닥) → base_link(바퀴 축 아래 0.010m), x 앞 · y 왼쪽 · z 위
   구동 관절 6개: joint1~5 (팔) · gripper_left_joint (평행 그리퍼, 0=닫힘 · 0.0265=열림, 오른쪽은 mimic) + 바퀴 2개
@@ -470,6 +470,14 @@
     <origin rpy="-1.570796 0.000000 -1.570796" xyz="-0.004300 0.032500 0.000000"/>
   </joint>
   <link name="pole_front_cam_color_optical_frame"/>
+  <joint name="pole_front_cam_depth_optical_joint" type="fixed">
+    <parent link="pole_front_cam_link"/>
+    <child link="pole_front_cam_depth_optical_frame"/>
+    <!-- RealSense point cloud is published in the depth optical frame. publish_tf=false라
+         (publish_tf는 URDF와 중복 방지용) 이 고정 프레임을 URDF가 제공해야 한다. -->
+    <origin rpy="-1.570796 0.000000 -1.570796" xyz="0.000000 0.000000 0.000000"/>
+  </joint>
+  <link name="pole_front_cam_depth_optical_frame"/>
   <joint name="gripper_cam_optical_joint" type="fixed">
     <parent link="gripper_cam_link"/>
     <child link="gripper_cam_color_optical_frame"/>
@@ -477,6 +485,12 @@
     <origin rpy="-1.570796 0.000000 -1.570796" xyz="-0.004300 0.032500 0.000000"/>
   </joint>
   <link name="gripper_cam_color_optical_frame"/>
+  <joint name="gripper_cam_depth_optical_joint" type="fixed">
+    <parent link="gripper_cam_link"/>
+    <child link="gripper_cam_depth_optical_frame"/>
+    <origin rpy="-1.570796 0.000000 -1.570796" xyz="0.000000 0.000000 0.000000"/>
+  </joint>
+  <link name="gripper_cam_depth_optical_frame"/>
   <link name="imu_link"/>
   <joint name="imu_joint" type="fixed">
     <parent link="base_link"/>
@@ -576,36 +590,42 @@
       <state_interface name="velocity"/>
     </joint>
     <joint name="joint1">
+      <param name="offset">0.0</param>  <!-- [rad] 영점 오프셋: 서보 값 = 관절값 + offset (실측) -->
       <command_interface name="position"/>
       <state_interface name="position"/>
       <state_interface name="velocity"/>
       <state_interface name="effort"/>
     </joint>
     <joint name="joint2">
+      <param name="offset">0.0</param>  <!-- [rad] 영점 오프셋: 서보 값 = 관절값 + offset (실측) -->
       <command_interface name="position"/>
       <state_interface name="position"/>
       <state_interface name="velocity"/>
       <state_interface name="effort"/>
     </joint>
     <joint name="joint3">
+      <param name="offset">0.0</param>  <!-- [rad] 영점 오프셋: 서보 값 = 관절값 + offset (실측) -->
       <command_interface name="position"/>
       <state_interface name="position"/>
       <state_interface name="velocity"/>
       <state_interface name="effort"/>
     </joint>
     <joint name="joint4">
+      <param name="offset">0.0</param>  <!-- [rad] 영점 오프셋: 서보 값 = 관절값 + offset (실측) -->
       <command_interface name="position"/>
       <state_interface name="position"/>
       <state_interface name="velocity"/>
       <state_interface name="effort"/>
     </joint>
     <joint name="joint5">
+      <param name="offset">0.0</param>  <!-- [rad] 영점 오프셋: 서보 값 = 관절값 + offset (실측) -->
       <command_interface name="position"/>
       <state_interface name="position"/>
       <state_interface name="velocity"/>
       <state_interface name="effort"/>
     </joint>
     <joint name="gripper_left_joint">
+      <param name="offset">0.0</param>  <!-- [m] 영점 오프셋: 서보 값 = 관절값 + offset (실측) -->
       <command_interface name="position"/>
       <state_interface name="position"/>
       <state_interface name="velocity"/>

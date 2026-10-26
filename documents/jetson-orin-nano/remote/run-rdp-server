@@ -1,0 +1,212 @@
+#!/usr/bin/env bash
+# run-rdp-server — 모니터 없는 Jetson에 RDP 데스크톱 (xrdp) 설정
+#
+# 이 스크립트는 Jetson에서 실행한다 (sudo 비밀번호 필요). PC에서는 run-rdp-client를 사용한다.
+# xrdp는 접속마다 자기 가상 X 화면을 만든다 → 모니터·Wayland·nvidia 드라이버와 무관.
+#   (GNOME 원격 로그인(gnome-remote-desktop)은 Wayland 전용이라 Jetson의 WaylandEnable=false에서는
+#    NVIDIA 로고에서 멈춘다 — 그래서 그쪽 RDP는 끄고 3389를 xrdp에 준다)
+# 같은 사용자가 GNOME에 이미 로그인해 있으면 xrdp 세션이 검은 화면 → GDM 자동 로그인을 끈다.
+#   (자동 로그인 세션을 쓰던 x11vnc(run-vnc-server)는 모니터·더미 플러그를 꽂고 로그인했을 때만 쓴다)
+set -euo pipefail
+
+GDM_CONF=/etc/gdm3/custom.conf
+POLKIT_RULE=/etc/polkit-1/rules.d/45-allow-colord-xrdp.rules
+XSESSIONRC="$HOME/.xsessionrc"
+XSESSIONRC_BASH="$HOME/.xsessionrc.bash"
+MARK="# setup-rdp"   # 설정 파일에 남기는 표시 (--undo가 이걸로 찾음 — 바꾸지 말 것)
+ACTION=install
+# GNOME 애니메이션 (기본 off — xrdp는 CPU로 그려서 효과 큼). on이면 다시 켬, keep이면 안 건드림
+ANIMATIONS="${RDP_ANIMATIONS:-off}"
+RESTART_GDM=1
+
+usage() {
+  cat <<'EOF'
+사용법:
+  ./run-rdp-server           설치·설정 (xrdp + GNOME 세션, 자동 로그인 끔, GNOME RDP 끔)
+  ./run-rdp-server --status  상태만 확인
+  ./run-rdp-server --undo    되돌리기 (xrdp 끔, 자동 로그인 복구)
+  ./run-rdp-server --tune    가볍게만 (GNOME 애니메이션 끄기, sudo 불필요)
+
+옵션:
+      --no-gdm-restart     GDM을 재시작하지 않음 (자동 로그인 해제는 다음 부팅부터)
+      --animations MODE    GNOME 애니메이션 (기본 off, on: 다시 켬, keep: 안 건드림)
+  -h, --help               이 도움말
+
+PC에서 접속:
+  스크립트 : ./run-rdp-client (SSH 터널 + Remmina RDP)
+  같은 LAN : Remmina RDP → bee.local:3389 (또는 10.2.12.110:3389)
+  터널     : ssh -N -L 3389:localhost:3389 bee@bee.local → Remmina RDP → localhost:3389
+  세션     : Xorg, 사용자 bee / Jetson 계정 비밀번호
+
+주의:
+  GDM 재시작은 Jetson 그래픽 세션(자동 로그인 화면)을 끝낸다.
+  SSH에서 띄운 ROS(bringup 등)는 영향 없다. 데스크톱 터미널에서 띄운 것은 꺼진다.
+EOF
+}
+
+die() { echo "에러: $*" >&2; exit 1; }
+step() { echo; echo "== $*"; }
+
+show_status() {
+  echo "xrdp     : $(systemctl is-active xrdp 2>/dev/null || true) / $(systemctl is-enabled xrdp 2>/dev/null || true)"
+  echo "3389     :"; ss -ltnpH 'sport = :3389' 2>/dev/null | sed 's/^/  /' || true
+  echo "autologin: $(grep -E '^[[:space:]]*AutomaticLoginEnable' "$GDM_CONF" 2>/dev/null || echo '(꺼짐)')"
+  echo "anim     : $(DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=/run/user/$(id -u)/bus}" gsettings get org.gnome.desktop.interface enable-animations 2>/dev/null || echo '?')"
+  echo "wayland  : $(grep -E '^[[:space:]]*WaylandEnable' "$GDM_CONF" 2>/dev/null || echo '(기본)')"
+  echo "sessions :"; loginctl list-sessions --no-legend 2>/dev/null | sed 's/^/  /' || true
+}
+
+# GDM 자동 로그인 줄을 주석 처리 (원본은 custom.conf.setup-rdp.bak)
+disable_autologin() {
+  [[ -f "$GDM_CONF" ]] || return 0
+  [[ -f "${GDM_CONF}.setup-rdp.bak" ]] || sudo cp -a "$GDM_CONF" "${GDM_CONF}.setup-rdp.bak"
+  sudo sed -i -E "s/^([[:space:]]*AutomaticLogin(Enable)?[[:space:]]*=.*)$/#\1  ${MARK}/" "$GDM_CONF"
+}
+
+restore_autologin() {
+  [[ -f "$GDM_CONF" ]] || return 0
+  sudo sed -i -E "s/^#([[:space:]]*AutomaticLogin(Enable)?[[:space:]]*=.*)  ${MARK}$/\1/" "$GDM_CONF"
+}
+
+# Jetson 기본 ~/.xsessionrc(NVIDIA, /etc/skel)는 bash 문법(배열)이다. GDM은 bash로 읽지만 xrdp는 /bin/sh로 읽어서
+# 'Syntax error: "(" unexpected' → startwm.sh가 0초 만에 끝나 접속하자마자 끊긴다 (실측 10/26).
+# → 원래 내용은 ~/.xsessionrc.bash로 옮기고, bash로 읽힐 때(GDM)만 불러온다.
+split_bash_xsessionrc() {
+  [[ -f "$XSESSIONRC" ]] || return 0
+  sh -n "$XSESSIONRC" 2>/dev/null && return 0
+  [[ -e "$XSESSIONRC_BASH" ]] && die "${XSESSIONRC}가 sh 문법 오류인데 ${XSESSIONRC_BASH}도 이미 있습니다 — 직접 확인"
+  mv "$XSESSIONRC" "$XSESSIONRC_BASH"
+  sed -i "/^${MARK} —/,+3d" "$XSESSIONRC_BASH"   # 예전 실행이 붙인 GNOME 환경 줄은 새 파일에 다시 붙임
+  cat >"$XSESSIONRC" <<EOF
+${MARK}-bash: 원래 내용(bash 문법)은 ~/.xsessionrc.bash — xrdp는 이 파일을 /bin/sh로 읽는다
+if [ -n "\$BASH_VERSION" ] && [ -r "\$HOME/.xsessionrc.bash" ]; then
+  . "\$HOME/.xsessionrc.bash"
+fi
+EOF
+  echo "${XSESSIONRC} → ${XSESSIONRC_BASH} (bash일 때만 불러옴)"
+}
+
+# GNOME 애니메이션 끄기 — 원격 화면은 바뀐 픽셀을 전부 보내야 해서 애니메이션이 곧 전송량·지연
+#   (xrdp 가상 화면은 GPU 없이 CPU로 그리기까지 함). 사용자 설정(dconf)이라 모니터 로그인·xrdp 세션 모두에 남는다.
+#   SSH에서도 되게 세션 버스(/run/user/UID/bus)를 찾아 쓴다. 다시 켜기: --animations on
+apply_animations() {
+  case "${ANIMATIONS,,}" in keep|"") return 0 ;; esac
+  local val=false
+  [[ "${ANIMATIONS,,}" =~ ^(on|true|1)$ ]] && val=true
+  if ! command -v gsettings >/dev/null 2>&1; then
+    echo "경고: gsettings 없음 — 애니메이션 설정 건너뜀" >&2
+    return 0
+  fi
+  local bus="${DBUS_SESSION_BUS_ADDRESS:-}"
+  [[ -z "$bus" && -S "/run/user/$(id -u)/bus" ]] && bus="unix:path=/run/user/$(id -u)/bus"
+  if DBUS_SESSION_BUS_ADDRESS="$bus" gsettings set org.gnome.desktop.interface enable-animations "$val" 2>/dev/null; then
+    echo "GNOME 애니메이션: ${val}"
+  else
+    echo "경고: GNOME 애니메이션 설정 실패 (세션 버스 없음?) — 건너뜀" >&2
+  fi
+}
+
+install_rdp() {
+  sudo -v || die "sudo 권한이 필요합니다."
+
+  step "xrdp 설치"
+  sudo apt-get install -y xrdp xorgxrdp
+  # xrdp가 TLS 키(/etc/ssl/private/ssl-cert-snakeoil.key)를 읽도록
+  sudo adduser xrdp ssl-cert >/dev/null
+
+  step "GNOME 원격 데스크톱(시스템 RDP) 끄기 — 3389를 xrdp가 쓰게"
+  if command -v grdctl >/dev/null 2>&1; then
+    sudo grdctl --system rdp disable 2>/dev/null || true
+  fi
+  sudo systemctl disable --now gnome-remote-desktop.service 2>/dev/null || true
+
+  step "xrdp 세션을 Ubuntu GNOME으로 (${XSESSIONRC})"
+  split_bash_xsessionrc
+  if ! grep -qF "$MARK —" "$XSESSIONRC" 2>/dev/null; then
+    cat >>"$XSESSIONRC" <<EOF
+${MARK} — xrdp 세션에서 Ubuntu GNOME (모양·확장이 로컬 로그인과 같게)
+export GNOME_SHELL_SESSION_MODE=ubuntu
+export XDG_CURRENT_DESKTOP=ubuntu:GNOME
+export XDG_CONFIG_DIRS=/etc/xdg/xdg-ubuntu:/etc/xdg
+EOF
+  fi
+
+  step "GNOME 애니메이션 (${ANIMATIONS}) — 가상 화면은 CPU로 그려서 애니메이션이 느림의 큰 원인"
+  apply_animations
+
+  step "색 관리 인증 팝업 막기 (${POLKIT_RULE})"
+  sudo tee "$POLKIT_RULE" >/dev/null <<'EOF'
+// setup-rdp: xrdp 접속 때 "Authentication required to create a color managed device" 팝업 방지
+polkit.addRule(function(action, subject) {
+  if (action.id.indexOf("org.freedesktop.color-manager.") === 0 && subject.isInGroup("users")) {
+    return polkit.Result.YES;
+  }
+});
+EOF
+  id -nG "$USER" | grep -qw users || sudo usermod -aG users "$USER"
+
+  step "GDM 자동 로그인 끄기 (원본: ${GDM_CONF}.setup-rdp.bak)"
+  disable_autologin
+
+  step "xrdp 시작"
+  sudo systemctl enable xrdp >/dev/null
+  sudo systemctl restart xrdp
+
+  if [[ "$RESTART_GDM" -eq 1 ]]; then
+    step "GDM 재시작 — 자동 로그인 세션 종료 (SSH에서 띄운 ROS는 그대로)"
+    sudo systemctl restart gdm
+  fi
+
+  sleep 1
+  step "상태"
+  show_status
+  cat <<EOF
+
+완료. PC에서 ./run-rdp-client (또는 Remmina RDP → bee.local:3389, 사용자 ${USER}).
+검은 화면이면: 이 사용자의 다른 그래픽 세션이 남았는지 (loginctl list-sessions) 확인 → 로그아웃 후 다시 접속.
+EOF
+}
+
+undo_rdp() {
+  sudo -v || die "sudo 권한이 필요합니다."
+  step "xrdp 끄기 (남은 xrdp 세션도 — 같은 사용자 GNOME이 남아 있으면 자동 로그인 데스크톱이 뜨다 죽는다, 실측 10/26)"
+  sudo systemctl disable --now xrdp xrdp-sesman 2>/dev/null || true
+  local s
+  for s in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $1}'); do
+    [[ "$(loginctl show-session "$s" -p Service --value 2>/dev/null)" == xrdp-sesman ]] && sudo loginctl terminate-session "$s"
+  done
+  step "자동 로그인 복구"
+  restore_autologin
+  step "설정 파일 정리"
+  sudo rm -f "$POLKIT_RULE"
+  [[ -f "$XSESSIONRC" ]] && sed -i "/^${MARK}/,+3d" "$XSESSIONRC"
+  if [[ -f "$XSESSIONRC_BASH" ]]; then   # split_bash_xsessionrc 되돌리기
+    [[ -s "$XSESSIONRC" ]] && cat "$XSESSIONRC" >>"$XSESSIONRC_BASH"
+    mv "$XSESSIONRC_BASH" "$XSESSIONRC"
+  fi
+  echo "GNOME 원격 데스크톱은 그대로 꺼 둔다 (다시 켜려면: sudo systemctl enable --now gnome-remote-desktop)"
+  if [[ "$RESTART_GDM" -eq 1 ]]; then
+    step "GDM 재시작"
+    sudo systemctl restart gdm
+  fi
+  show_status
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --status)          ACTION=status; shift ;;
+    --undo)            ACTION=undo; shift ;;
+    --tune)            ACTION=tune; shift ;;
+    --animations)      [[ -n "${2:-}" ]] || die "--animations 값 필요 (off|on|keep)"; ANIMATIONS="$2"; shift 2 ;;
+    --no-gdm-restart)  RESTART_GDM=0; shift ;;
+    -h|--help)         usage; exit 0 ;;
+    *)                 die "알 수 없는 옵션: $1 (--help 참고)" ;;
+  esac
+done
+
+case "$ACTION" in
+  status)  show_status ;;
+  undo)    undo_rdp ;;
+  tune)    apply_animations ;;
+  install) install_rdp ;;
+esac

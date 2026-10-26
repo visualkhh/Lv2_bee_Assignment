@@ -2,9 +2,9 @@ name: ci
 
 on:
   push:
-    branches: [develop, main]
+    branches: [develop, main, feature/jetson]
   pull_request:
-    branches: [develop, main]
+    branches: [develop, main, feature/jetson]
 
 jobs:
   testbed:
@@ -18,21 +18,21 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - arch: x86_64
-            runner: ubuntu-26.04
-            dockerfile: docker/Dockerfile
-            label: x86_64
-            target: ubuntu-26.04-x86_64
-            package: ros2_ws-deploy-x86_64.tar.gz
-          - arch: aarch64
-            runner: ubuntu-26.04-arm
-            dockerfile: docker/Dockerfile
-            label: aarch64
-            target: ubuntu-26.04-aarch64
-            package: ros2_ws-deploy-aarch64.tar.gz
+#          - arch: x86_64
+#            runner: ubuntu-26.04
+#            dockerfile: docker/Dockerfile
+#            label: x86_64
+#            target: ubuntu-26.04-x86_64
+#            package: ros2_ws-deploy-x86_64.tar.gz
+#          - arch: aarch64
+#            runner: ubuntu-26.04-arm
+#            dockerfile: docker/Dockerfile
+#            label: aarch64
+#            target: ubuntu-26.04-aarch64
+#            package: ros2_ws-deploy-aarch64.tar.gz
           - arch: aarch64
             runner: ubuntu-24.04-arm
-            dockerfile: docker/Dockerfile.noble
+            dockerfile: docker/Dockerfile
             label: aarch64-noble
             target: ubuntu-24.04-aarch64
             package: ros2_ws-deploy-aarch64-noble.tar.gz
@@ -52,8 +52,9 @@ jobs:
         # 소스·스케치는 이미지에 없고 compose 볼륨으로만 연결되므로 마운트 필수 (docker-compose.yml과 같은 경로 — 빌드 산출물은 컨테이너 안).
         run: |
           docker run -d --name testbed --shm-size=4g \
-            -e ROS_DOMAIN_ID=88 -e ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET -e FASTDDS_DEFAULT_PROFILES_FILE=/ws/src/ros_system/config/fastdds.xml \
+            -e ROS_DOMAIN_ID=88 -e ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET -e FASTDDS_DEFAULT_PROFILES_FILE=/ws/fastdds.xml \
             -v ${{ github.workspace }}/lv2_module6/ros2_ws/src:/ws/src \
+            -v ${{ github.workspace }}/lv2_module6/ros2_ws/fastdds.xml:/ws/fastdds.xml \
             -v ${{ github.workspace }}/lv2_module6/ros2_ws/model:/ws/model \
             -v ${{ github.workspace }}/lv2_module6/urdf:/ws/urdf \
             -v ${{ github.workspace }}/lv2_module6/ros2_ws/map:/ws/map \
@@ -85,6 +86,7 @@ jobs:
           rm -rf ros2_ws/firmware/build && cp -r lv2_module6/debug/firmware ros2_ws/firmware/build
           find ros2_ws/firmware/build -type f ! -name '*.bin' -delete
           cp lv2_module6/ros2_ws/*.sh ros2_ws/
+          cp lv2_module6/ros2_ws/fastdds.xml ros2_ws/
           cp docker/*.sh ros2_ws/   # test-*.sh · build-ws.sh · ros-kill.sh · ros-restart.sh (entrypoint.sh 제외 — 컨테이너 전용)
           rm -f ros2_ws/entrypoint.sh
           echo "${{ matrix.arch }}" > ros2_ws/ARCH

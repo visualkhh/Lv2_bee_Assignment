@@ -4,6 +4,8 @@
 //   입력: ✉️ /state/operation_mode (std_msgs/String "AUTO" | "MANUAL", transient_local) — 모드는 manager/state_manager가 정함 (/cmd/operation_mode → 거기)
 //         ✉️ /cmd/manual/cmd_vel (geometry_msgs/TwistStamped) — 바퀴 (teleop_twist_keyboard · 시뮬레이터 조작판)
 //         ✉️ /cmd/manual/arm (sensor_msgs/JointState) — 관절 목표 (joint1~5 rad, gripper_left_joint m). 이름이 있는 것만 움직임
+//         ✉️ /cmd/manual/reboot_motors (std_msgs/Empty) — Hardware Error(과부하·과열 등) 난 DYNAMIXEL 재부팅
+//            → 📞 /beebotsystem/reboot_motors (std_srvs/Trigger, BeebotSystemHardware — 에러 난 모터만 펌웨어 R)
 //         ✉️ /joint_states — 지금 관절각 (목표에 없는 팔 관절은 지금 각으로 채워 5축 전체 궤적을 보낸다 — JTC는 일부 관절 궤적을 거부)
 //   출력: ✉️ /cmd_vel_manual (TwistStamped) → twist_mux (자동 /cmd_vel_corrected보다 우선) → velocity_smoother → collision_monitor
 //         ✉️ /arm_controller/joint_trajectory (trajectory_msgs/JointTrajectory) → JTC가 바로 실행 (JTC 표준 토픽 입력)
@@ -24,7 +26,9 @@
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
+#include "std_msgs/msg/empty.hpp"
 #include "std_msgs/msg/string.hpp"
+#include "std_srvs/srv/trigger.hpp"
 #include "trajectory_msgs/msg/joint_trajectory.hpp"
 
 namespace control {
@@ -51,12 +55,15 @@ private:
 
   void send_gripper(double position);
 
+  void on_reboot();
+
   std::vector<std::string> arm_joints_;
   std::string gripper_joint_;
   double arm_move_s_, cmd_timeout_s_;
   bool manual_ = false, moving_ = false;
   std::string map_mode_;           // /state/map_mode — MAPPING이면 팔 관절 명령을 막음 (지도 만들 땐 팔이 스캔 자세에 고정)
-  size_t vel_count_ = 0, arm_count_ = 0, arm_blocked_ = 0;
+  size_t vel_count_ = 0, arm_count_ = 0, arm_blocked_ = 0, reboot_count_ = 0;
+  std::string reboot_result_ = "-";  // 마지막 재부팅 서비스 응답
   rclcpp::Time last_vel_{0, 0, RCL_ROS_TIME};
   rclcpp::Publisher<TwistStamped>::SharedPtr vel_pub_;
   rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr traj_pub_;
@@ -64,6 +71,8 @@ private:
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr mode_sub_, map_mode_sub_;
   rclcpp::Subscription<TwistStamped>::SharedPtr vel_sub_;
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr arm_sub_, js_sub_;
+  rclcpp::Subscription<std_msgs::msg::Empty>::SharedPtr reboot_sub_;
+  rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr reboot_cli_;
   std::map<std::string, double> current_;
   rclcpp::TimerBase::SharedPtr timer_;
   diagnostic_updater::Updater diag_{this};

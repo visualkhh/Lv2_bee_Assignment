@@ -12,12 +12,12 @@ GOOD = [{"step": 1, "skill": "navigate", "target": "3", "relation": "front", "of
 class TestTemplate(unittest.TestCase):
     def test_ok(self):
         goals, err, raw = template.plan({"objects": [{"id": 3, "class_name": "puck"},
-                                                 {"id": 7, "class_name": "goal_zone"}]})
+                                                 {"id": 7, "class_name": "location"}]})
         self.assertIsNone(err)
         self.assertEqual(len(goals), 4)
 
     def test_no_objects(self):
-        self.assertEqual(template.plan({"objects": []})[1], "puck·goal_zone 없음 — 계획 보류")
+        self.assertEqual(template.plan({"objects": []})[1], "puck·location 없음 — 계획 보류")
 
 
 class TestOpencodeParser(unittest.TestCase):

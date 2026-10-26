@@ -1,5 +1,5 @@
 # robot_localization EKF — 바퀴 /odom + /imu 융합 → /odometry/filtered, odom→base_footprint TF
-# 설계: documents/ros2-design/06-base.md (odom TF는 EKF 하나만, diff_drive_controller는 enable_odom_tf: false)
+# 설계: documents/project/ros/06-base.md (odom TF는 EKF 하나만, diff_drive_controller는 enable_odom_tf: false)
 ekf_filter_node:
   ros__parameters:
     frequency: 50.0

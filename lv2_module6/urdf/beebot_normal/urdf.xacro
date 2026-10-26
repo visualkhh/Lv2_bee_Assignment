@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <!--
   beebot — TurtleBot3 Waffle Pi + 앞쪽 상판(한 단) 위 매니퓰레이터(OM-X + 손목 roll + 그리퍼) + 뒤쪽 전원선 가이드 폴 (더미 치수)
-  설계: documents/ros2-design/07-tf.md (TF 트리), 08-ctrl.md (ros2_control)
+  설계: documents/project/ros/07-tf.md (TF 트리), 08-ctrl.md (ros2_control)
 
   좌표: base_footprint(바닥) → base_link(바퀴 축 아래 0.010m), x 앞 · y 왼쪽 · z 위
     - 차체: Waffle Pi 본체 266×266mm, 바퀴 반경 0.033m · 간격 0.287m, 뒤쪽 캐스터 2개
@@ -303,8 +303,9 @@
     </xacro:macro>
     <xacro:wheel_if name="wheel_left_joint"/>
     <xacro:wheel_if name="wheel_right_joint"/>
-    <xacro:macro name="arm_if" params="name">
+    <xacro:macro name="arm_if" params="name offset:=0.0">
       <joint name="${name}">
+        <param name="offset">${offset}</param>  <!-- 영점 오프셋 [rad·그리퍼 m]: 서보 값 = 관절값 + offset (실측) -->
         <command_interface name="position"/>
         <state_interface name="position"/>
         <state_interface name="velocity"/>

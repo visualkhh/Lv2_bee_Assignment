@@ -38,15 +38,35 @@
 //     출력: ✉️ /state/restartable (std_msgs/String, transient_local) — node로 재시작할 수 있는 노드 "이름 pid" 줄들 (2초마다 · 바뀔 때만)
 //           → 시뮬레이터 진단 칸이 누를 수 있는 노드로 표시 (컨트롤러 · costmap 하위 · 내부 노드는 프로세스가 아니라 없음)
 //     출력: ✉️ /state/restart (std_msgs/String, transient_local) — 마지막 요청 결과 ("all: 재시작 중 …" · "node perception: 재시작 (pid …)" · "거절: …")
+//   연결 장치 (센서·구동기 — 케이블을 나중에 꽂아도 state_manager는 계속 상태를 낸다)
+//     출력: ✉️ /state/devices (std_msgs/String, transient_local) — "장치1,장치2,..." 쉼표 구분 이름 목록
+//     출력: ✉️ /state/devices/<장치> (std_msgs/String, transient_local) — "종류|active|disconnected|세부 토픽·관절"
+//           · pole_front_cam·gripper_cam = camera_info가 최근 1초 안에 실제로 흐르는지
+//           · opencr = /joint_states가 최근 1초 안에 실제로 흐르는지
+//           · wheels / arm / gripper = /joint_states의 관절 이름 + 최근성. 그 관절 모터에 Hardware Error(과부하·과열 등)가 있으면
+//             상태 error · 세부 끝에 "joint2:과부하"처럼 — ✉️ /motor_status (control/MotorStatus, BeebotSystemHardware — 펌웨어 E 줄)
+//             (진단 /diagnostics는 사람이 보는 것 — 노드가 진단 문구에 기대지 않게 전용 토픽을 읽음)
+//             재부팅: /cmd/manual/reboot_motors (manual_control)
+//           · imu = /imu가 최근 1초 안에 실제로 흐르는지
+//     출력: ✉️ /state/topics (std_msgs/String, transient_local) — 현재 ROS 그래프의 "토픽|타입|publisher 수" 전체 목록
+//           → 장치 목록에 없는 새 센서도 여기서 찾아 세부 토픽을 확인할 수 있다.
 //     파라미터 restart_prepare: all 때 다시 띄우기 전에 실행할 셸 명령 (테스트베드 faker = build-ws — 고친 코드 반영, 실기 = 없음)
 //             restart_log: all 때 다시 띄운 launch 출력 파일 · restart_marker: 도는 동안 있는 파일 (테스트베드 test-faker 0이 보고 기다림)
 //             restart_wait_s: 정상 종료를 기다리는 시간 (RTAB-Map이 rtabmap.db를 닫을 시간)
 //             restart_registry: node로 따로 다시 띄운 노드 기록 (launch 자식이 아니라 all이 놓치던 것 — all 때 같이 끄고 비움)
 //   ✉️ /diagnostics
+#include <chrono>
+#include <map>
+#include <set>
 #include <string>
+#include <vector>
 
+#include "control/msg/motor_status.hpp"
 #include "diagnostic_updater/diagnostic_updater.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "sensor_msgs/msg/camera_info.hpp"
+#include "sensor_msgs/msg/imu.hpp"
+#include "sensor_msgs/msg/joint_state.hpp"
 #include "std_msgs/msg/bool.hpp"
 #include "std_msgs/msg/string.hpp"
 #include "rtabmap_msgs/srv/load_database.hpp"
@@ -68,19 +88,39 @@ private:
   void publish(rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub, const std::string & value);
   void request_restart(const std::string & text);
   void publish_restartable();
+  void publish_devices();
+  void publish_topics();
+  bool joints_fresh() const;
+  bool recent(const std::string & key) const;
 
   std::string operation_ = "AUTO", map_mode_, map_name_, map_dir_, map_list_, map_pending_, map_error_, explore_note_;
   std::string restart_prepare_, restart_log_, restart_marker_, restart_registry_, restart_note_, restartable_;
   bool restartable_published_ = false;
+  // 연결된 장치·토픽 상태 (/state/devices · /state/topics)
+  std::string devices_;
+  std::map<std::string, std::string> device_status_;
+  std::map<std::string, rclcpp::Publisher<std_msgs::msg::String>::SharedPtr> device_pubs_;
+  std::string topics_;
+  bool devices_published_ = false, topics_published_ = false;
+  std::set<std::string> joint_names_;
+  std::chrono::steady_clock::time_point last_joint_time_{};
+  std::map<std::string, std::chrono::steady_clock::time_point> last_seen_;
+  std::map<std::string, std::string> motor_error_;  // 관절 → 에러 이름 (정상이면 없음) — /motor_status
+  rclcpp::Subscription<control::msg::MotorStatus>::SharedPtr motor_sub_;
   rclcpp::TimerBase::SharedPtr restartable_timer_;
   double restart_wait_s_ = 25.0;
   bool map_list_published_ = false;
   bool estop_ = false;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr operation_pub_, map_pub_, map_name_pub_, map_list_pub_, restart_pub_, restartable_pub_;
-  rclcpp::TimerBase::SharedPtr map_list_timer_;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr devices_pub_;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr topics_pub_;
+  rclcpp::TimerBase::SharedPtr map_list_timer_, device_timer_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr estop_pub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr estop_sub_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr op_req_sub_, map_req_sub_, map_name_sub_, explore_sub_, restart_sub_;
+  rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_state_sub_;
+  rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr front_cam_info_sub_, gripper_cam_info_sub_;
+  rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;
   rclcpp::Client<std_srvs::srv::Empty>::SharedPtr mapping_cli_, localization_cli_;
   rclcpp::Client<rtabmap_msgs::srv::LoadDatabase>::SharedPtr load_db_cli_;
   diagnostic_updater::Updater diag_{this};

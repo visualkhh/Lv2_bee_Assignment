@@ -8,11 +8,11 @@ analyzers:
     perception:
       type: diagnostic_aggregator/GenericAnalyzer
       path: 인지
-      startswith: [ 'perception' ]
+      startswith: [ 'perception', 'body_filter' ]
     plan:
       type: diagnostic_aggregator/GenericAnalyzer
       path: 계획·임무
-      startswith: [ 'user_input', 'vlm_task_planner', 'coordinator', 'explorer' ]
+      startswith: [ 'user_input', 'vlm_task_planner', 'coordinator', 'explorer', 'signal_decoder' ]
     ml:
       type: diagnostic_aggregator/GenericAnalyzer
       path: 학습
@@ -24,7 +24,7 @@ analyzers:
     control:
       type: diagnostic_aggregator/GenericAnalyzer
       path: 제어
-      startswith: [ 'arm_safety_monitor', 'manual_control', 'body_filter', 'beebotsystem', 'controller_manager' ]
+      startswith: [ 'arm_safety_monitor', 'manual_control', 'beebotsystem', 'controller_manager' ]
     nav2:
       type: diagnostic_aggregator/GenericAnalyzer
       path: Nav2 관리자

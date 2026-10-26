@@ -1,4 +1,4 @@
-"""📦 제공 패키지 기동 (실기용). 설계: documents/ros2-design/09-nodes.md "직접 작성 노드와 제공 노드"
+"""📦 제공 패키지 기동 (실기용). 설계: documents/project/ros/09-nodes.md "직접 작성 노드와 제공 노드"
 
   ros2 launch ros_system ros_system.launch.py
   ros2 launch ros_system ros_system.launch.py use_rtabmap:=false pole_front_cam_serial:=123456
@@ -36,6 +36,11 @@ CONTROLLERS = ['joint_state_broadcaster', 'imu_sensor_broadcaster', 'diff_drive_
                'rl_arm_correction', 'arm_controller',  # 체인은 뒤에서부터 (rl_arm_correction → arm_controller)
                'gripper_controller']
 
+# Jetson(ARM)의 realsense2_camera 4.57.7은 pointcloud 필터를 NEON 구현으로 등록해
+# 파라미터 이름이 pointcloud.enable이 아니라 pointcloud__neon_.enable이다.
+# pointcloud.enable만 주면 조용히 무시되어 publisher가 0개가 된다.
+POINTCLOUD_PARAM = 'pointcloud__neon_' if os.uname().machine in ('aarch64', 'arm64') else 'pointcloud'
+
 
 def flag(name, default, description):
     return DeclareLaunchArgument(name, default_value=default, description=description)
@@ -48,19 +53,39 @@ def urdf_xacro(*args):
             ' mesh_uri:=package://ros_system/urdf/', name, '/meshes', *args]
 
 
-def camera(name, serial_arg, fps):
+def camera(name, serial_arg, profile_arg, pointcloud_arg, use_arg):
     # camera_namespace:='' + camera_name → /pole_front_cam/color/image_raw 처럼 설계의 토픽 이름에 맞춘다
+    # use_cameras는 전체 스위치, use_arg는 카메라별 스위치 (한 대만 연결한 상태에서 나머지를 끌 수 있다).
+    enabled = PythonExpression([
+        "'", LaunchConfiguration('use_cameras'), "'.lower() == 'true' and '",
+        LaunchConfiguration(use_arg), "'.lower() == 'true'"])
     return Node(
         package='realsense2_camera', executable='realsense2_camera_node',
         namespace='', name=name, output='screen',
-        condition=IfCondition(LaunchConfiguration('use_cameras')),
+        condition=IfCondition(enabled),
+        respawn=True, respawn_delay=2.0,  # 카메라를 나중에 꽂아도 다시 잡도록
         parameters=[{
-            'serial_no': LaunchConfiguration(serial_arg),
+            # launch 인자로 들어온 serial은 숫자처럼 보여도 ROS 파라미터는 string이어야 한다.
+            'serial_no': ParameterValue(LaunchConfiguration(serial_arg), value_type=str),
             'camera_name': name,
-            'rgb_camera.color_profile': f'640x480x{fps}',
-            'depth_module.depth_profile': f'640x480x{fps}',
+            # 네트워크가 터지지 않게 낮춘 기본값. 640x360x15는 D435/D435i 지원 프로파일.
+            'rgb_camera.color_profile': LaunchConfiguration(profile_arg),
+            'depth_module.depth_profile': LaunchConfiguration(profile_arg),
+            # RealSense 기본은 SYSTEM_DEFAULT(reliable) — 영상은 best_effort가 맞다.
+            # SENSOR_DATA = best_effort · volatile · keep_last(5) (드라이버가 depth를 1로 바꾸는 파라미터는 없다).
+            'color_qos': 'SENSOR_DATA',
+            'depth_qos': 'SENSOR_DATA',
+            f'{POINTCLOUD_PARAM}.pointcloud_qos': 'SENSOR_DATA',
+            # 점군 밀도를 1/4로 줄인다 (depth 640x360 -> 320x180). RGB 해상도는 유지.
+            'decimation_filter.enable': LaunchConfiguration('camera_decimation_enable'),
+            'decimation_filter.filter_magnitude': ParameterValue(
+                LaunchConfiguration('camera_decimation_magnitude'), value_type=int),
             'align_depth.enable': True,
-            'pointcloud.enable': True,
+            f'{POINTCLOUD_PARAM}.enable': LaunchConfiguration(pointcloud_arg),
+            # 적외선 스트림은 쓰지 않는다. 두 카메라를 같은 USB 버스에 물리면
+            # IR 영상까지 대역폭을 나눠 써서 depth가 'overflow video frame'으로 막힌다.
+            'enable_infra1': False,
+            'enable_infra2': False,
             'publish_tf': False,  # 카메라 프레임은 URDF(robot_state_publisher)가 낸다 — 하나만 남김
         }])
 
@@ -135,9 +160,17 @@ def generate_launch_description():
         flag('port', '/dev/opencr', 'OpenCR 포트 (udev 고정 이름)'),
         flag('arm_correction_type', 'ml/RlArmCorrection', 'rl_arm_correction 컨트롤러 플러그인 (테스트베드 ML 대역: faker/FakeRlArmCorrection)'),
         flag('use_twist_mux', 'true', '바퀴 속도 명령 고르기 (자동 · 수동 · 비상정지 잠금)'),
-        flag('use_cameras', 'true', 'RealSense 2대 (pole_front_cam·gripper_cam)'),
+        flag('use_cameras', 'true', 'RealSense 2대 (pole_front_cam·gripper_cam) 전체 스위치'),
+        flag('use_pole_front_cam', 'true', 'pole_front_cam 개별 스위치 (use_cameras와 AND)'),
+        flag('use_gripper_cam', 'true', 'gripper_cam 개별 스위치 (use_cameras와 AND)'),
         flag('pole_front_cam_serial', "''", 'pole_front_cam serial_no (빈 값이면 첫 장치)'),
         flag('gripper_cam_serial', "''", 'gripper_cam serial_no'),
+        flag('pole_front_cam_profile', '640x360x15', 'pole_front_cam RGB/depth 프로파일 (WxHxFPS)'),
+        flag('gripper_cam_profile', '640x360x15', 'gripper_cam RGB/depth 프로파일 (WxHxFPS)'),
+        flag('camera_decimation_enable', 'true', 'RealSense depth decimation 필터 (점군 밀도 감소)'),
+        flag('camera_decimation_magnitude', '2', 'decimation 배율 (2=1/4 점, 3=1/9 점)'),
+        flag('pole_front_cam_pointcloud', 'true', 'pole_front_cam PointCloud2 발행 (body_filter/Nav2용)'),
+        flag('gripper_cam_pointcloud', 'false', 'gripper_cam PointCloud2 발행 (grasp_scorer용, 필요할 때만 true)'),
         flag('use_ekf', 'true', 'robot_localization EKF'),
         flag('use_rtabmap', 'true', 'RTAB-Map'),
         flag('localization', 'true', 'true=위치추정 모드(운영, rtabmap_db 지도로), false=매핑 모드(rtabmap_db를 새로 만듦)'),
@@ -168,8 +201,10 @@ def generate_launch_description():
             parameters=[share('config', 'twist_mux.yaml')],
             remappings=[('cmd_vel_out', '/cmd_vel_mux')]),
 
-        camera('pole_front_cam', 'pole_front_cam_serial', 30),
-        camera('gripper_cam', 'gripper_cam_serial', 15),
+        camera('pole_front_cam', 'pole_front_cam_serial', 'pole_front_cam_profile',
+               'pole_front_cam_pointcloud', 'use_pole_front_cam'),
+        camera('gripper_cam', 'gripper_cam_serial', 'gripper_cam_profile',
+               'gripper_cam_pointcloud', 'use_gripper_cam'),
 
         Node(
             package='robot_localization', executable='ekf_node', name='ekf_filter_node', output='screen',
@@ -246,7 +281,10 @@ def rtabmap_nodes():
                       "--Grid/NormalsSegmentation false --Grid/MaxGroundHeight 0.03 --Grid/MaxObstacleHeight 0.6' + ('' if '",
                       LaunchConfiguration('localization'),
                       "'.lower() == 'true' else ' --delete_db_on_start')"])
-    qos = {'qos': 2, 'qos_camera_info': 2}  # best effort 구독 — 카메라가 best effort(fake_camera SensorData)든 reliable이든 받음
+    # best effort 구독 — 카메라가 best effort(fake_camera SensorData)든 reliable이든 받음.
+    # queue 10은 컬러·depth·두 카메라 approximate sync용이다. 여기를 1로 줄이면
+    # 한쪽 프레임이 먼저 도착할 때 짝을 못 찾아 RTAB-Map이 'Did not receive data'로 멈출 수 있다.
+    qos = {'qos': 2, 'qos_camera_info': 2}
 
     def rgbd_sync(name, rgb, depth, info, out):
         return Node(package='rtabmap_sync', executable='rgbd_sync', name=name, namespace='rtabmap', output='screen', condition=on,

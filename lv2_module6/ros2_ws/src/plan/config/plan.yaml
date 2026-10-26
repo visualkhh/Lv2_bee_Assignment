@@ -6,27 +6,52 @@ vlm_task_planner:
   ros__parameters:
     max_replans: 1           # 명령 하나당 재계획 횟수 (coordinator의 max_step_failures와 짝)
     vlm_endpoint: ""         # 비면 템플릿 고정(기본·CI). 호스트 ai-service면 "http://127.0.0.1:8000" (컨테이너 host망이라 localhost가 호스트)
-    vlm_timeout_s: 120.0    # [s] VLM 대기 — 넘기면 템플릿 폴백
+    vlm_timeout_s: 120.0    # [s] VLM 대기 — 넘기면 템플릿 폴백. ai-service backend human(사람이 웹에서 계획)이면 그쪽 timeout_s(600) 이상으로
     tray_capacity: 4         # MOVE_TO_B 템플릿이 한 번에 싣는 퍽 수 (coordinator tray_slots 칸 수와 같게)
+    # 수납 확인 — 신호등 미션 옮기기가 끝나면 바로, 그 뒤 이 주기마다 목적지로 가서 옮긴 번호가 그대로 있는지 봄
+    #   (AUTO · 하던 계획이 끝났을 때만). 다른 곳에 있으면 다시 옮기고, 안 보이면 say. 새 명령·신호가 오면 그만
+    verify_period_s: 60.0    # [s] 0이면 주기 확인 끔 (옮긴 직후 한 번은 함)
+    verify_radius_m: 0.20    # [m] 목적지 장소 태그에서 이 안이면 "거기 있음" (place_spacing 0.08 × 퍼짐 + 여유)
 coordinator:
   ros__parameters:
+    # 시작 자세 — bringup 직후 한 번 팔을 이 자세로 (MoveIt 없이 JTC 토픽, 3초 궤적).
+    #   실기에서 손으로 잡아 test-firmware로 읽은 값 (2026-10-23, joint3가 URDF 한계 안).
+    #   MAPPING/EXPLORE면 스캔 자세가 우선이라 건너뛴다. false면 자동 이동 안 함.
+    initial_pose_enabled: true
+    initial_pose_joints: [joint1, joint2, joint3, joint4, joint5]
+    initial_pose: [-0.0898, -1.8069, 1.3432, 1.6473, -0.0268]
+    initial_pose_tolerance: 0.05   # [rad] 이 안이면 이미 그 자세 (이동 생략)
+    initial_pose_move_s: 3.0       # [s] 궤적 시간 — 너무 짧으면 급정지·흔들림
     max_grasp_tries: 2       # 파지 후보를 점수순으로 몇 개까지 시도 (규칙 4)
     max_step_failures: 2     # 같은 단계가 이만큼 연속 실패하면 알리고 정지 (규칙 5)
     server_wait_s: 30.0      # [s] Nav2·MoveIt 서버가 뜰 때까지 기다리는 시간
     arm_plan_tries: 3        # 팔 계획 실패 시 같은 목표로 다시 (IK·OMPL이 무작위라 닿는 곳도 가끔 못 찾음)
     # 적재함 (MISSION ③ — target "tray"): 칸 [x, y, …] base_footprint. MoveIt 실측으로 손끝 아래 방향이 닿는 곳
     #   (높이 0.22·0.17 6번씩: 앞줄 x −0.095 12/12 · 뒷줄 x −0.135 9/12 — 재시도로 메움, x −0.16 이후 거의 X — 폴·팔 길이).
-    #   적재함 안쪽 x −0.185~−0.075: 앞줄 −0.095가 지름 40mm 퍽의 앞벽 한계. 싣는 순서 = 뒷줄 → 앞줄, 꺼내기는 반대
-    #   ponytail: 앞뒤 간격 0.04 — 지름 40mm 퍽까지만 4개. 50~60mm 퍽은 뒷줄이 닿지 않는 곳(−0.155 이후)이 돼 한 줄(최대 3개)뿐 — 실제 퍽으로 정할 것
+    #   적재함 안쪽 x −0.185~−0.075. 싣는 순서 = 뒷줄 → 앞줄, 꺼내기는 반대. 발제 퍽 30×30(Ø30)×60mm — 앞뒤·좌우 간격 0.04·0.10이면 4개 들어감
     tray_slots: [-0.135, 0.05, -0.135, -0.05, -0.095, 0.05, -0.095, -0.05]
     tray_release_z: 0.22     # [m] 싣기 — 칸 위 이 높이(손끝)에서 그리퍼를 벌림 (적재함 바닥 약 0.15)
-    tray_grasp_z: 0.17       # [m] 꺼내기 — 손끝 파지 높이 (퍽 높이 30~50mm의 가운데쯤)
+    tray_grasp_z: 0.17       # [m] 꺼내기 — 손끝 파지 높이 (적재함 바닥 0.15 + 퍽 60mm의 아래쪽 1/3)
     tray_approach_m: 0.05    # [m] 꺼내기 접근·들어올리기 (0.10이면 0.27로 닿지 않음)
     place_spacing: 0.08      # [m] 같은 곳(B 지역 판)에 여러 개 내려놓을 때 비키는 간격 (MISSION: 퍽 사이 0.08 이상)
     # 팔이 닿게 다가가기 — pick · place <물체 id> 때 대상이 로봇 중심에서 reach_m 넘으면 먼저 approach_m 앞까지 navigate (단계마다 한 번)
     #   바닥 퍽은 팔 회전축(차체 중심 앞 0.05)에서 수평 약 0.08~0.26 — 차체 중심 기준 약 0.13~0.31 (simulator 팔 범위 지도)
     reach_m: 0.30
     approach_m: 0.24         # [m] 다가간 뒤 로봇 중심 ~ 물체 중심 (범퍼 0.18 + 여유 — 팔 범위 가운데쯤)
+    # inspect <퍽 id> — 퍽 윗면 16mm AprilTag는 gripper_cam이 위에서 봐야 읽힘 (pole_front_cam은 한 칸 1~2px라 못 읽음)
+    inspect_height_m: 0.15   # [m] 손끝을 퍽 윗면 위 이만큼 (16mm 태그 ≈ 50px — 한 칸 약 6px)
+    inspect_wait_s: 1.0      # [s] 그 자리에서 기다림 (perception 추론 4Hz × 몇 장)
+
+signal_decoder:              # 신호등 암호 미션 (documents/mission/README.md) — 깜빡임 3단계 → /mission/signal
+  ros__parameters:           #   단계 구분·점수 등은 MISSION §6 미정 — 제안값 (공지 나오면 여기만 바꿈)
+    min_on_s: 0.15           # [s] 이보다 짧은 켜짐은 잡음
+    separator_s: 2.0         # [s] 세 색 동시(all)가 이만큼 이어지면 단계 구분 (제안: 3초 켜짐)
+    gap_s: 3.0               # [s] 꺼짐(신호등 안 보임 포함)이 이만큼 이어져도 단계 끝
+    score_red: 1             # 2단계 색 점수 (제안: 모두 1)
+    score_yellow: 1
+    score_green: 1
+    dest_tags: [12, 13, 14]  # 3단계 노랑 1·2·3번 → 목적지 장소 태그 (L1~L3)
+    confirm: 1               # 같은 답이 이만큼 연달아 나와야 확정 (신호를 반복하면 2)
 
 explorer:                    # 자동 탐사 — /state/operation_mode EXPLORE일 때 /map 프론티어로 Nav2 목표
   ros__parameters:

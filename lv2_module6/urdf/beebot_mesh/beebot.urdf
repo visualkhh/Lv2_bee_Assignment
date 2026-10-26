@@ -9,7 +9,7 @@
     · 이름 맞춤(제어·시뮬레이터가 쓰는 이름): camera_rear → pole_front_cam, camera_wrist → gripper_cam,
       gripper_joint → gripper_left_joint, gripper_mimic_joint → gripper_right_joint, tcp → end_effector
     · 추가: imu_link · <ros2_control> 블록(BeebotSystemHardware) · xacro 인자
-  설계: documents/ros2-design/07-tf.md (TF 트리), 08-ctrl.md (ros2_control)
+  설계: documents/project/ros/07-tf.md (TF 트리), 08-ctrl.md (ros2_control)
 
   좌표: base_footprint(바닥) → base_link(바퀴 축 아래 0.010m), x 앞 · y 왼쪽 · z 위
   구동 관절 6개: joint1~5 (팔) · gripper_left_joint (평행 그리퍼, 0=닫힘 · 0.0265=열림, 오른쪽은 mimic) + 바퀴 2개

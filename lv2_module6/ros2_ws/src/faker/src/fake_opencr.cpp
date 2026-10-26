@@ -3,7 +3,9 @@
 #include "faker/fake_opencr.hpp"
 
 #include <array>
+#include <algorithm>
 #include <cstdio>
+#include <limits>
 
 namespace faker {
 
@@ -15,7 +17,9 @@ constexpr double ACCEL_MAX = 8.0;
 constexpr double JOINT_VEL_MAX = 4.8;
 constexpr double GRIPPER_VEL_MAX = 0.05;
 constexpr double COMMAND_TIMEOUT = 0.5;
-constexpr double STATE_PERIOD = 0.025;  // 펌웨어 STATE_PERIOD_MS (25ms) — S는 부팅 직후부터 C와 무관하게 항상
+constexpr double ERROR_PERIOD = 0.5;    // 펌웨어 MOTOR_CHECK_MS — E 줄 주기
+constexpr int FAKE_TEMP_C = 35;         // S 끝 모터 온도 °C (실기 상온 부하 정도 — 시뮬레이션은 발열 모델 없음)
+constexpr double STATE_PERIOD = 0.010;  // 펌웨어 STATE_PERIOD_MS (10ms) — S는 부팅 직후부터 C와 무관하게 항상
 }  // namespace
 
 FakeOpenCR::FakeOpenCR() : rclcpp::Node("fake_opencr") {
@@ -30,6 +34,7 @@ FakeOpenCR::FakeOpenCR() : rclcpp::Node("fake_opencr") {
   noise_ = declare_parameter<double>("noise", 0.01);
   comm_down_ = declare_parameter<bool>("comm_down", false);
   arm_grabbed_ = declare_parameter<bool>("arm_grabbed", false);
+  declare_parameter<std::vector<int64_t>>("hw_error", std::vector<int64_t>(8, 0));
   if (!map_yaml.empty() && !load_map(map_yaml)) {
     RCLCPP_WARN(get_logger(), "지도 로드 실패 (%s) — 충돌 없이 동작", map_yaml.c_str());
   }
@@ -76,7 +81,13 @@ FakeOpenCR::FakeOpenCR() : rclcpp::Node("fake_opencr") {
       else if (p.get_name() == "noise") noise_ = p.as_double();
       else if (p.get_name() == "comm_down") comm_down_ = p.as_bool();
       else if (p.get_name() == "arm_grabbed") arm_grabbed_ = p.as_bool();
-      else continue;
+      else if (p.get_name() == "hw_error") {
+        const auto v = p.as_integer_array();
+        for (size_t i = 0; i < 8 && i < v.size(); ++i) {
+          hw_error_[i] = static_cast<int>(v[i]);
+          if (hw_error_[i] > 0) torque_[i] = false;  // 진짜 서보도 Hardware Error면 토크를 끈다
+        }
+      } else continue;
       RCLCPP_INFO(get_logger(), "환경 %s = %s", p.get_name().c_str(), p.value_to_string().c_str());
     }
   });
@@ -165,6 +176,14 @@ bool FakeOpenCR::read_command(std::array<double, 8> & cmd) {
   std::string line;
   while (std::getline(cmd_stream_, line)) {
     if (!line.empty() && line.back() == '\r') line.pop_back();
+    if (line.compare(0, 2, "T,") == 0) {
+      apply_torque_line(line);  // 토크 온/오프는 C와 별개
+      continue;
+    }
+    if (line.compare(0, 2, "R,") == 0) {
+      apply_reboot_line(line);
+      continue;
+    }
     std::array<double, 8> v{};
     if (parse_command(line, v)) {
       cmd = v;
@@ -176,21 +195,87 @@ bool FakeOpenCR::read_command(std::array<double, 8> & cmd) {
 }
 
 bool FakeOpenCR::parse_command(const std::string & line, std::array<double, 8> & v) {
-  // 펌웨어 parse_fields와 같은 규칙: "C," + 정확히 8값, 각 값은 끝까지 숫자이고 유한, 마지막 값 뒤에 아무것도 없음
+  // 펌웨어 parse_fields와 같은 규칙:
+  //   빈 필드(`,,` · 끝에 쉼표 포함)는 유지(NaN) — 팔·그리퍼는 명령 생략, 바퀴는 0(정지).
+  //   모자란 뒷 필드도 유지로 채운다. 예: C,1,,0.4 / C,0.4,0.4
+  //   필드가 8개를 넘거나, 숫자가 아니거나, 숫자 뒤에 쓰레기가 있으면 줄 전체를 버린다.
   if (line.compare(0, 2, "C,") != 0) return false;
   const char * text = line.c_str() + 2;
-  for (int i = 0; i < 8; ++i) {
-    char * end = nullptr;
-    v[i] = std::strtod(text, &end);
-    if (end == text || !std::isfinite(v[i])) return false;
-    if (i + 1 < 8) {
-      if (*end != ',') return false;
-      text = end + 1;
-    } else if (*end != '\0') {
-      return false;
+  size_t i = 0;
+  while (true) {
+    if (*text == ',' || *text == '\0') {
+      v[i] = std::numeric_limits<double>::quiet_NaN();
+    } else {
+      char * end = nullptr;
+      v[i] = std::strtod(text, &end);
+      if (end == text || !std::isfinite(v[i])) return false;
+      text = end;
     }
+    ++i;
+    if (*text == '\0') break;
+    if (*text != ',') return false;
+    ++text;
+    if (i == 8) return false;  // 필드가 8개를 넘음
   }
+  for (; i < 8; ++i) v[i] = std::numeric_limits<double>::quiet_NaN();
   return true;
+}
+
+void FakeOpenCR::apply_torque_line(const std::string & line) {
+  // 펌웨어 apply_torque_line과 같은 규칙. 빈칸 = 유지.
+  //   T,0 → 전체 해제 · T,1 → 전체 켜기(현재 자세 목표) · T,1,0,,,,,, → 조인트별
+  if (line.compare(0, 2, "T,") != 0) return;
+  const bool whole = line.find(',', 2) == std::string::npos;
+  std::array<double, 8> v{};
+  if (!parse_command(std::string("C,") + line.substr(2), v)) return;  // 파서 재사용
+  std::lock_guard<std::mutex> lock(mutex_);
+  const auto set_one = [this](size_t i, bool on) {
+    if (on) {
+      if (i < 2) wheel_cmd_[i] = 0.0;
+      else joint_cmd_[i - 2] = joint_pos_[i - 2];
+    }
+    torque_[i] = on;
+  };
+  if (whole) {
+    if (std::isnan(v[0])) return;
+    const bool on = v[0] != 0.0;
+    for (size_t i = 0; i < 8; ++i) set_one(i, on);
+  } else {
+    for (size_t i = 0; i < 8; ++i)
+      if (!std::isnan(v[i])) set_one(i, v[i] != 0.0);
+  }
+  const bool any = std::any_of(torque_.begin(), torque_.end(), [](bool b) { return b; });
+  watchdog_tripped_ = !any;  // 전부 꺼졌으면 watchdog 정지 (펌웨어와 같음)
+}
+
+void FakeOpenCR::apply_reboot_line(const std::string & line) {
+  // 펌웨어 apply_reboot_line과 같은 규칙: R,1 = 전체 · R,<8필드> = 1인 모터만. 재부팅 = 에러 지움 + 토크 켜기(현재 자세 목표)
+  const bool whole = line.find(',', 2) == std::string::npos;
+  std::array<double, 8> v{};
+  if (!parse_command(std::string("C,") + line.substr(2), v)) return;
+  std::lock_guard<std::mutex> lock(mutex_);
+  for (size_t i = 0; i < 8; ++i) {
+    const double f = whole ? v[0] : v[i];
+    if (std::isnan(f) || f == 0.0) continue;
+    hw_error_[i] = 0;
+    if (i < 2) wheel_cmd_[i] = 0.0;
+    else joint_cmd_[i - 2] = joint_pos_[i - 2];
+    torque_[i] = true;
+  }
+  write_errors_locked();
+}
+
+void FakeOpenCR::write_errors() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  write_errors_locked();
+}
+
+void FakeOpenCR::write_errors_locked() {
+  std::string line = "E";
+  for (int e : hw_error_) line += "," + std::to_string(e);
+  line += '\n';
+  std::ofstream out(serial_in_, std::ios::app);
+  if (out) out << line << std::flush;
 }
 
 void FakeOpenCR::write_state() {
@@ -222,6 +307,7 @@ void FakeOpenCR::write_state() {
   push(0.0);
   push(0.0);
   push(9.81);
+  for (size_t i = 0; i < hw_error_.size(); ++i) line += "," + std::to_string(FAKE_TEMP_C);  // 모터 온도 °C 8개 (펌웨어처럼 정수)
   line += '\n';
   std::ofstream out(serial_in_, std::ios::app);
   if (out) {
@@ -241,8 +327,10 @@ void FakeOpenCR::tick() {
     std::array<double, 8> cmd{};
     if (read_command(cmd)) {
       std::lock_guard<std::mutex> lock(mutex_);
-      wheel_cmd_ = {cmd[0], cmd[1]};
-      for (int j = 0; j < 6; ++j) joint_cmd_[j] = cmd[2 + j];
+      for (int i = 0; i < 2; ++i) wheel_cmd_[i] = std::isnan(cmd[i]) ? 0.0 : cmd[i];  // 바퀴 빈칸 = 정지
+      for (int j = 0; j < 6; ++j) {
+        if (!std::isnan(cmd[2 + j])) joint_cmd_[j] = cmd[2 + j];  // 팔·그리퍼 빈칸 = 현재 유지
+      }
       last_cmd_ = now;
       watchdog_tripped_ = false;
       ++cmds_;
@@ -259,7 +347,7 @@ void FakeOpenCR::tick() {
     std::lock_guard<std::mutex> lock(mutex_);
     const double accel = ACCEL_MAX * friction_ * dt;
     for (int i = 0; i < 2; ++i) {
-      const double target = wheel_cmd_[i];  // watchdog이 끊기면 0으로 바꿔 둠
+      const double target = torque_[i] ? wheel_cmd_[i] : 0.0;  // 토크 꺼짐 / watchdog = 0
       wheel_vel_[i] += std::max(-accel, std::min(accel, target - wheel_vel_[i]));
       wheel_pos_[i] += wheel_vel_[i] * dt;
     }
@@ -278,6 +366,10 @@ void FakeOpenCR::tick() {
     yaw_ -= M_PI;
     yaw_rate_ = w;
     for (int j = 0; j < 6; ++j) {
+      if (!torque_[2 + j]) {  // 토크 해제 = 자유 (시뮬레이터는 중력 없음 → 제자리)
+        joint_vel_[j] = 0.0;
+        continue;
+      }
       if (arm_grabbed_ && j != 5) {
         joint_vel_[j] = 0.0;
         continue;
@@ -291,6 +383,10 @@ void FakeOpenCR::tick() {
   if (!comm_down_ && std::chrono::duration<double>(now - last_state_).count() >= STATE_PERIOD) {
     write_state();
     last_state_ = now;
+  }
+  if (!comm_down_ && std::chrono::duration<double>(now - last_errors_).count() >= ERROR_PERIOD) {
+    write_errors();
+    last_errors_ = now;
   }
 }
 

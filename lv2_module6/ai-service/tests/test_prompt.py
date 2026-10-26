@@ -38,11 +38,11 @@ class TestBuild(unittest.TestCase):
     def test_objects_with_pose(self):
         objs = [{"id": 3, "class_name": "puck", "position": [3.45, 0.9, 0.02],
                  "size": [0.1, 0.1, 0.05], "confidence": 0.92},
-                {"id": 7, "class_name": "goal_zone"}]
+                {"id": 7, "class_name": "location"}]
         p = prompt.build({"command": "x", "objects": objs})
         self.assertIn("좌표=map 기준 m", p)
         self.assertIn("  - id=3 class=puck pos=(3.45,0.90,0.02) size=(0.10,0.10,0.05) conf=0.92", p)
-        self.assertIn("  - id=7 class=goal_zone", p)  # 좌표 없어도 됨
+        self.assertIn("  - id=7 class=location", p)  # 좌표 없어도 됨
 
     def test_history_caps(self):
         hist = [{"role": "user", "text": "x" * 600} for _ in range(25)]
@@ -95,3 +95,21 @@ class TestRobotAndColor(unittest.TestCase):
         text = prompt.build({"command": "x", "objects": [{"id": 1, "class_name": "puck", "position": [1, 2, 0]}]})
         self.assertNotIn("dist=", text)
         self.assertNotIn("로봇 위치", text)
+
+
+class TestMarkers(unittest.TestCase):
+    """신호등 암호 미션 표식 — 퍽 tag · 장소 location tag · 바코드 content가 프롬프트에 실림, inspect 허용"""
+
+    def test_tag_content_inspect(self):
+        req = {"command": "P2-01", "objects": [
+            {"id": 3, "class_name": "puck", "position": [0.5, 0.0, 0.03], "color": "red", "tag": "2"},
+            {"id": 9, "class_name": "location", "position": [1.5, 0.0, 0.0], "tag": "13"},
+            {"id": 10, "class_name": "barcode", "position": [1.5, 0.1, 0.05], "content": "P2-01"}]}
+        text = prompt.build(req)
+        self.assertIn("class=puck", text)
+        self.assertIn("tag=2", text)
+        self.assertIn("class=location", text)
+        self.assertIn("tag=13", text)
+        self.assertIn("content=P2-01", text)
+        self.assertIn("inspect", text)
+        self.assertNotIn("MOVE_TO_B", text)

@@ -11,7 +11,11 @@
     → 못 짜면 {"ok": false, "error": "..."} (컨테이너는 템플릿으로 폴백)
   GET /health → {"ok": true, "backend": "..."}
 
-백엔드는 backends/: template(기본·오프라인) · claude_cli · opencode_cli · ollama(로컬) · openai_compat(외부사).
+  GET / → 사람 계획 페이지 (human.html) — backend "human"이면 /plan 요청이 여기 뜨고 사람이 단계를 짜서 보냄
+  GET /human/pending → {"pending": [...], "history": [...]} (이미지 빼고) · GET /human/item?id=N (상세 — 물체·이미지·프롬프트)
+  POST /human/submit {id, goals} (coordinator와 같은 검증) · POST /human/reject {id, error}
+
+백엔드는 backends/: template(기본·오프라인) · claude_cli · opencode_cli · ollama(로컬) · openai_compat(외부사) · human(사람이 웹에서).
 출력은 coordinator 검증(허용 동작·대상 id·step 순서)과 같은 규칙으로 검사한다.
 """
 
@@ -31,7 +35,7 @@ sys.path.insert(0, str(HERE / "backends"))
 from backends import template  # noqa: E402
 from prompt import build as build_prompt  # noqa: E402
 
-ALLOWED = {"navigate", "pick", "place", "say"}
+ALLOWED = {"navigate", "pick", "place", "inspect", "say"}
 CONFIG = {}
 
 
@@ -47,7 +51,7 @@ def validate(goals, objects):
         if g.get("skill") not in ALLOWED:
             return f"step {i}: skill {g.get('skill')}"
         t = str(g.get("target", ""))
-        if g.get("skill") in ("navigate", "pick", "place") and t.isdigit() and t not in ids:
+        if g.get("skill") in ("navigate", "pick", "place", "inspect") and t.isdigit() and t not in ids:
             return f"step {i}: target {t} not tracked"
         for im in ("images",):
             _ = im  # images는 검증 대상 아님 (용량 큰 base64 스킵)
@@ -121,6 +125,11 @@ def dispatch(req, image_files=None):
         return ollama.plan(req, model=ai.get("model"),
                            endpoint=ai.get("endpoint"),
                            timeout_s=ai.get("timeout_s"), system=system)
+    if backend == "human":
+        from backends import human
+        from images import prepare
+        return human.plan(req, timeout_s=ai.get("timeout_s", 600), images=prepare(req),
+                          prompt=build_prompt(req, system))
     if backend == "openai_compat":
         from backends import openai_compat
         return openai_compat.plan(req, endpoint=ai.get("endpoint", ""),
@@ -214,13 +223,66 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _body(self):
+        try:
+            n = int(self.headers.get("Content-Length", 0))
+            return json.loads(self.rfile.read(n) or b"{}") if n <= 4_000_000 else None
+        except (ValueError, json.JSONDecodeError):
+            return None
+
     def do_GET(self):
-        if self.path == "/health":
+        path = self.path.split("?")[0]
+        if path == "/health":
             self._send(200, {"ok": True, "backend": ai_conf().get("backend", "template")})
+        elif path in ("/", "/human"):  # 사람 계획 페이지
+            body = (HERE / "human.html").read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        elif path == "/human/item":
+            from urllib.parse import parse_qs, urlparse
+            from backends import human
+            try:
+                rid = int(parse_qs(urlparse(self.path).query).get("id", ["0"])[0])
+            except ValueError:
+                rid = 0
+            item = human.detail(rid)
+            self._send(200 if item else 404, {"ok": True, "item": item} if item else {"ok": False, "error": "없음"})
+        elif path == "/human/pending":
+            from backends import human
+            self._send(200, {"ok": True, "backend": ai_conf().get("backend", "template"),
+                             "allowed": sorted(ALLOWED), "pending": human.pending(), "history": human.history()})
         else:
             self._send(404, {"ok": False, "error": "not found"})
 
+    def human_answer(self, reject):
+        """POST /human/submit {id, goals} (계획 검증 — coordinator와 같은 규칙) · /human/reject {id, error}"""
+        from backends import human
+        body = self._body()
+        if not isinstance(body, dict):
+            self._send(400, {"ok": False, "error": "JSON 형식 오류"})
+            return
+        item = human.get(body.get("id"))
+        if item is None:
+            self._send(404, {"ok": False, "error": "이미 끝난 요청 (답했거나 시간 초과)"})
+            return
+        if reject:
+            ok = human.answer(item["id"], error=str(body.get("error") or "사람이 거절"))
+        else:
+            goals = body.get("goals")
+            why = validate(goals, item["req"].get("objects", []))
+            if why:
+                self._send(400, {"ok": False, "error": f"검증 실패: {why}"})
+                return
+            ok = human.answer(item["id"], goals=goals)
+        self._send(200 if ok else 409, {"ok": ok} if ok else {"ok": False, "error": "이미 끝난 요청"})
+
     def do_POST(self):
+        if self.path in ("/human/submit", "/human/reject"):
+            self.human_answer(self.path.endswith("reject"))
+            return
         if self.path != "/plan":
             self._send(404, {"ok": False, "error": "not found"})
             return
@@ -269,14 +331,6 @@ class Handler(BaseHTTPRequestHandler):
             done(200, {"ok": False, "error": f"검증 실패: {why}"}, raw)
             return
         done(200, {"ok": True, "goals": goals}, raw)
-        if err or goals is None:
-            done(200, {"ok": False, "error": err or "계획 실패"}, raw)
-            return
-        why = validate(goals, objects)
-        if why:
-            done(200, {"ok": False, "error": f"검증 실패: {why}"}, raw)
-            return
-        done(200, {"ok": True, "goals": goals}, raw)
 
     def log_message(self, fmt, *args):  # 시끄러운 기본 로그 억제
         pass
@@ -306,7 +360,8 @@ def main():
     if args.host is not None:
         host = args.host
     srv = ThreadingHTTPServer((host, port), Handler)
-    print(f"ai-service {host}:{port} backend={ai_conf().get('backend')} (GET /health, POST /plan)", flush=True)
+    print(f"ai-service {host}:{port} backend={ai_conf().get('backend')} (GET /health, POST /plan, 사람 계획 페이지 http://{host}:{port}/)",
+          flush=True)
     srv.serve_forever()
 
 

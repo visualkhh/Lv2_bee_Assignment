@@ -1,6 +1,6 @@
 #pragma once
 
-// rl_nav_tuner (🛠 직접 작성, 담당: 송정혁) — 설계: documents/ros2-design/11-learn.md "rl_nav_tuner 프리셋"
+// rl_nav_tuner (🛠 직접 작성, 담당: 송정혁) — 설계: documents/project/ros/11-learn.md "rl_nav_tuner 프리셋"
 //   입력: /local_costmap/costmap (통로 폭·최근접 장애물), /odometry/filtered (현재 속도), /plan (남은 거리)
 //   출력: ✉️ /speed_limit (nav2_msgs/SpeedLimit) → controller_server, rl_nav_correction
 //         📞 /controller_server/set_parameters (DWB kinematic: max_vel_theta·acc_lim_x·decel_lim_x)

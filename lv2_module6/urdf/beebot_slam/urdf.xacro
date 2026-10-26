@@ -4,7 +4,7 @@
     beebot_normal/urdf.xacro 에서: 매니퓰레이터(arm_base_link ~ finger·end_effector · gripper_cam)와 ros2_control 팔 관절 6개 삭제,
     폴 꼭대기 반대편(뒤)에 pole_rear_cam 추가 — pole_front_cam은 앞 아래, pole_rear_cam은 뒤 아래를 같은 각도(34°)로 본다.
     남은 링크·관절 이름은 beebot_mesh · beebot_normal과 같다 (pole_rear_cam만 이 모델에 새로)
-  설계: documents/ros2-design/07-tf.md (TF 트리), 08-ctrl.md (ros2_control)
+  설계: documents/project/ros/07-tf.md (TF 트리), 08-ctrl.md (ros2_control)
 
   좌표: base_footprint(바닥) → base_link(바퀴 축 아래 0.010m), x 앞 · y 왼쪽 · z 위
     - 차체: Waffle Pi 본체 266×266mm, 바퀴 반경 0.033m · 간격 0.287m, 뒤쪽 캐스터 2개

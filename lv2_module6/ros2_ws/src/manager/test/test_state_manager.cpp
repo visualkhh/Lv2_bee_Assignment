@@ -146,3 +146,31 @@ TEST_F(RosTest, ExploreOnlyWhileMapping) {
   done.data = "DONE 프론티어 없음";
   ASSERT_TRUE(spin_until(exec, [&] { done_pub->publish(done); }, [&] { return op == "AUTO"; }));
 }
+
+TEST_F(RosTest, MotorErrorInDeviceState) {
+  // /motor_status (BeebotSystemHardware) joint2 과부하 → /state/devices/arm = error + 세부에 joint2:과부하 · 정상이면 active
+  auto node = std::make_shared<StateManager>();
+  auto probe = std::make_shared<rclcpp::Node>("probe_motor");
+  std::string arm;
+  auto arm_sub = probe->create_subscription<std_msgs::msg::String>("/state/devices/arm", rclcpp::QoS(1).reliable().transient_local(),
+    [&](std_msgs::msg::String::SharedPtr m) { arm = m->data; });
+  auto js_pub = probe->create_publisher<sensor_msgs::msg::JointState>("/joint_states", 10);
+  auto motor_pub = probe->create_publisher<control::msg::MotorStatus>("/motor_status", rclcpp::QoS(1).reliable().transient_local());
+  rclcpp::executors::SingleThreadedExecutor exec;
+  exec.add_node(node);
+  exec.add_node(probe);
+  sensor_msgs::msg::JointState js;
+  js.name = {"joint1", "joint2", "joint3", "joint4", "joint5"};
+  js.position.assign(5, 0.0);
+  const auto status = [](int joint2) {
+    control::msg::MotorStatus m;
+    m.joints = {"joint1", "joint2"};
+    m.error = {0, joint2};
+    m.text = {"정상", joint2 ? "과부하" : "정상"};
+    return m;
+  };
+  ASSERT_TRUE(spin_until(exec, [&]() { js_pub->publish(js); motor_pub->publish(status(32)); },
+    [&]() { return arm == "joint|error|joint1,joint2,joint3,joint4,joint5,joint2:과부하"; }, 8.0)) << arm;
+  ASSERT_TRUE(spin_until(exec, [&]() { js_pub->publish(js); motor_pub->publish(status(0)); },
+    [&]() { return arm == "joint|active|joint1,joint2,joint3,joint4,joint5"; }, 8.0)) << arm;
+}

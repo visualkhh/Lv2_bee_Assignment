@@ -36,6 +36,12 @@ scripts/check_urdf.sh
 | `port` | `/dev/opencr` | OpenCR 시리얼 포트 (udev 고정 이름 — `ros2_ws/99-opencr.rules`) |
 | `mesh_uri` | `package://ros_system/urdf/meshes` | 메시 경로 앞부분. `make_urdf.sh`는 이 값을 `beebot_mesh/meshes`로 바꿔 `beebot_mesh/beebot.urdf`를 만든다 |
 
+**영점 오프셋** — 조립·서보 혼 각도 때문에 서보가 읽는 0과 URDF의 0이 다르면 `<ros2_control>`의 관절별
+`<param name="offset">`에 적는다 (팔 joint1~5 [rad], `gripper_left_joint` [m], 기본 0.0). BeebotSystemHardware가
+`관절값 = 서보 값 − offset`으로 읽고 `서보 값 = 관절값 + offset`으로 보낸다 — 펌웨어 재업로드 없이 URDF만 고치고 재시작.
+실측: 팔을 URDF 0 자세(설계 도면 자세)로 손으로 맞추고 `/joint_states` 값을 그대로 offset에 적는다.
+바퀴는 위치 오프셋이 주행에 영향이 없어 두지 않았다 (방향은 펌웨어 `WHEEL_*_DIR`).
+
 ```bash
 xacro beebot.urdf.xacro mock_hardware:=true > /tmp/beebot.urdf && check_urdf /tmp/beebot.urdf
 ```

@@ -52,3 +52,28 @@ TEST_F(RosTest, ForwardsOnlyInManualMode) {
     [&]() { return node->manual() && out != nullptr; }));
   EXPECT_DOUBLE_EQ(out->twist.linear.x, 0.1);
 }
+
+TEST_F(RosTest, RebootOnlyInManualMode) {
+  // /cmd/manual/reboot_motors → 수동일 때만 /beebotsystem/reboot_motors 서비스 호출
+  auto node = std::make_shared<ManualControl>();
+  auto probe = std::make_shared<rclcpp::Node>("probe_reboot");
+  auto mode_pub = probe->create_publisher<std_msgs::msg::String>("/state/operation_mode", rclcpp::QoS(1).reliable().transient_local());
+  auto cmd_pub = probe->create_publisher<std_msgs::msg::Empty>("/cmd/manual/reboot_motors", 10);
+  int calls = 0;
+  auto srv = probe->create_service<std_srvs::srv::Trigger>("/beebotsystem/reboot_motors",
+    [&](const std_srvs::srv::Trigger::Request::SharedPtr, std_srvs::srv::Trigger::Response::SharedPtr res) {
+      ++calls;
+      res->success = true;
+      res->message = "재부팅 요청: joint2";
+    });
+  rclcpp::executors::SingleThreadedExecutor exec;
+  exec.add_node(node);
+  exec.add_node(probe);
+  std_msgs::msg::String mode;
+  mode.data = "AUTO";
+  spin_until(exec, [&]() { mode_pub->publish(mode); cmd_pub->publish(std_msgs::msg::Empty()); }, [] { return false; }, 0.5);
+  EXPECT_EQ(calls, 0);
+  mode.data = "MANUAL";
+  ASSERT_TRUE(spin_until(exec, [&]() { mode_pub->publish(mode); if (node->manual()) cmd_pub->publish(std_msgs::msg::Empty()); },
+    [&]() { return calls > 0; }));
+}

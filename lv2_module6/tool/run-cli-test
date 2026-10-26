@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# run-cli-test — cli-test/{start,stop,restart}.sh 실행기. 기본은 start.
+#   ./tool/run-cli-test [start] [...]   # CLI 시작 (기본)
+#   ./tool/run-cli-test stop            # 실행 중인 CLI 종료
+#   ./tool/run-cli-test restart         # CLI 프로세스 재시작 (인자 없을 때만)
+set -eo pipefail
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+cmd="${1:-start}"
+case "$cmd" in
+  start)
+    [ $# -gt 0 ] && shift
+    exec "$HERE/cli-test/start.sh" "$@"
+    ;;
+  stop)
+    [ $# -gt 0 ] && shift
+    exec "$HERE/cli-test/stop.sh" "$@"
+    ;;
+  restart)
+    if [ $# -eq 1 ]; then
+      exec "$HERE/cli-test/restart.sh"
+    fi
+    exec "$HERE/cli-test/start.sh" "$@"
+    ;;
+  *)
+    exec "$HERE/cli-test/start.sh" "$@"
+    ;;
+esac

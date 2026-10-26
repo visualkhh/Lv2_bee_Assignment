@@ -34,7 +34,10 @@ def test_empty_without_model():
         for p in ("rate_hz", "model_path", "confidence", "imgsz", "device", "sync_slop", "match_dist",
                   "pixel_sigma", "depth_sigma0", "depth_sigma_k", "process_noise", "process_noise_dynamic",
                   "self_filter", "base_frame", "self_links", "self_radius", "body_radius", "body_height", "track_frame",
-                  "self_arm_hits"):
+                  "self_arm_hits", "miss_count", "miss_max_range", "miss_edge_px", "miss_occlusion_m",
+                  "puck_colors", "hue_tol", "check_model_color", "size_long_min_cm", "size_long_max_cm",
+                  "size_short_min_cm", "square_long_cm", "square_ratio", "stand_ratio", "edge_px", "near_px",
+                  "depth_min_valid", "remember_min_hits"):
             assert node.has_parameter(p), p
         end = node.get_clock().now() + rclpy.duration.Duration(seconds=6)
         while node.get_clock().now() < end and ("n" not in got or "names" not in diag):
@@ -46,7 +49,7 @@ def test_empty_without_model():
 
 
 def test_mission_qr():
-    """QR 판이 보이는 영상을 넣으면 /mission_qr 로 문제 코드를 낸다 (MISSION.md §3-1)."""
+    """QR 판이 보이는 영상을 넣으면 /mission/qr 로 문제 코드를 낸다 (documents/mission/README.md)."""
     import cv2
     import numpy as np
     from sensor_msgs.msg import Image
@@ -78,7 +81,7 @@ def test_mission_qr():
         t.transform.rotation.w = 1.0
         tfb.sendTransform(t)
         got = []
-        node.create_subscription(String, "/mission_qr", lambda m: got.append(m.data),
+        node.create_subscription(String, "/mission/qr", lambda m: got.append(m.data),
                                  node.qr_pub.qos_profile)
         node.on_frame("pole_front_cam", msg, depth_msg)  # 동기화된 컬러·depth 쌍
         end = node.get_clock().now() + rclpy.duration.Duration(seconds=4)
@@ -181,6 +184,8 @@ def test_fuse_two_cameras():
         assert len(node.tracks) == 1
         tr = next(iter(node.tracks.values()))
         assert set(tr["seen"]) == {"pole_front_cam", "gripper_cam"} and tr["camera"] == "gripper_cam"
+        from perception_node import to_msg
+        assert list(to_msg(a[0], tr).cameras) == ["pole_front_cam", "gripper_cam"]  # 끝 = 마지막(px) 카메라
         # 한 카메라만 믿었으면 5cm — 융합하면 상대 카메라의 정확한 가로 방향이 depth 축 오차를 잡아 준다
         assert np.linalg.norm(tr["p"] - truth) < 0.02, tr["p"]
         sz_one = r_cam[2, 2]
@@ -258,3 +263,300 @@ def test_arm_in_box():
     assert not box_has_arm((435, 280, 460, 300), px, 3)    # 끝 한 점만 — 기준 미만
     behind = arm_pixels([np.array([0, 0, -1.0]), np.array([0.1, 0, -1.0])], np.eye(3), np.zeros(3), 500, 500, 320, 240)
     assert len(behind) == 0                                # 카메라 뒤는 안 찍힘
+
+
+# ---------- 기억 · 퍽 계열 합치기 (팀 확인 10/22) — 시나리오는 test/memory_check.py와 같음
+FX_T = FY_T = 606.0
+CX_T, CY_T, W_T, H_T = 323.0, 241.0, 640, 480
+
+
+def _cam_rot(yaw_deg, pitch_deg=18.0):
+    """yaw만큼 돌고 pitch만큼 아래를 보는 카메라(pole_front_cam URDF 18°)의 카메라 → odom 회전"""
+    import math
+
+    import numpy as np
+    a, p = math.radians(yaw_deg), math.radians(pitch_deg)
+    fwd = np.array([math.cos(p) * math.cos(a), math.cos(p) * math.sin(a), -math.sin(p)])  # 광학 z (앞)
+    right = np.array([math.sin(a), -math.cos(a), 0.0])                                    # 광학 x (오른쪽)
+    return np.stack([right, np.cross(fwd, right), fwd], axis=1)                           # 광학 y = z × x (아래)
+
+
+def _view(yaw_deg, depth=None):
+    """prune에 넘기는 그 순간 카메라 (rot, trans, fx, fy, cx, cy, depth_m) — 깊이 없으면 '뒤 배경 5m'"""
+    import numpy as np
+    d = depth if depth is not None else np.full((H_T, W_T), 5.0, np.float32)
+    return _cam_rot(yaw_deg), np.array([0.0, 0.0, 0.43]), FX_T, FY_T, CX_T, CY_T, d
+
+
+def _seen(p, v):
+    """점 p가 그 카메라 화면 안인가 (가짜 검출을 만들지)"""
+    import numpy as np
+    pc = v[0].T @ (np.asarray(p, float) - v[1])
+    if pc[2] < 0.1:
+        return False
+    u, vv = FX_T * pc[0] / pc[2] + CX_T, FY_T * pc[1] / pc[2] + CY_T
+    return 0 <= u < W_T and 0 <= vv < H_T
+
+
+def _det(p, cls="puck", color="red", posture=None):
+    """fuse에 넣는 가짜 검출 (update_tracks가 만드는 것과 같은 칸)"""
+    import numpy as np
+    if posture is None:
+        posture = "lying" if cls == "puck_lying" else "standing" if cls == "puck" else ""
+    return {"class_name": cls, "z": np.asarray(p, float), "R": np.eye(3) * 1e-4, "size": np.array([0.06, 0.06, 0.04]),
+            "conf": 0.9, "px": (1, 1), "color": color, "posture": posture}
+
+
+def _step(node, t, v, objs):
+    """한 프레임: 화면 안 물체만 검출로 넣고 fuse → prune (update_tracks와 같은 순서)"""
+    from builtin_interfaces.msg import Time
+    dets = [_det(**o) for o in objs if _seen(o["p"], v)]
+    ids = node.fuse("pole_front_cam", Time(sec=int(t), nanosec=int(round((t % 1) * 1e9))), dets)
+    node.prune(t, set(ids), v)
+    return ids
+
+
+def _names(node):
+    from perception_node import to_msg
+    return [to_msg(tid, tr).class_name for tid, tr in sorted(node.tracks.items())]
+
+
+def test_remember_out_of_view():
+    """퍽은 화면 밖으로 나가도 기억(같은 id로 다시 이어짐) · 사람은 2초 뒤 삭제 ·
+    그 자리가 잘 보이는데 3번 연속 없으면(집어 감) 삭제 — 1·2번째엔 아직 남음
+    (기억은 같은 자리에서 remember_min_hits(3)번 잡힌 뒤부터 — 처음 3프레임을 보고 시작)"""
+    os.environ.setdefault("ROS_DOMAIN_ID", "101")
+    rclpy.init()
+    try:
+        node = PerceptionNode()
+        puck = {"p": (1.0, 0.0, 0.03)}
+        person = {"p": (1.5, 0.3, 0.9), "cls": "person", "color": ""}
+        for t in (0.0, 0.1, 0.2):  # 처음 3프레임 — 확인(기억 대상)
+            _step(node, t, _view(0), [puck, person])
+        first = min(node.tracks)
+        for k in range(1, 26):  # 왼쪽으로 90° 돌아 둘 다 화면 밖 · 0.2초마다 5초
+            _step(node, 0.2 + 0.2 * k, _view(90), [puck, person])
+        assert _names(node) == ["puck"]
+        assert _step(node, 5.4, _view(0), [puck]) == [first] and len(node.tracks) == 1  # 다시 돌아봄 — 같은 id
+        alive = []
+        for k in range(3):  # 누가 집어 감
+            _step(node, 5.6 + 0.2 * k, _view(0), [])
+            alive.append(len(node.tracks))
+        assert alive == [1, 1, 0]
+    finally:
+        rclpy.shutdown()
+
+
+def test_remember_not_counted():
+    """못 봤다고 세지 않는 경우 — 앞이 가려짐(그 자리 깊이가 가까움) · 3m 넘게 멂 · 깊이 없음(너무 가까움) → 계속 기억
+    (3프레임 보고 확인한 뒤 3초 — 확인 전이었다면 2초 규칙으로 지워졌을 시간)"""
+    import numpy as np
+
+    os.environ.setdefault("ROS_DOMAIN_ID", "101")
+    rclpy.init()
+    try:
+        node = PerceptionNode()
+        for p, depth in (((1.0, 0.0, 0.03), np.full((H_T, W_T), 0.5, np.float32)),   # 0.5m 앞에 무언가
+                         ((3.5, 0.0, 0.03), None),                                    # 너무 멂
+                         ((1.0, 0.0, 0.03), np.zeros((H_T, W_T), np.float32))):       # 깊이 0
+            node.tracks.clear()
+            for t in (0.0, 0.1, 0.2):
+                _step(node, t, _view(0), [{"p": p}])
+            for k in range(1, 16):
+                _step(node, 0.2 + 0.2 * k, _view(0, depth), [])
+            assert len(node.tracks) == 1, p
+    finally:
+        rclpy.shutdown()
+
+
+def test_ghost_not_remembered():
+    """유령 퍽 — 카메라 자세(TF)가 영상과 잠깐 어긋나 한 번만 엉뚱한 자리로 찍힌 퍽은 기억하지 않음 (2초 규칙으로 삭제).
+    같은 때 3번 이상 잡힌 진짜 퍽은 기억 (10/22 시뮬레이터: 같은 초록 퍽이 9곳에 남았던 것)"""
+    os.environ.setdefault("ROS_DOMAIN_ID", "101")
+    rclpy.init()
+    try:
+        node = PerceptionNode()
+        real = {"p": (1.0, 0.0, 0.03)}
+        ghost = {"p": (1.0, 0.6, 0.03)}  # TF가 틀린 한 프레임에만 찍힌 자리
+        for t in (0.0, 0.1, 0.2):
+            _step(node, t, _view(0), [real])
+        _step(node, 0.3, _view(30), [ghost])  # 한 번만
+        assert len(node.tracks) == 2
+        for k in range(1, 16):  # 둘 다 화면 밖으로 돌아 3초
+            _step(node, 0.3 + 0.2 * k, _view(150), [])
+        assert [tuple(tr["p"]) for tr in node.tracks.values()] == [real["p"]]
+    finally:
+        rclpy.shutdown()
+
+
+def test_puck_family_fuse():
+    """퍽 계열 합치기 — 누움(pole) + 자세 모름(gripper)은 id 하나 · 발행 puck_lying /
+    붙은 다른 색 퍽은 둘 / 색 못 정한 관측은 같은 퍽에 붙고 아는 색을 덮지 않음 / 신호등은 색(상태)이 바뀌어도 같은 물체"""
+    from builtin_interfaces.msg import Time
+
+    os.environ.setdefault("ROS_DOMAIN_ID", "101")
+    rclpy.init()
+    try:
+        node = PerceptionNode()
+        a = node.fuse("pole_front_cam", Time(), [_det((1.0, 0.0, 0.03), "puck_lying")])
+        b = node.fuse("gripper_cam", Time(), [_det((1.01, 0.0, 0.03), "puck", posture="")])
+        assert a == b and _names(node) == ["puck_lying"]
+        node.tracks.clear()
+        ids = node.fuse("pole_front_cam", Time(), [_det((1.0, 0.0, 0.03), color="red"),
+                                                    _det((1.0, 0.05, 0.03), color="blue")])
+        assert len(set(ids)) == 2
+        node.tracks.clear()
+        a = node.fuse("pole_front_cam", Time(), [_det((1.0, 0.0, 0.03), color="red")])
+        b = node.fuse("pole_front_cam", Time(sec=1), [_det((1.0, 0.0, 0.03), color="unknown")])
+        assert a == b and node.tracks[a[0]]["color"] == "red"
+        node.tracks.clear()
+        a = node.fuse("pole_front_cam", Time(), [_det((2.0, 0.0, 0.4), "traffic_light", "red")])
+        b = node.fuse("pole_front_cam", Time(sec=1), [_det((2.0, 0.0, 0.4), "traffic_light", "green")])
+        assert a == b and node.tracks[a[0]]["color"] == "green"
+    finally:
+        rclpy.shutdown()
+
+
+# ---------- 퍽 판단 · 클래스 이름 (test/puck_tag_check.py 실물 기준을 옮김)
+def test_split_class():
+    """모델 이름 → 설계 이름 + 이름에 든 색 (새 모델 색별 클래스 · 팀 모델 둘 다)"""
+    from perception_node import split_class
+    assert split_class("puck_red") == ("puck", "red")
+    assert split_class("puck_lying") == ("puck", "")
+    assert split_class("puck") == ("puck", "")
+    assert split_class("traffic_light_off") == ("traffic_light", "off")
+    assert split_class("traffic_light") == ("traffic_light", "")
+    assert split_class("person") == ("person", "")
+
+
+class _Boxes:
+    """ultralytics 결과 박스 흉내 — update_tracks가 쓰는 b.cls[0] · b.xyxy[0].tolist() · b.conf[0]"""
+
+    class _Xyxy:
+        def __init__(self, v):
+            self.v = v
+
+        def __getitem__(self, i):
+            return self
+
+        def tolist(self):
+            return list(self.v)
+
+    def __init__(self, c, xyxy):
+        self.cls, self.xyxy, self.conf = [c], self._Xyxy(xyxy), [0.9]
+
+
+def test_puck_judge_pipeline():
+    """가짜 영상 + 가짜 YOLO 박스 → update_tracks → 트랙 (1m 앞, fx 606: 3cm ≈ 18px)
+    서있는 퍽 puck · 누운 퍽 puck_lying · 주황(색) · YOLO 색과 HSV 색 다름 · 빨대(크기) · 큰 판(크기) ·
+    깊이 없는 근접 퍽(위치 갱신 안 함) → 버림 · 신호등은 이름의 상태로"""
+    import numpy as np
+    from builtin_interfaces.msg import Time
+    from geometry_msgs.msg import TransformStamped
+
+    os.environ.setdefault("ROS_DOMAIN_ID", "101")
+    rclpy.init()
+    try:
+        node = PerceptionNode()
+        node.names = {0: "puck_red", 3: "puck_blue", 4: "traffic_light_red"}  # 새 모델(bee_v3ft) 이름
+        node.self_filter = False
+        t = TransformStamped()
+        t.header.frame_id, t.child_frame_id = "odom", "pole_front_cam_color_optical_frame"
+        t.transform.rotation.w = 1.0
+        node.tf.set_transform_static(t, "test")
+        bgr_of = {"red": (40, 40, 220), "orange": (30, 140, 250)}
+
+        def run(box, color, depth_mm, cls=0):
+            img = np.full((480, 640, 3), 128, np.uint8)
+            dep = np.full((480, 640), 3000, np.uint16)  # 뒤 배경 3m
+            x0, y0, x1, y1 = box
+            img[y0:y1, x0:x1] = bgr_of[color]
+            dep[y0:y1, x0:x1] = depth_mm
+            s = {"bgr": img, "depth_mm": dep, "stamp": Time(sec=1), "frame_id": "pole_front_cam_color_optical_frame",
+                 "fx": 606.0, "fy": 606.0, "cx": 320.0, "cy": 240.0}
+            node.frames["pole_front_cam"] = {}
+            node.tracks.clear()
+            node.update_tracks("pole_front_cam", s, type("Res", (), {"boxes": [_Boxes(cls, box)]})())
+            from perception_node import to_msg
+            return [(to_msg(i, tr).class_name, tr["color"]) for i, tr in sorted(node.tracks.items())]
+
+        assert run((300, 200, 318, 236), "red", 1000) == [("puck", "red")]            # 서있음 3×6cm
+        assert run((300, 200, 336, 218), "red", 1000) == [("puck_lying", "red")]      # 누움 6×3cm
+        assert run((300, 200, 318, 236), "orange", 1000) == []                        # 주황 컵홀더 — 색
+        assert run((300, 200, 318, 236), "red", 1000, cls=3) == []                    # YOLO 파랑 · HSV 빨강
+        assert run((300, 200, 306, 236), "red", 1000) == []                           # 빨대 1×6cm — 크기
+        assert run((300, 100, 400, 300), "red", 1000) == []                           # 16×33cm 판 — 크기
+        assert run((250, 150, 400, 400), "red", 0) == []                              # 깊이 없는 근접 퍽 — 위치 모름
+        assert run((300, 100, 330, 200), "red", 2000, cls=4) == [("traffic_light", "red")]
+    finally:
+        rclpy.shutdown()
+
+
+def test_resolve_model_path(tmp_path):
+    """model_path — 비면 model.pt · 파일 이름만이면 설치 폴더(share/perception/model)에서 · 경로면 그대로"""
+    from perception_node import resolve_model_path
+    (tmp_path / "model.pt").write_bytes(b"")
+    (tmp_path / "bee_yolo11n_v1.pt").write_bytes(b"")
+    d = str(tmp_path)
+    assert resolve_model_path("", d) == os.path.join(d, "model.pt")
+    assert resolve_model_path("bee_yolo11n_v1.pt", d) == os.path.join(d, "bee_yolo11n_v1.pt")
+    assert resolve_model_path("/x/y/my.pt", d) == "/x/y/my.pt"      # 전체 경로는 그대로
+    assert resolve_model_path("none.pt", d) == "none.pt"            # 폴더에 없으면 그대로 (로드 실패 경고)
+    (tmp_path / "model.pt").unlink()
+    assert resolve_model_path("", d) == ""                          # model.pt도 없으면 모델 없음
+
+
+# ---------- 표식 (발제 배포 표식: 퍽 AprilTag 0~11 · 장소 12~14 · 바코드) · 신호등 단계 구분
+def test_tags_and_markers():
+    """AprilTag 36h11 디코드 → 퍽 박스 안 번호 · 번호 → 색 / 신호등 두 색 이상 켜짐 = all / 태그 다른 퍽·장소는 다른 물체 · 번호 기억"""
+    import cv2
+    import numpy as np
+    from builtin_interfaces.msg import Time
+    from perception_node import classify_color, detect_tags, tag_color, tag_detector, tag_in_box, to_msg
+
+    dic = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_APRILTAG_36h11)
+    img = np.full((240, 320, 3), 255, np.uint8)
+    img[40:100, 40:100] = cv2.cvtColor(cv2.aruco.generateImageMarker(dic, 2, 60), cv2.COLOR_GRAY2BGR)     # R3
+    img[40:120, 180:260] = cv2.cvtColor(cv2.aruco.generateImageMarker(dic, 13, 80), cv2.COLOR_GRAY2BGR)  # L2
+    tags = detect_tags(tag_detector(), img)
+    assert sorted(t[0] for t in tags) == [2, 13]
+    assert tag_in_box(tags, (30, 30, 110, 110), set(range(12))) == 2
+    assert tag_in_box(tags, (170, 30, 270, 130), set(range(12))) is None  # 장소 태그는 퍽 번호 아님
+    colors = {"red": [0, 1, 2, 3], "green": [4, 5, 6, 7], "blue": [8, 9, 10, 11]}
+    assert tag_color(2, colors) == "red" and tag_color(9, colors) == "blue" and tag_color(13, colors) == ""
+
+    roi = np.full((40, 14, 3), (40, 40, 40), np.uint8)
+    roi[2:10, 4:10] = (40, 40, 220)    # 빨강
+    roi[16:24, 4:10] = (40, 220, 230)  # 노랑
+    roi[30:38, 4:10] = (60, 180, 60)   # 초록
+    assert classify_color("traffic_light", roi) == "all"
+
+    os.environ.setdefault("ROS_DOMAIN_ID", "101")
+    rclpy.init()
+    try:
+        node = PerceptionNode()
+        a = node.fuse("gripper_cam", Time(), [{**_det((1.0, 0.0, 0.03), color="red"), "tag": 1},
+                                              {**_det((1.02, 0.0, 0.03), color="red"), "tag": 2}])
+        assert len(set(a)) == 2  # 붙은 같은 색 퍽 — 번호가 다르면 다른 물체
+        b = node.fuse("pole_front_cam", Time(sec=1), [{**_det((1.0, 0.0, 0.03), color="red"), "tag": None}])
+        assert b[0] in a and node.tracks[b[0]]["tag"] is not None  # 멀어서 못 읽은 관측이 아는 번호를 덮지 않음
+        msg = to_msg(a[0], node.to_map(node.tracks[a[0]]))
+        assert ("tag", "1") in [(kv.key, kv.value) for kv in msg.details]
+    finally:
+        rclpy.shutdown()
+
+
+def test_barcode_code128():
+    """장소 바코드(발제 P2-01, Code128) — zxing-cpp로 읽음 (OpenCV barcode는 EAN·UPC만이라 못 읽음). zxing-cpp 없으면 건너뜀"""
+    import cv2
+    import numpy as np
+    import pytest
+    zxingcpp = pytest.importorskip("zxingcpp")
+    from perception_node import barcode_detector
+
+    code = np.array(zxingcpp.create_barcode("P2-01", zxingcpp.BarcodeFormat.Code128).to_image(scale=2, add_quiet_zones=True))
+    scene = np.full((360, 640), 180, np.uint8)
+    scene[120:120 + code.shape[0], 200:200 + code.shape[1]] = code
+    ok, texts, _, points = barcode_detector()(cv2.cvtColor(scene, cv2.COLOR_GRAY2BGR))
+    assert ok and list(texts) == ["P2-01"]
+    assert np.asarray(points).reshape(-1, 4, 2).shape == (1, 4, 2)  # 꼭짓점 4개 — 위치(깊이) 구하는 데 씀

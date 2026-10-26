@@ -13,10 +13,24 @@ fi
 #   ./test-firmware --hold --yes            # 현재 자세 유지 명령을 한 번 보냄
 #   ./test-firmware --send 'C,0,0,0,0,0,0,0,0' --yes
 #   ./test-firmware --arm joint1 0.05 --yes # joint1만 현재 자세에서 +0.05 rad
-#   ./test-firmware --gripper 0.005 --yes   # 그리퍼 폭 5 mm
+#   ./test-firmware --gripper 0.005 --yes   # 손가락 하나 5 mm 이동 → 간격 30 mm (= 20 + 2×5, 퍽 크기)
+#   ./test-firmware --wheel 0.3 --yes       # 양쪽 바퀴 0.3 rad/s (팔·그리퍼는 현재 유지)
+#   ./test-firmware --wheel 0.3 -0.3 --yes  # 좌 0.3 · 우 -0.3 rad/s (제자리 회전)
+#   ./test-firmware --l-wheel 0.3 --yes     # 왼쪽만 0.3 rad/s (오른쪽은 정지)
+#   ./test-firmware --r-wheel 0.3 --yes     # 오른쪽만 0.3 rad/s (왼쪽은 정지)
+#   ./test-firmware --wheel 0.3 --count 100 --yes  # 100번 전송 ≈ 5초간 구동
+#   ./test-firmware --send 'C,0.3,0.3,,,,,,' --yes # 빈칸 = 유지 (바퀴는 0 대신 명시, 총 8필드)
+#   ./test-firmware --torque off --yes             # 전체 토크 해제 (손으로 자세 잡기)
+#   ./test-firmware --torque on --yes              # 전체 토크 켜기 (지금 자세를 목표로)
+#   ./test-firmware --torque 1,0,,,,,, --yes       # 조인트별 (C와 같은 순서, 빈칸=유지)
+#   ./test-firmware --reboot joint2,gripper --yes  # 모터 재부팅 (Hardware Error 풀기) — all이면 전체 (팔이 잠깐 힘 빠짐)
+#
+# 빈칸 규칙 (펌웨어·faker 공통): C의 빈 필드는 "유지" — 팔·그리퍼는 현재 목표 유지,
+#   바퀴는 정지(0). 전부 빈칸이면 바퀴 정지 + 팔 유지. S 읽기에는 영향 없음.
 #
 # 주의:
-#   - --arm/--gripper/--send는 실제로 모터를 움직입니다. 주변을 비우고 작은 값부터.
+#   - --arm/--gripper/--send/--torque on은 실제로 모터를 움직입니다. 주변을 비우고 작은 값부터.
+#   - --torque off는 팔이 중력으로 떨어질 수 있습니다 — 손으로 받치고 실행하세요.
 #   - 모터 8개(바퀴 1·2, 팔 11~15, 그리퍼 16)가 모두 1 Mbps/Protocol 2.0으로
 #     연결되어 있어야 펌웨어가 C 명령을 받습니다. 하나라도 없으면 S만 나옵니다.
 #   - ROS(controller_manager)나 다른 시리얼 모니터가 포트를 잡고 있으면 종료하세요.
@@ -30,11 +44,16 @@ SEND=""
 ARM=""
 ARM_DELTA=""
 GRIPPER=""
+WHEEL_L=""
+WHEEL_R=""
+COUNT=""
+TORQUE=""
+REBOOT=""
 YES=0
 TIMEOUT=2
 
 usage() {
-  sed -n '6,22p' "$0"
+  sed -n '6,26p' "$0"
 }
 
 while (($#)); do
@@ -46,12 +65,33 @@ while (($#)); do
     --send) SEND=$2; shift 2 ;;
     --arm) ARM=$2; ARM_DELTA=$3; shift 3 ;;
     --gripper) GRIPPER=$2; shift 2 ;;
+    --wheel)
+      # --wheel <vl> [vr] — vr 생략 시 양쪽 동일. 바퀴만 움직이고 팔·그리퍼는 S 현재값 유지.
+      WHEEL_L=$2
+      if [[ "${3:-}" =~ ^-?[0-9]+([.][0-9]+)?$ ]]; then WHEEL_R=$3; shift 3; else WHEEL_R=$2; shift 2; fi ;;
+    --l-wheel) WHEEL_L=$2; WHEEL_R=0; shift 2 ;;  # 왼쪽만, 오른쪽은 정지
+    --r-wheel) WHEEL_L=0; WHEEL_R=$2; shift 2 ;;  # 오른쪽만, 왼쪽은 정지
+    --count) COUNT=$2; shift 2 ;;
+    --torque)
+      # --torque on|off|1|0  또는 조인트별 "1,0,,,,,,", "joint1=0" 형식
+      case "$2" in
+        on|ON|1) TORQUE="1" ;;
+        off|OFF|0) TORQUE="0" ;;
+        *) TORQUE=$2 ;;
+      esac
+      shift 2 ;;                # C 전송 횟수 (1회 = 0.05s, 기본 hold/send 5·arm/gripper/wheel 20)
+    --reboot) REBOOT=$2; shift 2 ;;
     --yes) YES=1; shift ;;
     --timeout) TIMEOUT=$2; shift 2 ;;
     -h | --help) usage; exit 0 ;;
     *) echo "모르는 옵션: $1"; usage; exit 2 ;;
   esac
 done
+
+if [ -n "$COUNT" ]; then
+  [[ "$COUNT" =~ ^[0-9]+$ ]] && [ "$COUNT" -ge 1 ] && [ "$COUNT" -le 1200 ] \
+    || { echo "FAIL: --count는 1~1200 정수 (1회 = 0.05s): $COUNT"; exit 2; }
+fi
 
 if [ -z "$PORT" ]; then
   if [ -e /dev/opencr ]; then PORT=/dev/opencr; else PORT=/dev/ttyACM0; fi
@@ -67,7 +107,7 @@ if pgrep -f 'ros2_control_node|controller_manager' >/dev/null 2>&1; then
   exit 2
 fi
 
-if [ -n "$ARM" ] || [ -n "$GRIPPER" ] || [ -n "$SEND" ] || [ "$HOLD" = 1 ]; then
+if [ -n "$ARM" ] || [ -n "$GRIPPER" ] || [ -n "$SEND" ] || [ -n "$WHEEL_L" ] || [ -n "$TORQUE" ] || [ -n "$REBOOT" ] || [ "$HOLD" = 1 ]; then
   [ -w "$PORT" ] || { echo "FAIL: 쓰기 권한 없음: $PORT"; exit 2; }
   if [ "$YES" != 1 ]; then
     echo "WARNING: 모터가 움직일 수 있습니다: $PORT"
@@ -95,14 +135,14 @@ read_status() {
 }
 
 # 시리얼을 timeout으로 끊으면 마지막 줄이 중간에서 잘릴 수 있다.
-# S 필드가 정확히 32개인 "완전한 줄"만 사용한다.
+# S 필드가 40개(끝 8개 = 모터 온도 °C)인 "완전한 줄"만 사용한다. 온도 전 예전 펌웨어(32개)도 받는다.
 complete_s_lines() {
   awk -F, '
     /^S,/ {
       line = $0;
       sub(/\r$/, "", line);
       n = split(line, a, ",");
-      if (n == 33) print line;
+      if (n == 41 || n == 33) print line;
     }
   ' "$tmp"
 }
@@ -114,9 +154,9 @@ s_count=$((s_count))
 if [ "$s_count" -eq 0 ]; then
   partial=$(grep '^S,' "$tmp" | tail -n 1 | tr -d '\r' || true)
   if [ -n "$partial" ]; then
-    echo "FAIL: S 줄은 수신되지만 32필드짜리 완전한 줄이 없습니다 ($PORT)"
+    echo "FAIL: S 줄은 수신되지만 40필드짜리 완전한 줄이 없습니다 ($PORT)"
     echo "마지막 S: $partial"
-    echo "  이 줄의 필드 수: $(awk -F, '{print NF - 1}' <<<"$partial") (기대: 32)"
+    echo "  이 줄의 필드 수: $(awk -F, '{print NF - 1}' <<<"$partial") (기대: 40 · 예전 펌웨어 32)"
     echo "  - beebot_opencr이 아닌 다른 OpenCR 펌웨어일 가능성"
     echo "  - 또는 시리얼이 중간에 끊겨 필드가 잘린 경우"
     echo "  - raw 확인: ./test-firmware --raw"
@@ -131,12 +171,12 @@ fi
 
 last=$(complete_s_lines | tail -n 1)
 fields=$(awk -F, '{print NF - 1}' <<<"$last")
-say "OK: S ${s_count}줄, 필드 ${fields}개 (기대: 32개)"
+say "OK: S ${s_count}줄, 필드 ${fields}개 (기대: 40개 · 예전 펌웨어 32개)"
 say "포트: $PORT"
 say ""
 
 if [ "$RAW" = 1 ]; then
-  say "--- S 줄 (최대 $LINES개, 완전한 32필드만) ---"
+  say "--- S 줄 (최대 $LINES개, 완전한 40·32필드만) ---"
   complete_s_lines | head -n "$LINES" || true
   say ""
 fi
@@ -145,22 +185,53 @@ IFS=',' read -r -a v <<<"$last"
 if [ "${#v[@]}" -lt 33 ]; then
   echo "FAIL: S 필드가 부족합니다 (${#v[@]}개, S 포함)"
   echo "마지막 S: $last"
-  echo "  beebot_opencr는 S 뒤에 32개 값이 와야 합니다."
+  echo "  beebot_opencr는 S 뒤에 40개 값이 와야 합니다 (예전 펌웨어 32개)."
   echo "  이 값이 8개뿐이면 beebot_opencr이 아닌 다른 펌웨어가 도는 중일 가능성이 큽니다."
   exit 1
 fi
-if [ "$fields" != 32 ]; then
-  echo "WARN: S 필드 수가 32가 아닙니다. 펌웨어/프로토콜 버전을 확인하세요."
+if [ "$fields" = 32 ]; then
+  echo "WARN: S 필드 32개 — 모터 온도 없는 예전 펌웨어입니다. 다시 업로드하세요."
+elif [ "$fields" != 40 ]; then
+  echo "WARN: S 필드 수가 40이 아닙니다. 펌웨어/프로토콜 버전을 확인하세요."
 fi
 
-printf 'wheel L : pos % .4f rad  vel % .4f rad/s\n' "${v[1]}" "${v[2]}"
-printf 'wheel R : pos % .4f rad  vel % .4f rad/s\n' "${v[3]}" "${v[4]}"
-printf 'joint1  : pos % .4f rad  vel % .4f rad/s  cur % .3f A\n' "${v[5]}" "${v[6]}" "${v[7]}"
-printf 'joint2  : pos % .4f rad  vel % .4f rad/s  cur % .3f A\n' "${v[8]}" "${v[9]}" "${v[10]}"
-printf 'joint3  : pos % .4f rad  vel % .4f rad/s  cur % .3f A\n' "${v[11]}" "${v[12]}" "${v[13]}"
-printf 'joint4  : pos % .4f rad  vel % .4f rad/s  cur % .3f A\n' "${v[14]}" "${v[15]}" "${v[16]}"
-printf 'joint5  : pos % .4f rad  vel % .4f rad/s  cur % .3f A\n' "${v[17]}" "${v[18]}" "${v[19]}"
+# rad + deg 같이 (각도 확인용). 바퀴는 회전 누적이라 deg는 참고만.
+deg() { awk -v r="$1" 'BEGIN { printf "%+.1f", r * 57.2957795 }'; }
+printf 'wheel L : pos % .4f rad (%s deg)  vel % .4f rad/s (%s deg/s)\n' "${v[1]}" "$(deg "${v[1]}")" "${v[2]}" "$(deg "${v[2]}")"
+printf 'wheel R : pos % .4f rad (%s deg)  vel % .4f rad/s (%s deg/s)\n' "${v[3]}" "$(deg "${v[3]}")" "${v[4]}" "$(deg "${v[4]}")"
+printf 'joint1  : pos % .4f rad (%s deg)  vel % .4f rad/s  cur % .3f A\n' "${v[5]}" "$(deg "${v[5]}")" "${v[6]}" "${v[7]}"
+printf 'joint2  : pos % .4f rad (%s deg)  vel % .4f rad/s  cur % .3f A\n' "${v[8]}" "$(deg "${v[8]}")" "${v[9]}" "${v[10]}"
+printf 'joint3  : pos % .4f rad (%s deg)  vel % .4f rad/s  cur % .3f A\n' "${v[11]}" "$(deg "${v[11]}")" "${v[12]}" "${v[13]}"
+printf 'joint4  : pos % .4f rad (%s deg)  vel % .4f rad/s  cur % .3f A\n' "${v[14]}" "$(deg "${v[14]}")" "${v[15]}" "${v[16]}"
+printf 'joint5  : pos % .4f rad (%s deg)  vel % .4f rad/s  cur % .3f A\n' "${v[17]}" "$(deg "${v[17]}")" "${v[18]}" "${v[19]}"
 printf 'gripper : pos % .4f m    vel % .4f m/s    cur % .3f A\n' "${v[20]}" "${v[21]}" "${v[22]}"
+
+# S 끝 8칸(33~40) — 모터 온도 °C (−1 모름). 70 °C 이상이면 표시 (80 °C면 과열 에러로 멈춤)
+if [ "${#v[@]}" -ge 41 ]; then
+  names=(wheel_left wheel_right joint1 joint2 joint3 joint4 joint5 gripper); out=""; hot=""
+  for i in 0 1 2 3 4 5 6 7; do
+    t=${v[$((33 + i))]}
+    out+=" ${names[$i]}=${t}"
+    [ "$t" -ge 70 ] 2>/dev/null && hot+=" ${names[$i]}"
+  done
+  say "temp °C :$out"
+  [ -z "$hot" ] || say "  ⚠ 70 °C 이상:$hot (80 °C면 과열 에러로 멈춤)"
+fi
+
+# E 줄 — 모터별 Hardware Error Status (0 정상 · −1 응답 없음 · 비트: 1 입력전압 4 과열 8 엔코더 16 전기충격 32 과부하)
+show_errors() {
+  local e
+  e=$(grep '^E,' "$tmp" | tr -d '\r' | awk -F, 'NF == 9' | tail -n 1 || true)
+  if [ -z "$e" ]; then say "모터 에러: E 줄 없음 (0.5초마다 옴 — 예전 펌웨어면 없음)"; return; fi
+  IFS=',' read -r -a ev <<<"$e"
+  local names=(wheel_left wheel_right joint1 joint2 joint3 joint4 joint5 gripper) out="" i
+  for i in 0 1 2 3 4 5 6 7; do
+    [ "${ev[$((i + 1))]}" = 0 ] || out+=" ${names[$i]}=${ev[$((i + 1))]}"
+  done
+  if [ -z "$out" ]; then say "모터 에러: 없음"; else say "모터 에러:$out  → ./test-firmware --reboot <모터> --yes"; fi
+}
+show_errors
+
 
 # 현재 자세를 유지하는 C 명령. 관절·그리퍼는 마지막 S의 위치를 그대로 쓴다.
 current_cmd() {
@@ -179,7 +250,7 @@ send_repeated() {
 if [ "$HOLD" = 1 ]; then
   say ""
   say "현재 자세 유지 명령 전송 (C,0,0,현재 관절...)"
-  send_repeated "$(current_cmd)" 5
+  send_repeated "$(current_cmd)" "${COUNT:-5}"
 fi
 
 if [ -n "$SEND" ]; then
@@ -188,9 +259,21 @@ if [ -n "$SEND" ]; then
     C,*) cmd=$SEND ;;
     *) cmd="C,$SEND" ;;
   esac
+  # 필드는 항상 8개 = 콤마 7개. 모자란 뒷 필드는 빈칸(유지)으로 채운다.
+  # (bash `read -a`는 끝 빈 필드를 버려서 개수 세기에 못 씀 → 콤마 수로 계산)
+  body=${cmd#C,}
+  _commas=$(tr -cd ',' <<<"$body" | wc -c)
+  _commas=$((_commas))
+  if [ "$_commas" -lt 7 ]; then
+    for (( _i = _commas; _i < 7; ++_i )); do body+=","; done
+    cmd="C,$body"
+    say "NOTE: 필드가 모자라 뒷부분을 빈칸으로 채움 → $cmd"
+  elif [ "$_commas" -gt 7 ]; then
+    echo "FAIL: 필드가 8개를 넘습니다 (콤마 ${_commas}개): $cmd"; exit 2
+  fi
   say ""
   say "전송: $cmd"
-  send_repeated "$cmd" 5
+  send_repeated "$cmd" "${COUNT:-5}"
 fi
 
 if [ -n "$ARM" ]; then
@@ -216,7 +299,7 @@ if [ -n "$ARM" ]; then
   say ""
   say "$ARM: ${v[$idx]} → $target rad (delta $ARM_DELTA)"
   say "전송: $cmd"
-  send_repeated "$cmd" 20
+  send_repeated "$cmd" "${COUNT:-20}"
 fi
 
 if [ -n "$GRIPPER" ]; then
@@ -225,24 +308,91 @@ if [ -n "$GRIPPER" ]; then
   say ""
   say "gripper: ${v[20]} → $GRIPPER m"
   say "전송: $cmd"
-  say "NOTE: Current-based Position의 Goal Current가 0이면 움직이지 않을 수 있습니다."
-  send_repeated "$cmd" 20
+  say "NOTE: 값은 URDF 규약(손가락 하나 m, 0 = 닫힘 · 0.0265 = 최대 열림). 쥐는 힘은 펌웨어 GRIPPER_GOAL_CURRENT_MA."
+  send_repeated "$cmd" "${COUNT:-20}"
 fi
 
-if [ "$HOLD" = 1 ] || [ -n "$SEND" ] || [ -n "$ARM" ] || [ -n "$GRIPPER" ]; then
+if [ -n "$WHEEL_L" ]; then
+  [[ "$WHEEL_L" =~ ^-?[0-9]+([.][0-9]+)?$ ]] || { echo "FAIL: 바퀴 속도가 숫자가 아님: $WHEEL_L"; exit 2; }
+  [[ "$WHEEL_R" =~ ^-?[0-9]+([.][0-9]+)?$ ]] || { echo "FAIL: 바퀴 속도가 숫자가 아님: $WHEEL_R"; exit 2; }
+  cmd="C,$WHEEL_L,$WHEEL_R,${v[5]},${v[8]},${v[11]},${v[14]},${v[17]},${v[20]}"
+  say ""
+  say "wheel: L=$WHEEL_L R=$WHEEL_R rad/s (팔·그리퍼 현재 유지)"
+  say "전송: $cmd"
+  send_repeated "$cmd" "${COUNT:-20}"
+fi
+
+if [ -n "$TORQUE" ]; then
+  case "$TORQUE" in
+    on|1) cmd="T,1" ;;
+    off|0) cmd="T,0" ;;
+    *'='*)
+      # joint1=0 joint2=1 ... → C와 같은 8필드 순서로 변환 (지정 안 한 필드는 빈칸=유지)
+      declare -A _tq=( [wheel_left]=0 [wheel_right]=1 [joint1]=2 [joint2]=3 [joint3]=4 [joint4]=5 [joint5]=6 [gripper]=7 )
+      _arr=( "" "" "" "" "" "" "" "" )
+      for _kv in ${TORQUE//,/ }; do
+        _k=${_kv%%=*}; _v=${_kv#*=}
+        _i=-1
+        for _name in wheel_left wheel_right joint1 joint2 joint3 joint4 joint5 gripper; do
+          [ "$_k" = "$_name" ] && _i=${_tq[$_name]}
+        done
+        if [ "$_i" -lt 0 ]; then echo "FAIL: 모르는 대상: $_k (wheel_left,wheel_right,joint1~5,gripper)"; exit 2; fi
+        _arr[$_i]=$_v
+      done
+      cmd="T,$(IFS=,; echo "${_arr[*]}")"
+      ;;
+    T,*) cmd=$TORQUE ;;
+    *)
+      cmd="T,$TORQUE"
+      # 콤마가 7개보다 적으면 빈칸으로 채움 (C와 같은 규칙)
+      _commas=$(tr -cd ',' <<<"${cmd#T,}" | wc -c); _commas=$((_commas))
+      for (( _i = _commas; _i < 7; ++_i )); do cmd+=","; done
+      ;;
+  esac
+  say ""
+  say "토크: $cmd"
+  say "전송: $cmd"
+  send_repeated "$cmd" "${COUNT:-5}"
+fi
+
+if [ -n "$REBOOT" ]; then
+  case "$REBOOT" in
+    all|ALL|1) cmd="R,1" ;;
+    *)
+      _arr=( "" "" "" "" "" "" "" "" )
+      for _k in ${REBOOT//,/ }; do
+        _i=-1; _j=0
+        for _name in wheel_left wheel_right joint1 joint2 joint3 joint4 joint5 gripper; do
+          [ "$_k" = "$_name" ] && _i=$_j
+          _j=$((_j + 1))
+        done
+        if [ "$_i" -lt 0 ]; then echo "FAIL: 모르는 대상: $_k (wheel_left,wheel_right,joint1~5,gripper,all)"; exit 2; fi
+        _arr[$_i]=1
+      done
+      cmd="R,$(IFS=,; echo "${_arr[*]}")"
+      ;;
+  esac
+  say ""
+  say "재부팅: $cmd (한 번만 — 재부팅 후 팔은 천천히 현재 목표로)"
+  printf '%s\n' "$cmd" >"$PORT"
+  sleep 1.2
+fi
+
+if [ "$HOLD" = 1 ] || [ -n "$SEND" ] || [ -n "$ARM" ] || [ -n "$GRIPPER" ] || [ -n "$WHEEL_L" ] || [ -n "$TORQUE" ] || [ -n "$REBOOT" ]; then
   sleep 0.3
   read_status
   last2=$(complete_s_lines | tail -n 1 || true)
   if [ -n "$last2" ]; then
     IFS=',' read -r -a v2 <<<"$last2"
     say ""
-    printf '확인 joint1=% .4f  joint2=% .4f  gripper=% .4f m\n' \
-      "${v2[5]}" "${v2[8]}" "${v2[20]}"
+    printf '확인 wheelL vel=% .4f  wheelR vel=% .4f  joint1=% .4f rad (%s deg)  joint2=% .4f rad (%s deg)  gripper=% .4f m\n' \
+      "${v2[2]}" "${v2[4]}" "${v2[5]}" "$(deg "${v2[5]}")" "${v2[8]}" "$(deg "${v2[8]}")" "${v2[20]}"
   fi
+  show_errors
 fi
 
 say ""
 say "PASS: S 프로토콜 수신"
-if [ -z "$SEND" ] && [ -z "$ARM" ] && [ -z "$GRIPPER" ] && [ "$HOLD" = 0 ]; then
+if [ -z "$SEND" ] && [ -z "$ARM" ] && [ -z "$GRIPPER" ] && [ -z "$WHEEL_L" ] && [ -z "$TORQUE" ] && [ "$HOLD" = 0 ]; then
   say "로봇은 움직이지 않았습니다. 실제 동작 시험은 --hold/--arm/--gripper를 사용하세요."
 fi

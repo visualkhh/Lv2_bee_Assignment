@@ -1,20 +1,23 @@
 #pragma once
 
-// coordinator (🛠 직접 작성, 담당: 권형중) — 설계: documents/ros2-design/03-plan.md "coordinator가 지키는 실행 규칙"
-//   입력: /sub_goals (VLM 계획), /tracked_objects (대상 id 검증), /arm_safety_event (팔 접촉)
+// coordinator (🛠 직접 작성, 담당: 권형중) — 설계: documents/project/ros/03-plan.md "coordinator가 지키는 실행 규칙"
+//   입력: /task/sub_goals (VLM 계획), /tracked_objects (대상 id 검증), /arm_safety_event (팔 접촉)
 //   출력: 🎬 /navigate_to_pose (Nav2), 🎬 /plan_kinematic_path + /execute_trajectory (move_group),
 //         🎬 /gripper_controller/gripper_cmd, 📞 /score_grasps (grasp_scorer),
-//         📞 /clear_octomap · /apply_planning_scene (move_group), ✉️ /task_status → VLM·UI, ✉️ /robot_say → user_input
+//         📞 /clear_octomap · /apply_planning_scene (move_group), ✉️ /task/status → VLM·UI, ✉️ /robot/say → user_input
 // 규칙 (골격에 들어간 것):
-//   1. VLM 출력 검증 — 허용 동작(navigate·pick·place·say), 숫자 대상 id가 /tracked_objects에 있는지
+//   1. VLM 출력 검증 — 허용 동작(navigate·pick·place·inspect·say), 숫자 대상 id가 /tracked_objects에 있는지
+//   inspect <퍽 id> (신호등 암호 미션 — 퍽 윗면 16mm AprilTag는 gripper_cam이 위에서 봐야 읽힘): 멀면 다가가고 손끝을 퍽 윗면 위
+//     inspect_height_m로 (손가락 아래) → inspect_wait_s 기다림 → 다음 단계. 읽었는지(details tag)는 planner가 /tracked_objects로 본다
 //   4. 파지 재시도는 coordinator 몫 — grasp_scorer 후보를 점수순으로 최대 max_grasp_tries(2)개, 다 실패하면 FAILED
-//   5. 같은 단계 2회 연속 실패면 /robot_say로 알리고 정지
+//   5. 같은 단계 2회 연속 실패면 /robot/say로 알리고 정지
 //   적재함 (MISSION ③ MOVE_TO_B — 퍽을 실어 운반): target "tray"
 //     place tray = 다음 빈 칸에 싣기 · pick tray = 마지막에 실은 것부터 꺼내기 (칸 = tray_slots, base_footprint 기준 — MoveIt 실측으로
 //     손끝 아래 방향이 닿는 곳). 몇 개 실렸는지 tray_count로 센다 (노드가 다시 뜨면 0). 꽉 차면 tray_full · 비면 tray_empty로 실패
 //   팔이 닿게 다가가기: pick · place <물체 id> 차례에 대상이 로봇(base_footprint, TF)에서 reach_m 넘게 떨어져 있으면
 //     먼저 그 물체를 바라보며 approach_m 떨어진 자리로 navigate한 뒤 그 단계를 실행 (단계마다 한 번 — VLM이 navigate를 빼먹어도).
 //     navigate <물체 id>도 같은 접근 자세 — 로봇이 있는 쪽에서 물체를 바라봄 (예전: 늘 물체의 −x 쪽 · yaw 0)
+//   시작 자세: bringup 직후 한 번 팔을 initial_pose(plan.yaml)로 — MoveIt 없이 /arm_controller/joint_trajectory 토픽
 //   스캔 자세: 지도를 만들 때(/state/map_mode MAPPING · 자동 탐사 EXPLORE) 작업이 없으면 팔을 scan_pose로 (2초마다 확인, MoveIt 관절 목표)
 //     — gripper_cam이 왼쪽 뒤를 보는 두 번째 고정 카메라가 됨 (ros_system/config/scan_pose.yaml · scan_cam_gate). 수동 모드여도
 //     (스캔은 보통 수동 주행) — MAPPING 동안 팔 수동 조작은 manual_control(/cmd/manual/arm)·service_action_input(/move_action)이 거절
@@ -48,6 +51,7 @@
 #include "plan/msg/task_status.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
+#include "trajectory_msgs/msg/joint_trajectory.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
 #include "std_msgs/msg/string.hpp"
 #include "std_srvs/srv/empty.hpp"
@@ -126,12 +130,20 @@ private:
   // ---------- 🎬 move_group: 위로 이동 → 벌리기
   void execute_place(const geometry_msgs::msg::PoseStamped & target, std::function<void(bool)> done, double approach = 0.10);
 
+  // ---------- inspect: 퍽 위에서 gripper_cam으로 내려다보기 (윗면 태그 읽기)
+  void inspect(const SubGoal & g);
+
   // ---------- 적재함: 칸 위치 (base_footprint) 손끝 목표
   geometry_msgs::msg::PoseStamped tray_pose(size_t slot, double z) const;
 
   // ---------- 🎬 /plan_kinematic_path + /execute_trajectory
   //     계획이 실패하면 같은 목표로 arm_plan_tries번까지 (tries_left −1 = 처음)
   void move_arm(const geometry_msgs::msg::PoseStamped & target, std::function<void(bool)> done, int tries_left = -1);
+
+  // ---------- 시작 자세 — bringup 직후 한 번 팔을 initial_pose로 (MoveIt 없이 JTC 토픽)
+  void check_initial_pose();
+  bool at_initial_pose() const;
+  void publish_arm_targets(const std::vector<std::string> & names, const std::vector<double> & pos, double seconds);
 
   // ---------- 스캔 자세 — 지도 만드는 중이고 작업이 없으면 팔을 scan_pose로
   void check_scan_pose();
@@ -154,6 +166,17 @@ private:
 
   int max_grasp_tries_, max_step_failures_, arm_plan_tries_;
   double reach_m_, approach_m_;
+  double inspect_height_m_, inspect_wait_s_;
+  rclcpp::TimerBase::SharedPtr inspect_timer_;
+  std::vector<std::string> initial_joints_;
+  std::vector<double> initial_pose_;
+  double initial_tol_ = 0.05;
+  double initial_move_s_ = 3.0;
+  bool initial_enabled_ = true;
+  bool initial_waiting_ = false;
+  std::chrono::steady_clock::time_point initial_sent_{};
+  rclcpp::TimerBase::SharedPtr initial_timer_;
+  rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr arm_traj_pub_;
   std::vector<std::string> scan_joints_;
   std::vector<double> scan_pose_;
   double scan_tol_ = 0.05;

@@ -8,8 +8,8 @@
 |---|---|---|
 | `main` | 제출 가능한 안정 브랜치 (제출 태그 기준) | — |
 | `develop` | 다음 통합을 위한 기본 개발 브랜치 | — |
-| `feature/` (`feat/`) | 새로운 기능 개발 | `feature/hsv-detector` |
-| `bugfix/` (`fix/`) | 버그 수정 | `fix/target-sign-inverted` |
+| `feature/` | 새로운 기능 개발 | `feature/hsv-detector` |
+| `bugfix/` | 버그 수정 | `fix/target-sign-inverted` |
 | `hotfix/` | `main`의 긴급 수정 | `hotfix/opencr-timeout` |
 | `release/` | 제출 전 검증·정리 | `release/lv2-module6-submit` |
 | `chore/` | 빌드·설정·패키지 등 비코드 작업 | `chore/colcon-setup` |

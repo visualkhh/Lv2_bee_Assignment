@@ -1,6 +1,6 @@
 # OS
 1. sdk 실행
-2. 리커버리 모드진입
+2. 리커버리 모드진입 (딥스위치 숏트)
 3. 플러그인 선택 x
 4. [download](https://developer.nvidia.com/sdk-manager)
 5. runtime, ssd 선택
@@ -11,9 +11,37 @@
 10. reboot
 11. ssh 연결 확인 
 - ssh user@jetson.local
-
-
-
+```bash
+uname -a
+cat /etc/os-release
+cat /etc/nv_tegra_release 2>/dev/null
+dpkg --print-architecture
+python3 --version
+getconf GNU_LIBC_VERSION
+```
+```text
+Linux bee 6.8.12-1021-tegra #1 SMP PREEMPT Thu Aug  6 21:56:04 PDT 2026 aarch64 aarch64 aarch64 GNU/Linux
+PRETTY_NAME="Ubuntu 24.04.4 LTS"
+NAME="Ubuntu"
+VERSION_ID="24.04"
+VERSION="24.04.4 LTS (Noble Numbat)"
+VERSION_CODENAME=noble
+ID=ubuntu
+ID_LIKE=debian
+HOME_URL="https://www.ubuntu.com/"
+SUPPORT_URL="https://help.ubuntu.com/"
+BUG_REPORT_URL="https://bugs.launchpad.net/ubuntu/"
+PRIVACY_POLICY_URL="https://www.ubuntu.com/legal/terms-and-policies/privacy-policy"
+UBUNTU_CODENAME=noble
+LOGO=ubuntu-logo
+# R39 (release), REVISION: 2.1, GCID: 46758480, BOARD: generic, EABI: aarch64, DATE: Fri Aug  7 05:54:22 AM UTC 2026
+# KERNEL_VARIANT: oot
+TARGET_USERSPACE_LIB_DIR=nvidia
+TARGET_USERSPACE_LIB_DIR_PATH=usr/lib/aarch64-linux-gnu/nvidia
+arm64
+Python 3.12.3
+glibc 2.39
+```
 
 
 # ros setting
@@ -21,29 +49,24 @@
 - https://nvidia-isaac-ros.github.io/getting_started/isaac_ros_buildfarm_cdn.html
 
 
-
-
-
-
-
 *ROS 2 Lyrical 설치 가이드 (Ubuntu 24.04 / Jetson JetPack 7.2 공통)*
 ROS 공식 저장소에는 arm64용 Lyrical이 없어서 *NVIDIA Isaac ROS 저장소*에서 설치함. 팀 노트북도 같은 방식임.
 
 *1. 기본 도구 · universe*
-```
+```bash
 sudo apt install -y software-properties-common curl
 sudo add-apt-repository -y universe
 ```
 
 *2. ROS 공식 저장소 등록 (ros2-apt-source)*
-```
+```bash
 export ROS_APT_SOURCE_VERSION=$(curl -s https://api.github.com/repos/ros-infrastructure/ros-apt-source/releases/latest | grep -F "tag_name" | awk -F\" '{print $4}')
 curl -L -o /tmp/ros2-apt-source.deb "https://github.com/ros-infrastructure/ros-apt-source/releases/download/${ROS_APT_SOURCE_VERSION}/ros2-apt-source_${ROS_APT_SOURCE_VERSION}.$(. /etc/os-release && echo ${UBUNTU_CODENAME:-${VERSION_CODENAME}})_all.deb"
 sudo dpkg -i /tmp/ros2-apt-source.deb
 ```
 
 *3. Isaac ROS 저장소 등록 (Lyrical은 여기서 받음)*
-```
+```bash
 curl -fsSL https://isaac.download.nvidia.com/isaac-ros/repos.key | sudo gpg --dearmor --yes -o /usr/share/keyrings/nvidia-isaac-ros.gpg
 echo "deb [signed-by=/usr/share/keyrings/nvidia-isaac-ros.gpg] https://isaac.download.nvidia.com/isaac-ros/release-5.0 noble main" | sudo tee /etc/apt/sources.list.d/nvidia-isaac-ros.list
 echo "deb [signed-by=/usr/share/keyrings/nvidia-isaac-ros.gpg] https://isaac.download.nvidia.com/isaac-ros/ubuntu/main noble main" | sudo tee /etc/apt/sources.list.d/nvidia-isaac-ros-buildfarm.list
@@ -53,7 +76,7 @@ apt-cache policy ros-lyrical-ros-base
 • 마지막 줄에서 Candidate에 버전이 나와야 함
 
 *4. ROS 2 · 빌드 도구 설치*
-```
+```bash
 sudo apt install -y ros-lyrical-ros-base python3-colcon-common-extensions python3-rosdep python3-vcstool python3-pip build-essential cmake
 sudo rosdep init
 rosdep update
@@ -61,7 +84,7 @@ rosdep update
 • `ros-lyrical-desktop-full`은 설치하지 말 것 (우리 `perception` 패키지와 이름 겹침)
 
 *5. 환경 변수 (~/.bashrc)*
-```
+```bash
 echo -e '\n# ROS 2 Lyrical\nsource /opt/ros/lyrical/setup.bash\nexport ROS_DOMAIN_ID=88' >> ~/.bashrc
 source ~/.bashrc
 ```
@@ -72,7 +95,7 @@ source ~/.bashrc
 • ~/.bashrc 고친 뒤엔 열려 있는 터미널마다 `source ~/.bashrc` (안 하면 예전 설정으로 실행됨)
 
 *6. 확인*
-```
+```bash
 echo $ROS_DISTRO $ROS_DOMAIN_ID $ROS_STATIC_PEERS
 ros2 doctor --report | grep -E "distribution name|middleware name"
 ```
@@ -80,11 +103,11 @@ ros2 doctor --report | grep -E "distribution name|middleware name"
 
 *7. 통신 테스트*
 기기 A
-```
+```bash
 ros2 topic pub -r 2 /test std_msgs/msg/String "{data: hello}"
 ```
 기기 B
-```
+```bash
 ros2 topic echo --once /test std_msgs/msg/String
 ```
 • `data: hello` 나오면 성공. 안 되면 양쪽 IP · ROS_STATIC_PEERS · DOMAIN_ID 확인 (Wi-Fi IP는 바뀔 수 있음)
@@ -99,7 +122,7 @@ ros2 topic echo --once /test std_msgs/msg/String
 sudo apt-get install -y python3-colcon-common-extensions python3-rosdep
 ```
 - ros library
-```
+```bash
 sudo apt-get install -y --no-install-recommends \
     ros-dev-tools \
     python3-colcon-common-extensions \
@@ -176,55 +199,267 @@ sudo apt-get install -y --no-install-recommends \
     && rm -rf /tmp/pick_ik_ws
 ```
 
-
 ```bash
-
-sudo apt-get install -y --no-install-recommends \
-    ros-lyrical-rtabmap-msgs \
-    ros-lyrical-rtabmap-ros \
-    && rm -rf /var/lib/apt/lists/*
+sudo apt install -y ros-lyrical-moveit-ros-move-group
 ```
 
+# perception 파이썬 패키지 (YOLO · 표식)
+
 ```bash
-# realsense
+pip install --break-system-packages ultralytics zxing-cpp
+python3 -c "import cv2, zxingcpp; print(cv2.__version__, hasattr(cv2, 'aruco'))"   # aruco True여야 퍽 번호(AprilTag)를 읽음
+```
+
+- **AprilTag**(퍽 윗면 16mm 0~11 · 장소 48mm 12~14)는 OpenCV `aruco`(tag36h11)로 읽는다 — 따로 설치할 라이브러리 없음.
+  OpenCV 4.6(Ubuntu 24.04 apt)·4.7 이상 둘 다 됨 (perception이 API 차이를 맞춤, 4.6에서 실측). `aruco`가 없는 빌드면 진단 "AprilTag 못 읽음".
+- **바코드**(장소 작업 지시 P2-01 …, Code128)는 `zxing-cpp`가 필요 — OpenCV barcode는 EAN·UPC(숫자 상품코드)만 읽어서 발제 바코드를 못 읽음.
+- 확인: `ros2 topic echo /diagnostics | grep -A1 "AprilTag\|바코드"`
+
+# RealSense
+
+```bash
 sudo apt update
-sudo apt install ros-$ROS_DISTRO-realsense2-camera
+sudo apt install -y ros-$ROS_DISTRO-realsense2-camera
 ```
 
+# RTAB-Map (Jetson Ubuntu 24.04, ROS 2 Lyrical)
+
+> 실행·로그·오류 추적은 [`DEBUG.md`](../ros/DEBUG.md)에 정리되어 있다.
+
+NVIDIA arm64 저장소의 `ros-lyrical-pcl-conversions`는 **PCL 1.15**를 요구한다.
+Jetson Ubuntu 24.04에는 **PCL 1.14**만 있으므로 이 패키지는 설치할 수 없다.
+`pcl_conversions`는 소스로 빌드하고, `rtabmap_ros`도 소스로 빌드한다.
+
+## 1. 사전 패키지
 
 ```bash
-sudo apt-get install -y --no-install-recommends \
-    ros-lyrical-rtabmap-msgs \
-    ros-lyrical-rtabmap-slam \
-    ros-lyrical-rtabmap-odom \
-    ros-lyrical-rtabmap-util \
-    ros-lyrical-rtabmap-sync \
-    ros-lyrical-rtabmap-launch
+sudo apt update
+sudo apt install -y \
+  libpcl-dev \
+  libeigen3-dev \
+  ros-lyrical-image-geometry \
+  ros-lyrical-cv-bridge \
+  ros-lyrical-image-transport \
+  ros-lyrical-laser-geometry \
+  ros-lyrical-message-filters \
+  ros-lyrical-pcl-msgs
 ```
 
-- rtapmap error 우선 설치해보고 안되면  이것ㄷ 안되면 ros-lyrical-rtabmap-map 만깔아라 
+> `ros-lyrical-pcl-conversions`, `ros-lyrical-pcl-ros`는 설치하지 않는다.  
+> 위 PCL 1.15 의존성 때문에 `Unable to correct problems`가 난다.
+
+## 2. 소스 받기
+
 ```bash
-mkdir -p ~/ros2_ws/src && cd ~/ros2_ws
+mkdir -p ~/ros2_rtabmap_ws/src
+cd ~/ros2_rtabmap_ws
+
 git clone -b lyrical-devel https://github.com/introlab/rtabmap.git src/rtabmap
 git clone -b lyrical-devel https://github.com/introlab/rtabmap_ros.git src/rtabmap_ros
+```
+
+`pcl_conversions`는 **반드시 `ros2` 브랜치**를 쓴다.  
+`jazzy` 브랜치는 Lyrical의 `message_filters` 헤더(.hpp)와 맞지 않아
+`message_filters/message_event.h: No such file` 에러가 난다.
+
+```bash
+git clone -b ros2 https://github.com/ros-perception/perception_pcl.git src/perception_pcl
+```
+
+## 3. 빌드 (순서 중요)
+
+```bash
+cd ~/ros2_rtabmap_ws
 source /opt/ros/lyrical/setup.bash
-rosdep install --from-paths src --ignore-src -r -y
+
+# 3-1. PCL 1.14에 맞는 pcl_conversions
+colcon build --symlink-install \
+  --packages-select pcl_conversions \
+  --parallel-workers 1 \
+  --cmake-args -DCMAKE_BUILD_TYPE=Release
+
+source install/setup.bash
+
+# 3-2. pcl_conversions를 쓰는 rtabmap_conversions
+rm -rf build/rtabmap_conversions install/rtabmap_conversions
+colcon build --symlink-install \
+  --packages-select rtabmap_conversions \
+  --parallel-workers 1 \
+  --cmake-args -DCMAKE_BUILD_TYPE=Release
+
+source install/setup.bash
+
+# 3-3. 나머지 rtabmap/rtabmap_ros
 export MAKEFLAGS="-j2"
-colcon build --symlink-install --parallel-workers 1 \
+colcon build --symlink-install \
+  --parallel-workers 1 \
   --cmake-args -DCMAKE_BUILD_TYPE=Release
 ```
 
+전체 빌드 후 `rtabmap_launch`만 빠지는 경우가 있다.
+이때 `--packages-select rtabmap_launch`만 쓰면 **의존 패키지 `rtabmap_odom`·`rtabmap_viz`가 없어서**
+다음 에러가 날 수 있다.
 
-
-```bash
-sudo apt-get install -y --no-install-recommends \
-    libgl1 libglib2.0-0 python3-pip ros-lyrical-ament-cmake-pytest \
-    && rm -rf /var/lib/apt/lists/* \
-    && pip install --break-system-packages --ignore-installed --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
-    && pip install --break-system-packages --ignore-installed --no-cache-dir ultralytics pytest
-
+```text
+Failed to find ... rtabmap_viz/package.sh
+Failed to find ... rtabmap_odom/package.sh
 ```
 
+이 경우 `rtabmap_launch`의 의존성까지 같이 빌드한다.
+
+```bash
+source install/setup.bash
+
+colcon build --symlink-install \
+  --packages-up-to rtabmap_launch \
+  --parallel-workers 1 \
+  --event-handlers console_direct+ \
+  --cmake-args -DCMAKE_BUILD_TYPE=Release
+```
+
+`rtabmap_launch`는 우리 `ros_system`이 직접 `rtabmap.launch.py`를 쓰지는 않지만,
+`ros2 launch`의 패키지 검색에서 빠지지 않도록 설치해 둔다.
+
+## 4. 설치 확인
+
+```bash
+source ~/ros2_rtabmap_ws/install/setup.bash
+
+ros2 pkg prefix pcl_conversions
+ros2 pkg prefix rtabmap_launch
+ros2 pkg prefix rtabmap_slam
+ros2 pkg prefix rtabmap_sync
+ros2 pkg prefix rtabmap_util
+ros2 pkg prefix rtabmap_odom
+ros2 pkg prefix rtabmap_viz
+```
+
+모두 실제 경로가 나와야 한다.
+
+## 5. 실행
+
+`start.sh`는 `~/ros2_rtabmap_ws/install/setup.bash`를 자동으로 source한다.
+
+```bash
+cd ~/Lv2_bee_Assignment/lv2_module6/ros2_ws
+./start.sh
+```
+
+수동으로 source하려면:
+
+```bash
+source ~/ros2_rtabmap_ws/install/setup.bash
+```
+
+## 6. 자주 나는 빌드 에러
+
+### `libpcl-common1.15` / `libpcl-io1.15` 없음
+
+`ros-lyrical-pcl-conversions`를 apt로 설치하려 해서 생긴다.  
+설치하지 말고 위 2번부터 소스 빌드한다.
+
+### `Failed to find ... rtabmap_viz/package.sh` / `rtabmap_odom/package.sh`
+
+`rtabmap_launch`만 `--packages-select`로 빌드해서 생긴다.  
+`--packages-up-to rtabmap_launch`로 의존 패키지까지 빌드한다.
+
+```bash
+cd ~/ros2_rtabmap_ws
+source /opt/ros/lyrical/setup.bash
+source install/setup.bash
+
+colcon build --symlink-install \
+  --packages-up-to rtabmap_launch \
+  --parallel-workers 1 \
+  --event-handlers console_direct+ \
+  --cmake-args -DCMAKE_BUILD_TYPE=Release
+```
+
+의존 패키지를 하나씩 먼저 빌드하려면:
+
+```bash
+cd ~/ros2_rtabmap_ws
+source /opt/ros/lyrical/setup.bash
+source install/setup.bash
+
+# 1) rtabmap_odom
+colcon build --symlink-install \
+  --packages-select rtabmap_odom \
+  --parallel-workers 1 \
+  --event-handlers console_direct+
+
+# 2) rtabmap_viz (Qt/RViz — 실패하면 에러를 먼저 해결)
+colcon build --symlink-install \
+  --packages-select rtabmap_viz \
+  --parallel-workers 1 \
+  --event-handlers console_direct+
+
+# 3) rtabmap_launch
+colcon build --symlink-install \
+  --packages-select rtabmap_launch \
+  --parallel-workers 1 \
+  --event-handlers console_direct+
+```
+
+또는 의존성까지 한 번에:
+
+```bash
+colcon build --symlink-install \
+  --packages-up-to rtabmap_launch \
+  --parallel-workers 1 \
+  --event-handlers console_direct+ \
+  --cmake-args -DCMAKE_BUILD_TYPE=Release
+```
+
+확인:
+
+```bash
+source ~/ros2_rtabmap_ws/install/setup.bash
+
+ros2 pkg prefix rtabmap_launch
+ros2 pkg prefix rtabmap_odom
+ros2 pkg prefix rtabmap_viz
+
+cd ~/Lv2_bee_Assignment/lv2_module6/ros2_ws
+./start.sh
+```
+
+### `Findpcl_conversions.cmake` 없음
+
+```bash
+source ~/ros2_rtabmap_ws/install/setup.bash
+ros2 pkg prefix pcl_conversions
+```
+
+가 안 되면 3-1의 `pcl_conversions` 빌드가 안 된 것이다.
+
+### `message_filters/message_event.h` 없음
+
+`perception_pcl`을 `jazzy` 브랜치로 받은 경우다.
+
+```bash
+cd ~/ros2_rtabmap_ws/src/perception_pcl
+git fetch origin ros2
+git checkout ros2
+git pull
+```
+
+그 뒤 `pcl_conversions`를 다시 빌드한다.
+
+### `Findpcl_msgs.cmake` 없음
+
+```bash
+sudo apt install -y ros-lyrical-pcl-msgs
+source /opt/ros/lyrical/setup.bash
+ros2 pkg prefix pcl_msgs
+```
+
+가 안 되면 `pcl_msgs`도 소스 빌드한다.
+
+```bash
+git clone -b jazzy https://github.com/ros-perception/pcl_msgs.git \
+  ~/ros2_rtabmap_ws/src/pcl_msgs
+```
 
 # 1. Arduino CLI 설치
 ```bash
@@ -307,10 +542,8 @@ sudo arduino-cli는 절대 쓰지 말고, $HOME/bin/arduino-cli를 일반 사용
 ```
 
 
-```
 # CI 배포 패키지 (Ubuntu 24.04 / Jetson)
-
-CI가 `aarch64`용을 두 가지로 만든다.
+- CI가 `aarch64`용을 두 가지로 만든다.
 
 | 패키지 | 대상 |
 | --- | --- |
@@ -368,3 +601,185 @@ sudo vi /etc/udev/rules.d/99-opencr.rules
 ```
 내용[99-opencr.rules](../../lv2_module6/ros2_ws/99-opencr.rules): SUBSYSTEM=="tty", ATTRS{idVendor}=="0483", ATTRS{idProduct}=="5740", SYMLINK+="opencr", MODE="0666", ENV{ID_MM_DEVICE_IGNORE}="1"
 
+
+# RealSense 2대 고정
+
+OpenCR은 `/dev/ttyACM*` 번호가 꽂는 순서로 바뀌어서 udev로 `/dev/opencr`을 고정한다.  
+RealSense는 다르다. **드라이버가 serial_no로 장치를 고르므로**, 카메라를 고정하는 데
+`/dev/realsense_*` symlink가 **필수는 아니다.** Intel 기본 방식도 serial_no다.
+
+- **2대 구분**: `pole_front_cam_serial` / `gripper_cam_serial`만 지정하면 된다.
+- **udev**: USB 접근 권한을 주는 용도다. `/dev` 이름 고정 symlink는 사용하지 않는다.
+- **한 대만 연결**: serial 없이도 첫 장치를 잡을 수 있지만, 반대쪽 카메라 노드는 꺼야 한다.
+
+공식/일반적인 RealSense 권한 규칙 예:
+
+```udev
+SUBSYSTEM=="usb", ATTRS{idVendor}=="8086", MODE="0666", GROUP="plugdev"
+```
+
+## 1. serial 번호 확인
+
+두 카메라를 꽂은 상태에서:
+
+```bash
+source /opt/ros/lyrical/setup.bash
+rs-enumerate-devices -s
+```
+
+`rs-enumerate-devices: 명령을 찾을 수 없습니다`가 나오면
+`ros-lyrical-librealsense2` 패키지의 도구가 PATH에 없는 것이다.
+
+```bash
+sudo apt install -y ros-lyrical-librealsense2
+source /opt/ros/lyrical/setup.bash
+
+# PATH에 안 잡히면 직접 실행
+/opt/ros/lyrical/bin/rs-enumerate-devices -s
+```
+
+패키지를 설치하기 어렵다면 USB sysfs에서 serial만 확인할 수도 있다.
+
+```bash
+for d in /sys/bus/usb/devices/*; do
+  [ "$(cat "$d/idVendor" 2>/dev/null)" = "8086" ] || continue
+  printf '%s  %s  serial=%s\n' \
+    "$d" "$(cat "$d/product" 2>/dev/null)" "$(cat "$d/serial" 2>/dev/null)"
+done
+```
+
+출력의 `Serial Number`를 확인한다.
+
+```text
+Intel RealSense D435i
+  Serial Number : 123456789012
+Intel RealSense D435i
+  Serial Number : 987654321098
+```
+
+어느 쪽이 `pole_front_cam`인지 `gripper_cam`인지 정한다.  
+헷갈리면 한 대를 뺐다 꽂아서 `rs-enumerate-devices -s` 목록에서 사라지는 serial을 확인하면 된다.
+
+## 2. 환경변수로 serial 지정 (권장)
+
+`start.sh`는 아래 환경변수를 읽어서 `ros_system`의 `serial_no`로 자동 전달한다.
+
+```bash
+export POLE_FRONT_CAM_SERIAL=123456789012
+export GRIPPER_CAM_SERIAL=987654321098
+
+cd lv2_module6/ros2_ws
+./start.sh
+```
+
+영구 설정은 `~/.bashrc`에 넣는다.
+
+```bash
+echo 'export POLE_FRONT_CAM_SERIAL=123456789012' >> ~/.bashrc
+echo 'export GRIPPER_CAM_SERIAL=987654321098' >> ~/.bashrc
+source ~/.bashrc
+```
+
+우선순위:
+
+```text
+명령줄 인자 (pole_front_cam_serial:=...)
+  > 환경변수 (POLE_FRONT_CAM_SERIAL / GRIPPER_CAM_SERIAL)
+```
+
+한 대만 연결한 경우에는 **그 카메라 serial만 설정**하면 `start.sh`가 반대쪽을 자동으로 끈다.
+환경변수에 남아 있는 serial이 실제로 감지되지 않아도 그 카메라를 자동으로 끈다.
+
+```bash
+bee@bee:~$ rs-enumerate-devices -s
+ 22/10 17:38:38,510 ERROR [281473406128160] (context.cpp:41) No valid configuration file found at : /home/bee/.realsense-config.json loading defaults
+Device Name                   Serial Number       Firmware Version
+Intel RealSense D435          261822074109        5.17.3.10
+Intel RealSense D435          261622075828        5.17.0.10
+```
+```bash
+# front만 연결
+export POLE_FRONT_CAM_SERIAL=261822074109
+./start.sh
+# WARN: gripper_cam serial 없음 → use_gripper_cam:=false
+```
+
+```bash
+# gripper만 연결
+export GRIPPER_CAM_SERIAL=261622075828
+./start.sh
+# WARN: pole_front_cam serial 없음 → use_pole_front_cam:=false
+```
+```bash
+#.bashrc 에적어둠 
+export POLE_FRONT_CAM_SERIAL=261822074109
+export GRIPPER_CAM_SERIAL=261622075828
+
+```
+직접 launch 인자로 넘기는 방식도 그대로 된다.
+
+```bash
+./start.sh \
+  pole_front_cam_serial:=<FRONT_SERIAL> \
+  gripper_cam_serial:=<GRIPPER_SERIAL>
+```
+
+> `use_cameras:=false`는 카메라 두 대를 모두 끄는 스위치다. 한 대만 쓸 때 쓰면 안 된다.
+
+### Fast DDS 공유 메모리
+
+영상 한 장이 Fast DDS 기본 공유 메모리(512KB)보다 커서, 프로파일 없이는 구독 노드가
+영상을 거의 받지 못할 수 있다. `start.sh`는 아래 프로파일을 자동으로 지정한다.
+
+```text
+lv2_module6/ros2_ws/fastdds.xml
+```
+
+`start.sh` 없이 `ros2 launch`를 직접 실행할 때는:
+
+```bash
+export FASTDDS_DEFAULT_PROFILES_FILE=\
+  $PWD/fastdds.xml
+```
+
+### 적외선 스트림 끄기
+
+두 카메라를 같은 USB 버스에 연결하면 IR 스트림까지 대역폭을 나눠 써서
+`overflow video frame detected`와 depth 실패가 날 수 있다. `ros_system`은 IR을
+쓰지 않으므로 카메라 파라미터에서 `enable_infra1`·`enable_infra2`를 끈다.
+
+## 3. 확인
+
+```bash
+ros2 topic echo /pole_front_cam/color/camera_info --once
+ros2 topic echo /gripper_cam/color/camera_info --once
+```
+
+또는:
+
+```bash
+ros2 topic echo /state/devices --once \
+  --qos-reliability reliable --qos-durability transient_local \
+  --field data
+# pole_front_cam,gripper_cam,opencr,imu,wheels,arm,gripper
+```
+
+장치별 상태:
+
+```bash
+ros2 topic echo /state/devices/pole_front_cam --once \
+  --qos-reliability reliable --qos-durability transient_local \
+  --field data
+```
+
+```bash
+ros2 topic echo /state/devices/gripper_cam --once \
+  --qos-reliability reliable --qos-durability transient_local \
+  --field data
+```
+
+## 원격 접속
+
+Jetson SSH 키 등록, `operator_tool` 원격 실행, x11vnc · GNOME RDP · NoMachine
+설정은 [remote/README.md](remote/README.md)에 분리해 두었다. `remote/`에는 Jetson용
+`server.sh`와 PC용 `client.sh`도 있다.

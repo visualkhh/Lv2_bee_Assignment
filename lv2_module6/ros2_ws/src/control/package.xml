@@ -3,7 +3,7 @@
 <package format="3">
   <name>control</name>
   <version>0.1.0</version>
-  <description>제어 — manual_control(수동 조작: 원격 조종·팔), BeebotSystemHardware(ros2_control 하드웨어 플러그인: 바퀴 2 · 팔 6축 · IMU), arm_safety_monitor(전류 기반 팔 접촉 감지), body_filter(카메라 점구름에서 자기 몸 점 제거). ArmSafetyEvent 메시지 정의 포함</description>
+  <description>제어 — manual_control(수동 조작: 원격 조종·팔), BeebotSystemHardware(ros2_control 하드웨어 플러그인: 바퀴 2 · 팔 6축 · IMU), arm_safety_monitor(전류 기반 팔 접촉 감지). ArmSafetyEvent 메시지 정의 포함</description>
   <maintainer email="todo@example.com">김현하</maintainer>
   <license>Apache-2.0</license>
 
@@ -22,13 +22,11 @@
   <depend>diagnostic_updater</depend>
   <depend>pluginlib</depend>
   <depend>rclcpp_lifecycle</depend>
-  <depend>urdf</depend>
-  <depend>tf2</depend>
-  <depend>tf2_ros</depend>
-  <depend>tf2_geometry_msgs</depend>
-  <depend>ament_index_cpp</depend>
+  <depend>std_srvs</depend>
 
   <exec_depend>rosidl_default_runtime</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
   <test_depend>ament_cmake_gtest</test_depend>
 
   <member_of_group>rosidl_interface_packages</member_of_group>

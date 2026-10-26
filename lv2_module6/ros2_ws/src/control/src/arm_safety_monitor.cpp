@@ -5,8 +5,9 @@ namespace control {
 
 ArmSafetyMonitor::ArmSafetyMonitor()
 : rclcpp::Node("arm_safety_monitor") {
-  threshold_ = declare_parameter<double>("effort_threshold", 1.0);  // A — 관절별로 나눌 것
-  hold_s_ = declare_parameter<double>("hold_s", 0.1);
+  threshold_ = declare_parameter<double>("effort_threshold", 3.0);  // A — 관절별로 나눌 것 (실측 전 중력 부하 여유)
+  hold_s_ = declare_parameter<double>("hold_s", 0.3);
+  stall_velocity_ = declare_parameter<double>("stall_velocity", 0.10);  // [rad/s] 이보다 느리면 "멈춘 것"으로 봄
   sub_ = create_subscription<JointState>(
     "/joint_states", 10, [this](JointState::ConstSharedPtr msg) { on_joint_states(*msg); });
   event_pub_ = create_publisher<ArmSafetyEvent>("/arm_safety_event", rclcpp::QoS(10).reliable());
@@ -18,6 +19,7 @@ ArmSafetyMonitor::ArmSafetyMonitor()
     else if (!joint_states_) s.summary(diagnostic_msgs::msg::DiagnosticStatus::WARN, "/joint_states 대기");
     else s.summary(diagnostic_msgs::msg::DiagnosticStatus::OK, "감시 중");
     s.add("기준 [A]", threshold_);
+    s.add("정지 판정 [rad/s]", stall_velocity_);
     s.add("접촉 감지 횟수", trips_);
     s.add("마지막 접촉 관절", last_joint_);
   });
@@ -28,8 +30,10 @@ void ArmSafetyMonitor::on_joint_states(const JointState & js) {
   const rclcpp::Time t = js.header.stamp;
   for (size_t i = 0; i < js.name.size() && i < js.effort.size(); ++i) {
     const auto & name = js.name[i];
-    if (name.rfind("joint", 0) != 0) continue;  // 팔 관절(joint1~4)만
-    if (std::abs(js.effort[i]) <= threshold_) { over_since_.erase(name); continue; }
+    if (name.rfind("joint", 0) != 0) continue;  // 팔 관절(joint1~5)만
+    // 전류가 커도 움직이는 중이면 중력·가속 부하 — 접촉은 "멈춘 채 전류만 큰" 상태
+    const bool moving = i < js.velocity.size() && std::abs(js.velocity[i]) >= stall_velocity_;
+    if (moving || std::abs(js.effort[i]) <= threshold_) { over_since_.erase(name); continue; }
     auto [it, first] = over_since_.try_emplace(name, t);
     if (!first && (t - it->second).seconds() >= hold_s_) {
       trip(name, js.effort[i]);

@@ -17,7 +17,7 @@ RlNavCorrection::RlNavCorrection()
   odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
     "/odom", 10, [this](nav_msgs::msg::Odometry::ConstSharedPtr m) { odom_ = m; last_sensor_ = now(); });
   imu_sub_ = create_subscription<sensor_msgs::msg::Imu>(
-    "/imu", rclcpp::SensorDataQoS(), [this](sensor_msgs::msg::Imu::ConstSharedPtr m) { imu_ = m; });
+    "/imu", rclcpp::SensorDataQoS().keep_last(1), [this](sensor_msgs::msg::Imu::ConstSharedPtr m) { imu_ = m; });
   limit_sub_ = create_subscription<nav2_msgs::msg::SpeedLimit>(
     "/speed_limit", rclcpp::QoS(1).reliable(), [this](nav2_msgs::msg::SpeedLimit::ConstSharedPtr m) {
       const double v = m->percentage ? max_v_ * m->speed_limit / 100.0 : m->speed_limit;

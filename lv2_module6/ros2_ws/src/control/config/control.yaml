@@ -2,17 +2,14 @@
 # (BeebotSystemHardware 파라미터는 URDF <ros2_control><hardware><param>, 컨트롤러는 ros_system/config/controllers.yaml)
 arm_safety_monitor:
   ros__parameters:
-    effort_threshold: 1.0    # [A] 넘으면 접촉 후보 — 퍽을 든 정상 동작 전류를 재서 관절별로 정할 것
-    hold_s: 0.1              # [s] 기준 초과가 이만큼 이어지면 접촉으로 판단
+    # 접촉 = "거의 멈춘 채 전류만 큼". 움직이는 중 전류(중력·가속)는 정상이라 무시.
+    #   실측: 초기 자세 이동 중 joint2 2.12A · joint4 1.99A (정상) — 1.0A로는 팔을 못 움직임
+    effort_threshold: 3.0    # [A] 넘으면 접촉 후보 (TODO: 퍽 든 정상 전류 실측 후 관절별)
+    hold_s: 0.3              # [s] 기준 초과 + 정지가 이만큼 이어지면 접촉으로 판단
+    stall_velocity: 0.10     # [rad/s] 이보다 느리면 "멈춘 것"으로 봄
 manual_control:
   ros__parameters:
     arm_joints: [joint1, joint2, joint3, joint4, joint5]
     gripper_joint: gripper_left_joint
     arm_move_s: 1.0          # [s] /cmd/manual/arm 목표까지 걸리는 시간 (JTC 궤적 한 점)
     cmd_timeout_s: 0.5       # [s] 수동 바퀴 명령이 이보다 오래 끊기면 0
-body_filter:
-  ros__parameters:
-    input_topic: /pole_front_cam/depth/color/points
-    output_topic: /pole_front_cam/depth/color/points_filtered   # Nav2 costmap·collision_monitor가 본다
-    padding: 0.03            # [m] 충돌 상자를 이만큼 키워서 뺀다 — 깊이 노이즈로 팔 가장자리 점이 남으면 키울 것
-    stride: 2                # RGBD 점구름 2점당 1점만 Nav2/collision_monitor에 전달 (성능)

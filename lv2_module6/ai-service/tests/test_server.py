@@ -11,7 +11,7 @@ GOOD = [
     {"step": 1, "skill": "navigate", "target": "3", "relation": "front", "offset_m": 0.2},
     {"step": 2, "skill": "pick", "target": "3", "relation": "", "offset_m": 0.0},
 ]
-OBJS = [{"id": 3, "class_name": "puck"}, {"id": 7, "class_name": "goal_zone"}]
+OBJS = [{"id": 3, "class_name": "puck"}, {"id": 7, "class_name": "location"}]
 
 
 class TestValidate(unittest.TestCase):
@@ -24,6 +24,10 @@ class TestValidate(unittest.TestCase):
     def test_bad_order(self):
         bad = [dict(GOOD[0], step=2), dict(GOOD[1], step=1)]
         self.assertIn("순서", server.validate(bad, OBJS))
+
+    def test_inspect_allowed(self):
+        self.assertEqual(server.validate([dict(GOOD[0], skill="inspect", relation="", offset_m=0.0)], OBJS), "")
+        self.assertIn("not tracked", server.validate([dict(GOOD[0], skill="inspect", target="99")], OBJS))
 
     def test_bad_skill(self):
         self.assertIn("skill", server.validate([dict(GOOD[0], skill="dance")], OBJS))
@@ -153,3 +157,48 @@ class TestSystemText(unittest.TestCase):
     def test_missing_file_falls_back(self):
         self.assertEqual(server.system_text({"system_file": "없는파일.md", "system": "only"}), "only")
         self.assertEqual(server.system_text({}), "")
+
+
+class TestHuman(unittest.TestCase):
+    """backend human — /plan 요청이 대기 목록에 뜨고, 사람의 답(계획·거절)이 그대로 돌아감 · 시간 초과면 실패"""
+
+    def run_plan(self, timeout_s):
+        import threading
+        out = {}
+        req = {"command": "P2-01", "objects": OBJS}
+        with mock.patch.dict(server.CONFIG, {"ai": {"backend": "human", "timeout_s": timeout_s}}):
+            t = threading.Thread(target=lambda: out.update(r=server.dispatch(req)))
+            t.start()
+        return t, out
+
+    def wait_pending(self):
+        import time
+        from backends import human
+        for _ in range(100):
+            if human.pending():
+                return human.pending()[-1]
+            time.sleep(0.02)
+        self.fail("대기 요청 안 뜸")
+
+    def test_answer(self):
+        from backends import human
+        t, out = self.run_plan(5)
+        p = self.wait_pending()
+        self.assertEqual(p["command"], "P2-01")
+        self.assertEqual(human.detail(p["id"])["req"]["objects"], OBJS)  # 상세엔 물체 · 목록엔 이미지·물체 없음
+        self.assertTrue(human.answer(p["id"], goals=GOOD))
+        t.join(2)
+        self.assertEqual(out["r"][0], GOOD)
+        self.assertFalse(human.answer(p["id"], goals=GOOD))  # 이미 끝남
+
+    def test_reject_and_timeout(self):
+        from backends import human
+        t, out = self.run_plan(5)
+        p = self.wait_pending()
+        human.answer(p["id"], error="퍽이 안 보임")
+        t.join(2)
+        self.assertEqual(out["r"][:2], (None, "퍽이 안 보임"))
+        t, out = self.run_plan(0.1)
+        t.join(2)
+        self.assertIsNone(out["r"][0])
+        self.assertIn("시간", out["r"][1])

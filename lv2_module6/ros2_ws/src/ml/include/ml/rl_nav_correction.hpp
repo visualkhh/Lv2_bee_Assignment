@@ -1,6 +1,6 @@
 #pragma once
 
-// rl_nav_correction (🛠 직접 작성, 담당: 송정혁) — 설계: documents/ros2-design/06-base.md, 11-learn.md
+// rl_nav_correction (🛠 직접 작성, 담당: 송정혁) — 설계: documents/project/ros/06-base.md, 11-learn.md
 //   입력: /cmd_vel_nav (Nav2, 20Hz), /plan (경로 오차), /odom·/imu (실제 움직임), /speed_limit (재클리핑 상한)
 //   출력: /cmd_vel_corrected (geometry_msgs/TwistStamped) → velocity_smoother
 // 규칙: Δ는 선속도 ±0.05m/s · 각속도 ±0.10rad/s 로 제한, 더한 뒤 min(프리셋 상한, /speed_limit)으로 다시 자른다.

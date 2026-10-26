@@ -5,19 +5,20 @@
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt   # 최초 1회
 ```
 ```bash
-./test.sh                                                        # 34개, 외부 호출 없음 (CLI·HTTP 전부 스텁)
+./test.sh                                                        # 54개, 외부 호출 없음 (CLI·HTTP 전부 스텁)
 ./server.sh [--port 8000] [--host 127.0.0.1] [--config config.json]
+./server.sh --config config/human.json                           # 사람이 계획 — 브라우저 http://127.0.0.1:8000/
 ```
 
 ## 테스트
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt   # 최초 1회 (표준 라이브러리만이라 설치할 건 없음)
-./test.sh                                                            # 36개, 외부 호출 없음 (CLI·HTTP 전부 스텁)
+./test.sh                                                            # 54개, 외부 호출 없음 (CLI·HTTP 전부 스텁)
 ```
 
 * `tests/test_prompt.py` — 프롬프트 조립·history 캡·실물 이미지 동봉 (`tests/data/`: 시뮬레이터 헤드리스 렌더 실장면 — pole_cam 미로+퍽 · gripper_cam 근접)
-* `tests/test_server.py` — goals 검증·이미지 검사·디스패치
+* `tests/test_server.py` — goals 검증·이미지 검사·디스패치·사람 백엔드(답·거절·시간 초과)
 * `tests/test_backends.py` — template·opencode 파서(JSONL 포함)·ollama 위임
 * 진짜 모델 호출은 테스트에 없음. 수동 확인은 서버 띄우고 `POST /plan` (한도·과금 주의)
 * 로그: 요청 건당 `log/plan-날짜-시간-rand/` 에 `request.json`(원문)·`response.json`(`{code, resp}`)·`ai.json`(`{backend, model, endpoint, timeout_s, request:{time, elapsed_s, prompt}, response:{time, elapsed_s, raw}}` AI 송수신)·`request-image1.png`·`request-image2.png` (gitignore, 이미지 원문은 PNG 파일로만)
@@ -25,9 +26,9 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt   # 최초 1�
 기본값은 `config.json`(opencode 내용). 대안은 `config/`에 백엔드별로 (`template`·`claude`·`ollama`·`opencode`) — `--config`로 고르면 된다.
 
 * `POST /plan` → `{"ok": true, "goals": [...]}` 또는 `{"ok": false, "error"}` (후자면 컨테이너는 템플릿 폴백)
-* 요청: `command`·`objects[{id, class_name, position(map), size, confidence, color, camera, px{카메라: [u, v]}}]`(컨테이너 vlm_task_planner가 `/tracked_objects`에서 — px는 그 카메라 영상 속 박스 중심, 이미지 마킹에 씀)·`robot{x, y, yaw}`(map, 로봇 위치 — 프롬프트에 물체마다 거리 dist를 붙여 팔이 안 닿으면 navigate를 먼저 넣게)·`images[{data_b64}]`(320px JPEG, 장당 500KB 제한)·`replan{plan_id, failed_step, reason}`·`history[{role, text}]`(선택, 최근 20개·개당 500자까지 프롬프트에 포함 — 서버는 저장 안 함)
+* 요청: `command`·`objects[{id, class_name, position(map), size, confidence, color, camera, px{카메라: [u, v]}, tag?, content?, posture?}]`(tag = 퍽 윗면 번호 0~11 · 장소 location 12~14, content = 장소 바코드 작업 지시)(컨테이너 vlm_task_planner가 `/tracked_objects`에서 — px는 그 카메라 영상 속 박스 중심, 이미지 마킹에 씀)·`robot{x, y, yaw}`(map, 로봇 위치 — 프롬프트에 물체마다 거리 dist를 붙여 팔이 안 닿으면 navigate를 먼저 넣게)·`images[{data_b64}]`(320px JPEG, 장당 500KB 제한)·`replan{plan_id, failed_step, reason}`·`history[{role, text}]`(선택, 최근 20개·개당 500자까지 프롬프트에 포함 — 서버는 저장 안 함)
 * 출력 검증은 coordinator와 동일(허용 동작·대상 id·step 순서) — 실패면 `ok:false`
-* 백엔드는 `backends/`: `template`(기본·오프라인) · `claude_cli` · `opencode_cli`(`opencode run --format json`, `--model`·`--file` 첨부) · `ollama`(로컬, 키 불필요) · `openai_compat`(외부사, `OPENAI_API_KEY`는 환경변수, localhost는 키 불필요) — `config.json`의 `backend`로 전환, 계약은 유지.
+* 백엔드는 `backends/`: `template`(기본·오프라인) · `claude_cli` · `opencode_cli`(`opencode run --format json`, `--model`·`--file` 첨부) · `ollama`(로컬, 키 불필요) · `openai_compat`(외부사, `OPENAI_API_KEY`는 환경변수, localhost는 키 불필요) · `human`(사람이 웹 페이지에서 — 아래) — `config.json`의 `backend`로 전환, 계약은 유지.
 
 ## 설정 (`config/`)
 
@@ -36,7 +37,7 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt   # 최초 1�
 | 키 | 내용 |
 | --- | --- |
 | `http` | 서버 바인딩 `{host, port}`. CLI `--port`·`--host`가 있으면 덮어씀. 파일별 기본 포트: opencode 8000 · ollama 8001 · claude 8002 · template 8003 (동시 기동 가능) |
-| `ai.backend` | `"template"`(고정 4단계·오프라인) · `"claude_cli"` · `"opencode_cli"` · `"ollama"`(로컬) · `"openai_compat"`(외부 OpenAI 호환 API) |
+| `ai.backend` | `"template"`(고정 4단계·오프라인) · `"claude_cli"` · `"opencode_cli"` · `"ollama"`(로컬) · `"openai_compat"`(외부 OpenAI 호환 API) · `"human"`(사람이 웹에서) |
 | `ai.model` | CLI·API에 넘길 모델명. `"default"`면 각자 기본값 사용 |
 | `ai.endpoint` | `openai_compat`·`ollama` 전용 — 뒤에 `/chat/completions`가 붙는다. CLI·template 백엔드는 안 씀 (config에 없어도 됨) |
 | `ai.timeout_s` | 백엔드 호출 제한 [초] (기본 60) — 넘기면 `{"ok": false, "error"}` 반환, 컨테이너는 템플릿 폴백 |
@@ -55,6 +56,26 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt   # 최초 1�
 { "http": {"host": "127.0.0.1", "port": 8000},
   "ai": {"backend": "opencode_cli", "model": "default", "endpoint": "https://api.openai.com/v1", "timeout_s": 60} }
 ```
+
+## 사람이 계획 (`backend: "human"`)
+
+AI 대신 사람이 계획을 짠다. 로봇(vlm_task_planner)의 `POST /plan` 요청이 웹 페이지에 뜨고, 사람이 단계를 짜서 보내면 그 계획이 그대로 응답으로 간다.
+
+```bash
+./server.sh --config config/human.json       # 브라우저 http://127.0.0.1:8000/ (다른 PC에서 보려면 http.host "0.0.0.0")
+```
+
+* 페이지(`human.html`, 외부 라이브러리 없음 — 오프라인 망에서도): **왼쪽** 대기 요청(남은 시간 막대)·지난 기록 · **가운데** 명령·재계획 사유·로봇 위치,
+  카메라 이미지(원본·번호 마킹 = 물체 id), **위에서 본 지도**(퍽 ● · 장소 ■ · 바코드 ▬ · 그 밖 ▲ · 로봇 화살표 · 계획 이동 경로 점선 — 물체 클릭 = 고른 단계의 대상,
+  빈 곳 클릭 = 그 좌표로 이동, 오른쪽 클릭 = 빠른 메뉴, 휠·끌기), 물체 표(색·퍽 번호 tag·장소 L1~L3·바코드 content·거리 · [이동]·[보기]·[집기]·[놓기]) ·
+  **오른쪽** 단계 편집(동작·대상 고르기, 이동 거리, 위아래·복제·삭제) + 묶음: [적재함으로 옮기기](체크한 퍽 → 장소) · [번호 모르는 퍽 보기](inspect 가까운 순)
+* 실시간 검사: 허용 동작 · 대상 id가 지금 목록에 있는지 · 손에 하나(집은 다음엔 놓기) · 적재함 4칸(넘침·빈 데서 꺼내기) · 끝났을 때 손·적재함에 남은 것 ·
+  팔 밖(0.3m) 대상. 보낼 때 서버가 coordinator와 같은 규칙으로 한 번 더 검사 (`검증 실패: …`면 안 보내짐)
+* [거절] + 사유 → 로봇 쪽 `{"ok": false, "error": 사유}` → planner가 로봇 화면에 `say`로 보여 줌. `timeout_s`(기본 600) 안에 답이 없으면 같은 실패
+* 키: `Ctrl+Enter` 보내기 · `↑↓` 단계 고르기 · `Alt+↑↓` 순서 · `Delete` 삭제 · `Esc` 선택 해제
+* **컨테이너 `plan.yaml`의 `vlm_timeout_s`(기본 120)를 `timeout_s` 이상으로** — 짧으면 사람이 답하기 전에 planner가 포기하고 템플릿으로 감
+* API: `GET /human/pending`(1초마다 — 이미지 빼고) · `GET /human/item?id=N`(물체·이미지·프롬프트) · `POST /human/submit {id, goals}` · `POST /human/reject {id, error}`
+* 드래프트(짜던 단계)는 페이지 메모리에만 — 새로고침하면 사라짐
 
 ## 예시 — claude · opencode · ollama
 

@@ -24,6 +24,7 @@
 """
 
 import os
+import sys
 import time
 
 from launch import LaunchDescription
@@ -54,6 +55,16 @@ ROS_SYSTEM_ARGS = {
     'port': ('/dev/opencr', 'OpenCR 포트 (udev 고정 이름)'),
     'arm_correction_type': ('ml/RlArmCorrection', 'rl_arm_correction 컨트롤러 플러그인 (테스트베드 ML 대역: faker/FakeRlArmCorrection)'),
     'use_cameras': ('true', 'RealSense 2대 (테스트베드는 faker의 fake_camera가 대신 → false)'),
+    'use_pole_front_cam': ('true', 'pole_front_cam만 끄기/켜기 (한 대만 연결할 때)'),
+    'use_gripper_cam': ('true', 'gripper_cam만 끄기/켜기 (한 대만 연결할 때)'),
+    'pole_front_cam_serial': ('', 'pole_front_cam RealSense serial_no — 빈 값이면 첫 장치 (2대면 반드시 지정)'),
+    'gripper_cam_serial': ('', 'gripper_cam RealSense serial_no — 빈 값이면 첫 장치 (2대면 반드시 지정)'),
+    'pole_front_cam_profile': ('640x360x15', 'pole_front_cam RGB/depth 프로파일 (WxHxFPS)'),
+    'gripper_cam_profile': ('640x360x15', 'gripper_cam RGB/depth 프로파일 (WxHxFPS)'),
+    'camera_decimation_enable': ('true', 'RealSense depth decimation 필터 (점군 밀도 감소)'),
+    'camera_decimation_magnitude': ('2', 'decimation 배율 (2=1/4 점, 3=1/9 점)'),
+    'pole_front_cam_pointcloud': ('true', 'pole_front_cam PointCloud2 발행 (body_filter/Nav2)'),
+    'gripper_cam_pointcloud': ('false', 'gripper_cam PointCloud2 발행 (grasp_scorer용, 필요할 때만 true)'),
     'use_ekf': ('true', 'robot_localization EKF'),
     'use_nav2': ('true', '진짜 Nav2 서버'),
     'use_moveit': ('true', '진짜 move_group — coordinator의 pick/place가 씀 (ros_system 기본은 false라 실기에서 팔 작업이 안 됐음)'),
@@ -69,6 +80,7 @@ def setup_map(context):
     name = LaunchConfiguration('map_name').perform(context)
     if mode not in ('course', 'slam', 'saved'):
         raise RuntimeError(f'map:={mode} — slam | saved (테스트베드는 course도)')
+    no_map = False
     if LaunchConfiguration('use_ros_system').perform(context).lower() == 'true' and mode != 'course':
         if mode == 'slam':
             name = name or time.strftime('%Y%m%d_%H%M%S')
@@ -79,15 +91,23 @@ def setup_map(context):
             saved = sorted(p for p in (os.listdir(d) if os.path.isdir(d) else [])
                            if os.path.exists(os.path.join(d, p, 'rtabmap.db')))
             if not saved:
-                raise RuntimeError(f'저장한 지도 없음: {d}/<이름>/rtabmap.db — 먼저 map:=slam 으로 매핑')
-            name = name or ('default' if 'default' in saved else saved[-1])  # 기본 지도 폴더 = default (rtabmap.db가 있어야)
-            if name not in saved:
-                raise RuntimeError(f'지도 없음: {d}/{name}/rtabmap.db — 있는 것: {", ".join(saved)}')
+                # 센서·지도가 아직 없어도 state_manager와 나머지 노드는 뜨게 한다.
+                print(f'WARN: 저장한 지도 없음: {d}/<이름>/rtabmap.db — RTAB-Map 없이 시작', file=sys.stderr)
+                name = ''
+                no_map = True
+            else:
+                name = name or ('default' if 'default' in saved else saved[-1])  # 기본 지도 폴더 = default (rtabmap.db가 있어야)
+                if name not in saved:
+                    print(f'WARN: 지도 없음: {d}/{name}/rtabmap.db — RTAB-Map 없이 시작 (있는 것: {", ".join(saved)})',
+                          file=sys.stderr)
+                    name = ''
+                    no_map = True
     if mode == 'course':
         name = ''
+    use_rtabmap = 'false' if mode == 'course' or no_map else 'true'
     return [SetLaunchConfiguration('map_dir', d), SetLaunchConfiguration('map_name', name),
             SetLaunchConfiguration('map_mode', {'course': 'COURSE', 'slam': 'MAPPING', 'saved': 'LOCALIZATION'}[mode]),
-            SetLaunchConfiguration('use_rtabmap', 'false' if mode == 'course' else 'true'),
+            SetLaunchConfiguration('use_rtabmap', use_rtabmap),
             SetLaunchConfiguration('localization', 'false' if mode == 'slam' else 'true'),
             SetLaunchConfiguration('rtabmap_db', os.path.join(d, name, 'rtabmap.db'))]
 
@@ -147,10 +167,11 @@ def generate_launch_description():
              parameters=[PathJoinSubstitution([FindPackageShare('plan'), 'config', 'plan.yaml']),
                          PathJoinSubstitution([FindPackageShare('ros_system'), 'config', 'scan_pose.yaml'])]),
         node('plan', 'explorer'),
+        node('plan', 'signal_decoder'),
         *[node('ml', n, learning, condition=IfCondition(LaunchConfiguration(f'use_{n}'))) for n in ML_NODES],
         node('control', 'arm_safety_monitor'),
         node('control', 'manual_control'),
-        node('control', 'body_filter'),
+        node('perception', 'body_filter'),
         node('manager', 'state_manager', {'map_mode': LaunchConfiguration('map_mode'),
                                           'map_name': ParameterValue(LaunchConfiguration('map_name'), value_type=str),
                                           'map_dir': ParameterValue(LaunchConfiguration('map_dir'), value_type=str),

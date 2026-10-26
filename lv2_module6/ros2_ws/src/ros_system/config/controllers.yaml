@@ -1,4 +1,4 @@
-# ros2_control 컨트롤러 — 설계: documents/ros2-design/08-ctrl.md
+# ros2_control 컨트롤러 — 설계: documents/project/ros/08-ctrl.md
 # 하드웨어: control/BeebotSystemHardware (URDF lv2_module6/urdf/beebot.urdf.xacro의 <ros2_control>)
 # spawn 순서: joint_state_broadcaster → imu_sensor_broadcaster → diff_drive_controller
 #            → rl_arm_correction → arm_controller (체인은 뒤에서부터: arm_controller가 rl_arm_correction의 reference에 쓴다)

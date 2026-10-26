@@ -1,6 +1,8 @@
-# ROS 2 Lyrical (Ubuntu 26.04) 테스트베드 — lv2_module6 (자율주행 기반 물류 이송 및 장애물 회피)
-# 베이스: ros:lyrical-ros-base-resolute  (Ubuntu Resolute 26.04 + ROS 2 Lyrical)
-FROM ros:lyrical-ros-base-resolute
+# ROS 2 Lyrical (Ubuntu 24.04 / Jetson Orin Nano) 테스트베드
+# ROS 2 Lyrical은 Ubuntu 26.04 베이스가 기본이지만, Jetson Orin Nano(JetPack 7 / Ubuntu 24.04)는
+# NVIDIA Isaac ROS 저장소의 noble arm64 패키지로 같은 배포판을 사용한다.
+#   https://nvidia-isaac-ros.github.io/getting_started/isaac_ros_buildfarm_cdn.html
+FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive \
     LANG=C.UTF-8 \
@@ -8,9 +10,26 @@ ENV DEBIAN_FRONTEND=noninteractive \
     ROS_DISTRO=lyrical \
     AMENT_PREFIX_PATH=/opt/ros/lyrical \
     CMAKE_PREFIX_PATH=/opt/ros/lyrical \
-    PYTHONPATH=/opt/ros/lyrical/lib/python3.14/site-packages
+    PYTHONPATH=/opt/ros/lyrical/lib/python3.12/site-packages
 # NOTE: setup.bash는 셸에서 source해야 적용되지만, IDE Docker 툴체인처럼
 # entrypoint를 우회하는 실행에서도 find_package가 동작하도록 ENV로 고정.
+
+# NVIDIA Isaac ROS apt 저장소 — Ubuntu 24.04(noble) arm64용 ROS 2 Lyrical 제공
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates curl gnupg \
+    && curl -fsSL https://isaac.download.nvidia.com/isaac-ros/repos.key \
+        | gpg --dearmor --yes -o /usr/share/keyrings/nvidia-isaac-ros.gpg \
+    && echo "deb [signed-by=/usr/share/keyrings/nvidia-isaac-ros.gpg] https://isaac.download.nvidia.com/isaac-ros/release-5.0 noble main" \
+        > /etc/apt/sources.list.d/nvidia-isaac-ros.list \
+    && echo "deb [signed-by=/usr/share/keyrings/nvidia-isaac-ros.gpg] https://isaac.download.nvidia.com/isaac-ros/ubuntu/main noble main" \
+        > /etc/apt/sources.list.d/nvidia-isaac-ros-buildfarm.list \
+    && curl -fsSL -o /tmp/ros2-apt-source.deb \
+        https://github.com/ros-infrastructure/ros-apt-source/releases/download/1.3.0/ros2-apt-source_1.3.0.noble_all.deb \
+    && dpkg -i /tmp/ros2-apt-source.deb \
+    && rm -f /tmp/ros2-apt-source.deb \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends ros-lyrical-ros-base \
+    && rm -rf /var/lib/apt/lists/*
 
 # 🛠 노드 빌드에 필요한 메시지·인터페이스 + 도커에서 실제로 돌리는 📦 (ros2_control · robot_state_publisher · EKF)
 # + faker 파일 연동(rosx_introspection · OpenCV).
@@ -91,10 +110,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /tmp/pick_ik_ws
 # (colcon --install-base /opt/ros/lyrical 는 ROS의 setup.bash를 덮어써서 안 씀 — 패키지 폴더만 복사: lib · share · ament_index)
 
-# RTAB-Map (faker map:=slam · saved — pole_front_cam으로 지도 작성·위치추정. RealSense 본체는 faker 대역)
+# RTAB-Map — noble arm64에는 rtabmap_ros 메타패키지가 없고 rtabmap 패키지가 노드를 제공한다.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-lyrical-rtabmap-msgs \
-    ros-lyrical-rtabmap-ros \
+    ros-lyrical-rtabmap \
     && rm -rf /var/lib/apt/lists/*
 
 # YOLO perception (CPU 추론용) — torch CPU + ultralytics. libGL은 cv2용.
@@ -103,7 +122,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 libglib2.0-0 python3-pip ros-lyrical-ament-cmake-pytest \
     && rm -rf /var/lib/apt/lists/* \
     && pip install --break-system-packages --ignore-installed --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
-    && pip install --break-system-packages --ignore-installed --no-cache-dir ultralytics pytest
+    && pip install --break-system-packages --ignore-installed --no-cache-dir "numpy<2" ultralytics pytest
 
 # Arduino CLI (OpenCR 펌웨어 빌드·업로드용, Linux ARM64/x86_64 지원)
 # 근거: https://docs.arduino.cc/arduino-cli/installation (install.sh + BINDIR)

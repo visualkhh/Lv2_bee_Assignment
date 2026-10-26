@@ -1,4 +1,6 @@
-# Lv2 module6 테스트베드 — ROS 2 Lyrical on Ubuntu 26.04
+# Lv2 module6 테스트베드 — ROS 2 Lyrical on Ubuntu 24.04 Noble (Jetson Orin Nano 동일 환경)
+# NVIDIA Isaac ROS Buildfarm CDN에서 noble용 ROS 2 Lyrical 패키지를 제공 (공식 apt에는 없음)
+#   참고: https://nvidia-isaac-ros.github.io/getting_started/isaac_ros_buildfarm_cdn.html
 # 사용법: docker/ 디렉토리 안에서 실행
 #   docker compose build
 #   docker compose up -d && docker compose exec lyrical bash
@@ -24,10 +26,11 @@ services:
       # 다른 팀 DDS와 섞임은 ROS_DOMAIN_ID=88이 막는다
       - ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
       # Fast DDS TypeLookup 끔 (노드 40개에서 UDP 폭주 → 컨트롤러가 못 뜸) — 설명은 파일 안
-      - FASTDDS_DEFAULT_PROFILES_FILE=/ws/src/ros_system/config/fastdds.xml
+      - FASTDDS_DEFAULT_PROFILES_FILE=/ws/fastdds.xml
     volumes:
       # 편집용만 바인드 (호스트에서 고치는 것): src + model + urdf (+ 지도)
       - ../lv2_module6/ros2_ws/src:/ws/src
+      - ../lv2_module6/ros2_ws/fastdds.xml:/ws/fastdds.xml
       - ../lv2_module6/ros2_ws/model:/ws/model
       - ../lv2_module6/urdf:/ws/urdf
       # 지도 (faker map:=slam 이 /ws/map/rtabmap.db 에 쓰고 시뮬레이터 [지도 저장](map_saver_server)이 map_<날짜_시각>.pgm·yaml → map:=saved 로 다시 씀) — 컨테이너가 쓰므로 rw

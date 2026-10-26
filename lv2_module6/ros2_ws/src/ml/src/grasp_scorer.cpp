@@ -9,8 +9,9 @@ GraspScorer::GraspScorer()
   objects_sub_ = create_subscription<TrackedObjectArray>(
     "/tracked_objects", rclcpp::QoS(5).reliable(),
     [this](TrackedObjectArray::ConstSharedPtr msg) { objects_ = msg; });
+  // 파지 점수는 최신 한 장면만 필요 — 큐에 밀린 점구름을 쓰지 않는다.
   cloud_sub_ = create_subscription<PointCloud2>(
-    "/gripper_cam/depth/color/points", rclcpp::SensorDataQoS(),
+    "/gripper_cam/depth/color/points", rclcpp::SensorDataQoS().keep_last(1),
     [this](PointCloud2::ConstSharedPtr msg) { cloud_ = msg; });
   srv_ = create_service<ScoreGrasps>("/score_grasps",
     [this](const ScoreGrasps::Request::SharedPtr req, ScoreGrasps::Response::SharedPtr res) { score(*req, *res); });

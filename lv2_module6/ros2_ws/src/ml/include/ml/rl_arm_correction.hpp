@@ -1,6 +1,6 @@
 #pragma once
 
-// rl_arm_correction (🛠 직접 작성, 담당: 송정혁) — 설계: documents/ros2-design/05-arm.md, 08-ctrl.md
+// rl_arm_correction (🛠 직접 작성, 담당: 송정혁) — 설계: documents/project/ros/05-arm.md, 08-ctrl.md
 // ROS 노드가 아니라 controller_manager 안에서 arm_controller(JTC) 바로 뒤에 체인으로 붙는 컨트롤러 플러그인.
 //   reference interface: rl_arm_correction/<joint>/position  ← JTC가 command_joints로 여기에 쓴다
 //   command interface:   <joint>/position                     → hardware interface
