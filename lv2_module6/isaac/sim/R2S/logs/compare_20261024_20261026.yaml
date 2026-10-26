@@ -1,0 +1,116 @@
+joint1:
+  '20261024':
+    run: 20261024_144242_joint1
+    lag_ms: 112.9
+    update_ms: 60.0
+    rms_error: 9.518
+    rms_error_lag_offset_removed: 1.633
+    peak_error_lag_removed: 4.995
+    gain: 0.999
+    offset_meas: -0.044
+    max_abs_current_A: 0.183
+  '20261026':
+    run: 20261026_141202_joint1
+    lag_ms: 44.6
+    update_ms: 20.0
+    rms_error: 3.75
+    rms_error_lag_offset_removed: 0.369
+    peak_error_lag_removed: 1.432
+    gain: 0.9981
+    offset_meas: -0.056
+    max_abs_current_A: 0.272
+joint2:
+  '20261024':
+    run: 20261024_144140_joint2
+    lag_ms: 131.2
+    update_ms: 60.0
+    rms_error: 6.489
+    rms_error_lag_offset_removed: 1.066
+    peak_error_lag_removed: 6.208
+    gain: 1.0041
+    offset_meas: 3.124
+    max_abs_current_A: 1.065
+  '20261026':
+    run: 20261026_141221_joint2
+    lag_ms: 61.5
+    update_ms: 20.0
+    rms_error: 3.996
+    rms_error_lag_offset_removed: 0.556
+    peak_error_lag_removed: 4.336
+    gain: 0.9994
+    offset_meas: 2.914
+    max_abs_current_A: 0.993
+joint3:
+  '20261024':
+    run: 20261024_144204_joint3
+    lag_ms: 117.2
+    update_ms: 60.0
+    rms_error: 6.204
+    rms_error_lag_offset_removed: 1.024
+    peak_error_lag_removed: 4.65
+    gain: 0.9808
+    offset_meas: 2.247
+    max_abs_current_A: 0.672
+  '20261026':
+    run: 20261026_141237_joint3
+    lag_ms: 52.2
+    update_ms: 20.0
+    rms_error: 3.407
+    rms_error_lag_offset_removed: 0.515
+    peak_error_lag_removed: 3.167
+    gain: 0.9767
+    offset_meas: 2.169
+    max_abs_current_A: 0.619
+joint4:
+  '20261024':
+    run: 20261024_141643_joint4
+    lag_ms: 104.2
+    update_ms: 60.0
+    rms_error: 8.545
+    rms_error_lag_offset_removed: 1.612
+    peak_error_lag_removed: 5.568
+    gain: 0.9865
+    offset_meas: 0.811
+    max_abs_current_A: 0.261
+  '20261026':
+    run: 20261026_141259_joint4
+    lag_ms: 45.2
+    update_ms: 20.0
+    rms_error: 3.785
+    rms_error_lag_offset_removed: 0.351
+    peak_error_lag_removed: 1.364
+    gain: 0.9888
+    offset_meas: 0.814
+    max_abs_current_A: 0.25
+joint5:
+  '20261024':
+    run: 20261024_141703_joint5
+    lag_ms: 102.7
+    update_ms: 60.0
+    rms_error: 10.792
+    rms_error_lag_offset_removed: 1.976
+    peak_error_lag_removed: 5.592
+    gain: 0.989
+    offset_meas: 0.035
+    max_abs_current_A: 0.204
+  '20261026':
+    run: 20261026_141317_joint5
+    lag_ms: 45.3
+    update_ms: 20.0
+    rms_error: 4.725
+    rms_error_lag_offset_removed: 0.295
+    peak_error_lag_removed: 0.537
+    gain: 0.9921
+    offset_meas: 0.045
+    max_abs_current_A: 0.091
+gripper_left_joint:
+  '20261026':
+    run: 20261026_141345_gripper_left_joint
+    lag_ms: 20.7
+    update_ms: 20.0
+    rms_error: 0.264
+    rms_error_lag_offset_removed: 0.036
+    peak_error_lag_removed: 0.089
+    gain: 0.9989
+    offset_meas: 13.251
+    max_abs_current_A: 0.412

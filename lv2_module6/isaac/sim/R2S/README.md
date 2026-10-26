@@ -13,7 +13,15 @@ sin_test / profile_test ──follow_joint_trajectory (action)──────
    └─ /joint_states ── joint_state_broadcaster                             └─> control/BeebotSystemHardware ──USB──> OpenCR ──> 서보
 ```
 
-- `hw.launch.py`: 하드웨어·컨트롤러만 띄우고 계속 유지. 테스트 노드는 다른 터미널에서 `ros2 run` 으로 하나씩 실행
+| 파일 | 역할 |
+|---|---|
+| `ros2_ws/src/sine_test/launch/hw.launch.py` | 하드웨어·컨트롤러만 띄우고 유지. 테스트 노드는 다른 터미널에서 `ros2 run` |
+| `ros2_ws/src/sine_test/config/` | `sine.yaml`(기본 사인), `sine_p{0.5,1,2,4}.yaml`(주기별), `profile.yaml`(hold/step/ramp), `grip.yaml`(쥐는 힘), `controllers.yaml` |
+| `set_center` · `sin_test` · `profile_test` | 테스트 노드 (`sine_test` 패키지) |
+| `idle_record.py` | 정지 상태 `/joint_states` 기록 (ROS 노드, 일반 python 으로 실행) |
+| `plot_logs.py` · `freq_response.py` · `profile_analysis.py` · `compare_runs.py` | 도표·분석 (ROS 불필요, `profile_analysis.py` 만 xacro 사용) |
+| `logs/` | 결과. 사인 `logs/<ts>_<joint>/`, 주기별 `logs/freq/`, profile `logs/profile/`, 정지 `logs/<ts>_idle/` |
+
 - 메인 ws 에서 쓰는 것: `control` 패키지의 `BeebotSystemHardware` 플러그인(소스만 읽어 이 ws 에 빌드), `urdf/beebot_mesh/urdf.xacro`
 - 쓰지 않는 것: `ml`(rl_arm_correction), `ros_system`/`bringup` launch, diff_drive·imu·gripper action 컨트롤러
 - 명령 없는 인터페이스: 바퀴 속도 0, 팔·그리퍼는 현재 자세 유지 (플러그인 동작)
@@ -31,49 +39,100 @@ build/·install/·log/ 는 이 ws 안에만 생긴다. 메인 ws 는 건드리�
 - `ros2 launch`/`ros2 run` 은 `src/` 가 아니라 `install/` 에 복사된 yaml 을 읽는다. yaml 을 고치면 다시 빌드하거나, 처음부터 `--symlink-install` 로 빌드해 둔다.
 - 폴더 이름을 바꾸면(`real_test` → `R2S`) `install/` 의 setup 스크립트에 예전 절대 경로가 남는다. `build/ install/ log/` 를 지우고 다시 빌드한다.
 
-## 실행
+---
 
-메인 bringup 은 꺼 둔다 (OpenCR 포트는 한 프로세스만 열 수 있다). 각 터미널에서 `source install/setup.bash`.
+## 테스트 방법
+
+### 0. 공통 준비
+
+메인 bringup 은 꺼 둔다 (OpenCR 포트는 한 프로세스만 열 수 있다). 각 터미널에서 `cd ros2_ws && source install/setup.bash`.
 
 ```bash
-ros2 launch sine_test hw.launch.py                      # 터미널 1: 실기 (/dev/opencr) — mock_hardware:=true 면 로봇 없이 (오차 ≈ 0)
-                                                        #   인자: port, urdf, mesh_uri (기본 package://ros_system/urdf/beebot_mesh/meshes)
-ros2 run sine_test set_center                           # 터미널 2: joint5 → joint1 순서로 0° 로
-ros2 run sine_test set_center joint3                    # 터미널 2: joint3 만 0° 로
-ros2 run sine_test sin_test joint3                      # 터미널 2: joint3 사인 테스트 (설정은 config/sine.yaml)
-ros2 run sine_test sin_test joint3 --ros-args -p config:=/path/my.yaml -p out_dir:=/path/logs
+ros2 launch sine_test hw.launch.py        # 터미널 1: 실기 (/dev/opencr). 끝날 때까지 켜 둔다
+                                          #   인자: port, urdf, mesh_uri (기본 package://ros_system/urdf/beebot_mesh/meshes)
+                                          #   mock_hardware:=true → 로봇 없이 (명령 = 측정, 오차 ≈ 0)
+ros2 run sine_test set_center             # 터미널 2: 모든 테스트 전에 팔을 0° 로
 ```
 
-테스트 노드 공통: **`q`** (또는 Ctrl+C) → 그 자리에서 정지하고 정상 종료. 키 입력을 받아야 하므로 launch 가 아니라 터미널에서 실행한다.
+- 테스트 노드 공통: **`q`** (또는 Ctrl+C) → 그 자리에서 정지하고 정상 종료. 키 입력을 받아야 하므로 launch 가 아니라 터미널에서 실행한다.
+- 다른 설정 파일·출력 위치: `--ros-args -p config:=/path/my.yaml -p out_dir:=/path/logs` (기본 out_dir = 이 폴더의 `logs/`).
+  패키지 안의 설정은 `config:=$(ros2 pkg prefix sine_test)/share/sine_test/config/<파일>.yaml`.
+- yaml 의 `out_subdir` 는 out_dir 아래 하위 폴더(`freq`, `profile`), `tag` 는 폴더 이름 뒤에 붙는 꼬리표다.
+- `arm_controller` 가 active 가 아니면 10 초 기다린 뒤 아무것도 움직이지 않고 종료한다.
 
 hw.launch 시작 순서: 하드웨어를 inactive 로 띄워 OpenCR 상태를 먼저 읽고(2초), active 로 바꾼 뒤 컨트롤러를 띄운다.
 `BeebotSystemHardware::on_activate` 가 첫 시리얼 읽기 전의 상태(0)를 명령으로 잡아 시작 순간 모든 관절에 0 을 보내는 문제를 피하기 위해서다
 (가짜 OpenCR 로 확인: 바로 active 면 시작 1.4 초 동안 팔 전체 0 명령, inactive 경유면 0 명령 없음).
 
-### set_center (topic)
-인자 없음: joint5 → joint4 → … → joint1 순서로 한 관절씩 0°(서보 수직, 2048)로 천천히 옮긴다
-(관절당 최소 `move_s`, 큰 이동은 URDF 속도의 0.3 배 이하).
-`set_center joint3` 처럼 관절 이름을 주면 그 관절만 옮긴다 (팔 joint1~5 만, 없는 이름이면 로그만 남기고 종료).
-나머지 관절은 JTC 의 현재 명령을 유지하고, 그리퍼는 개도를 유지한다. 관절마다 이동이 끝나면 남은 오차를 출력한다.
+### 1. set_center — 0° 로 이동
 
-### sin_test (action)
-인자는 관절 이름 하나. 진폭·offset·주기·cycles 는 yaml 의 `joints.<이름>` 에서 읽는다 — 없는 이름이면 로그를 남기고 아무것도 움직이지 않는다.
+```bash
+ros2 run sine_test set_center             # joint5 → joint4 → … → joint1 순서로 한 관절씩 0°(서보 수직, 2048)
+ros2 run sine_test set_center joint3      # joint3 만 (팔 joint1~5 만, 없는 이름이면 로그만 남기고 종료)
+```
+
+관절당 최소 `move_s`, 큰 이동은 URDF 속도의 0.3 배 이하로 천천히 옮긴다. 나머지 관절은 JTC 의 현재 명령을 유지하고 그리퍼는 개도를 유지한다.
+관절마다 이동이 끝나면 남은 오차를 출력한다.
+
+### 2. sin_test — 사인 응답 (기본, `config/sine.yaml`)
+
+```bash
+ros2 run sine_test sin_test joint1        # joint1 ~ joint5, gripper_left_joint 를 하나씩
+```
+
+결과: `logs/<YYYYmmdd_HHMMSS>_<joint>/`. 진폭은 Gain Tuner 기본값(joint1 ±54° / 2.5 s, joint2 ±22°, joint3 ±25.5°, joint4 ±42.1°, joint5 ±54°, 그리퍼 ±6.6 mm / 2 s)이다.
+한 세션(같은 날 6 개 run)을 다 돌려 두면 아래 도표 2·5 로 정리·비교할 수 있다.
+
+흐름:
 1. 검사 (걸리면 움직이지 않고 종료): 스윙이 URDF 한계 안쪽 `limit_margin` 을 넘음 / 최고 속도가 URDF velocity 의 `speed_margin` 배를 넘음
 2. 다른 팔 관절이 0° 에서 2° 넘게 떨어져 있으면 경고 (set_center 먼저)
 3. 해당 관절을 사인 center 로 천천히 이동 → 사인 (fade-in → cycles → fade-out) → center 에서 `settle_s` 기록 후 **그 자리에 정지**하고 종료
 
-### profile_test (action)
-`profile_test <관절> <hold|step|ramp>`. 설정은 `config/profile.yaml` 의 `joints.<이름>.<모드>`, 결과는 `logs/profile/<ts>_<관절>_<모드>/` (형식은 sin_test 와 같음).
-흐름(시작 위치로 천천히 이동 → 한 goal → center 에서 정지)과 `q` 정지도 sin_test 와 같다.
-yaml 에 `tag` 가 있으면 폴더 이름 뒤에 붙는다 (`<ts>_<관절>_<모드>_<tag>/`).
-- `hold`: 각도 목록마다 천천히 이동해 `dwell_s` 유지 → 자세별 처짐·유지 전류 (중력 토크 → 링크 질량 검증). joint2·3·4 만
-- `step`: +size → 0 → −size → 0 으로 명령이 바로 바뀜 → 속도 포화, 오버슈트, 정착 시간. 속도 검사를 하지 않는다 (서보가 최고 속도로 움직임)
-- `ramp`: 일정 속도(`speed` deg/s)로 ±amplitude 왕복 → 방향이 바뀔 때 멈춰 있는 폭(백래시)과 전류 변화(마찰)
+### 3. sin_test — 주기별 응답 (`config/sine_p*.yaml`)
 
-쥐는 힘 시험(30 mm 퍽): `profile_test gripper_left_joint hold --ros-args -p config:=$(ros2 pkg prefix sine_test)/share/sine_test/config/grip.yaml`
-— 2 mm(열림, 퍽 넣기) → 9 mm(쥐기) → 2 mm(빼기). 접촉점(약 7.8 mm)을 크게 넘겨 명령하지 않는다 (17 mm 에서 손가락이 휨).
+모든 주기에서 진폭을 ±10°(그리퍼 ±3 mm)로 같게 두어 주기만 바뀌게 했다. 결과는 `logs/freq/<ts>_<joint>_p<주기>/` 에 쌓이고 logs/ 요약 그림에는 섞이지 않는다.
 
-분석: `python3 profile_analysis.py` (ROS source 필요 — URDF 중력 토크 계산에 xacro 사용) → `<run>/plot.png`·`analysis.yaml`, `logs/profile/profile_summary.yaml`·`ramp_hysteresis.png`.
+```bash
+C=$(ros2 pkg prefix sine_test)/share/sine_test/config
+for p in 0.5 1 2 4; do ros2 run sine_test sin_test joint3 --ros-args -p config:=$C/sine_p$p.yaml; done
+```
+
+관절마다 4 주기를 모두 돌려야 도표 3 에서 지연 직선을 맞출 수 있다. 같은 주기를 다시 돌리면 최신 run 이 쓰인다.
+
+### 4. profile_test — hold / step / ramp (`config/profile.yaml`)
+
+```bash
+ros2 run sine_test profile_test joint2 hold   # joint2·3·4, 그리퍼
+ros2 run sine_test profile_test joint2 step   # joint1~5, 그리퍼
+ros2 run sine_test profile_test joint2 ramp   # joint1~5, 그리퍼
+```
+
+결과: `logs/profile/<ts>_<joint>_<mode>[_<tag>]/` (형식은 sin_test 와 같음). 흐름(시작 위치로 천천히 이동 → 한 goal → center 에서 정지)과 `q` 정지도 sin_test 와 같다.
+
+| 모드 | 명령 | 보는 것 |
+|---|---|---|
+| `hold` | 각도 목록마다 천천히 이동해 `dwell_s` 유지 | 자세별 처짐·유지 전류 → 중력 토크, 링크 질량 검증 |
+| `step` | +size → 0 → −size → 0 으로 명령이 바로 바뀜 (속도 검사 안 함, 서보 최고 속도) | 최고 속도, 오버슈트, 정착 시간 → damping |
+| `ramp` | 일정 속도(`speed` deg/s)로 ±amplitude 왕복 | 방향이 바뀔 때 멈춰 있는 폭(백래시)과 전류 변화(마찰) |
+
+hold 는 마찰 때문에 **접근 방향**에 따라 결과가 달라진다. 중력만 분리하려면 각 각도에 양방향으로 도착하도록 목록을 짜서 평균을 낸다.
+
+쥐는 힘 시험(30 mm 퍽, `config/grip.yaml`):
+
+```bash
+ros2 run sine_test profile_test gripper_left_joint hold --ros-args -p config:=$(ros2 pkg prefix sine_test)/share/sine_test/config/grip.yaml
+```
+
+2 mm(열림, 퍽 넣기) → 9 mm(쥐기) → 2 mm(빼기). 접촉점(약 7.8 mm)을 크게 넘겨 명령하지 않는다 (17 mm 에서 손가락이 휨).
+
+### 5. idle_record — 정지 상태
+
+```bash
+python3 idle_record.py 60                 # hw.launch 만 켜 둔 채 (테스트 노드 없이) 60 초
+```
+
+결과: `logs/<ts>_idle/log.csv` (`t_recv`, `t_stamp`, 관절별 `_pos`·`_eff`). 엔코더·전류 노이즈, 상태 갱신 주기, 처짐을 본다.
+펌웨어 통신을 바꾼 뒤 실제 상태 갱신 주기를 확인할 때도 쓴다 (sin_test 로그는 50 Hz 로 샘플링되어 20 ms 보다 빠른 갱신을 볼 수 없다).
 
 ### 움직이지 않는 관절의 자세 유지 기준
 `allow_partial_joints_goal: false` 라 궤적마다 6 개 관절 값을 모두 보낸다. 움직이지 않는 관절에는 **측정값(`/joint_states`)이 아니라
@@ -81,66 +140,112 @@ JTC 가 지금 명령하고 있는 값**(`/arm_controller/controller_state` 의 
 
 실기에서는 팔 무게 때문에 서보가 명령보다 조금 처진다 (예: 명령 0.0°, 측정 −1.0°). 측정값을 새 명령으로 보내면 목표가 −1.0° 가 되고
 거기서 또 처져, 테스트를 반복할수록 자세가 조금씩 내려간다. 명령값을 다시 보내면 목표가 그대로라 지금 버티던 상태가 유지된다.
-(mock 은 명령 = 측정이라 차이가 없다.)
+(mock 은 명령 = 측정이라 차이가 없다.) `q` 정지(set_center)도 이 명령값을 다시 보내 그 자리를 유지한다.
 
-이 값을 받아야 시작하므로 `arm_controller` 가 active 가 아니면 테스트 노드 모두 10 초 기다린 뒤 아무것도 움직이지 않고 종료한다.
-`q` 정지(set_center)도 이 명령값을 다시 보내 그 자리를 유지한다.
+---
+
+## 도표 만드는 방법
+
+ROS 없이 이 폴더(R2S)에서 실행한다 (`profile_analysis.py` 만 URDF 중력 계산에 xacro 가 필요해 `source /opt/ros/lyrical/setup.bash`).
+결과는 PNG 와 yaml 로 run 폴더나 `logs/` 에 쓴다.
+
+| 순서 | 명령 | 입력 | 출력 |
+|---|---|---|---|
+| 1 | `python3 plot_logs.py logs/<run>...` | 사인 run (meta.yaml 있는 폴더) | run 마다 `plot.png`, `plot_lag_removed.png`, `analysis.yaml` + 요약 3 장 |
+| 2 | `python3 compare_runs.py <날짜A> <날짜B>` | 두 세션의 `analysis.yaml` (1 먼저) | `logs/compare_<A>_<B>.png`, `.yaml` |
+| 3 | `python3 freq_response.py` | `logs/freq/*/analysis.yaml` (1 먼저) | `logs/freq/freq_response.png`, `.yaml` |
+| 4 | `python3 profile_analysis.py` | `logs/profile/` run | run 마다 `plot.png`, `analysis.yaml` + `profile_summary.yaml`, `ramp_hysteresis.png` |
+
+### 1. 사인 run 하나하나 + 요약 — `plot_logs.py`
+
+```bash
+python3 plot_logs.py logs/20261026_*      # 한 세션만
+python3 plot_logs.py                      # logs/ 아래 사인 run 전부 (idle 은 meta.yaml 이 없어 건너뜀)
+```
+
+- `plot.png`: 명령·측정 위치, 오차, 전류 (fade-in/out·settle 구간은 회색)
+- `plot_lag_removed.png`: 명령을 맞춘 지연만큼 늦춰 비교 → 남는 것은 서보 자체 오차(gain, 중력 오프셋, 엔코더 계단)
+- `analysis.yaml`: 전 진폭 구간에 사인을 맞춘 gain, lag(ms), 위상, 평균 오프셋, RMS·peak 오차 (보정 전 / 지연 보정 / 지연+오프셋 보정), 최대 전류
+- 요약 (인자로 준 run 들의 **관절별 최신 run**, 첫 run 의 상위 폴더에 씀):
+  `summary.png`(lag·gain·RMS), `summary_lag_removed.png`(오프셋·지연 보정 RMS·peak), `joints_lag_removed.png`(모든 관절 한 장)
+
+> **주의:** 요약 3 장은 같은 이름으로 덮어쓴다. `logs/summary*.png`·`joints_lag_removed.png` 는 10-24 worklog 가 쓰는 그림이므로,
+> 새 세션은 run 별 그림만 만들고 요약은 다른 이름으로 저장한다 (예: `logs/joints_lag_removed_20261026.png`):
+>
+> ```bash
+> python3 -c "
+> import sys, yaml, plot_logs as P; from pathlib import Path
+> runs = sorted(Path('logs').glob('20261026_*'))
+> items = []
+> for run in runs:
+>     m, a = P.load(run); r = P.analyse(m, a); P.plot_run(run, m, a, r); P.plot_run(run, m, a, r, compensate=True)
+>     (run / 'analysis.yaml').write_text(yaml.safe_dump({k: float(v) if isinstance(v, float) else v for k, v in r.items()}, sort_keys=False))
+>     items.append((m, a, r))
+> P.plot_joints(items, Path('logs/joints_lag_removed_20261026.png'))"
+> ```
+
+### 2. 세션끼리 비교 — `compare_runs.py`
+
+```bash
+python3 compare_runs.py 20261024 20261026  # 두 세션 모두 plot_logs.py (또는 위 스니펫) 를 먼저 돌려 analysis.yaml 이 있어야 함
+```
+
+같은 `sine.yaml` 로 돌린 두 세션(run 폴더 날짜 접두어)을 관절별로 나란히 그린다. 세션마다 관절별 최신 run 을 쓴다.
+패널: lag, 상태 갱신 주기(log.csv 에서 위치 값이 바뀌는 간격의 중앙값), RMS (보정 전), RMS (지연+오프셋 보정), peak (지연 보정), gain.
+펌웨어·설정을 바꾼 전후 비교에 쓴다. 두 세션에 모두 있는 팔 관절만 그리고, 한쪽에만 있는 관절(예: 그리퍼)은 yaml 에만 남긴다.
+
+### 3. 주기별 응답 — `freq_response.py`
+
+```bash
+python3 plot_logs.py logs/freq/2026*      # run 별 analysis.yaml (요약 그림은 logs/freq/ 에 생김)
+python3 freq_response.py                  # → logs/freq/freq_response.png, freq_response.yaml
+```
+
+관절별 gain·lag vs 주기. lag 는 `lag(T) = 순수 지연 + 일정 위상/360 × T` 로 맞춘다.
+순수 지연은 주기와 무관한 ms(통신·측정 경로), 일정 위상은 주기에 비례해 커지는 몫(마찰·백래시)이다.
+`logs/` 의 큰 진폭 run 은 속이 빈 점으로 함께 그린다 (진폭 의존성 확인). 같은 주기가 여러 번이면 최신 run 을 쓴다.
+
+### 4. hold / step / ramp — `profile_analysis.py`
+
+```bash
+source /opt/ros/lyrical/setup.bash        # xacro
+python3 profile_analysis.py               # 관절·모드별 최신 완료 run
+```
+
+- `hold`: 자세마다 dwell 뒤 절반의 평균 처짐·전류, 접근 방향, 실측 토크(전류 × 1.78 Nm/A) vs URDF 중력 토크
+- `ramp`: 반전 직후를 뺀 일정 속도 구간에서 +/− 방향 오차·전류 → 히스테리시스 폭, 마찰 전류 `|I+ − I−|/2`, 중력 전류 `(I+ + I−)/2`
+- `step`: 명령 가장자리마다 최고 속도, dead time, 10→90 % 상승 시간, 오버슈트, 최종 오차
+- 요약: `logs/profile/profile_summary.yaml`, `logs/profile/ramp_hysteresis.png` (joint2~4 오차 vs 명령)
+
+전류 → 토크 계수 1.78 Nm/A 는 XM430-W350 정격(4.1 Nm / 2.3 A)으로 잡은 대략값이다.
+
+---
+
+## 출력 파일 형식 (sin_test · profile_test 공통)
+
+- `log.csv`: `t`(사인/프로파일 시작 기준 s), `joint`, `cmd_pos`, `cmd_vel`, `pos`, `vel`(rad·rad/s, 그리퍼 m·m/s), `effort_A`(서보 전류 A — Nm 아님)
+- `meta.yaml`: 모드, 관절 설정, 전체 설정, 유지 자세, center·진폭, URDF 한계
+- `summary.yaml`: Peak / RMS 오차(deg 또는 mm, Gain Tuner 와 같은 정의), 최대 전류, `interrupted`(q 로 중단했는지)
 
 ## 설정 (`config/sine.yaml`)
 
 진폭·주기 기본값은 Isaac Gain Tuner "Joints to test" 표와 같은 값·정의다 (`gains_tuner.py` sinusoidal_step):
 - `amplitude_pct`: 관절 범위 **절반**에 대한 % (Gain Tuner Amplitude %). 절대값으로 주려면 `amplitude`(팔 deg · 그리퍼 m)
-- `offset`: 팔은 **0°(서보 수직, 2048)** 기준 deg, 그리퍼는 URDF 범위 **가운데** 기준 m
+- `offset`: 팔은 **0°(서보 수직, 2048)** 기준 deg, 그리퍼는 URDF 범위 **가운데**(13.25 mm) 기준 m
   (Gain Tuner 는 팔도 범위 가운데가 중심이다 — joint3 −5°, joint4 +7.7°. 비교할 때는 Gain Tuner 에 같은 중심을 준다)
-- `period`[s], `cycles`
-
-주기별 응답 (`config/sine_p0.5.yaml`, `sine_p1.yaml`, `sine_p2.yaml`, `sine_p4.yaml`): 모든 주기에서 진폭을 ±10°(그리퍼 ±3 mm)로 같게 두어
-주기만 바뀌게 했다. `tag`(폴더 이름 뒤에 붙음)와 `out_subdir: freq` 때문에 결과는 `logs/freq/<ts>_<joint>_p<주기>/` 에 쌓이고 logs/ 요약 그림에는 섞이지 않는다.
-
-```bash
-ros2 run sine_test sin_test joint3 --ros-args -p config:=$(ros2 pkg prefix sine_test)/share/sine_test/config/sine_p0.5.yaml
-```
+- `period`[s], `cycles`, `ramp_cycles`(fade 길이, 주기 수), `settle_s`, `move_s`, `speed_margin`, `limit_margin`, `sample_hz`
 
 명령 = center + env(t) · amplitude · sin(2πt/period). Gain Tuner 와 다른 점: env 가 첫·마지막 `ramp_cycles` 주기 동안 0↔1 로 부드럽게 바뀐다 (실기가 튀지 않게).
-
-## 출력 (`<out_dir>/<YYYYmmdd_HHMMSS>_<joint>/`, 기본 out_dir = 이 폴더의 logs/)
-
-- `log.csv`: `t`(사인 시작 기준 s), `joint`, `cmd_pos`, `cmd_vel`, `pos`, `vel`(rad·rad/s, 그리퍼 m·m/s), `effort_A`(서보 전류 A — Nm 아님)
-- `meta.yaml`: 관절 설정, 전체 설정, 유지 자세, 사인 center·진폭, URDF 한계
-- `summary.yaml`: Peak / RMS 오차(deg 또는 mm, Gain Tuner 와 같은 정의), 최대 전류, `interrupted`(q 로 중단했는지)
-
-## 분석
-
-```bash
-python3 plot_logs.py                      # logs/ 아래 sin_test run 전부 (일부만: python3 plot_logs.py logs/2026..._joint2)
-python3 plot_logs.py logs/freq/2026*      # 주기별 run 각각 분석 → 이어서
-python3 freq_response.py                  # logs/freq/freq_response.png, freq_response.yaml
-python3 profile_analysis.py               # profile run (ROS source 필요)
-```
-
-- `plot_logs.py`: run 마다 `plot.png`(명령·측정·오차·전류), `plot_lag_removed.png`(명령을 맞춘 지연만큼 늦춰 비교), `analysis.yaml`(gain, lag, 오프셋, 지연 보정 RMS).
-  `logs/summary.png`, `summary_lag_removed.png`, `joints_lag_removed.png` 는 관절별 최신 run 으로 만든다.
-- `freq_response.py`: 관절별 gain·lag vs 주기. lag 는 `lag(T) = 순수 지연 + 일정 위상/360 × T` 로 맞춘다.
-  순수 지연은 주기와 무관한 ms(통신·측정 경로), 일정 위상은 주기에 비례해 커지는 몫(마찰·백래시)이다.
-
-## 정지 기록 (`idle_record.py`)
-`python3 idle_record.py 60`: 테스트 노드 없이 팔이 멈춰 있는 동안 `/joint_states` 를 60 초 기록한다 → `logs/<ts>_idle/log.csv`.
-엔코더·전류 노이즈, 상태 갱신 주기, 처짐을 본다 (meta.yaml 이 없어 plot_logs.py 는 건너뛴다).
+±10° 를 Gain Tuner Amplitude % 로 바꾸면 joint1 6 %, joint2 9 %, joint3 7 %, joint4 5.5 %, joint5 6 % 다.
 
 ## 실기 전 주의
 
-**펌웨어 통신 (2026-10-24 측정)**
-- OpenCR 은 들어온 C(명령)를 전부 처리한 뒤에 S(상태)를 보낸다. 서보 8 개를 개별 패킷으로 읽고 쓰므로 C 가 잦을수록 S 가 밀린다.
-
-  | C 주기 | S (상태 갱신) |
-  |---|---|
-  | 없음 | 40 Hz (`STATE_PERIOD_MS = 25`) |
-  | 50 Hz | 움직이는 동안 약 17 Hz (60 ms 계단) |
-  | 100 Hz | 끊김 (`OpenCR 상태(S) 수신 없음` 경고) |
-
-- 그래서 `controllers.yaml` 의 `update_rate` 는 **50 Hz** 다. `/joint_states` 는 50 Hz 로 나오지만 값은 약 60 ms 마다 바뀐다.
-- 명령 → 측정 지연은 약 100 ms (joint1 115 ms). 측정 peak 오차의 상당 부분은 60 ms 계단 때문이라 Isaac 비교에는 gain·지연 보정 RMS 를 쓴다.
-- 펌웨어 SyncRead/SyncWrite 개선 후에는 `python3 idle_record.py 60` 의 상태 갱신 주기와 `sine_p*` 측정으로 다시 확인한다.
+**펌웨어 통신**
+- 2026-10-24: 서보 8 개를 개별 패킷으로 읽고 써서, C(명령) 50 Hz 일 때 S(상태)가 약 17 Hz(60 ms 계단)로 밀렸다. 명령 → 측정 지연 약 100 ms.
+- 2026-10-26: 펌웨어가 SyncRead·BulkWrite 로 바뀌어(`STATE_PERIOD_MS = 10`, S 100 Hz) 같은 `sine.yaml` 에서
+  상태 갱신 20 ms 이하(로그 샘플 주기 한계), 지연 45~62 ms 로 줄었다 (`logs/compare_20261024_20261026.png`).
+  주기별(`sine_p*`)·profile 측정은 아직 10-24 값뿐이라 다시 측정해야 한다.
+- `controllers.yaml` 의 `update_rate` 는 아직 **50 Hz** 다. 올리려면 먼저 `idle_record.py` 로 실제 상태 갱신 주기를 확인한다.
 
 **관절·그리퍼**
 - 팔 관절 부호·영점은 아직 실측 중이다 (config.h TODO). 첫 실행은 작은 진폭으로 방향부터 확인한다.
