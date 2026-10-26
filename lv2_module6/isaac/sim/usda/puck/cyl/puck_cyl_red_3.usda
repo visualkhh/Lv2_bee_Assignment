@@ -1,9 +1,9 @@
 #usda 1.0
 (
-    defaultPrim = "box"
+    defaultPrim = "puck"
     endTimeCode = 1
     framesPerSecond = 24
-    metersPerUnit = 1
+    metersPerUnit = 0.1
     startTimeCode = 1
     subLayers = [
         @./geo.usd@
@@ -47,7 +47,7 @@ over "puck"
                         }
                     }
                 )
-                color3f inputs:base_color.connect = </puck/cyl/Looks/mtlxpower1.outputs:out>
+                color3f inputs:base_color.connect = </puck/cyl/Looks/mtlxmix1.outputs:out>
                 float inputs:coat (
                     customData = {
                         dictionary HoudiniPreviewTags = {
@@ -134,37 +134,37 @@ over "puck"
                 uniform float2 ui:nodegraph:node:pos = (-8.75596, 9.77353)
             }
 
-            def Shader "mtlxpower1" (
-                prepend apiSchemas = ["NodeGraphNodeAPI"]
-            )
-            {
-                uniform token info:id = "ND_power_color3"
-                color3f inputs:in1.connect = </puck/cyl/Looks/mtlxmix1.outputs:out>
-                color3f inputs:in2 = (2.2, 2.2, 2.2)
-                color3f outputs:out
-                uniform float2 ui:nodegraph:node:pos = (-11.4119, 13.1256)
-            }
-
             def Shader "mtlxmix1" (
                 prepend apiSchemas = ["NodeGraphNodeAPI"]
             )
             {
                 uniform token info:id = "ND_mix_color3"
-                color3f inputs:bg.connect = </puck/cyl/Looks/mtlxmultiply2.outputs:out>
-                color3f inputs:fg.connect = </puck/cyl/Looks/mtlximage1.outputs:out>
+                color3f inputs:bg.connect = </puck/cyl/Looks/mtlxpower1.outputs:out>
+                color3f inputs:fg.connect = </puck/cyl/Looks/mtlximage5.outputs:out>
                 float inputs:mix.connect = </puck/cyl/Looks/mtlximage4.outputs:out>
                 color3f outputs:out
-                uniform float2 ui:nodegraph:node:pos = (-14.0678, 13.2006)
+                uniform float2 ui:nodegraph:node:pos = (-10.7353, 12.1488)
             }
 
-            def Shader "mtlximage1" (
+            def Shader "mtlximage5" (
                 prepend apiSchemas = ["NodeGraphNodeAPI"]
             )
             {
                 uniform token info:id = "ND_image_color3"
                 asset inputs:file = @../../../source/texture/puck/puck_cyl_basecolor_id3.png@
                 color3f outputs:out
-                uniform float2 ui:nodegraph:node:pos = (-16.7237, 17.031)
+                uniform float2 ui:nodegraph:node:pos = (-16.5023, 16.5424)
+            }
+
+            def Shader "mtlxpower1" (
+                prepend apiSchemas = ["NodeGraphNodeAPI"]
+            )
+            {
+                uniform token info:id = "ND_power_color3"
+                color3f inputs:in1.connect = </puck/cyl/Looks/mtlxmultiply2.outputs:out>
+                color3f inputs:in2 = (2.2, 2.2, 2.2)
+                color3f outputs:out
+                uniform float2 ui:nodegraph:node:pos = (-14.1869, 13.7679)
             }
 
             def Shader "mtlxmultiply2" (
@@ -176,7 +176,7 @@ over "puck"
                 color3f inputs:in1.connect = None
                 float inputs:in2.connect = </puck/cyl/Looks/mtlxinvert1.outputs:out>
                 color3f outputs:out
-                uniform float2 ui:nodegraph:node:pos = (-16.7237, 13.1256)
+                uniform float2 ui:nodegraph:node:pos = (-17.475, 13.271)
             }
 
             def Shader "mtlxinvert1" (
@@ -206,7 +206,7 @@ over "puck"
                 uniform token info:id = "ND_image_float"
                 asset inputs:file = @../../../source/texture/puck/puck_cyl_roughness.png@
                 float outputs:out
-                uniform float2 ui:nodegraph:node:pos = (-11.4119, 7.56658)
+                uniform float2 ui:nodegraph:node:pos = (-13.3663, 8.63103)
             }
 
             def Shader "mtlxnormalmap1" (
@@ -215,6 +215,7 @@ over "puck"
             {
                 uniform token info:id = "ND_normalmap_float"
                 vector3f inputs:in.connect = </puck/cyl/Looks/mtlximage3.outputs:out>
+                float inputs:scale = 2
                 vector3f outputs:out
                 uniform float2 ui:nodegraph:node:pos = (-11.4119, 4.16148)
             }
