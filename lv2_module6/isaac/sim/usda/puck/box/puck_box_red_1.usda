@@ -18,7 +18,7 @@ over "puck" (
 {
     float physics:mass = 0.025
     float3 xformOp:rotateXYZ = (90, 0, 0)
-    float3 xformOp:scale = (0.1, 0.1, 0.1)
+    float3 xformOp:scale = (1, 1, 1)
     double3 xformOp:translate = (0, 0, 0)
     float3 xformOp:translate:pivot = (0, 0, 0)
 
@@ -49,7 +49,6 @@ over "puck" (
             {
                 uniform token info:id = "ND_standard_surface_surfaceshader"
                 float inputs:base
-                color3f inputs:base_color
                 color3f inputs:base_color.connect = </puck/box/Looks/mtlxpower1.outputs:out>
                 float inputs:coat
                 float inputs:coat_roughness
@@ -60,7 +59,6 @@ over "puck" (
                 float inputs:specular
                 color3f inputs:specular_color
                 float inputs:specular_IOR
-                float inputs:specular_roughness
                 float inputs:specular_roughness.connect = </puck/box/Looks/mtlximage7.outputs:out>
                 float inputs:transmission
                 token outputs:out

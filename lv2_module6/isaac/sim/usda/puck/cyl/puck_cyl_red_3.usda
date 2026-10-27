@@ -20,7 +20,7 @@ over "puck" (
     custom float physxRigidBody:angularDamping = 1.5
     custom float physxRigidBody:linearDamping = 0.1
     float3 xformOp:rotateXYZ = (90, 0, 0)
-    float3 xformOp:scale = (0.1, 0.1, 0.1)
+    float3 xformOp:scale = (1, 1, 1)
     double3 xformOp:translate = (0, 0, 0)
     float3 xformOp:translate:pivot = (0, 0, 0)
 
@@ -50,7 +50,6 @@ over "puck" (
             {
                 uniform token info:id = "ND_standard_surface_surfaceshader"
                 float inputs:base
-                color3f inputs:base_color
                 color3f inputs:base_color.connect = </puck/cyl/Looks/mtlxpower1.outputs:out>
                 float inputs:coat
                 float inputs:coat_roughness
@@ -61,7 +60,6 @@ over "puck" (
                 float inputs:specular
                 color3f inputs:specular_color
                 float inputs:specular_IOR
-                float inputs:specular_roughness
                 float inputs:specular_roughness.connect = </puck/cyl/Looks/mtlximage2.outputs:out>
                 float inputs:transmission
                 token outputs:out

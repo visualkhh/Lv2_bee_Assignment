@@ -464,7 +464,7 @@ def Xform "World"
     )
     {
         float3 xformOp:rotateXYZ = (90, 0, 0)
-        float3 xformOp:scale = (0.1, 0.1, 0.1)
+        float3 xformOp:scale = (1, 1, 1)
         double3 xformOp:translate = (-0.4958156943321228, -0.22785460948944092, 6.565138619407662e-7)
         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
 
@@ -485,7 +485,7 @@ def Xform "World"
     )
     {
         float3 xformOp:rotateXYZ = (90, 0, 0)
-        float3 xformOp:scale = (0.1, 0.1, 0.1)
+        float3 xformOp:scale = (1, 1, 1)
         double3 xformOp:translate = (0.24634825615679037, 0.5580159403185814, 0.39808489544599657)
         float3 xformOp:translate:pivot = (0, 0, 0)
         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
@@ -496,19 +496,8 @@ def Xform "World"
     )
     {
         float3 xformOp:rotateXYZ = (127.774536, 0, 0)
-        float3 xformOp:scale = (0.1, 0.1, 0.1)
+        float3 xformOp:scale = (1, 1, 1)
         double3 xformOp:translate = (-0.10378082096869003, 0.17474361832054117, 0.12405483713523174)
-        float3 xformOp:translate:pivot = (0, 0, 0)
-        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
-    }
-
-    def "shelf" (
-        prepend payload = @./shelf/shelf.usda@
-    )
-    {
-        float3 xformOp:rotateXYZ = (90, 0, 0)
-        float3 xformOp:scale = (0.1, 0.1, 0.1)
-        double3 xformOp:translate = (-0.1688734939800537, 0.15456199553619251, 0.013893602595405672)
         float3 xformOp:translate:pivot = (0, 0, 0)
         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
     }
@@ -518,7 +507,7 @@ def Xform "World"
     )
     {
         float3 xformOp:rotateXYZ = (90, 0, 0)
-        float3 xformOp:scale = (0.1, 0.1, 0.1)
+        float3 xformOp:scale = (1, 1, 1)
         double3 xformOp:translate = (-0.0496934414952499, 0.08783768581525873, 0.11934770243042414)
         float3 xformOp:translate:pivot = (0, 0, 0)
         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
@@ -529,8 +518,19 @@ def Xform "World"
     )
     {
         float3 xformOp:rotateXYZ = (176.73854, 0, 0)
-        float3 xformOp:scale = (0.1, 0.1, 0.1)
+        float3 xformOp:scale = (1, 1, 1)
         double3 xformOp:translate = (-0.03662171725514292, 0.24722299622558977, 0.11534675765859001)
+        float3 xformOp:translate:pivot = (0, 0, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+    }
+
+    def "shelf" (
+        prepend payload = @./shelf/shelf.usda@
+    )
+    {
+        float3 xformOp:rotateXYZ = (90, 0, 0)
+        float3 xformOp:scale = (1, 1, 1)
+        double3 xformOp:translate = (-0.16999135061722098, 0.18163122655637345, -5.551115123125824e-16)
         float3 xformOp:translate:pivot = (0, 0, 0)
         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
     }
