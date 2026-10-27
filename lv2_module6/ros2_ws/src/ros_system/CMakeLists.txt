@@ -7,6 +7,7 @@ install(DIRECTORY launch config
   DESTINATION share/${PROJECT_NAME})
 # 스캔 자세일 때만 gripper_cam depth를 RTAB-Map에 넘기는 노드 (scripts/scan_cam_gate.py — 설명은 파일 머리말)
 install(PROGRAMS scripts/scan_cam_gate.py DESTINATION lib/${PROJECT_NAME} RENAME scan_cam_gate)
+install(PROGRAMS scripts/cuvslam_slam.py DESTINATION lib/${PROJECT_NAME} RENAME cuvslam_slam)
 
 # 로봇 모델은 워크스페이스 루트의 urdf/ 에 둔다 (Isaac Sim 등 ROS 밖에서도 같은 파일을 쓰므로).
 # 모델 하나 = 폴더 하나: urdf/<이름>/urdf.xacro (+ meshes/) — launch 인자 urdf:=<이름>으로 고름 (기본 default)

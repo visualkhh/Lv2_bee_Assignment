@@ -34,6 +34,9 @@
   <exec_depend>rtabmap_util</exec_depend>
   <exec_depend>rclpy</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>message_filters</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
   <!-- 진짜 Nav2 서버 (launch가 직접 띄움 — nav2_bringup은 시뮬레이션 의존성까지 끌어와 안 씀) -->
   <exec_depend>nav2_lifecycle_manager</exec_depend>
   <exec_depend>nav2_bt_navigator</exec_depend>

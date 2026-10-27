@@ -173,6 +173,7 @@ def generate_launch_description():
         flag('gripper_cam_pointcloud', 'false', 'gripper_cam PointCloud2 발행 (grasp_scorer용, 필요할 때만 true)'),
         flag('use_ekf', 'true', 'robot_localization EKF'),
         flag('use_rtabmap', 'true', 'RTAB-Map'),
+        flag('slam', 'rtabmap', 'rtabmap | cuvslam (시험: cuVSLAM이 map→odom만 냄, /map 격자 없음 — use_nav2:=false로)'),
         flag('localization', 'true', 'true=위치추정 모드(운영, rtabmap_db 지도로), false=매핑 모드(rtabmap_db를 새로 만듦)'),
         flag('rtabmap_db', '~/.ros/rtabmap.db', 'RTAB-Map 지도 DB — 매핑이 여기에 쓰고 위치추정이 여기서 읽음 (테스트베드: /ws/map/<이름>/rtabmap.db)'),
         flag('use_nav2', 'true', '진짜 Nav2 서버 (planner · controller · behavior · bt_navigator · velocity_smoother · collision_monitor)'),
@@ -256,7 +257,8 @@ def nav2_nodes():
 
 def rtabmap_nodes():
     """RTAB-Map (설명은 generate_launch_description 주석) — use_rtabmap일 때만"""
-    on = IfCondition(LaunchConfiguration('use_rtabmap'))
+    on = IfCondition(PythonExpression(["'", LaunchConfiguration('use_rtabmap'), "'.lower() == 'true' and '",
+                                       LaunchConfiguration('slam'), "' == 'rtabmap'"]))
     loc = PythonExpression(["'", LaunchConfiguration('localization'), "'.lower() == 'true'"])
     # 매핑 모드면 DB를 새로 (--delete_db_on_start). localization 값은 'true'·'True' 둘 다 올 수 있어 lower()
     # 클로저(루프·근접)를 엄격하게 — 제자리 회전 때 아래를 보는 pole_front_cam이 같은 모양 미로 벽만 보며 잘못 맞춘 클로저를
@@ -291,6 +293,10 @@ def rtabmap_nodes():
                     parameters=[{'approx_sync': True, 'topic_queue_size': 10, 'sync_queue_size': 10, **qos}],
                     remappings=[('rgb/image', rgb), ('depth/image', depth), ('rgb/camera_info', info), ('rgbd_image', out)])
     return [
+        # slam:=cuvslam — RTAB-Map 노드 대신 cuVSLAM (scripts/cuvslam_slam.py)
+        Node(package='ros_system', executable='cuvslam_slam', name='cuvslam_slam', output='screen',
+             condition=IfCondition(PythonExpression(["'", LaunchConfiguration('use_rtabmap'), "'.lower() == 'true' and '",
+                                                     LaunchConfiguration('slam'), "' == 'cuvslam'"]))),
         Node(package='ros_system', executable='scan_cam_gate', name='scan_cam_gate', output='screen', condition=on,
              parameters=[share('config', 'scan_pose.yaml'),
                          {'depth_in': '/gripper_cam/aligned_depth_to_color/image_raw',
