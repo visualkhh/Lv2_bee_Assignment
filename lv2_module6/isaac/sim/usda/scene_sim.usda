@@ -7,8 +7,8 @@
                 double radius = 5
             }
             dictionary Perspective = {
-                double3 position = (1.0144975022522387, 1.230113881618806, 0.3260251159997895)
-                double3 target = (0.6208703439427976, 0.10795793860732639, 0.32844344694249006)
+                double3 position = (0.7415802337888127, -0.26685558916930713, 0.6307924223158996)
+                double3 target = (0.05090711248509905, 0.18188495943929311, 0.14688693794415475)
             }
             dictionary Right = {
                 double3 position = (0, -5, 0)
@@ -40,24 +40,6 @@
 
 def Xform "World"
 {
-    def "puck_blue_box" (
-        prepend payload = @./puck/puck_blue_box.usda@
-    )
-    {
-        quatd xformOp:orient = (0.9695976136912257, 0, 0, 0.24470485799076558)
-        double3 xformOp:scale = (1, 1, 1)
-        double3 xformOp:translate = (0.002284250496738749, 0.058316530900373115, 0.22999999999999932)
-        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
-
-        over "OmniPBR"
-        {
-            over "Shader"
-            {
-                color3f inputs:diffuse_tint = (0.039653555, 0.0785576, 0.5405406)
-            }
-        }
-    }
-
     def "beebot" (
         prepend payload = @./beebot/beebot.usda@
     )
@@ -368,16 +350,6 @@ def Xform "World"
         }
     }
 
-    def "shelf" (
-        prepend payload = @./shelf/shelf.usda@
-    )
-    {
-        quatd xformOp:orient = (1, 0, 0, 0)
-        double3 xformOp:scale = (1, 1, 1)
-        double3 xformOp:translate = (0, 0, 0.2)
-        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
-    }
-
     def Xform "Environment"
     {
         quatd xformOp:orient = (1, 0, 0, 0)
@@ -434,10 +406,13 @@ def Xform "World"
             }
 
             def Plane "CollisionPlane" (
-                prepend apiSchemas = ["PhysicsCollisionAPI"]
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
             )
             {
                 uniform token axis = "Z"
+                rel material:binding:physics = </World/Environment/GroundPlane/floor_PhysicsMaterial> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
                 uniform token purpose = "guide"
                 token visibility = "inherited"
             }
@@ -471,7 +446,93 @@ def Xform "World"
                     )
                 }
             }
+
+            def Material "floor_PhysicsMaterial" (
+                prepend apiSchemas = ["PhysicsMaterialAPI", "PhysxMaterialAPI"]
+            )
+            {
+                float physics:dynamicFriction = 0.7
+                float physics:restitution = 0.02
+                float physics:staticFriction = 0.85
+                uniform token physxMaterial:restitutionCombineMode = "min"
+            }
         }
+    }
+
+    def "maze" (
+        prepend payload = @./maze/maze.usda@
+    )
+    {
+        float3 xformOp:rotateXYZ = (90, 0, 0)
+        float3 xformOp:scale = (0.1, 0.1, 0.1)
+        double3 xformOp:translate = (-0.4958156943321228, -0.22785460948944092, 6.565138619407662e-7)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+
+        over "Looks"
+        {
+            over "wall"
+            {
+                over "mtlxstandard_surface"
+                {
+                    color3f inputs:base_color = (0.15576693, 0.18596075, 0.31274134)
+                }
+            }
+        }
+    }
+
+    def "puck_box_red_1" (
+        prepend payload = @./puck/box/puck_box_red_1.usda@
+    )
+    {
+        float3 xformOp:rotateXYZ = (90, 0, 0)
+        float3 xformOp:scale = (0.1, 0.1, 0.1)
+        double3 xformOp:translate = (0.24634825615679037, 0.5580159403185814, 0.39808489544599657)
+        float3 xformOp:translate:pivot = (0, 0, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+    }
+
+    def "puck_box_green_0" (
+        prepend payload = @./puck/box/puck_box_green_0.usda@
+    )
+    {
+        float3 xformOp:rotateXYZ = (127.774536, 0, 0)
+        float3 xformOp:scale = (0.1, 0.1, 0.1)
+        double3 xformOp:translate = (-0.10378082096869003, 0.17474361832054117, 0.12405483713523174)
+        float3 xformOp:translate:pivot = (0, 0, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+    }
+
+    def "shelf" (
+        prepend payload = @./shelf/shelf.usda@
+    )
+    {
+        float3 xformOp:rotateXYZ = (90, 0, 0)
+        float3 xformOp:scale = (0.1, 0.1, 0.1)
+        double3 xformOp:translate = (-0.1688734939800537, 0.15456199553619251, 0.013893602595405672)
+        float3 xformOp:translate:pivot = (0, 0, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+    }
+
+    def "puck_cyl_red_3" (
+        prepend payload = @./puck/cyl/puck_cyl_red_3.usda@
+    )
+    {
+        float3 xformOp:rotateXYZ = (90, 0, 0)
+        float3 xformOp:scale = (0.1, 0.1, 0.1)
+        double3 xformOp:translate = (-0.0496934414952499, 0.08783768581525873, 0.11934770243042414)
+        float3 xformOp:translate:pivot = (0, 0, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+    }
+
+    def "puck_cyl_green_2" (
+        prepend payload = @./puck/cyl/puck_cyl_green_2.usda@
+    )
+    {
+        float3 xformOp:rotateXYZ = (176.73854, 0, 0)
+        float3 xformOp:scale = (0.1, 0.1, 0.1)
+        double3 xformOp:translate = (-0.03662171725514292, 0.24722299622558977, 0.11534675765859001)
+        float3 xformOp:translate:pivot = (0, 0, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
     }
 }
 
@@ -523,7 +584,7 @@ def "Render" (
                 bool omni:rtx:scene:useViewLightingMode
                 rel orderedVars = </Render/Vars/LdrColor>
                 custom bool overrideClipRange = 0
-                uniform int2 resolution = (1285, 761)
+                uniform int2 resolution = (1280, 720)
             }
         }
     }
@@ -573,10 +634,10 @@ over "OmniverseKit_Persp" (
     float exposure:time = 0.02
     float focalLength = 18.147562
     float focusDistance = 400
-    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -1.1891939070308497)
-    float3 xformOp:rotateXYZ = (90.116516, -7.951387e-13, 160.67027)
+    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -0.9552810886131969)
+    float3 xformOp:rotateXYZ = (59.565155, -8.7783307e-13, 56.98762)
     float3 xformOp:scale = (1, 1, 1)
-    double3 xformOp:translate = (1.0144975022522387, 1.230113881618806, 0.3260251159997895)
+    double3 xformOp:translate = (0.7415802337888127, -0.26685558916930713, 0.6307924223158996)
     uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
 }
 

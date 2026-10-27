@@ -3,19 +3,39 @@
     defaultPrim = "puck"
     endTimeCode = 1
     framesPerSecond = 24
-    metersPerUnit = 0.1
+    metersPerUnit = 1
     startTimeCode = 1
     subLayers = [
         @./geo.usd@
     ]
     timeCodesPerSecond = 24
-    upAxis = "Y"
+    upAxis = "Z"
 )
 
-over "puck"
+over "puck" (
+    prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI", "PhysxRigidBodyAPI"]
+)
 {
+    float physics:mass = 0.02
+    custom float physxRigidBody:angularDamping = 1.5
+    custom float physxRigidBody:linearDamping = 0.1
+    float3 xformOp:rotateXYZ = (90, 0, 0)
+    float3 xformOp:scale = (0.1, 0.1, 0.1)
+    double3 xformOp:translate = (0, 0, 0)
+    float3 xformOp:translate:pivot = (0, 0, 0)
+
     over "cyl"
     {
+        over "collision" (
+            prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+        )
+        {
+            rel material:binding:physics = </puck/PhysicsMaterials/PLA> (
+                bindMaterialAs = "weakerThanDescendants"
+            )
+            uniform token purpose = "guide"
+        }
+
         def Material "Looks" (
             prepend apiSchemas = ["MaterialXConfigAPI"]
             prepend inherits = </__class_mtl__/puck_cyl>
@@ -31,7 +51,7 @@ over "puck"
                 uniform token info:id = "ND_standard_surface_surfaceshader"
                 float inputs:base
                 color3f inputs:base_color
-                color3f inputs:base_color.connect = </puck/cyl/Looks/mtlxmix1.outputs:out>
+                color3f inputs:base_color.connect = </puck/cyl/Looks/mtlxpower1.outputs:out>
                 float inputs:coat
                 float inputs:coat_roughness
                 float inputs:emission
@@ -47,10 +67,18 @@ over "puck"
                 token outputs:out
             }
 
+            def Shader "mtlxpower1"
+            {
+                uniform token info:id = "ND_power_color3"
+                color3f inputs:in1.connect = </puck/cyl/Looks/mtlxmix1.outputs:out>
+                color3f inputs:in2 = (2.2, 2.2, 2.2)
+                color3f outputs:out
+            }
+
             def Shader "mtlxmix1"
             {
                 uniform token info:id = "ND_mix_color3"
-                color3f inputs:bg.connect = </puck/cyl/Looks/mtlxpower1.outputs:out>
+                color3f inputs:bg.connect = </puck/cyl/Looks/mtlxmultiply2.outputs:out>
                 color3f inputs:fg.connect = </puck/cyl/Looks/mtlximage5.outputs:out>
                 float inputs:mix.connect = </puck/cyl/Looks/mtlximage4.outputs:out>
                 color3f outputs:out
@@ -60,14 +88,6 @@ over "puck"
             {
                 uniform token info:id = "ND_image_color3"
                 asset inputs:file = @../../../source/texture/puck/puck_cyl_basecolor_id3.png@
-                color3f outputs:out
-            }
-
-            def Shader "mtlxpower1"
-            {
-                uniform token info:id = "ND_power_color3"
-                color3f inputs:in1.connect = </puck/cyl/Looks/mtlxmultiply2.outputs:out>
-                color3f inputs:in2 = (2.2, 2.2, 2.2)
                 color3f outputs:out
             }
 
@@ -155,6 +175,18 @@ over "puck"
         )
         {
             rel material:binding = </puck/cyl/Looks>
+        }
+    }
+
+    def "PhysicsMaterials"
+    {
+        def Material "PLA" (
+            prepend apiSchemas = ["PhysicsMaterialAPI"]
+        )
+        {
+            float physics:dynamicFriction = 0.3
+            float physics:restitution = 0.4
+            float physics:staticFriction = 0.35
         }
     }
 }

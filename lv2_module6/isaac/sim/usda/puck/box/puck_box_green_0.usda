@@ -3,19 +3,38 @@
     defaultPrim = "puck"
     endTimeCode = 1
     framesPerSecond = 24
-    metersPerUnit = 0.1
+    metersPerUnit = 1
     startTimeCode = 1
     subLayers = [
         @./geo.usd@
     ]
     timeCodesPerSecond = 24
-    upAxis = "Y"
+    upAxis = "Z"
 )
 
-over "puck"
+over "puck" (
+    prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI"]
+)
 {
+    float physics:mass = 0.025
+    float3 xformOp:rotateXYZ = (90, 0, 0)
+    float3 xformOp:scale = (0.1, 0.1, 0.1)
+    double3 xformOp:translate = (0, 0, 0)
+    float3 xformOp:translate:pivot = (0, 0, 0)
+
     over "box"
     {
+        over "collision" (
+            prepend apiSchemas = ["PhysicsCollisionAPI", "PhysicsMeshCollisionAPI", "MaterialBindingAPI"]
+        )
+        {
+            rel material:binding:physics = </puck/PhysicsMaterials/PLA> (
+                bindMaterialAs = "weakerThanDescendants"
+            )
+            uniform token physics:approximation = "convexHull"
+            uniform token purpose = "guide"
+        }
+
         def Material "Looks" (
             prepend apiSchemas = ["MaterialXConfigAPI"]
             prepend inherits = </__class_mtl__/puck_box>
@@ -67,7 +86,9 @@ over "puck"
             def Shader "mtlximage5"
             {
                 uniform token info:id = "ND_image_color3"
-                asset inputs:file = @../../../source/texture/puck/puck_box_basecolor_id0.png@
+                asset inputs:file = @../../../source/texture/puck/puck_box_basecolor_id0.png@ (
+                    colorSpace = "srgb_texture"
+                )
                 color3f outputs:out
             }
 
@@ -155,6 +176,18 @@ over "puck"
         )
         {
             rel material:binding = </puck/box/Looks>
+        }
+    }
+
+    def "PhysicsMaterials"
+    {
+        def Material "PLA" (
+            prepend apiSchemas = ["PhysicsMaterialAPI"]
+        )
+        {
+            float physics:dynamicFriction = 0.3
+            float physics:restitution = 0.4
+            float physics:staticFriction = 0.35
         }
     }
 }
