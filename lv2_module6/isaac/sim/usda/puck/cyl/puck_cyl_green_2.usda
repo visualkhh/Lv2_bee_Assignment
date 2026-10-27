@@ -19,10 +19,6 @@ over "puck" (
     float physics:mass = 0.02
     custom float physxRigidBody:angularDamping = 1.5
     custom float physxRigidBody:linearDamping = 0.1
-    float3 xformOp:rotateXYZ = (90, 0, 0)
-    float3 xformOp:scale = (1, 1, 1)
-    double3 xformOp:translate = (0, 0, 0)
-    float3 xformOp:translate:pivot = (0, 0, 0)
 
     over "cyl"
     {

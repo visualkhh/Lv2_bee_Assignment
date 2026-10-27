@@ -142,34 +142,6 @@ def Xform "beebot" (
                     uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
                 }
 
-                def Sphere "sphere_2" (
-                    prepend apiSchemas = ["PhysicsCollisionAPI"]
-                    displayName = "sphere"
-                )
-                {
-                    float3[] extent = [(-0.004763, -0.004763, -0.004763), (0.004763, 0.004763, 0.004763)]
-                    uniform token purpose = "guide"
-                    double radius = 0.004763
-                    quatf xformOp:orient = (1, 0, 0, 0)
-                    float3 xformOp:scale = (1, 1, 1)
-                    double3 xformOp:translate = (0.0496, 0.064, -0.005237)
-                    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
-                }
-
-                def Sphere "sphere_3" (
-                    prepend apiSchemas = ["PhysicsCollisionAPI"]
-                    displayName = "sphere"
-                )
-                {
-                    float3[] extent = [(-0.004763, -0.004763, -0.004763), (0.004763, 0.004763, 0.004763)]
-                    uniform token purpose = "guide"
-                    double radius = 0.004763
-                    quatf xformOp:orient = (1, 0, 0, 0)
-                    float3 xformOp:scale = (1, 1, 1)
-                    double3 xformOp:translate = (0.0496, -0.064, -0.005237)
-                    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
-                }
-
                 def Xform "storage_collision_0" (
                     instanceable = true
                     prepend references = @./instances.usda@</Instances/storage_collision_0>

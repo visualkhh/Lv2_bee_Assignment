@@ -45,7 +45,7 @@ lv_module6_usd/
 | 항목 | 값 |
 |---|---|
 | 파일 | `shelf/shelf.usda` |
-| 크기 | 25 × 27 × 7 cm |
+| 크기 | 20.7 × 20.7 × 7 cm |
 | 강체 / 질량 | `PhysicsRigidBodyAPI`, 0.4 kg (추정값) |
 | 콜라이더 | `collision` — 8점 박스 메시, `convexHull` |
 | 감쇠 | 기본값 |

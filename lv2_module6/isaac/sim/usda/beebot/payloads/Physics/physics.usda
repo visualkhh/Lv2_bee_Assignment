@@ -75,24 +75,6 @@ over "beebot"
                     )
                 }
 
-                over "sphere_2" (
-                    prepend apiSchemas = ["NewtonCollisionAPI", "MaterialBindingAPI"]
-                )
-                {
-                    rel material:binding:physics = </beebot/PhysicsMaterials/caster_ball> (
-                        bindMaterialAs = "strongerThanDescendants"
-                    )
-                }
-
-                over "sphere_3" (
-                    prepend apiSchemas = ["NewtonCollisionAPI", "MaterialBindingAPI"]
-                )
-                {
-                    rel material:binding:physics = </beebot/PhysicsMaterials/caster_ball> (
-                        bindMaterialAs = "strongerThanDescendants"
-                    )
-                }
-
                 over "wheel_left_link" (
                     prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI", "NewtonMassAPI"]
                 )
@@ -211,9 +193,12 @@ over "beebot"
                                         quatf physics:principalAxes = (-0.64092994, 0.29831067, -0.29741922, 0.6416864)
 
                                         over "finger_left_link" (
-                                            prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI", "NewtonMassAPI"]
+                                            prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI", "NewtonMassAPI", "MaterialBindingAPI"]
                                         )
                                         {
+                                            rel material:binding:physics = </beebot/PhysicsMaterials/finger_pad> (
+                                                bindMaterialAs = "strongerThanDescendants"
+                                            )
                                             double[] newton:inertia = [0.000016044439735163095, 0.00003826239119656881, 0.000030067540639167056, 0.000004605246566598353, 3.5963237119675897e-9, 1.574772744694366e-9]
                                             point3f physics:centerOfMass = (0.02155894, -0.018420806, 0.0000081806)
                                             float3 physics:diagonalInertia = (0.000015127707, 0.00003006754, 0.00003917912)
@@ -222,9 +207,12 @@ over "beebot"
                                         }
 
                                         over "finger_right_link" (
-                                            prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI", "NewtonMassAPI"]
+                                            prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI", "NewtonMassAPI", "MaterialBindingAPI"]
                                         )
                                         {
+                                            rel material:binding:physics = </beebot/PhysicsMaterials/finger_pad> (
+                                                bindMaterialAs = "strongerThanDescendants"
+                                            )
                                             double[] newton:inertia = [0.000016044441819836038, 0.000038264034133980986, 0.000030069181530455354, -0.000004605674890118894, -3.59581954148148e-9, 1.5747659280713153e-9]
                                             point3f physics:centerOfMass = (0.02155799, 0.018420806, -0.0000081806)
                                             float3 physics:diagonalInertia = (0.000015127608, 0.00003006918, 0.000039180868)
@@ -522,6 +510,15 @@ over "beebot"
             float physics:dynamicFriction = 0.9
             float physics:restitution = 0
             float physics:staticFriction = 1
+        }
+
+        def Material "finger_pad" (
+            prepend apiSchemas = ["PhysicsMaterialAPI"]
+        )
+        {
+            float physics:dynamicFriction = 0.8
+            float physics:restitution = 0
+            float physics:staticFriction = 0.9
         }
 
         def Material "caster_ball" (

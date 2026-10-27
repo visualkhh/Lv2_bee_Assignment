@@ -112,6 +112,13 @@ over "beebot"
             uniform token physxMaterial:frictionCombineMode = "max"
         }
 
+        over "finger_pad" (
+            prepend apiSchemas = ["PhysxMaterialAPI"]
+        )
+        {
+            uniform token physxMaterial:frictionCombineMode = "max"
+        }
+
         over "caster_ball" (
             prepend apiSchemas = ["PhysxMaterialAPI"]
         )

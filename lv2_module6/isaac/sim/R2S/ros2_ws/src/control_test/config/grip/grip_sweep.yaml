@@ -1,0 +1,21 @@
+# Grip force sweep on a puck: `ros2 run control_test grip_test sweep <puck>` (e.g. box, cyl)
+# REAL GRIPPER DIRECTION IS REVERSED vs the URDF: a larger value CLOSES. gap ~ 40.1 - 1.22 * value [mm];
+# a 30 mm puck touches at about 7.8 mm (2026-10-24 stopped at 8.33 mm with a 9.0 mm command, 0.43 A).
+# Each grip starts from open (2 mm), so every level is approached the same way and the puck can be re-seated.
+# Levels 8.0 / 8.5 / 9.0 / 9.5 mm = 0.2 / 0.7 / 1.2 / 1.7 mm past contact. Do NOT go much higher:
+# 17 mm on the puck (0.85 A) bent the fingers. Raise the last level only if 9.5 mm stays well below 0.85 A.
+# profile_analysis.py: current and estimated squeeze force (force_N_est) per level.
+tag: grip_sweep
+out_subdir: profile
+sample_hz: 50
+settle_s: 1.0
+move_s: 3.0
+speed_margin: 0.7
+limit_margin:
+  deg: 5.0
+  m: 0.001
+
+joints:
+  gripper_left_joint:
+    offset: -0.01125                                              # center = 2.0 mm (open)
+    hold: {targets: [0.0, 0.006, 0.0, 0.0065, 0.0, 0.007, 0.0, 0.0075, 0.0], dwell_s: 8.0}  # 2 -> 8.0 -> 2 -> 8.5 -> 2 -> 9.0 -> 2 -> 9.5 -> 2 mm

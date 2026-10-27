@@ -1,0 +1,19 @@
+# Pull-out test: grip the puck at 9.0 mm for 30 s and pull it out of the fingers with a spring / luggage scale.
+#   `ros2 run control_test grip_test pull <puck>_<direction>` (e.g. box_down, cyl_twist)
+# The peak scale reading at the moment the puck slips is the holding force (friction of both pads), the number
+# to reproduce in Isaac. When the puck slips out, the fingers jump closed: pos rises and the current drops in log.csv.
+# Same direction rules as grip_sweep.yaml (larger value closes, contact ~7.8 mm, never far past contact).
+tag: grip_pull
+out_subdir: profile
+sample_hz: 50
+settle_s: 1.0
+move_s: 3.0
+speed_margin: 0.7
+limit_margin:
+  deg: 5.0
+  m: 0.001
+
+joints:
+  gripper_left_joint:
+    offset: -0.01125                                              # center = 2.0 mm (open)
+    hold: {targets: [0.0, 0.007, 0.0], dwell_s: 30.0}            # 2.0 (place), 9.0 (grip, pull now), 2.0 mm

@@ -1,0 +1,22 @@
+# Grip test (30 mm puck): `ros2 run control_test grip_test basic`
+# REAL GRIPPER DIRECTION IS REVERSED vs the URDF (2026-10-24): a larger value CLOSES. Measured finger gap:
+#   2.0 mm -> 38 mm, 10.0 mm -> 27 mm, 16.78 mm -> 20 mm (closed, mechanical end; above ~17 mm the servo stalls).
+#   gap ≈ 40.1 - 1.22 * value [mm]; a 30 mm puck touches at about 7.8 mm.
+# The profile starts and ends at its center, so the center is put at the OPEN end (2 mm: offset -11.25 mm from the
+# 13.25 mm range middle) — the old version ended at 13.25 mm (gap 24 mm) and kept squeezing the puck.
+# open 2 mm (place the puck) -> close to 9.0 mm (about 1.2 mm past contact: limited force) -> open 2 mm (remove).
+# Do NOT command far past contact: 17 mm on the puck (0.85 A) bent the fingers.
+tag: grip
+out_subdir: profile
+sample_hz: 50
+settle_s: 1.0
+move_s: 3.0
+speed_margin: 0.7
+limit_margin:
+  deg: 5.0
+  m: 0.001
+
+joints:
+  gripper_left_joint:
+    offset: -0.01125                                              # center = 2.0 mm (open)
+    hold: {targets: [0.0, 0.007, 0.0], dwell_s: 12.0}            # 2.0 (place), 9.0 (grip), 2.0 (remove) mm

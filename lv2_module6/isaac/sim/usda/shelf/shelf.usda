@@ -14,11 +14,6 @@
 
 over "shelf"
 {
-    float3 xformOp:rotateXYZ = (90, 0, 0)
-    float3 xformOp:scale = (1, 1, 1)
-    double3 xformOp:translate = (0, 0, 0)
-    float3 xformOp:translate:pivot = (0, 0, 0)
-
     def Material "Looks" (
         prepend apiSchemas = ["MaterialXConfigAPI"]
         prepend inherits = </__class_mtl__/box>
@@ -73,6 +68,7 @@ over "shelf"
         {
             uniform token info:id = "ND_normalmap_float"
             vector3f inputs:in.connect = </shelf/Looks/mtlximage4.outputs:out>
+            float inputs:scale = 0.5
             vector3f outputs:out
         }
 

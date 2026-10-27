@@ -1,0 +1,22 @@
+# Frequency sweep: same absolute amplitude for every period (only the frequency changes) -> gain / lag vs period.
+#   ros2 run control_test sin_test joint3 --ros-args -p config:=$(ros2 pkg prefix control_test)/share/control_test/config/sine/sine_p2.yaml
+# Runs go to logs/freq/<ts>_<joint>_p2 (kept out of the main logs/ summaries). Other keys as in sine.yaml.
+# Amplitude ±10 deg / ±3 mm: at period 0.5 s the peak speed (with fade) stays under speed_margin x URDF velocity.
+tag: p2
+out_subdir: freq
+sample_hz: 50
+ramp_cycles: 1.0
+settle_s: 1.0
+move_s: 3.0
+speed_margin: 0.7
+limit_margin:
+  deg: 5.0
+  m: 0.001
+
+joints:
+  joint1:             {amplitude: 10.0,  offset: 0.0, period: 2, cycles: 3}
+  joint2:             {amplitude: 10.0,  offset: 0.0, period: 2, cycles: 3}
+  joint3:             {amplitude: 10.0,  offset: 0.0, period: 2, cycles: 3}
+  joint4:             {amplitude: 10.0,  offset: 0.0, period: 2, cycles: 3}
+  joint5:             {amplitude: 10.0,  offset: 0.0, period: 2, cycles: 3}
+  gripper_left_joint: {amplitude: 0.003, offset: 0.0, period: 2, cycles: 3}
