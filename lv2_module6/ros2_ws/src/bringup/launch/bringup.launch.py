@@ -66,7 +66,8 @@ ROS_SYSTEM_ARGS = {
     'pole_front_cam_pointcloud': ('true', 'pole_front_cam PointCloud2 발행 (body_filter/Nav2)'),
     'gripper_cam_pointcloud': ('false', 'gripper_cam PointCloud2 발행 (grasp_scorer용, 필요할 때만 true)'),
     'use_ekf': ('true', 'robot_localization EKF'),
-    'slam': ('rtabmap', 'rtabmap | cuvslam (시험: map→odom만, /map 격자 없음 — use_nav2:=false로)'),
+    'slam': ('rtabmap', 'rtabmap | cuvslam (cuVSLAM 단독 시험: map→odom만, /map 격자 없음 — use_nav2:=false로)'),
+    'cuvslam_odom': ('false', 'true면 cuVSLAM 시각 오도메트리를 EKF에 (slam:=rtabmap과 함께 — 지도·Nav2는 RTAB-Map 그대로)'),
     'use_nav2': ('true', '진짜 Nav2 서버'),
     'use_moveit': ('true', '진짜 move_group — coordinator의 pick/place가 씀 (ros_system 기본은 false라 실기에서 팔 작업이 안 됐음)'),
 }

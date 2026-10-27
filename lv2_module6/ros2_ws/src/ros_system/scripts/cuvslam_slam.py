@@ -1,14 +1,21 @@
 #!/usr/bin/env python3
-"""cuvslam_slam — RTAB-Map 대신 cuVSLAM(NVIDIA, GPU)으로 map→odom을 내는 시험용 노드 (slam:=cuvslam)
+"""cuvslam_slam — cuVSLAM(NVIDIA, GPU) 시각 위치 추정. 쓰는 방식은 launch 인자로 고른다 (ros_system.launch.py)
 
-  입력: pole_front_cam 컬러 + 정렬 depth + camera_info (RTAB-Map과 같은 카메라 · RGBD 모드 — D435는 IMU가 없어 VIO 불가)
-  출력: TF map→odom (odom→base_footprint는 EKF 그대로) · /cuvslam/path (RViz로 궤적 보기)
+  slam:=rtabmap cuvslam_odom:=true (권장) — 시각 오도메트리만: /cuvslam/odom(속도) → EKF가 바퀴·IMU와 합침 → RTAB-Map은 그대로
+                                            (지도 · 저장 · 위치추정 · Nav2 · explorer 전부 RTAB-Map 기준 그대로)
+  slam:=cuvslam                            — 단독 SLAM 시험: 루프 클로저 켜고 TF map→odom · /cuvslam/path (/map 격자 없음)
+  두 방식 모두 /cuvslam/odom을 냄 (EKF는 이 토픽이 없으면 그냥 바퀴·IMU만 씀)
+
+  입력: pole_front_cam 컬러 + 정렬 depth + camera_info (RGBD 모드 — D435는 IMU가 없어 VIO 불가)
   map = 출발할 때의 base_footprint (RTAB-Map과 같음), x·y·yaw만 (RTAB-Map Reg/Force3DoF와 같음 — 경기장 바닥은 평평)
-  /map(격자)는 안 냄 — cuVSLAM은 위치만 냄. 격자가 필요하면 nvblox 또는 RTAB-Map에 이 위치를 넣는 조합 (다음 단계)
-  설치 (Jetson, JetPack 7 · Python 3.12 · CUDA 13 — 휠에 cudart 포함, 의존성은 pyyaml뿐):
-    pip install --user --break-system-packages \\
-      https://github.com/NVlabs/PyCuVSLAM/releases/download/v17.0.1/cuvslam-17.0.1+cu13-cp312-abi3-manylinux_2_39_aarch64.whl
-  실행: ./start.sh map:=slam slam:=cuvslam use_nav2:=false use_moveit:=false
+  카메라에서 min_depth 안 픽셀은 가림 — 화면 가운데 찍히는 자기 팔이 로봇과 같이 움직여 회전을 덜 잡게 함 (RTAB-Map Vis/MinDepth와 같은 이유)
+  설치 (Jetson Orin + JetPack 7): 배포 휠(cu13 aarch64)은 Thor 전용(SVE)이라 Orin에선 Illegal instruction → 소스 빌드
+    sudo apt install cuda-nvcc-13-2 cuda-cudart-dev-13-2 libcublas-dev-13-2 libcusolver-dev-13-2 libcusparse-dev-13-2 \\
+                     libnvjitlink-dev-13-2 cuda-nvrtc-dev-13-2 cuda-driver-dev-13-2
+    git clone --branch v17.0.1 https://github.com/NVlabs/PyCuVSLAM.git ~/cuvslam/src
+    PATH=/usr/local/cuda/bin:$PATH CUVSLAM_SRC_DIR=~/cuvslam/src CUVSLAM_DST_DIR=~/cuvslam/build \\
+      ~/cuvslam/src/build_release.sh --build_lib --cuda_arch=87 --jobs=4
+    CUVSLAM_BUILD_DIR=~/cuvslam/build pip install --user --break-system-packages ~/cuvslam/src/python/
 """
 import math
 
@@ -16,7 +23,7 @@ import numpy as np
 import rclpy
 from message_filters import ApproximateTimeSynchronizer, Subscriber
 from geometry_msgs.msg import PoseStamped, TransformStamped
-from nav_msgs.msg import Path
+from nav_msgs.msg import Odometry, Path
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from rclpy.time import Time
@@ -40,14 +47,27 @@ def planar(m):
     return m[0, 3], m[1, 3], math.atan2(m[1, 0], m[0, 0])
 
 
-def map_to_odom(base_from_cam, world_from_cam, odom_from_base):
-    """map = 출발 때 base_footprint. cuVSLAM world = 출발 때 카메라(OpenCV 축) →
-    map_from_base = B·W·B⁻¹ (B = base_from_cam), map_from_odom = map_from_base·odom_from_base⁻¹ (평면으로)"""
-    x, y, yaw = planar(base_from_cam @ world_from_cam @ np.linalg.inv(base_from_cam))
+def base_pose(base_from_cam, world_from_cam):
+    """cuVSLAM world = 출발 때 카메라(OpenCV 축) → 출발 때 base_footprint 기준 지금 base_footprint (x, y, yaw)
+    map_from_base = B·W·B⁻¹ (B = base_from_cam)"""
+    return planar(base_from_cam @ world_from_cam @ np.linalg.inv(base_from_cam))
+
+
+def map_to_odom(base, odom_from_base):
+    """map_from_odom = map_from_base · odom_from_base⁻¹ (평면). base = base_pose() 결과"""
+    x, y, yaw = base
     ox, oy, oyaw = planar(odom_from_base)
     a = yaw - oyaw
     c, s = math.cos(a), math.sin(a)
     return x - (c * ox - s * oy), y - (s * ox + c * oy), a
+
+
+def body_twist(prev, cur, dt):
+    """두 평면 자세 사이 속도를 base_footprint 기준으로 (vx, vy, vyaw) — EKF에 넣는 값"""
+    dx, dy = cur[0] - prev[0], cur[1] - prev[1]
+    c, s = math.cos(prev[2]), math.sin(prev[2])
+    dyaw = (cur[2] - prev[2] + math.pi) % (2 * math.pi) - math.pi
+    return (c * dx + s * dy) / dt, (-s * dx + c * dy) / dt, dyaw / dt
 
 
 def image(m, dtype, ch):
@@ -63,13 +83,21 @@ class CuvslamSlam(Node):
         self.base = self.declare_parameter('base_frame', 'base_footprint').value
         self.odom = self.declare_parameter('odom_frame', 'odom').value
         self.map = self.declare_parameter('map_frame', 'map').value
+        # true = 단독 SLAM(루프 클로저 + TF map→odom) · false = 시각 오도메트리만 (RTAB-Map이 map→odom)
+        self.publish_map_tf = bool(self.declare_parameter('publish_map_tf', True).value)
         self.depth_scale = float(self.declare_parameter('depth_scale_factor', 1000.0).value)  # 16UC1 mm → m
+        self.min_depth = float(self.declare_parameter('min_depth', 0.5).value)  # [m] 이 안 픽셀(자기 팔)은 추적에서 뺌
+        # EKF에 주는 속도 분산 — 실측으로 맞출 값 (σ 0.05 m/s · 0.05 rad/s에서 시작)
+        self.lin_var = float(self.declare_parameter('linear_variance', 0.0025).value)
+        self.ang_var = float(self.declare_parameter('angular_variance', 0.0025).value)
         self.tracker = self.base_from_cam = None
         self.last_ns = 0
+        self.prev = None  # (ns, (x, y, yaw)) — 직전 오도메트리 자세. 추적을 잃으면 None (cuVSLAM 좌표가 새로 시작하므로 그 사이 속도는 안 냄)
         self.ok = self.lost = 0
         self.tf_buf = Buffer()
         TransformListener(self.tf_buf, self, spin_thread=True)  # 콜백 안에서 TF를 읽어도 막히지 않게
         self.tf_pub = TransformBroadcaster(self)
+        self.odom_pub = self.create_publisher(Odometry, self.declare_parameter('odom_topic', '/cuvslam/odom').value, 10)
         self.path_pub = self.create_publisher(Path, '/cuvslam/path', 1)
         self.path = Path()
         self.path.header.frame_id = self.map
@@ -83,13 +111,13 @@ class CuvslamSlam(Node):
         self.sync = ApproximateTimeSynchronizer([color, depth], 10, 0.02)
         self.sync.registerCallback(self.on_rgbd)
         self.create_timer(10.0, lambda: self.get_logger().info(
-            f'추적 {self.ok} · 잃음 {self.lost} · 경로 {len(self.path.poses)}'))
+            f'추적 {self.ok} · 잃음 {self.lost}' + (f' · 경로 {len(self.path.poses)}' if self.publish_map_tf else '')))
 
     def on_info(self, m):
         self.info = m
 
     def start(self, frame):
-        """첫 프레임: camera_info로 rig, URDF TF로 base_footprint←카메라. SLAM(루프 클로저) 켜고 평면 제약"""
+        """첫 프레임: camera_info로 rig, URDF TF로 base_footprint←카메라. 단독 SLAM이면 루프 클로저(평면 제약) 켬"""
         import cuvslam  # 설치 안 됐으면 여기서만 실패 (RTAB-Map 모드엔 영향 없음)
         try:
             t = self.tf_buf.lookup_transform(self.base, frame, Time()).transform
@@ -107,8 +135,9 @@ class CuvslamSlam(Node):
         rgbd.enable_depth_stereo_tracking = False
         odom_cfg = cuvslam.Tracker.OdometryConfig(odometry_mode=cuvslam.Tracker.OdometryMode.RGBD, async_sba=True,
                                                   rgbd_settings=rgbd)
-        self.tracker = cuvslam.Tracker(cuvslam.Rig([cam]), odom_cfg, cuvslam.Tracker.SlamConfig(planar_constraints=True))
-        self.get_logger().info(f'cuVSLAM {cuvslam.get_version()[0]} 시작 · '
+        slam_cfg = cuvslam.Tracker.SlamConfig(planar_constraints=True) if self.publish_map_tf else None
+        self.tracker = cuvslam.Tracker(cuvslam.Rig([cam]), odom_cfg, slam_cfg)
+        self.get_logger().info(f'cuVSLAM {cuvslam.get_version()[0]} 시작 ({"단독 SLAM" if slam_cfg else "시각 오도메트리"}) · '
                                f'{self.info.width}x{self.info.height} · 카메라 {frame}')
 
     def on_rgbd(self, c, d):
@@ -126,32 +155,54 @@ class CuvslamSlam(Node):
             return
         self.last_ns = ns
         rgb = image(c, np.uint8, 3) if c.encoding in ('rgb8', 'bgr8') else image(c, np.uint8, 1)
-        est, slam = self.tracker.track(ns, [rgb], depths=[image(d, np.uint16, 1)])
+        depth = image(d, np.uint16, 1)
+        mask = ((depth > 0) & (depth < self.min_depth * self.depth_scale)).astype(np.uint8)  # 0이 아닌 픽셀 = 추적에서 뺌
+        est, slam = self.tracker.track(ns, [rgb], masks=[mask], depths=[depth])
         if est.world_from_rig is None:
             self.lost += 1
+            self.prev = None
             self.get_logger().warn('추적 잃음', throttle_duration_sec=2.0)
             return
         self.ok += 1
-        p = slam if slam is not None else est.world_from_rig.pose  # 루프 클로저 반영된 SLAM 위치 우선
+        p = est.world_from_rig.pose
+        cur = base_pose(self.base_from_cam, mat(p.rotation, p.translation))
+        if self.prev is not None:
+            self.publish_odom(c.header.stamp, body_twist(self.prev[1], cur, (ns - self.prev[0]) * 1e-9))
+        self.prev = (ns, cur)
+        if self.publish_map_tf:
+            self.publish_map(c.header.stamp, slam if slam is not None else p)  # 루프 클로저 반영된 SLAM 위치 우선
+
+    def publish_odom(self, stamp, v):
+        """속도만 (자세는 안 씀 — cuVSLAM 좌표는 추적을 잃으면 새로 시작해 자세를 EKF에 그대로 넣으면 튐)"""
+        o = Odometry()
+        o.header.stamp, o.header.frame_id, o.child_frame_id = stamp, self.odom, self.base
+        o.twist.twist.linear.x, o.twist.twist.linear.y, o.twist.twist.angular.z = v
+        cov = [0.0] * 36
+        cov[0] = cov[7] = self.lin_var
+        cov[35] = self.ang_var
+        cov[14] = cov[21] = cov[28] = 1e6  # 안 쓰는 축
+        o.twist.covariance = cov
+        self.odom_pub.publish(o)
+
+    def publish_map(self, stamp, p):
         try:
-            o = self.tf_buf.lookup_transform(self.odom, self.base, c.header.stamp).transform
+            o = self.tf_buf.lookup_transform(self.odom, self.base, stamp).transform
         except Exception:  # noqa: BLE001 — 그 시각 odom이 없으면 이 프레임은 TF만 건너뜀 (추적은 계속)
             return
         odom_from_base = mat((o.rotation.x, o.rotation.y, o.rotation.z, o.rotation.w),
                              (o.translation.x, o.translation.y, o.translation.z))
-        world_from_cam = mat(p.rotation, p.translation)
-        x, y, yaw = map_to_odom(self.base_from_cam, world_from_cam, odom_from_base)
+        base = base_pose(self.base_from_cam, mat(p.rotation, p.translation))
+        x, y, yaw = map_to_odom(base, odom_from_base)
         tf = TransformStamped()
-        tf.header.stamp, tf.header.frame_id, tf.child_frame_id = c.header.stamp, self.map, self.odom
+        tf.header.stamp, tf.header.frame_id, tf.child_frame_id = stamp, self.map, self.odom
         tf.transform.translation.x, tf.transform.translation.y = x, y
         tf.transform.rotation.z, tf.transform.rotation.w = math.sin(yaw / 2), math.cos(yaw / 2)
         self.tf_pub.sendTransform(tf)
-        bx, by, byaw = planar(self.base_from_cam @ world_from_cam @ np.linalg.inv(self.base_from_cam))
         ps = PoseStamped()
         ps.header = tf.header
-        ps.pose.position.x, ps.pose.position.y = bx, by
-        ps.pose.orientation.z, ps.pose.orientation.w = math.sin(byaw / 2), math.cos(byaw / 2)
-        self.path.header.stamp = c.header.stamp
+        ps.pose.position.x, ps.pose.position.y = base[0], base[1]
+        ps.pose.orientation.z, ps.pose.orientation.w = math.sin(base[2] / 2), math.cos(base[2] / 2)
+        self.path.header.stamp = stamp
         self.path.poses.append(ps)
         if len(self.path.poses) % 5 == 0:  # 경로는 3Hz 정도로만
             self.path_pub.publish(self.path)

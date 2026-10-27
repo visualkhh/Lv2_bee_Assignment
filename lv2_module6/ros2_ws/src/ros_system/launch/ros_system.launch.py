@@ -173,7 +173,8 @@ def generate_launch_description():
         flag('gripper_cam_pointcloud', 'false', 'gripper_cam PointCloud2 발행 (grasp_scorer용, 필요할 때만 true)'),
         flag('use_ekf', 'true', 'robot_localization EKF'),
         flag('use_rtabmap', 'true', 'RTAB-Map'),
-        flag('slam', 'rtabmap', 'rtabmap | cuvslam (시험: cuVSLAM이 map→odom만 냄, /map 격자 없음 — use_nav2:=false로)'),
+        flag('slam', 'rtabmap', 'rtabmap | cuvslam (cuVSLAM 단독 시험: map→odom만, /map 격자 없음 — use_nav2:=false로)'),
+        flag('cuvslam_odom', 'false', 'true면 cuVSLAM 시각 오도메트리(/cuvslam/odom)를 EKF에 — slam:=rtabmap과 함께 (지도는 RTAB-Map)'),
         flag('localization', 'true', 'true=위치추정 모드(운영, rtabmap_db 지도로), false=매핑 모드(rtabmap_db를 새로 만듦)'),
         flag('rtabmap_db', '~/.ros/rtabmap.db', 'RTAB-Map 지도 DB — 매핑이 여기에 쓰고 위치추정이 여기서 읽음 (테스트베드: /ws/map/<이름>/rtabmap.db)'),
         flag('use_nav2', 'true', '진짜 Nav2 서버 (planner · controller · behavior · bt_navigator · velocity_smoother · collision_monitor)'),
@@ -293,10 +294,13 @@ def rtabmap_nodes():
                     parameters=[{'approx_sync': True, 'topic_queue_size': 10, 'sync_queue_size': 10, **qos}],
                     remappings=[('rgb/image', rgb), ('depth/image', depth), ('rgb/camera_info', info), ('rgbd_image', out)])
     return [
-        # slam:=cuvslam — RTAB-Map 노드 대신 cuVSLAM (scripts/cuvslam_slam.py)
+        # cuVSLAM (scripts/cuvslam_slam.py): slam:=cuvslam이면 단독 SLAM(map→odom), cuvslam_odom:=true면 시각 오도메트리만 → EKF
         Node(package='ros_system', executable='cuvslam_slam', name='cuvslam_slam', output='screen',
-             condition=IfCondition(PythonExpression(["'", LaunchConfiguration('use_rtabmap'), "'.lower() == 'true' and '",
-                                                     LaunchConfiguration('slam'), "' == 'cuvslam'"]))),
+             condition=IfCondition(PythonExpression(["'", LaunchConfiguration('use_rtabmap'), "'.lower() == 'true' and ('",
+                                                     LaunchConfiguration('slam'), "' == 'cuvslam' or '",
+                                                     LaunchConfiguration('cuvslam_odom'), "'.lower() == 'true')"])),
+             parameters=[{'publish_map_tf': ParameterValue(PythonExpression(["'", LaunchConfiguration('slam'), "' == 'cuvslam'"]),
+                                                           value_type=bool)}]),
         Node(package='ros_system', executable='scan_cam_gate', name='scan_cam_gate', output='screen', condition=on,
              parameters=[share('config', 'scan_pose.yaml'),
                          {'depth_in': '/gripper_cam/aligned_depth_to_color/image_raw',
