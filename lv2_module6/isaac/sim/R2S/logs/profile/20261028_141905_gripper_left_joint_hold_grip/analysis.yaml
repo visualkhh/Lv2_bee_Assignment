@@ -1,0 +1,19 @@
+dwell:
+- target_mm: 9.0
+  approach: '-'
+  measured_mm: 8.999
+  sag_mm: -0.001
+  current_A: -0.0004
+  force_N_est: 0.0
+- target_mm: 1.2
+  approach: '-'
+  measured_mm: 3.992
+  sag_mm: 2.792
+  current_A: 0.5985
+  force_N_est: 35.6
+- target_mm: 9.0
+  approach: +
+  measured_mm: 9.0
+  sag_mm: -0.0
+  current_A: -0.0006
+  force_N_est: 0.0

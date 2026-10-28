@@ -29,7 +29,7 @@
   </joint>
   <link name="base_link">
     <inertial>
-      <origin rpy="0 0 0" xyz="-0.085426 -0.000171 0.080461"/>
+      <origin rpy="0 0 0" xyz="-0.050770 -0.000171 0.080461"/>  <!-- x: real balance pose 2026-10-28 (was -0.085426 from build.py) -->
       <mass value="2.400600"/>
       <inertia ixx="2.8130e-02" ixy="-2.1613e-05" ixz="6.4439e-03" iyy="3.2644e-02" iyz="-1.4858e-06" izz="2.7766e-02"/>
     </inertial>
@@ -77,20 +77,6 @@
     </collision>
     <collision>
       <origin rpy="0 0 0" xyz="-0.177000 -0.064000 -0.005237"/>
-      <geometry>
-        <sphere radius="0.004763"/>
-      </geometry>
-    </collision>
-    <!-- front caster (v01) -->
-    <collision>
-      <origin rpy="0 0 0" xyz="0.049600 0.064000 -0.005237"/>
-      <geometry>
-        <sphere radius="0.004763"/>
-      </geometry>
-    </collision>
-    <!-- front caster (v01) -->
-    <collision>
-      <origin rpy="0 0 0" xyz="0.049600 -0.064000 -0.005237"/>
       <geometry>
         <sphere radius="0.004763"/>
       </geometry>
@@ -495,7 +481,7 @@
   <joint name="imu_joint" type="fixed">
     <parent link="base_link"/>
     <child link="imu_link"/>
-    <origin rpy="0 0 0" xyz="-0.064 0 0.068"/>
+    <origin rpy="0 0 0" xyz="0.0178 0 0.068"/>  <!-- x: waffle front edge 0.0688 - 0.051 (measured); z: OpenCR height, official TB3 value -->
   </joint>
   <!-- basket slots: cell floor center, 3 rows (x, pole -> arm) x 4 cols (y, -y -> +y) -->
   <joint name="basket_slot_0_joint" type="fixed">

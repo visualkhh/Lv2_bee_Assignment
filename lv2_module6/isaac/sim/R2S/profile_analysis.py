@@ -34,9 +34,10 @@ KT = 4.1 / 2.3  # Nm/A, XM430-W350 stall torque / stall current at 12 V — only
 DEG = 180 / math.pi
 LINEAR = {'gripper_left_joint'}
 # Gripper squeeze force per finger from the servo current, by virtual work: F = tau / (d gap / d theta).
-# gap ~ 40.1 - 1.22 x value [mm] (calipers, 2026-10-24), firmware 60 rad/m (0.06 rad per value mm)
-# -> 20.3 mm of gap per servo rad. Inherits the rough KT, so treat it as an estimate (KT may be 0.6-0.8x high).
-GRIP_N_PER_A = KT / (1.22e-3 / 0.06)
+# Firmware table near puck contact (config.h, 2026-10-28): finger 3.5 -> 5.0 mm = servo 0.600 -> 0.4998 rad,
+# gap = 20 + 2 x finger [mm] -> 3.0 mm of gap per 0.1002 rad = 29.9 mm/rad (~59.5 N/A).
+# Inherits the rough KT, so treat it as an estimate (KT may be 0.6-0.8x high).
+GRIP_N_PER_A = KT / (2 * (0.005 - 0.0035) / (0.6 - 0.4998))
 
 
 def units(joint):

@@ -3,7 +3,7 @@ pucks loaded one after another (sequential loading).
 
     isaaclab.sh -p cycle_sm.py --num_envs 192 --latency                 (one puck per env, env i -> slot i % 12)
     isaaclab.sh -p cycle_sm.py --num_envs 64 --latency --pucks 5        (5 pucks on the shelf grid, loaded in turn)
-Defaults are the setup chosen on 2026-10-28 (report logs/20261027_sim_tests, 11-13): carry pose at 90 deg (beside the
+Defaults are the setup chosen on 2026-10-28 (report sim/R2S/report/20261027_sim_tests, 11-13): carry pose at 90 deg (beside the
 robot), no pauses at transit waypoints, let go 3 mm above the slot floor, fill order with slots 2, 8, 9 last.
     add --viz newton to watch (window stays open at the end)
 
@@ -48,6 +48,18 @@ parser.add_argument("--release_gap_mm", type=float, default=None, help="finger g
 parser.add_argument("--mirror_wrist", action="store_true", help="tool yaw heading - 90 deg on the -y side of the basket (mirror)")
 parser.add_argument("--no_correct", action="store_true", help="do not aim the puck bottom (measured in the hand) at the slot")
 parser.add_argument("--no_diag", action="store_true", help="cylinders: keep the face rule instead of the grid diagonal")
+parser.add_argument("--layout", choices=["grid", "start_x", "start_y"], default="grid",
+                    help="start_x / start_y: mission start box, 2 pucks 80 mm apart through the box centre along x (one behind the "
+                         "other) or y (side by side), nearer / -y one first")
+parser.add_argument("--finger_rule", choices=["heading", "perp"], default="heading",
+                    help="start layouts: perp = fingers close at right angles to the line through the 2 pucks (box: nearest face)")
+parser.add_argument("--park_err_mm", type=float, default=0.0, help="start layouts: both pucks shifted by uniform +- this (stopping error)")
+parser.add_argument("--no_held_check", action="store_true", help="carry on to the basket even when the puck was not lifted")
+parser.add_argument("--unload", action="store_true", help="start with all 12 slots full, env i takes the puck out of slot i %% 12")
+parser.add_argument("--unload_dz_mm", type=float, default=0.0, help="unload: grasp height error [mm] (- = towards the walls)")
+parser.add_argument("--unload_yaw_deg", type=float, default=0.0, help="unload: puck yaw in the slot off the loading wrist [deg]")
+parser.add_argument("--slots", default=None, help="single puck: only these slots, e.g. 2,8,9 (env i -> i-th of them, cycling)")
+parser.add_argument("--contacts", action="store_true", help="record the largest contact force per robot body and move")
 parser.add_argument("--out", default=None)
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
@@ -77,6 +89,8 @@ OPEN = (0.0083 + (args.open_gap_mm / 1000 - 0.030) / 2) / 0.0265  # finger gap 3
 CLOSE = 0.0
 RELEASE = OPEN if args.release_gap_mm is None else (0.0083 + (args.release_gap_mm / 1000 - 0.030) / 2) / 0.0265
 CLOSE_S, RELEASE_S = 0.5, 0.4  # gripper dwell
+START_GAP = 0.080  # mission start box: 2 pucks at the box centre +- 40 mm
+SLOT_IN = 0.045  # basket cell inner width
 CORR_GAIN, CORR_DT, CORR_MAX = 0.3, 5 / 60.0, 0.2
 POS_NOISE, YAW_NOISE = 0.005, math.radians(10.0)
 HELD_DIST = 0.05
@@ -107,6 +121,10 @@ def main():
     cfg.seed = args.seed
     cfg.sim.dt = 1.0 / (cfg.decimation * args.hz)
     cfg.episode_length_s = 600.0
+    if args.layout != "grid":
+        args.pucks = 2
+    if args.unload:
+        args.pucks = len(SLOTS)
     nb_names = []
     if args.pucks > 1:
         for k in range(args.pucks - 1):
@@ -115,6 +133,10 @@ def main():
                     spawn=sim_utils.UsdFileCfg(usd_path=bee_env_cfg.PUCK_USDS[k % 4]),
                     init_state=cfg.scene.puck.init_state.replace(pos=(1.0, 0.2 * k, 0.0))))
             nb_names.append(name)
+    if args.contacts:
+        from isaaclab.sensors import ContactSensorCfg
+        cfg.scene.robot.spawn.activate_contact_sensors = True
+        cfg.scene.contacts = ContactSensorCfg(prim_path="{ENV_REGEX_NS}/beebot/.*", update_period=0.0)
     env = gym.make("Bee-Puck-Load", cfg=cfg)
     env.reset()
     u: ManagerBasedRLEnv = env.unwrapped
@@ -170,7 +192,40 @@ def main():
     grip_now = torch.full((n,), OPEN, device=dev)
     for k in range(int(0.5 / step_dt)):
         step(action(default_arm, grip_now))
-        if k == 0 and len(pucks) > 1:
+        if k == 0 and args.unload:
+            # puck p in slot (env + p) % 12, so the target (puck 0, random type) sits in slot env % 12; yaw as loaded
+            # (tool yaw of that slot) + the test offset, xy anywhere in the play the cell leaves
+            bp, bq = base_pose()
+            for p_idx, p in enumerate(pucks):
+                sl = (torch.arange(n, device=dev) + p_idx) % len(SLOTS)
+                sxy = torch.tensor(SLOTS, device=dev)[sl]
+                hd_s = torch.atan2(sxy[:, 1] - JOINT1_XY[1], sxy[:, 0] - JOINT1_XY[0])
+                wr = torch.where(sxy[:, 1] < 0, -WRIST, WRIST) if args.mirror_wrist else torch.full_like(hd_s, WRIST)
+                off = math.radians(args.unload_yaw_deg) * torch.where(torch.rand(n, device=dev) < 0.5, -1.0, 1.0)
+                is_box = torch.tensor(["box" in kinds[p_idx][i] for i in range(n)], device=dev)
+                ext = torch.where(is_box, 0.03 * (off.cos().abs() + off.sin().abs()), torch.full_like(off, 0.03))
+                play = ((SLOT_IN - ext) / 2 - 0.0005).clamp(min=0)
+                pos_b = sxy.clone()
+                pos_b[:, :2] += (torch.rand(n, 2, device=dev) * 2 - 1) * play[:, None]
+                pos_b[:, 2] += 0.002
+                q_b = math_utils.quat_from_euler_xyz(torch.zeros(n, device=dev), torch.zeros(n, device=dev), hd_s + wr + off)
+                p.write_root_pose_to_sim_index(root_pose=torch.cat([bp + math_utils.quat_apply(bq, pos_b), math_utils.quat_mul(bq, q_b)], dim=1))
+                p.write_root_velocity_to_sim_index(root_velocity=torch.zeros(n, 6, device=dev))
+        elif k == 0 and args.layout != "grid":
+            cx = bee_env_cfg.SHELF_NEAR_X + bee_env_cfg.SHELF_HALF
+            park = (torch.rand(n, 2, device=dev) * 2 - 1) * args.park_err_mm / 1000
+            for k2, p in enumerate(pucks):
+                s_ = -1.0 if k2 == 0 else 1.0
+                pos = torch.zeros(n, 3, device=dev)
+                pos[:, 0] = cx + (s_ * START_GAP / 2 if args.layout == "start_x" else 0.0)
+                pos[:, 1] = s_ * START_GAP / 2 if args.layout == "start_y" else 0.0
+                pos[:, :2] += park
+                pos[:, 2] = bee_env_cfg.SHELF_TOP + 0.002
+                yaw_p = (torch.rand(n, device=dev) * 2 - 1) * math.pi
+                q = math_utils.quat_from_euler_xyz(torch.zeros(n, device=dev), torch.zeros(n, device=dev), yaw_p)
+                p.write_root_pose_to_sim_index(root_pose=torch.cat([pos + org, q], dim=1))
+                p.write_root_velocity_to_sim_index(root_velocity=torch.zeros(n, 6, device=dev))
+        elif k == 0 and len(pucks) > 1:
             gap = args.gap_mm / 1000
             tgt = pucks[0].data.root_pos_w.torch - org
             lo_x, hi_x = bee_env_cfg.SHELF_NEAR_X + 0.02, bee_env_cfg.SHELF_NEAR_X + 2 * bee_env_cfg.SHELF_HALF - 0.02
@@ -186,12 +241,14 @@ def main():
                 q = math_utils.quat_from_euler_xyz(torch.zeros(n, device=dev), torch.zeros(n, device=dev), yaw_nb)
                 p.write_root_pose_to_sim_index(root_pose=torch.cat([pos + org, q], dim=1))
                 p.write_root_velocity_to_sim_index(root_velocity=torch.zeros(n, 6, device=dev))
+    start_xy = torch.stack([(p.data.root_pos_w.torch - org)[:, :2] for p in pucks], dim=1)  # (n, P, 2)
     on_shelf = torch.stack([((p.data.root_pos_w.torch - org)[:, 2] > bee_env_cfg.SHELF_TOP - 0.01) for p in pucks], dim=1)  # (n, P)
 
     # ---- motion engine: synchronized trapezoid in joint space, per-env duration, sag integral while holding
     vmax, amax = 3.0 * args.vel_scale, 5.0 * args.vel_scale
     corr_every = max(1, round(CORR_DT / step_dt))
     st = {"q_prev": default_arm.clone(), "corr": torch.zeros(n, 5, device=dev), "grip": grip_now.clone()}
+    c_max = {}  # move label -> (n, bodies) largest contact force
     timeline = []  # (label, per-env seconds) for the cycle time breakdown
 
     def move(q_end, grip, hold, label, active):
@@ -219,6 +276,9 @@ def main():
             s = torch.where(dist > 1e-6, (pos / dist.clamp(min=1e-6)).clamp(0, 1), torch.ones_like(dist))
             q_ref = q0 + s[:, None] * (q_end - q0)
             step(action(q_ref + st["corr"], g))
+            if args.contacts:
+                f_ = u.scene["contacts"].data.net_forces_w.torch.norm(dim=-1)  # (n, bodies)
+                c_max[label] = torch.maximum(c_max.get(label, torch.zeros_like(f_)), torch.where(active[:, None], f_, 0.0))
             q_err = q_ref - robot.data.joint_pos.torch[:, arm_ids]
             worst = torch.maximum(worst, torch.where(active, q_err.abs().max(dim=1).values, torch.zeros_like(dist)))
             holding = active & (t >= dur)
@@ -254,15 +314,79 @@ def main():
     order = SLOT_ORDER[args.order]
     slot_of = torch.zeros(n, n_p, dtype=torch.long, device=dev)
     if n_p == 1:
-        slot_of[:, 0] = torch.arange(n, device=dev) % len(SLOTS)
+        pool = torch.tensor([int(v) for v in args.slots.split(",")] if args.slots else list(range(len(SLOTS))), device=dev)
+        slot_of[:, 0] = pool[torch.arange(n, device=dev) % len(pool)]
     else:
         rank = torch.cumsum(on_shelf.long(), dim=1) - 1  # k-th puck on the shelf goes to the k-th slot in the order
         slot_of = torch.tensor(order, device=dev)[rank.clamp(min=0)]
-    records = {k: torch.zeros(n, n_p, device=dev) for k in ("picked", "placed", "blocked", "t_cycle", "tilt", "stuck")}
+    records = {k: torch.zeros(n, n_p, device=dev) for k in ("picked", "placed", "blocked", "t_cycle", "tilt", "stuck", "skipped", "moved_before")}
     for v in records.values():
         v.fill_(float("nan"))
     # pucks of this env already in the basket: (n, P) slot index or -1
     in_basket_slot = torch.full((n, n_p), -1, dtype=torch.long, device=dev)
+
+    if args.unload:
+        # ---- take the puck out of a full basket: carry -> over the slot (open) -> down to the grasp -> close -> back
+        # over the slot -> carry. Wrist as when loading; no camera fix on the puck pose (aim at the cell centre).
+        slot = torch.arange(n, device=dev) % len(SLOTS)
+        P = pucks[0]
+        start_b = torch.stack([to_root(p.data.root_pos_w.torch) for p in pucks], dim=1)  # (n, 12, 3)
+        start_tilt = torch.stack([puck_tilt(p) for p in pucks], dim=1)
+        seat_z = torch.stack([(torch.arange(n, device=dev) + k) % len(SLOTS) for k in range(len(pucks))], dim=1)
+        seated = ((start_b[..., 2] - torch.tensor(SLOTS, device=dev)[seat_z][..., 2]).abs() < 0.005) & (start_tilt < math.radians(5.0))
+        print(f"[unload] pucks seated upright in their cells at the start: {seated.sum().item()}/{seated.numel()}")
+        d_nom = np.array([0.0, 0.0, GRASP_Z])
+        uq = {k: st["q_prev"].clone() for k in ("over", "grasp")}
+        tilt_used = torch.zeros(n, device=dev)
+        for i in range(n):
+            sx, sy, sz = SLOTS[slot[i].item()]
+            row = slot[i].item() // 4
+            hd_s = math.atan2(sy - JOINT1_XY[1], sx - JOINT1_XY[0])
+            wr = -WRIST if (args.mirror_wrist and sy < 0) else WRIST
+            h_over, t_over = OVER[row]
+            seeds = [np.array([hd_s, j2, j3, j4, -wr]) for j2 in (-0.3, 0.3, 0.8) for j3 in (0.7, -0.5) for j4 in (1.0, 1.9)]
+            rot = rot_tool(hd_s, t_over, hd_s + wr)
+            q_over, *_ = ik.solve(np.array([sx, sy, sz + h_over]) - rot @ d_nom, rot, seeds)
+            for t_ in SET_TILTS:
+                rot = rot_tool(hd_s, t_, hd_s + wr)
+                q_g, e_pos, e_ang = ik.solve(np.array([sx, sy, sz + args.unload_dz_mm / 1000]) - rot @ d_nom, rot, [q_over])
+                if e_pos < 2e-3 and e_ang < math.radians(2.0):
+                    break
+            uq["over"][i], uq["grasp"][i], tilt_used[i] = torch.from_numpy(q_over).float(), torch.from_numpy(q_g).float(), t_
+        side = torch.where(torch.tensor(SLOTS, device=dev)[slot][:, 1] >= 0, 1, -1)
+        q_carry = torch.where((side > 0)[:, None], carry_q[1], carry_q[-1])
+        all_ = torch.ones(n, dtype=torch.bool, device=dev)
+        move(q_carry, OPEN, 0.0, "carry", all_)
+        move(uq["over"], OPEN, 0.0, "over_slot", all_)
+        blocked = move(uq["grasp"], OPEN, args.settle, "descend", all_)
+        dwell(CLOSE, CLOSE_S, "close", all_)
+        blocked = torch.maximum(blocked, move(uq["over"], CLOSE, 0.0, "lift", all_))
+        # the neighbours are judged with the hand above the slot, before it swings away
+        nb_now = torch.stack([to_root(p.data.root_pos_w.torch) for p in pucks], dim=1)
+        nb_tilt = torch.stack([puck_tilt(p) for p in pucks], dim=1)
+        move(q_carry, CLOSE, 0.5, "carry_back", all_)
+        e_p = ee_pose_b()[0]
+        held = (to_root(P.data.root_pos_w.torch + math_utils.quat_apply(P.data.root_quat_w.torch, up_half)) - e_p).norm(dim=1) < HELD_DIST
+        out_ok = held & ((to_root(P.data.root_pos_w.torch)[:, 2] - start_b[:, 0, 2]) > 0.04)
+        nb_disp = (nb_now[:, 1:, :2] - start_b[:, 1:, :2]).norm(dim=2)  # (n, 11)
+        nb_dtilt = (nb_tilt[:, 1:] - start_tilt[:, 1:]).abs()
+        nb_hit = (nb_disp > 0.003) | (nb_dtilt > math.radians(5.0))
+        print(f"[unload] dz {args.unload_dz_mm:+.0f} mm, yaw off {args.unload_yaw_deg:.0f} deg: out and held {out_ok.sum().item()}/{n}, "
+              f"envs with a neighbour moved > 3 mm or tilted > 5 deg {nb_hit.any(dim=1).sum().item()}, "
+              f"max neighbour shift mm median {nb_disp.max(dim=1).values.median().item() * 1000:.1f}")
+        for r in range(3):
+            row_ = []
+            for c in range(4):
+                m = slot == r * 4 + c
+                row_.append(f"{out_ok[m].sum().item()}/{m.sum().item()} nb{nb_hit[m].any(dim=1).sum().item()}")
+            print(f"[unload] row {r} (slots {r * 4}..{r * 4 + 3}): {' | '.join(row_)}")
+        if args.out:
+            np.savez_compressed(args.out, out_ok=out_ok.cpu().numpy(), held=held.cpu().numpy(), slot=slot.cpu().numpy(),
+                                nb_disp=nb_disp.cpu().numpy(), nb_dtilt=nb_dtilt.cpu().numpy(), blocked=blocked.cpu().numpy(),
+                                tilt_used=tilt_used.cpu().numpy(), kinds=np.array(kinds), args=str({k: v for k, v in vars(args).items() if k != "out"}))
+            print(f"[out] {args.out}")
+        env.close()
+        return
 
     for p_idx in range(n_p):
         P = pucks[p_idx]
@@ -270,6 +394,9 @@ def main():
         if not active.any():
             continue
         t0 = len(timeline)
+        # how far this puck was pushed by the earlier cycles before its own pick
+        records["moved_before"][:, p_idx] = torch.where(active, ((P.data.root_pos_w.torch - org)[:, :2] - start_xy[:, p_idx]).norm(dim=1),
+                                                        records["moved_before"][:, p_idx])
         # perception: puck pose with noise, yaw rule (box: face closest to heading, cylinder: grid diagonal)
         pb = to_root(P.data.root_pos_w.torch).clone()
         pb[:, :2] += (torch.rand(n, 2, device=dev) * 2 - 1) * POS_NOISE
@@ -278,8 +405,13 @@ def main():
         yaw = yaw + (torch.rand(n, device=dev) * 2 - 1) * YAW_NOISE
         heading = torch.atan2(pb[:, 1], pb[:, 0])
         yaw = heading + torch.remainder(yaw - heading + math.pi / 4, math.pi / 2) - math.pi / 4
-        if not args.no_diag:
-            cyl = torch.tensor(["cyl" in kinds[p_idx][i] for i in range(n)], device=dev)
+        cyl = torch.tensor(["cyl" in kinds[p_idx][i] for i in range(n)], device=dev)
+        if args.layout != "grid" and args.finger_rule == "perp":
+            # fingers close along tool yaw + 90 deg: put that axis at right angles to the line through the 2 pucks
+            want = torch.full_like(yaw, 0.0 if args.layout == "start_x" else math.pi / 2)
+            want = heading + torch.remainder(want - heading + math.pi / 2, math.pi) - math.pi / 2  # fingers are symmetric
+            yaw = torch.where(cyl, want, want + torch.remainder(yaw - want + math.pi / 4, math.pi / 2) - math.pi / 4)
+        elif not args.no_diag:
             diag = heading + torch.remainder(math.pi / 4 - heading + math.pi / 4, math.pi / 2) - math.pi / 4
             yaw = torch.where(cyl, diag, yaw)
         # pick IK
@@ -300,6 +432,15 @@ def main():
         dwell(CLOSE, CLOSE_S, "close", active)
         b3 = move(qs["lift"], CLOSE, args.transit_hold, "lift", active)
         lifted = (P.data.root_pos_w.torch[:, 2] - z0) > 0.03
+        # check the hand before carrying on (wrist camera): a missed puck stays where it fell, the hand goes on to the next
+        in_hand = lifted & ((to_root(P.data.root_pos_w.torch + math_utils.quat_apply(P.data.root_quat_w.torch, up_half)) - ee_pose_b()[0]).norm(dim=1) < HELD_DIST)
+        if not args.no_held_check:
+            for k_ in ("picked", "placed"):
+                records[k_][:, p_idx] = torch.where(active & ~in_hand, 0.0, records[k_][:, p_idx])
+            records["skipped"][:, p_idx] = torch.where(active, (~in_hand).float(), records["skipped"][:, p_idx])
+            active = active & in_hand
+            if not active.any():
+                continue
 
         # basket targets; puck bottom in the end effector frame measured now (wrist camera on the robot)
         slot = slot_of[:, p_idx]
@@ -402,6 +543,8 @@ def main():
         out |= {"final_ok": final_ok.cpu().numpy(), "on_shelf": on_shelf.cpu().numpy(), "slot_of": slot_of.cpu().numpy(),
                 "kinds": np.array(kinds), "timeline_labels": np.array(labels), "timeline_s": np.stack([v for _, v in timeline]),
                 "args": str({k: v for k, v in vars(args).items() if k != "out"})}
+        if args.contacts:
+            out |= {f"contact_{k}": v.cpu().numpy() for k, v in c_max.items()} | {"contact_bodies": np.array(u.scene["contacts"].body_names)}
         np.savez_compressed(args.out, **out)
         print(f"[out] {args.out}")
 

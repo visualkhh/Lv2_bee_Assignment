@@ -7,7 +7,7 @@
 Test knobs (all off by default, defaults = the plain run above):
     --seed 1 --out run.npz      reproducible run, per-env results (+ --trace: per-step puck / base / arm)
     --grip_force 38 --torsion 5 gripper squeeze per finger [N] at a 30 mm puck, torsional patch radius [mm]
-    --hz 100                    control rate (sim dt = 1 / (2 hz)); default 60
+    --hz 60                     control rate (sim dt = 1 / (2 hz)); default 100
     --lat_jitter_ms 20          per-env extra command delay, uniform +-, on top of --latency
     --neighbors 50              4 more pucks around the target (shelf grid, centre-to-centre gap [mm])
     --park_err_mm 20            puck window widened by +- this (robot stopping error in front of the shelf)
@@ -42,7 +42,7 @@ parser.add_argument("--trace", action="store_true", help="with --out: also save 
 parser.add_argument("--grip_force", type=float, default=None, help="squeeze per finger [N] at a 30 mm puck")
 parser.add_argument("--grip_damping", type=float, default=None, help="gripper drive damping [N s/m] (cfg 10)")
 parser.add_argument("--torsion", type=float, default=None, help="torsional patch radius [mm] of the robot colliders")
-parser.add_argument("--hz", type=float, default=60.0, help="control rate [Hz]")
+parser.add_argument("--hz", type=float, default=100.0, help="control rate [Hz]")
 parser.add_argument("--lat_jitter_ms", type=float, default=0.0)
 parser.add_argument("--neighbors", type=float, default=None, help="centre-to-centre gap [mm] of 4 neighbour pucks")
 parser.add_argument("--park_err_mm", type=float, default=0.0)

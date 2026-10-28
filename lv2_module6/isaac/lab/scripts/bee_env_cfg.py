@@ -39,7 +39,7 @@ PUCK_USDS = [
     str(USD_DIR / "puck" / "cyl" / "puck_cyl_green_2.usda"),
     str(USD_DIR / "puck" / "cyl" / "puck_cyl_red_3.usda"),
 ]
-SHELF_HALF = 0.207 / 2  # shelf box 0.207 x 0.207 x 0.07
+SHELF_HALF = 0.205 / 2  # mission start box 205 x 205 x 70 (shelf.usda is 207 wide, scaled down in the scene)
 SHELF_H = 0.07
 SHELF_TOP = SHELF_H  # shelf on the floor
 SHELF_NEAR_X = 0.08  # near edge, robot front at 0.069
@@ -102,6 +102,7 @@ class BeeSceneCfg(InteractiveSceneCfg):
         prim_path="{ENV_REGEX_NS}/shelf",
         spawn = sim_utils.UsdFileCfg(
             usd_path=str(USD_DIR / "shelf" / "shelf.usda"),
+            scale=(0.205 / 0.207, 0.205 / 0.207, 1.0),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
         ),
         init_state = RigidObjectCfg.InitialStateCfg(pos=(SHELF_NEAR_X + SHELF_HALF, 0.0, SHELF_TOP - SHELF_H))
@@ -254,7 +255,7 @@ class BeeEnvCfg(ManagerBasedRLEnvCfg):
         self.decimation = 2
         self.episode_length_s = 20.0
         self.sim.default_visualizer_cfg = VisualizerCfg(eye=(1.2, 1.2, 0.8), lookat=(0.3, 0.0, 0.2))
-        self.sim.dt = 1 / 120
+        self.sim.dt = 1 / 200  # 100 Hz control (decimation 2), the rate chosen in the 2026-10-27 report (4)
         self.sim.render_interval = self.decimation
         self.sim.physics = PhysxCfg()  # default backend is Newton; robot uses the physx variant
 
