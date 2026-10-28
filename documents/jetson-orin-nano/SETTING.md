@@ -235,6 +235,7 @@ sudo apt install -y ros-$ROS_DISTRO-realsense2-camera
 # RTAB-Map (Jetson Ubuntu 24.04, ROS 2 Lyrical)
 
 > 실행·로그·오류 추적은 [`DEBUG.md`](../ros/DEBUG.md)에 정리되어 있다.
+> cuVSLAM(시각 오도메트리·단독 SLAM 시험) 설치·실행은 [`CUVSLAM.md`](CUVSLAM.md) — Orin은 배포 휠이 안 돼 소스 빌드.
 
 NVIDIA arm64 저장소의 `ros-lyrical-pcl-conversions`는 **PCL 1.15**를 요구한다.
 Jetson Ubuntu 24.04에는 **PCL 1.14**만 있으므로 이 패키지는 설치할 수 없다.

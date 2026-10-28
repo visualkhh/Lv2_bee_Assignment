@@ -9,7 +9,7 @@
   입력: pole_front_cam 컬러 + 정렬 depth + camera_info (RGBD 모드 — D435는 IMU가 없어 VIO 불가)
   map = 출발할 때의 base_footprint (RTAB-Map과 같음), x·y·yaw만 (RTAB-Map Reg/Force3DoF와 같음 — 경기장 바닥은 평평)
   카메라에서 min_depth 안 픽셀은 가림 — 화면 가운데 찍히는 자기 팔이 로봇과 같이 움직여 회전을 덜 잡게 함 (RTAB-Map Vis/MinDepth와 같은 이유)
-  설치 (Jetson Orin + JetPack 7): 배포 휠(cu13 aarch64)은 Thor 전용(SVE)이라 Orin에선 Illegal instruction → 소스 빌드
+  설치 (Jetson Orin + JetPack 7 — 자세히: documents/jetson-orin-nano/CUVSLAM.md): 배포 휠(cu13 aarch64)은 Thor 전용(SVE)이라 Orin에선 Illegal instruction → 소스 빌드
     sudo apt install cuda-nvcc-13-2 cuda-cudart-dev-13-2 libcublas-dev-13-2 libcusolver-dev-13-2 libcusparse-dev-13-2 \\
                      libnvjitlink-dev-13-2 cuda-nvrtc-dev-13-2 cuda-driver-dev-13-2
     git clone --branch v17.0.1 https://github.com/NVlabs/PyCuVSLAM.git ~/cuvslam/src
@@ -204,7 +204,8 @@ class CuvslamSlam(Node):
         ps.pose.orientation.z, ps.pose.orientation.w = math.sin(base[2] / 2), math.cos(base[2] / 2)
         self.path.header.stamp = stamp
         self.path.poses.append(ps)
-        if len(self.path.poses) % 5 == 0:  # 경로는 3Hz 정도로만
+        del self.path.poses[:-3000]  # 최근 3000개(15Hz면 약 3분20초)만 — 계속 쌓이면 발행이 무거워짐
+        if self.ok % 5 == 0:  # 경로는 3Hz 정도로만
             self.path_pub.publish(self.path)
 
 

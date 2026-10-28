@@ -5,6 +5,7 @@
   ros2 launch ros_system ros_system.launch.py use_nav2:=true            # config/nav2_params.yaml
 
   ros2 launch ros_system ros_system.launch.py mock_hardware:=true   # 실기 없이 controller_manager (명령 → 상태 되돌림)
+  ros2 launch ros_system ros_system.launch.py cuvslam_odom:=true    # cuVSLAM 시각 오도메트리 → EKF (documents/jetson-orin-nano/CUVSLAM.md)
 
 기본으로 켜는 것: robot_state_publisher(URDF) + ros2_control(controller_manager + 컨트롤러),
                   RealSense ×2(pole_front_cam·gripper_cam), robot_localization EKF, RTAB-Map(위치추정 모드)

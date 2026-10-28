@@ -3,6 +3,7 @@
 # Jetson에서 실행하면 로컬, PC에서 실행하면 네트워크 너머의 Jetson을 본다.
 #   ./start.sh
 #   ROS_DOMAIN_ID=42 ./start.sh
+#   ROS_DOMAIN_ID=42 RVIZ_CONFIG=light ./start.sh     # Wi-Fi 너머 PC: 지도·TF·로봇 모델만 (light.rviz)
 set -eo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -37,4 +38,9 @@ if [ "${ROS_LOCALHOST_ONLY:-0}" = "1" ]; then
   echo "WARN: ROS_LOCALHOST_ONLY=1 — 다른 머신과 통신 불가 (원격이면 0으로)" >&2
 fi
 
-exec rviz2 -d "$HERE/operator.rviz" "$@"
+# GNOME 텍스트 배율이 1.5처럼 소수이면 Qt6가 3D 뷰를 검게 깜박인다 (ros2/rviz#1052).
+export QT_SCALE_FACTOR_ROUNDING_POLICY="${QT_SCALE_FACTOR_ROUNDING_POLICY:-Floor}"
+
+# RVIZ_CONFIG=light — 지도·TF·로봇 모델만 (map 기준, 로봇을 따라감). Wi-Fi 너머 PC에서 점구름·영상을 받으면
+#   Jetson 카메라 송신이 막혀 카메라·RTAB-Map이 멈췄음 (실측 2026-10-27) → 원격 PC는 light 권장
+exec rviz2 -d "$HERE/${RVIZ_CONFIG:-operator}.rviz" "$@"
