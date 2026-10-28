@@ -467,7 +467,7 @@
   <joint name="imu_joint" type="fixed">
     <parent link="base_link"/>
     <child link="imu_link"/>
-    <origin rpy="0 0 0" xyz="0.0178 0 0.068"/>  <!-- x: waffle front edge 0.0688 - 0.051 (measured); z: OpenCR height, official TB3 value -->
+    <origin rpy="0 0 0" xyz="0.0178 0 0.0585"/>  <!-- x: waffle front edge 0.0688 - 0.051 (measured); z: OpenCR board top in base_link mesh -->
   </joint>
   <!-- basket slots: cell floor center, 3 rows (x, pole -> arm) x 4 cols (y, -y -> +y) -->
   <joint name="basket_slot_0_joint" type="fixed">
