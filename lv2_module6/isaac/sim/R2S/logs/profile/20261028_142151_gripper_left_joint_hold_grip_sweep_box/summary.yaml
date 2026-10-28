@@ -1,0 +1,7 @@
+gripper_left_joint:
+  peak_error: 3.91
+  rms_error: 1.2242
+  unit: mm
+  samples: 5100
+  max_abs_current_A: 0.8016
+interrupted: false

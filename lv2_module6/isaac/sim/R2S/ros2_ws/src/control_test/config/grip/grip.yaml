@@ -1,11 +1,11 @@
 # Grip test (30 mm puck): `ros2 run control_test grip_test basic`
-# REAL GRIPPER DIRECTION IS REVERSED vs the URDF (2026-10-24): a larger value CLOSES. Measured finger gap:
-#   2.0 mm -> 38 mm, 10.0 mm -> 27 mm, 16.78 mm -> 20 mm (closed, mechanical end; above ~17 mm the servo stalls).
-#   gap ≈ 40.1 - 1.22 * value [mm]; a 30 mm puck touches at about 7.8 mm.
-# The profile starts and ends at its center, so the center is put at the OPEN end (2 mm: offset -11.25 mm from the
-# 13.25 mm range middle) — the old version ended at 13.25 mm (gap 24 mm) and kept squeezing the puck.
-# open 2 mm (place the puck) -> close to 9.0 mm (about 1.2 mm past contact: limited force) -> open 2 mm (remove).
-# Do NOT command far past contact: 17 mm on the puck (0.85 A) bent the fingers.
+# Gripper direction follows the URDF since the firmware fix (2026-10-28): value = one finger [m], 0 = closed, + = open.
+#   gap = 20 + 2 * value [mm] (firmware config.h table: 0 -> 20 mm, 5 mm -> 30 mm, 9 mm -> 38 mm); a 30 mm puck touches at ~5 mm.
+#   Current-based position mode, GRIPPER_GOAL_CURRENT_MA = 600: past contact the servo stops at 0.6 A (2026-10-28: held the
+#   puck at 4.35 mm, 0.60 A). So commanding "closed" grips with the firmware's force limit, like the coordinator (GRIPPER_CLOSED_M = 0).
+# The profile starts and ends at its center, so the center is at the OPEN end (9 mm, gap 38 mm: offset -4.25 mm from the
+# 13.25 mm range middle). Lowest allowed command = URDF lower 0 + limit_margin 1 mm; 1.2 mm keeps float rounding off the edge.
+# open 9 mm (place the puck) -> close to 1.2 mm (= coordinator grip, 0.6 A limit) -> open 9 mm (remove).
 tag: grip
 out_subdir: profile
 sample_hz: 50
@@ -18,5 +18,5 @@ limit_margin:
 
 joints:
   gripper_left_joint:
-    offset: -0.01125                                              # center = 2.0 mm (open)
-    hold: {targets: [0.0, 0.007, 0.0], dwell_s: 12.0}            # 2.0 (place), 9.0 (grip), 2.0 (remove) mm
+    offset: -0.00425                                              # center = 9.0 mm (open, gap 38 mm)
+    hold: {targets: [0.0, -0.0078, 0.0], dwell_s: 12.0}           # 9.0 (place), 1.2 (grip), 9.0 (remove) mm

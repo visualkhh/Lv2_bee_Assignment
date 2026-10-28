@@ -124,9 +124,9 @@ hold 는 마찰 때문에 **접근 방향**에 따라 결과가 달라진다. �
 ### 5. grip_test — 퍽 그립 (`config/grip/`)
 
 ```bash
-ros2 run control_test grip_test basic            # 2 → 9.0 → 2 mm, 9.0 mm 에서 12 s (grip.yaml)
-ros2 run control_test grip_test sweep box        # 2 → 8.0 / 8.5 / 9.0 / 9.5 mm, 사이마다 2 mm 로 열기 (grip_sweep.yaml)
-ros2 run control_test grip_test pull box_down    # 9.0 mm 로 30 s 쥐는 동안 퍽을 당겨 빼기 (grip_pull.yaml)
+ros2 run control_test grip_test basic            # 9 → 1.2 → 9 mm, 닫힘(0.6 A 제한)에서 12 s (grip.yaml)
+ros2 run control_test grip_test sweep box        # 9 → 4.8 / 4.6 / 4.4 / 1.2 mm, 사이마다 9 mm 로 열기 (grip_sweep.yaml)
+ros2 run control_test grip_test pull box_down    # 1.2 mm(닫힘)로 30 s 쥐는 동안 퍽을 당겨 빼기 (grip_pull.yaml)
 ```
 
 `profile_test gripper_left_joint hold` 와 같은 노드이고 기본 설정만 `config/grip/` 이다. 두 번째 인자(퍽 종류·당기는 방향)는 run tag 뒤에 붙는다.
@@ -138,16 +138,17 @@ Isaac 의 그리퍼는 손가락 하나당 약 8 N 으로 쥔다(stiffness 1000 
 
 | 시험 | 하는 일 | 보는 것 |
 |---|---|---|
-| `basic` | 2 mm(퍽 넣기) → 9 mm(쥐기) → 2 mm(빼기) | 10-24 와 같은 조건의 기준값 |
-| `sweep` | 2 mm 에서 8.0 / 8.5 / 9.0 / 9.5 mm 로 차례로 쥐고 8 s 유지, 매번 2 mm 로 열기 | 명령별 멈춘 위치·전류·`force_N_est` (명령이 접촉점을 지나간 정도 → 힘) |
-| `pull` | 9.0 mm 로 30 s 쥐는 동안 퍽을 당겨 뺌 | 빠지는 순간의 힘 = 실제 유지력 (Isaac 에서 똑같이 당겨 비교) |
+| `basic` | 9 mm(퍽 넣기) → 1.2 mm(닫힘, 0.6 A 제한에서 멈춤) → 9 mm(빼기) | coordinator 가 쥐는 것과 같은 조건의 기준값 |
+| `sweep` | 9 mm 에서 4.8 / 4.6 / 4.4 / 1.2 mm 로 차례로 쥐고 8 s 유지, 매번 9 mm 로 열기 | 명령별 멈춘 위치·전류·`force_N_est` (명령이 접촉점을 지나간 정도 → 힘) |
+| `pull` | 1.2 mm(닫힘)로 30 s 쥐는 동안 퍽을 당겨 뺌 | 빠지는 순간의 힘 = 실제 유지력 (Isaac 에서 똑같이 당겨 비교) |
 
 `pull` 은 방향마다 라벨을 바꿔 반복한다. `down`(아래로, 퍽 무게 방향), `out`(손가락 사이 바깥쪽), `twist`(손가락 축을 중심으로 손으로 비틀기,
 빠지는지만 기록). 기본 자세에서 실패한 원인이 비틀림이라 `twist` 가 Isaac 의 `torsional_patch_radius` 를 맞추는 근거가 된다.
 
-- 처음 2 mm 에서 dwell 하는 동안 퍽을 손가락 사이에 넣는다. 퍽 윗면을 손가락이 약 20 mm 덮게 한다(Isaac `GRIP_DEPTH`).
-- 접촉점(약 7.8 mm)을 크게 넘겨 명령하지 않는다. 9.5 mm 에서 전류가 0.85 A 에 가까우면 그 이상 올리지 않는다(17 mm·0.85 A 에서 손가락이 휨).
-- 퍽이 빠지면 손가락이 9 mm 쪽으로 닫히며 `pos` 가 뛰고 전류가 떨어진다. 빠진 시각은 `log.csv` 로 확인한다.
+- 처음 9 mm 에서 dwell 하는 동안 퍽을 손가락 사이에 넣는다. 퍽 윗면을 손가락이 약 20 mm 덮게 한다(Isaac `GRIP_DEPTH`).
+- 방향: 2026-10-28 펌웨어 수정 후 URDF 와 같다 (0 = 닫힘, + = 열림, 간격 = 20 + 2 × 값 mm). 30 mm 퍽은 약 5 mm 에서 닿는다.
+  펌웨어가 전류 기반 위치 모드(`GRIPPER_GOAL_CURRENT_MA` 600)라 접촉 뒤에는 0.6 A 에서 멈춘다 (10-28: 4.35 mm·0.60 A). 예전 손가락 휨(0.85 A)보다 낮다.
+- 퍽이 빠지면 손가락이 1.2 mm 쪽으로 닫히며 `pos` 가 떨어지고 전류가 줄어든다. 빠진 시각은 `log.csv` 로 확인한다.
 - 당긴 힘·방향·퍽 종류는 run 폴더 이름과 함께 손으로 적는다. 로그에는 남지 않는다.
 
 분석은 `python3 profile_analysis.py` 다. hold 의 그리퍼 dwell 마다 `force_N_est`(손가락 하나가 누르는 힘, `GRIP_N_PER_A` = 87.7 N/A)가 나온다.

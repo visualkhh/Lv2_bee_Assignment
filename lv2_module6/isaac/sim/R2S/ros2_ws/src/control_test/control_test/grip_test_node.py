@@ -1,8 +1,8 @@
 """Puck grip tests of the gripper (gripper_left_joint hold profiles, settings in config/grip/).
 
-  ros2 run control_test grip_test basic            # 2 -> 9.0 -> 2 mm, 12 s at 9.0 mm (config/grip/grip.yaml)
-  ros2 run control_test grip_test sweep box        # 2 -> 8.0 / 8.5 / 9.0 / 9.5 mm, open in between (grip_sweep.yaml)
-  ros2 run control_test grip_test pull cyl_down    # 9.0 mm for 30 s while the puck is pulled out (grip_pull.yaml)
+  ros2 run control_test grip_test basic            # 9 -> 1.2 -> 9 mm (open -> closed at the 0.6 A limit -> open) (config/grip/grip.yaml)
+  ros2 run control_test grip_test sweep box        # 9 -> 4.8 / 4.6 / 4.4 / 1.2 mm, open in between (grip_sweep.yaml)
+  ros2 run control_test grip_test pull cyl_down    # closed (1.2 mm) for 30 s while the puck is pulled out (grip_pull.yaml)
   q (or Ctrl+C): the goal is cancelled, the gripper stops where it is, the log so far is saved
 
 Same node as `profile_test gripper_left_joint hold` with the grip yaml as default config. The optional label
