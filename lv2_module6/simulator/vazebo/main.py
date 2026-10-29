@@ -2507,8 +2507,10 @@ class App:
         self.coords_label.config(text=self.coords_text())
         self.mission_label.config(text=self.mission_text())
         if self.dice_label is not None:  # mission_manager 단계 · 신호등 진행 — READ가 되면 신호 자동 시작
-            st, _ = read_msg('mission/state')
-            state = (st or {}).get('data', '-') if isinstance(st, dict) else (st or '-')
+            st, _ = read_msg('mission/state')  # plan/MissionState — 단계 · 설명 · 놓은 수 · 적재함
+            st = st if isinstance(st, dict) else {}
+            state = f"{st.get('phase', '-')}: {st.get('note', '')}" + (
+                f" · 놓음 {st.get('placed', 0)}/{st.get('total', 0)} · 적재함 {len(st.get('tray') or [])}" if st.get('total') else '')
             sig = self.sim.signal_text()
             if self.auto_signal.get() and str(state).startswith('READ') and sig == '신호 대기':
                 self.sim.start_signal()

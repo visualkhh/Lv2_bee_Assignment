@@ -43,6 +43,7 @@ Coordinator::Coordinator()
   arm_plan_tries_ = declare_parameter<int>("arm_plan_tries", 3);
   tray_slots_ = tray_slots(declare_parameter<std::vector<double>>(
     "tray_slots", {-0.135, 0.05, -0.135, -0.05, -0.095, 0.05, -0.095, -0.05}));
+  tray_full_.assign(tray_slots_.size(), false);
   tray_release_z_ = declare_parameter<double>("tray_release_z", 0.22);
   tray_grasp_z_ = declare_parameter<double>("tray_grasp_z", 0.17);
   tray_approach_m_ = declare_parameter<double>("tray_approach_m", 0.05);
@@ -154,7 +155,7 @@ Coordinator::Coordinator()
     s.add("단계", step_text());
     s.add("실행 중", running_);
     s.add("연속 실패", failures_.size());
-    s.add("적재함", std::to_string(tray_count_) + "/" + std::to_string(tray_slots_.size()));
+    s.add("적재함", std::to_string(std::count(tray_full_.begin(), tray_full_.end(), true)) + "/" + std::to_string(tray_slots_.size()));
   });
 }
 
@@ -286,11 +287,12 @@ void Coordinator::run_step() {
   else if (g.skill == "place") {
     if (!ready_or_retry(motion_plan_->service_is_ready() && exec_->action_server_is_ready() &&
         gripper_->action_server_is_ready(), "arm_unavailable")) return;
-    if (g.target == "tray") {  // 적재함 다음 칸에 싣기 — 칸 위 tray_release_z에서 벌림
-      if (tray_count_ >= static_cast<int>(tray_slots_.size())) { fail("tray_full"); return; }
-      execute_place(tray_pose(tray_count_, tray_release_z_), [this](bool ok) {
+    if (g.target.rfind("tray", 0) == 0) {  // 적재함에 싣기 — "tray" 첫 빈 칸 · "tray:<칸>" 그 칸. 칸 위 tray_release_z에서 벌림
+      const int slot = tray_slot(g.target, true);
+      if (slot < 0) { fail(slot == -1 ? "tray_full" : "tray_slot_bad"); return; }
+      execute_place(tray_pose(slot, tray_release_z_), [this, slot](bool ok) {
         if (!ok) { fail("tray_place_failed"); return; }
-        ++tray_count_;
+        tray_full_[slot] = true;
         next();
       }, 0.0);
       return;
@@ -717,13 +719,14 @@ void Coordinator::send_nav(const geometry_msgs::msg::Pose & pose, std::function<
 }
 
 void Coordinator::pick(const SubGoal & g) {
-  if (g.target == "tray") {  // 적재함에서 마지막에 실은 것부터 꺼내기 — 칸 위치를 알아서 grasp_scorer 없이
+  if (g.target.rfind("tray", 0) == 0) {  // 적재함에서 꺼내기 — "tray" 마지막 찬 칸 · "tray:<칸>" 그 칸. 칸 위치를 알아서 grasp_scorer 없이
     if (!ready_or_retry(motion_plan_->service_is_ready() && exec_->action_server_is_ready() &&
         gripper_->action_server_is_ready(), "pick_unavailable")) return;
-    if (tray_count_ <= 0) { fail("tray_empty"); return; }
-    execute_pick(tray_pose(tray_count_ - 1, tray_grasp_z_), [this](bool ok) {
+    const int slot = tray_slot(g.target, false);
+    if (slot < 0) { fail(slot == -1 ? "tray_empty" : "tray_slot_bad"); return; }
+    execute_pick(tray_pose(slot, tray_grasp_z_), [this, slot](bool ok) {
       if (!ok) { fail("tray_pick_failed"); return; }
-      --tray_count_;
+      tray_full_[slot] = false;
       next();
     }, tray_approach_m_);
     return;
@@ -807,6 +810,19 @@ namespace {
 constexpr double GRIPPER_OPEN_M = 0.0265;   // URDF 한계
 constexpr double GRIPPER_CLOSED_M = 0.0;
 }  // namespace
+
+int Coordinator::tray_slot(const std::string & target, bool for_place) const {
+  const int n = static_cast<int>(tray_full_.size());
+  if (target == "tray") {  // 칸을 안 정하면 — 싣기는 첫 빈 칸, 꺼내기는 마지막 찬 칸 (예전 순서 그대로)
+    if (for_place) { for (int i = 0; i < n; ++i) if (!tray_full_[i]) return i; }
+    else { for (int i = n - 1; i >= 0; --i) if (tray_full_[i]) return i; }
+    return -1;
+  }
+  const std::string k = target.substr(5);  // "tray:<칸>" (mission_manager — 칸 → tag 대응표를 그쪽이 가짐)
+  if (target[4] != ':' || !is_id(k) || std::stoi(k) >= n) return -2;
+  const int i = std::stoi(k);
+  return tray_full_[i] != for_place ? i : -1;
+}
 
 geometry_msgs::msg::PoseStamped Coordinator::tray_pose(size_t slot, double z) const {
   geometry_msgs::msg::PoseStamped p;

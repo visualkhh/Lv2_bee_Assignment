@@ -92,4 +92,73 @@ std::vector<Pose2> approach_poses(double cx, double cy, double half, double px, 
   return out;
 }
 
+const char * phase_name(Phase p) {
+  static const char * names[] = {"IDLE", "GO_OBSERVE", "BARCODE", "READ", "SURVEY", "BUILD", "VERIFY", "RETURN", "DONE", "ERROR"};
+  return names[static_cast<int>(p)];
+}
+
+Phase next_phase(Phase p, bool ok) {
+  switch (p) {
+    case Phase::IDLE: return ok ? Phase::GO_OBSERVE : Phase::IDLE;
+    case Phase::GO_OBSERVE: return ok ? Phase::BARCODE : Phase::ERROR;
+    case Phase::BARCODE: return ok ? Phase::READ : Phase::ERROR;
+    case Phase::READ: return ok ? Phase::SURVEY : Phase::ERROR;
+    case Phase::SURVEY: return ok ? Phase::BUILD : Phase::RETURN;
+    case Phase::BUILD: return Phase::VERIFY;
+    case Phase::VERIFY: return Phase::RETURN;
+    case Phase::RETURN: return ok ? Phase::DONE : Phase::ERROR;
+    default: return p;
+  }
+}
+
+std::pair<double, double> tag_correction(double ex, double ey, double ox, double oy, double max_m) {
+  const double dx = ox - ex, dy = oy - ey;
+  if (std::hypot(dx, dy) > max_m) return {0.0, 0.0};
+  return {dx, dy};
+}
+
+LocationResult judge_location(const std::vector<std::pair<int, int>> & expected, double cx, double cy, double step,
+                              const std::vector<Seen> & seen, double tol) {
+  LocationResult r;
+  r.ok = true;
+  std::set<int> want;
+  for (const auto & [tag, cell] : expected) {
+    want.insert(tag);
+    const auto [dx, dy] = cell_offset(cell, step);
+    CellResult c{tag, cell, false, 0.0};
+    for (const auto & s : seen) {
+      if (s.tag != tag) continue;
+      const double e = std::hypot(s.x - (cx + dx), s.y - (cy + dy));
+      if (!c.found || e < c.err) { c.found = true; c.err = e; }
+    }
+    r.ok = r.ok && c.found && c.err <= tol;
+    r.cells.push_back(c);
+  }
+  for (const auto & s : seen) if (!want.count(s.tag)) r.extra.push_back(s);
+  r.ok = r.ok && r.extra.empty();
+  return r;
+}
+
+void global_check(const std::vector<std::vector<int>> & seen_per_location, const std::vector<int> & all_tags,
+                  std::vector<int> & dup, std::vector<int> & missing) {
+  std::map<int, int> where;  // tag → 보인 장소 수
+  for (const auto & loc : seen_per_location)
+    for (int t : std::set<int>(loc.begin(), loc.end())) if (t >= 0) ++where[t];
+  dup.clear();
+  missing.clear();
+  for (const auto & [t, n] : where) if (n > 1) dup.push_back(t);
+  for (int t : all_tags) if (!where.count(t)) missing.push_back(t);
+}
+
+bool footprint_in_zone(const Pose2 & p, double front, double rear, double side, const std::vector<double> & zone) {
+  if (zone.size() != 4) return false;
+  const double c = std::cos(p.yaw), s = std::sin(p.yaw);
+  for (double fx : {front, rear})
+    for (double fy : {side, -side}) {
+      const double x = p.x + c * fx - s * fy, y = p.y + s * fx + c * fy;
+      if (x < zone[0] || x > zone[2] || y < zone[1] || y > zone[3]) return false;
+    }
+  return true;
+}
+
 }  // namespace plan

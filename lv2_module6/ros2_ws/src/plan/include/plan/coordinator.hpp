@@ -12,8 +12,9 @@
 //   4. 파지 재시도는 coordinator 몫 — grasp_scorer 후보를 점수순으로 최대 max_grasp_tries(2)개, 다 실패하면 FAILED
 //   5. 같은 단계 2회 연속 실패면 /robot/say로 알리고 정지
 //   적재함 (MISSION ③ MOVE_TO_B — 퍽을 실어 운반): target "tray"
-//     place tray = 다음 빈 칸에 싣기 · pick tray = 마지막에 실은 것부터 꺼내기 (칸 = tray_slots, base_footprint 기준 — MoveIt 실측으로
-//     손끝 아래 방향이 닿는 곳). 몇 개 실렸는지 tray_count로 센다 (노드가 다시 뜨면 0). 꽉 차면 tray_full · 비면 tray_empty로 실패
+//     place tray = 첫 빈 칸에 싣기 · pick tray = 마지막 찬 칸에서 꺼내기 (칸 = tray_slots, base_footprint 기준 — MoveIt 실측으로
+//     손끝 아래 방향이 닿는 곳). "tray:<칸>"이면 그 칸 (mission_manager가 칸 → tag를 기억). 칸마다 찼는지 기억 (노드가 다시 뜨면 빔).
+//     꽉 참·그 칸이 참이면 tray_full · 빔이면 tray_empty · 칸 번호가 틀리면 tray_slot_bad로 실패
 //   팔이 닿게 다가가기: pick · place <물체 id> 차례에 대상이 로봇(base_footprint, TF)에서 reach_m 넘게 떨어져 있으면
 //     먼저 그 물체를 바라보며 approach_m 떨어진 자리로 navigate한 뒤 그 단계를 실행 (단계마다 한 번 — VLM이 navigate를 빼먹어도).
 //     navigate <물체 id>도 같은 접근 자세 — 로봇이 있는 쪽에서 물체를 바라봄 (예전: 늘 물체의 −x 쪽 · yaw 0)
@@ -227,7 +228,9 @@ private:
   std::vector<std::pair<double, double>> tray_slots_;
   double tray_release_z_, tray_grasp_z_, tray_approach_m_, place_spacing_;
   double place_approach_m_, place_release_dz_;  // 좌표 place — 위에서 내려오는 높이 · 퍽 바닥 위 벌리는 손끝 높이
-  int tray_count_ = 0;                 // 적재함에 실린 퍽 수 (칸 0부터 차례로)
+  std::vector<bool> tray_full_;        // 적재함 칸마다 실렸는지 (노드가 다시 뜨면 모두 빔)
+  // "tray" | "tray:<칸>" → 칸 번호. 없으면 -1 (싣기: 꽉 참 · 그 칸이 참 / 꺼내기: 빔 · 그 칸이 빔), 형식이 틀리면 -2
+  int tray_slot(const std::string & target, bool for_place) const;
   std::map<std::string, int> placed_;  // 계획 안에서 물체(구역) id별로 내려놓은 수 — 겹치지 않게 비킴
   std::string mode_ = "AUTO";
   bool estop_ = false;
