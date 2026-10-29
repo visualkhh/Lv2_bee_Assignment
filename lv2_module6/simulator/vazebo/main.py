@@ -1,6 +1,6 @@
 """SIL 시뮬레이터 (호스트에서 실행) — 컨테이너(ROS)와는 공유 폴더 lv2_module6/debug 의 파일로만 주고받는다 (호스트에 ROS 불필요)
 
-  [지도: 미로 · 실제 로봇 · /odom · 경로 · 인지 물체 · 점구름 · 퍽 · 장애물]   │ [pole_cam:    SIM 영상 │ SIM 깊이 ‖ ROS 영상+인지 │ ROS 점구름]
+  [지도: 미로 · 실제 로봇 · /odom · 경로 · 인지 물체 · 점구름 · 퍽 · 장애물]   │ [pole_front_cam:    SIM 영상 │ SIM 깊이 ‖ ROS 영상+인지 │ ROS 점구름]
   [퍽 · 배경 · 카메라 송출]                                                  │ [gripper_cam: SIM 영상 │ SIM 깊이 ‖ ROS 영상+인지 │ ROS 점구름]
   [환경: 미끄럼 · 마찰 · 이동물체 추가 · 바닥 장애물 · 신호등 · 통신 끊기 · 팔 붙잡기]   │ [상태 · 진단(/diagnostics_agg)]
   [수동 조작 탭 · 비상정지]                                             │ [명령 입력 → /cmd/user_command]
@@ -47,6 +47,7 @@ os.environ.setdefault('VECLIB_MAXIMUM_THREADS', '2')
 import cv2
 import numpy as np
 
+import dice
 import maze
 import opencr
 import robot_view
@@ -68,7 +69,7 @@ HERE = Path(__file__).resolve().parent
 BG_DIR = HERE / 'images' / 'background'
 FLOOR_DIR = HERE / 'images' / 'floor'
 WALL_DIR = HERE / 'images' / 'wall'
-CAMERAS = ('pole_cam', 'gripper_cam')
+CAMERAS = ('pole_front_cam', 'gripper_cam')
 ROS_FRESH_S = 2.0   # ROS 칸: 파일 수정 시각이 이 안이면 '지금 받은 것', 넘으면 흐리게 + STALE (monitor_manager 저장 간격 0.2초)
 STALE_HIDE_S = 60.0  # 이보다 오래된 파일은 이전 실행 잔재로 보고 안 그림
 TILE = (208, 156)  # 카메라 타일 (2열 × 4줄 × 2구역 — 창 가로를 줄이려고 작게)
@@ -143,6 +144,10 @@ class Sim:
         self.renderer = scene.Renderer(self.walls)
         self.cells = scene.maze_cells(course)
         self.goal = scene.goal_zone(course, self.cells)  # B 지역 = 고정 목표 구역 (카메라 렌더·지도·데이터셋 공용)
+        if 'mission' in course:  # 주사위 맵엔 B 지역이 없음 — ponytail: 경기장 밖으로 치움 (goal을 쓰는 곳이 많아 지우진 않음)
+            self.goal.update(x=-50.0, y=-50.0)
+        self.faces = []           # 장소 태그 면 (dice.py — 무늬만 입힘)
+        self.dice_problem = None  # 주사위 문제 (dice/<이름>.json)
         self.stations = []        # 미션 지역 [station_zone dict + 'problem'] — 지도에서 찍어 놓음
         self.kin = None
         self.body = None
@@ -164,6 +169,36 @@ class Sim:
         self.light_change = False  # 환경 배치 중 조명이 천천히 오르내림
         self.show_collision = False  # 충돌 모양 보기 — 카메라 렌더·로봇 3D를 <collision>으로
         # 처음엔 빈 맵 — 미션 지역을 찍거나 [퍽 랜덤 배치]로 채운다
+
+    # --- 주사위 미션 (dice.py)
+    def load_dice(self, name):
+        """문제 깔기 — 퍽 12개 · 신호등 · 바코드 판 · 장소 태그 (다른 퍽·물체는 지움)"""
+        pucks, props, faces, prob = dice.setup(self.course, name)
+        with self.lock:
+            self.pucks, self.props, self.faces, self.dice_problem = pucks, props, faces, {**prob, 'name': name}
+
+    def start_signal(self):
+        """운영자 [신호 시작] — 12회 점멸 시퀀스를 처음부터"""
+        with self.lock:
+            for p in self.props:
+                if p.get('sequence') is not None:
+                    p['seq_t'] = 0.0
+
+    def signal_text(self):
+        light = next((p for p in self.props if p.get('sequence') is not None), None)
+        if light is None:
+            return '신호등 없음'
+        if light['seq_t'] is None:
+            return '신호 대기'
+        n = min(int(light['seq_t'] // 2) + 1, len(light['sequence']))
+        return f"신호 {n}/{len(light['sequence'])} {light['state']}" if light['seq_t'] < 2 * len(light['sequence']) else '신호 끝 (소등)'
+
+    def box_top(self, x, y):
+        """(x, y) 아래 낮은 박스(시작·장소 박스 70mm) 윗면 높이 · 없으면 None"""
+        for cx, cy, _, sx, sy, sz in self.walls:
+            if sz < 0.1 and abs(x - cx) <= sx / 2 and abs(y - cy) <= sy / 2:
+                return float(sz)
+        return None
 
     # --- 물체
     def randomize(self, count):
@@ -272,6 +307,9 @@ class Sim:
             changed = False
             for p in self.props:
                 if p.get('kind') != 'traffic_light':
+                    continue
+                if p.get('sequence') is not None:  # 신호등 — [신호 시작]부터 정해진 시퀀스만
+                    dice.signal_step(p, dt)
                     continue
                 p['timer'] -= dt
                 if p['timer'] <= 0:
@@ -400,6 +438,7 @@ class Sim:
             if near and grip < GRIP_CLOSED:  # 닫히면 가장 가까운 퍽을 집음 (손끝 높이가 맞아야)
                 pick = min(near, key=lambda p: math.dist((tip[0], tip[1]), (p['x'], p['y'])))
                 pick['held'] = True
+                pick.pop('on_box', None)
                 pick['x'], pick['y'] = round(tip[0], 3), round(tip[1], 3)
                 pick['z'] = round(max(tip[2] - scene.puck_height(pick) / 2, 0.0), 3)
                 pick['grip_pitch'] = self._ee_pitch(T_wb, q)
@@ -427,7 +466,7 @@ class Sim:
         px, py, pyaw = prev
         with self.lock:
             for p in self.pucks:
-                if p.get('held') or 'z' not in p:
+                if p.get('held') or 'z' not in p or p.get('on_box'):
                     continue
                 lx, ly = _to_base(p['x'], p['y'], px, py, pyaw)
                 wx, wy = _to_world(lx, ly, x, y, yaw)
@@ -437,7 +476,7 @@ class Sim:
         """로봇 위 퍽은 받침 높이로 · 트레이 안에선 가이드벽 안쪽으로 가둠, 받침 밖은 바닥으로"""
         with self.lock:
             for p in self.pucks:
-                if p.get('held') or 'z' not in p:
+                if p.get('held') or 'z' not in p or p.get('on_box'):
                     continue
                 lx, ly = _to_base(p['x'], p['y'], x, y, yaw)
                 reach = _tray_reach(p)
@@ -450,10 +489,13 @@ class Sim:
                     p['x'], p['y'], p['z'] = round(wx, 3), round(wy, 3), TRAY['surface_z']
                     continue
                 s = _support_at(lx, ly)
-                if s is None:
-                    del p['z']  # 받침 밖 — 바닥으로
-                else:
+                top = self.box_top(p['x'], p['y']) if s is None else None
+                if s is not None:
                     p['z'] = s
+                elif top is not None:  # 로봇 밖이고 박스 위 — 박스에 안착 (장소·시작 박스)
+                    p['z'], p['on_box'] = top, True
+                else:
+                    del p['z']  # 받침 밖 — 바닥으로
 
     # --- 미션 (documents/mission/README.md): 한 맵에 미션 지역 여러 곳 — 지도에서 찍고 문제를 고른다 (채점은 외부)
     def snap_cell(self, x, y):
@@ -648,6 +690,7 @@ class Sim:
         with self.lock:
             things = [dict(p) for p in self.pucks + self.props] + [dict(self.goal)] + [dict(z) for z in self.stations]
         boards = [p for p in things if p.get('kind') == 'qr_board']
+        faces = list(self.faces)
         kin, renderer, twb = self.kin, self.renderer, T_wb
         body = self.body_col if self.show_collision else self.body  # 충돌 모양 보기 토글
         light, noise = self.light, self.cam_noise
@@ -663,8 +706,12 @@ class Sim:
             meshes = [(twb @ kin.pose(link, q) @ To, tris, rgb)  # 렌더 중인 카메라 자체는 뺀다 (렌즈 앞 가림)
                       for link, To, tris, rgb in body.meshes if link != own]
             bgr, depth = renderer.render(T, things, boxes, meshes, body_key=(cam, body is self.body_col, joints))
+            if faces:  # 표식은 640×480에서 입힘 (320 렌더에 입히면 16mm 태그·바코드 칸이 1px 아래로 뭉개져 못 읽음)
+                bgr = cv2.resize(bgr, (640, 480), interpolation=cv2.INTER_LINEAR)
+                depth = cv2.resize(depth, (640, 480), interpolation=cv2.INTER_NEAREST)
             for b in boards:  # QR 무늬 (조명·잡음보다 먼저 — 같이 어두워지고 지글거림)
                 bgr = scene.overlay_qr(bgr, depth, T, b)
+            bgr = dice.overlay(bgr, depth, T, things, faces)  # 퍽·장소 태그 · 바코드 무늬
             depth = scene.realsense_depth(depth)  # 실기 RealSense처럼 — 거리 제곱 잡음 · 경계 구멍 · 결측
             if light != 1.0 or noise > 0:  # 조명 변화 · 카메라 잡음 (depth는 그대로 — RealSense IR은 조명 영향 적음)
                 f = bgr.astype(np.float32) * light
@@ -1134,9 +1181,9 @@ class MapView:
             cv2.line(img, c, (c[0], c[1] - 18), (0, 160, 0), 2)
             cv2.putText(img, 'goal', (c[0] + 6, c[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 130, 0), 1)
         if self.show_cloud:  # 점구름 — LiDAR 대신 깊이 카메라: 몸을 뺀 점(body_filter)을 바닥에 눌러 편 것 = 로봇이 보는 장애물
-            # pole_cam = 빨강 (body_filter가 몸 뺀 것 — Nav2가 보는 것) · gripper_cam = 분홍 (원본 — 손가락·차체가 섞여 로봇 중심
-            # 0.22m 안은 뺌. 지도 만들 땐 스캔 자세로 왼쪽 뒤를 봄). 예전엔 pole_cam만 그려 gripper_cam 점이 안 보였음
-            sources = [(('pole_cam/depth/color/points_filtered', 'pole_cam/depth/color/points'), (0, 0, 230), 0.0),
+            # pole_front_cam = 빨강 (body_filter가 몸 뺀 것 — Nav2가 보는 것) · gripper_cam = 분홍 (원본 — 손가락·차체가 섞여 로봇 중심
+            # 0.22m 안은 뺌. 지도 만들 땐 스캔 자세로 왼쪽 뒤를 봄). 예전엔 pole_front_cam만 그려 gripper_cam 점이 안 보였음
+            sources = [(('pole_front_cam/depth/color/points_filtered', 'pole_front_cam/depth/color/points'), (0, 0, 230), 0.0),
                        (('gripper_cam/depth/color/points',), CAM_COLORS['gripper_cam'], 0.22)]
             rx, ry, ryaw = self.sim.robot_xy_yaw()[:3]  # base_footprint 기준 점 → 지금 그린 로봇 자리에 (실기면 /odom)
             c, s_ = math.cos(ryaw), math.sin(ryaw)
@@ -1587,6 +1634,25 @@ class App:
         tk.Button(row, text='환경 해제', command=self.sim.clear_env).pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.mission_label = tk.Label(missbox, justify=tk.LEFT, anchor=tk.W, font=('Menlo', 9), text='대기', wraplength=SIDE_WRAP)
         self.mission_label.pack(fill=tk.X)
+        # 주사위 미션 (course dice_maze) — 문제 깔기 · 운영자 신호 시작 · /cmd/mission start|abort → mission_manager
+        self.dice_label = None
+        if 'mission' in self.sim.course:
+            dicebox = tk.LabelFrame(mapside, text='주사위 미션')
+            dicebox.pack(fill=tk.X, pady=(6, 0))
+            self.dice_name = tk.StringVar(value=(self.sim.dice_problem or {}).get('name', (dice.problems() or [''])[0]))
+            ttk.Combobox(dicebox, textvariable=self.dice_name, values=dice.problems(), width=10, state='readonly').pack(fill=tk.X)
+            tk.Button(dicebox, text='문제 깔기', command=lambda: self.sim.load_dice(self.dice_name.get())).pack(fill=tk.X)
+            tk.Button(dicebox, text='신호 시작', command=self.sim.start_signal).pack(fill=tk.X)
+            self.auto_signal = tk.BooleanVar(value=True)
+            tk.Checkbutton(dicebox, text='READ가 되면 신호 자동 시작', variable=self.auto_signal).pack(anchor=tk.W)
+            row = tk.Frame(dicebox)
+            row.pack(fill=tk.X)
+            tk.Button(row, text='미션 시작', command=lambda: send('/cmd/mission', 'std_msgs/msg/String', {'data': 'start'})).pack(
+                side=tk.LEFT, fill=tk.X, expand=True)
+            tk.Button(row, text='중지', command=lambda: send('/cmd/mission', 'std_msgs/msg/String', {'data': 'abort'})).pack(
+                side=tk.LEFT, fill=tk.X, expand=True)
+            self.dice_label = tk.Label(dicebox, justify=tk.LEFT, anchor=tk.W, font=('Menlo', 9), text='대기', wraplength=SIDE_WRAP)
+            self.dice_label.pack(fill=tk.X)
 
         # 지도 (SLAM) — 컨테이너 faker map:=slam·saved 일 때 RTAB-Map. 요청만 보내고 상태는 state_manager 발행값(/state/map_mode)을 보여 줌
         #   스캔 시작 / 위치추정으로 → /cmd/map_mode → state_manager가 RTAB-Map 모드 전환 (재시작 없이, DB는 rtabmap.db 그대로)
@@ -1667,7 +1733,7 @@ class App:
         self.robot_label.bind('<MouseWheel>', lambda e: self.robot_cam.zoom(1 if e.delta > 0 else -1))
         self.robot_label.bind('<Button-4>', lambda e: self.robot_cam.zoom(1))
         self.robot_label.bind('<Button-5>', lambda e: self.robot_cam.zoom(-1))
-        # 보기 체크 — 로봇 3D와 pole_cam·gripper_cam 렌더를 URDF <collision>으로 (메시 충돌체: 3D는 STL, 카메라는 경계 상자)
+        # 보기 체크 — 로봇 3D와 pole_front_cam·gripper_cam 렌더를 URDF <collision>으로 (메시 충돌체: 3D는 STL, 카메라는 경계 상자)
         viewrow = tk.Frame(robot_box)
         viewrow.pack(anchor=tk.W)
         self.show_frames = tk.BooleanVar(value=False)
@@ -2440,6 +2506,14 @@ class App:
         self.robot_label.config(image=photos[-1], width=ROBOT_VIEW[0], height=ROBOT_VIEW[1])
         self.coords_label.config(text=self.coords_text())
         self.mission_label.config(text=self.mission_text())
+        if self.dice_label is not None:  # mission_manager 단계 · 신호등 진행 — READ가 되면 신호 자동 시작
+            st, _ = read_msg('mission/state')
+            state = (st or {}).get('data', '-') if isinstance(st, dict) else (st or '-')
+            sig = self.sim.signal_text()
+            if self.auto_signal.get() and str(state).startswith('READ') and sig == '신호 대기':
+                self.sim.start_signal()
+            prob = self.sim.dice_problem or {}
+            self.dice_label.config(text=f"{state}\n{sig}\n문제 {prob.get('name', '-')} · {prob.get('signal', '')} · {prob.get('barcode', '')}")
         if self.tick_n % 2 == 0:
             self.sync_map_choice()
             nav = self.nav_text()
@@ -2496,12 +2570,16 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--snapshot', help='창 없이 화면 한 장을 이 PNG로 저장하고 상태를 출력한 뒤 끝냄')
     parser.add_argument('--spawn', help='map 원점의 미로 좌표 "x,y" (기본: 코스 spawn)')
+    parser.add_argument('--course', default='twin_closed_maze', help='코스 = lv2_module6/course/<이름> (주사위 미션: dice_maze)')
+    parser.add_argument('--dice', default='q1', help='dice_maze에서 처음 깔 문제 = dice/<이름>.json (빈 값이면 안 깜)')
     parser.add_argument('--pucks', type=int, default=0, help='시작할 때 무작위로 깔 퍽 수 (기본 0 = 빈 맵 — 테스트·CI는 6)')
     parser.add_argument('--headless', action='store_true',
                         help='창 없이 플랜트·카메라 렌더만 계속 (호스트에서 — test-faker·CI용, Ctrl+C/TERM으로 끝)')
     args = parser.parse_args()
     spawn = tuple(float(v) for v in args.spawn.split(',')) if args.spawn else None
-    sim = Sim(maze.load(), spawn)
+    sim = Sim(maze.load(args.course), spawn)
+    if 'mission' in sim.course and args.dice:
+        sim.load_dice(args.dice)
     if args.pucks:
         sim.randomize(args.pucks)
     view = MapView(sim)

@@ -1,7 +1,7 @@
 """감지 물체 보기 창 — 두 카메라 융합 결과(/tracked_objects)와 융합 전 카메라별 검출(/perception/<cam>/detections)
 
   표: 융합 트랙 한 줄 + 그 트랙에 붙은 카메라별 검출(하위 줄) — 위치 · σ(공분산) · 융합 위치와의 차이
-  확대도: 고른 트랙의 2σ 타원 — 융합(보라) · pole_cam(주황) · gripper_cam(분홍). 지도에선 몇 픽셀이라 여기서 cm 단위로 크게
+  확대도: 고른 트랙의 2σ 타원 — 융합(보라) · pole_front_cam(주황) · gripper_cam(분홍). 지도에선 몇 픽셀이라 여기서 cm 단위로 크게
   카메라: 두 카메라 ROS 영상 + 인지 박스 (메인 RGB-SEG 칸과 같은 그림)
 지도·RGB-SEG에 그리는 것과 같은 파일(debug/output/topic)을 읽는다 — 0.5초마다 갱신.
 """
@@ -76,7 +76,7 @@ class ObjectsWindow:
             self.tree.heading(c, text=h)
             self.tree.column(c, width=w, anchor=tk.E if c in ('x', 'y', 'z', 'conf', 'age') else tk.W)
         self.tree.tag_configure('fused', foreground='#7b1fa2')
-        self.tree.tag_configure('pole_cam', foreground='#e65100')
+        self.tree.tag_configure('pole_front_cam', foreground='#e65100')
         self.tree.tag_configure('gripper_cam', foreground='#ad1457')
         self.tree.pack(fill=tk.X, padx=4, pady=4)
         self.tree.bind('<<TreeviewSelect>>', self.on_select)

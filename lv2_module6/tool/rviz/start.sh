@@ -3,6 +3,7 @@
 # Jetson에서 실행하면 로컬, PC에서 실행하면 네트워크 너머의 Jetson을 본다.
 #   ./start.sh
 #   ROS_DOMAIN_ID=42 ./start.sh
+#   RVIZ_CONFIG=mission ./start.sh      # 주사위 미션 (map 고정 · L1~L3 칸 마커 /mission/markers)
 set -eo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -37,4 +38,4 @@ if [ "${ROS_LOCALHOST_ONLY:-0}" = "1" ]; then
   echo "WARN: ROS_LOCALHOST_ONLY=1 — 다른 머신과 통신 불가 (원격이면 0으로)" >&2
 fi
 
-exec rviz2 -d "$HERE/operator.rviz" "$@"
+exec rviz2 -d "$HERE/${RVIZ_CONFIG:-operator}.rviz" "$@"
