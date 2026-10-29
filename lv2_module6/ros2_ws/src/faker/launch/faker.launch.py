@@ -109,11 +109,13 @@ def generate_launch_description():
         arg('urdf', 'default', '로봇 모델 = lv2_module6/urdf/<이 이름>/urdf.xacro (폴더 하나 = 모델 하나, 메시는 그 폴더 meshes/) — 시뮬레이터 [로봇 모델]이 재시작 인자로 바꿈'),
         arg('use_gz_cameras', 'false', 'true = Gazebo ros_gz_bridge가 카메라 토픽 직접 발행 — fake_camera(파일 브리지) 끔'),
         arg('debug_dir', '/debug', '호스트와 공유하는 폴더 (topic/ · input/ · output/)'),
+        arg('mission_bag', 'false', 'true = 미션 기록 rosbag (bringup — 작은 토픽만, ~/.ros/mission/bag_<시각>)'),
 
         # 진짜 bringup 그대로 (🛠 노드 + ros_system 📦 + 지도 처리) — 대역에 맞는 인자만 덮어씀
         include('bringup', 'bringup.launch.py', {
             'command': LaunchConfiguration('command'),
             'start_pose': LaunchConfiguration('start_pose'),
+            'mission_bag': LaunchConfiguration('mission_bag'),
             'learning_enabled': LaunchConfiguration('learning_enabled'),
             'vlm_endpoint': LaunchConfiguration('vlm_endpoint'),
             'map': LaunchConfiguration('map'),
