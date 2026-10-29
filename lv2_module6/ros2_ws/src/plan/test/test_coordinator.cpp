@@ -115,105 +115,14 @@ TEST(Tray, SlotsAndSpread) {
   EXPECT_EQ(spread_offset(10, 0.08), std::make_pair(0.0, 0.16));
 }
 
-TEST(Tray, CarryGoals) {
-  const auto g = carry_goals({"11", "12"}, "7");  // 퍽 2개를 적재함에 싣고 장소 7로
-  ASSERT_EQ(g.size(), 2u * 3 + 1 + 2u * 2);
-  EXPECT_EQ(g[0].skill, "navigate");
-  EXPECT_EQ(g[1].skill, "pick");
-  EXPECT_EQ(g[1].target, "11");
-  EXPECT_EQ(g[2].skill, "place");
-  EXPECT_EQ(g[2].target, "tray");
-  EXPECT_EQ(g[6].skill, "navigate");
-  EXPECT_EQ(g[6].target, "7");
-  EXPECT_EQ(g[7].target, "tray");   // 꺼내기
-  EXPECT_EQ(g[8].target, "7");      // 장소에 내려놓기
-  for (size_t i = 0; i < g.size(); ++i) EXPECT_EQ(g[i].step, i + 1);
-}
 
-namespace {
-perception::msg::TrackedObject obj(uint32_t id, const std::string & cls, const std::string & color, int tag, double x) {
-  perception::msg::TrackedObject o;
-  o.id = id;
-  o.class_name = cls;
-  o.color = color;
-  o.pose.pose.position.x = x;
-  if (tag >= 0) {
-    diagnostic_msgs::msg::KeyValue kv;
-    kv.key = "tag";
-    kv.value = std::to_string(tag);
-    o.details.push_back(kv);
-  }
-  return o;
-}
-}  // namespace
-
-TEST(Signal, PickCombo) {
-  // MISSION §3: 빨간 퍽(0~3) 중 합 5인 2개 = 2+3 · 답이 여러 개(합 3 = 0+3 · 1+2)면 가까운(cost 작은) 쪽
-  EXPECT_EQ(pick_combo({0, 1, 2, 3}, {1, 1, 1, 1}, 2, 5), (std::vector<size_t>{2, 3}));
-  EXPECT_EQ(pick_combo({0, 1, 2, 3}, {5, 1, 1, 5}, 2, 3), (std::vector<size_t>{1, 2}));
-  EXPECT_TRUE(pick_combo({0, 1, 2, 3}, {1, 1, 1, 1}, 2, 6).empty());  // MISSION §4: 빨강 2개로 6은 불가능
-  EXPECT_EQ(pick_combo({4, 5, 6, 7}, {1, 1, 1, 1}, 4, 22).size(), 4u);
-}
-
-TEST(Signal, MissionPlan) {
-  perception::msg::MissionSignal sig;
-  sig.color = "red";
-  sig.count = 2;
-  sig.sum = 5;
-  sig.dest_tag = 13;
-  TrackedObjectArray objs;
-  objs.objects = {obj(1, "puck", "red", 2, 0.5), obj(2, "puck", "red", -1, 0.6), obj(3, "puck", "green", -1, 0.4),
-                  obj(4, "puck", "", -1, 0.9), obj(9, "location", "", 13, 2.0)};
-  std::set<uint32_t> inspected;
-  // 번호 아는 빨간 퍽이 1개뿐 → 번호 모르는 빨간·색 모름 퍽을 가까운 순으로 inspect (초록은 안 봄)
-  auto r = signal_plan(objs, sig, 0.0, 0.0, inspected, 4);
-  ASSERT_EQ(r.kind, "inspect");
-  EXPECT_EQ(r.inspect_ids, (std::vector<uint32_t>{2, 4}));
-  EXPECT_EQ(r.goals[0].skill, "inspect");
-  // 봤더니 2번 퍽 = 태그 3 → 2+3 = 5 → 옮기기 (목적지 = 장소 태그 13인 물체 9)
-  objs.objects[1] = obj(2, "puck", "red", 3, 0.6);
-  inspected = {2, 4};
-  r = signal_plan(objs, sig, 0.0, 0.0, inspected, 4);
-  ASSERT_EQ(r.kind, "carry") << r.why;
-  EXPECT_EQ(r.carry_tags, (std::vector<int>{2, 3}));
-  EXPECT_EQ(r.goals[1].target, "1");
-  EXPECT_EQ(r.goals[4].target, "2");
-  EXPECT_EQ(r.goals[6].target, "9");
-  // 목적지 태그를 아직 못 봤으면 기다림
-  objs.objects.pop_back();
-  EXPECT_EQ(signal_plan(objs, sig, 0.0, 0.0, inspected, 4).kind, "wait");
-  // 다 봤는데 합을 못 만들면 실패 (say)
-  sig.sum = 6;
-  EXPECT_EQ(signal_plan(objs, sig, 0.0, 0.0, inspected, 4).kind, "fail");
-}
-
-TEST(Signal, VerifyPlan) {
-  // 목적지 = 장소 태그 13인 물체 9 (x 2.0) · 옮긴 번호 2·3 · 반경 0.2
-  TrackedObjectArray objs;
-  objs.objects = {obj(9, "location", "", 13, 2.0), obj(1, "puck", "red", 2, 2.05), obj(2, "puck", "red", -1, 1.9),
-                  obj(5, "puck", "red", -1, 0.5)};
-  // 보러 가기 — 목적지로 navigate · 근처의 번호 모르는 퍽(2)만 inspect (멀리 있는 5는 안 봄)
-  auto r = verify_plan(objs, 13, {2, 3}, 0.2, false);
-  ASSERT_EQ(r.kind, "look");
-  ASSERT_EQ(r.goals.size(), 2u);
-  EXPECT_EQ(r.goals[0].target, "9");
-  EXPECT_EQ(r.goals[1].skill, "inspect");
-  EXPECT_EQ(r.goals[1].target, "2");
-  // 봤더니 2번 = 태그 3 → 다 있음
-  objs.objects[2] = obj(2, "puck", "red", 3, 1.9);
-  EXPECT_EQ(verify_plan(objs, 13, {2, 3}, 0.2, true).kind, "ok");
-  // 태그 3 퍽이 다른 곳(0.5)에 있으면 다시 옮김
-  objs.objects[2] = obj(2, "puck", "red", 3, 0.5);
-  r = verify_plan(objs, 13, {2, 3}, 0.2, true);
-  ASSERT_EQ(r.kind, "recarry") << r.why;
-  EXPECT_EQ(r.missing, (std::vector<int>{3}));
-  EXPECT_EQ(r.goals[1].target, "2");
-  EXPECT_EQ(r.goals.back().target, "9");
-  // 어디에도 안 보이면 missing · 목적지 태그가 안 보이면 wait
-  objs.objects.erase(objs.objects.begin() + 2);
-  EXPECT_EQ(verify_plan(objs, 13, {2, 3}, 0.2, true).kind, "missing");
-  objs.objects.erase(objs.objects.begin());
-  EXPECT_EQ(verify_plan(objs, 13, {2, 3}, 0.2, false).kind, "wait");
+TEST(Coordinator, ParseNumbers) {  // 좌표 대상 — navigate "x,y[,yaw]" · place/inspect "x,y,z"
+  EXPECT_EQ(parse_numbers("1.5,-2"), (std::vector<double>{1.5, -2.0}));
+  EXPECT_EQ(parse_numbers("1,2,3.25"), (std::vector<double>{1.0, 2.0, 3.25}));
+  EXPECT_TRUE(parse_numbers("12").empty());     // 물체 id
+  EXPECT_TRUE(parse_numbers("tray").empty());
+  EXPECT_TRUE(parse_numbers("1,2x").empty());
+  EXPECT_TRUE(parse_numbers("1,,2").empty());
 }
 
 TEST(Coordinator, ApproachPose) {

@@ -7,11 +7,6 @@ vlm_task_planner:
     max_replans: 1           # 명령 하나당 재계획 횟수 (coordinator의 max_step_failures와 짝)
     vlm_endpoint: ""         # 비면 템플릿 고정(기본·CI). 호스트 ai-service면 "http://127.0.0.1:8000" (컨테이너 host망이라 localhost가 호스트)
     vlm_timeout_s: 120.0    # [s] VLM 대기 — 넘기면 템플릿 폴백. ai-service backend human(사람이 웹에서 계획)이면 그쪽 timeout_s(600) 이상으로
-    tray_capacity: 4         # MOVE_TO_B 템플릿이 한 번에 싣는 퍽 수 (coordinator tray_slots 칸 수와 같게)
-    # 수납 확인 — 신호등 미션 옮기기가 끝나면 바로, 그 뒤 이 주기마다 목적지로 가서 옮긴 번호가 그대로 있는지 봄
-    #   (AUTO · 하던 계획이 끝났을 때만). 다른 곳에 있으면 다시 옮기고, 안 보이면 say. 새 명령·신호가 오면 그만
-    verify_period_s: 60.0    # [s] 0이면 주기 확인 끔 (옮긴 직후 한 번은 함)
-    verify_radius_m: 0.20    # [m] 목적지 장소 태그에서 이 안이면 "거기 있음" (place_spacing 0.08 × 퍼짐 + 여유)
 coordinator:
   ros__parameters:
     # 시작 자세 — bringup 직후 한 번 팔을 이 자세로 (MoveIt 없이 JTC 토픽, 3초 궤적).
@@ -38,13 +33,49 @@ coordinator:
     tray_grasp_z: 0.17       # [m] 꺼내기 — 손끝 파지 높이 (적재함 바닥 0.15 + 퍽 60mm의 아래쪽 1/3)
     tray_approach_m: 0.05    # [m] 꺼내기 접근·들어올리기 (0.10이면 0.27로 닿지 않음)
     place_spacing: 0.08      # [m] 같은 곳(B 지역 판)에 여러 개 내려놓을 때 비키는 간격 (MISSION: 퍽 사이 0.08 이상)
+    # 좌표 place "x,y,z" (주사위 칸 — z = 퍽 바닥): 위 place_approach_m → 퍽 바닥 + place_release_dz까지 내려 벌림 → 다시 위
+    place_approach_m: 0.08
+    place_release_dz: 0.04   # [m] 손끝 높이 = 퍽 바닥 위 (퍽 60mm 가운데쯤 쥠 — 실측으로 맞출 것)
+    # approach "x,y,yaw" — 박스 앞 마지막 몇 cm (Nav2는 로봇을 원 0.18로 봐서 못 붙음): 목표 뒤 approach_pre_m에서 돌고 직선 전진
+    approach_speed: 0.05     # [m/s] 직선 전진 최고 속도 (앞 자리로 갈 땐 2배)
+    approach_pre_m: 0.10     # [m] 목표 뒤 이 거리에서 방향을 맞춤 — 박스 바로 앞에선 제자리 회전 안 함 (앞 모서리 반경 0.17)
+    approach_pos_tol: 0.005  # [m] 목표 방향 축으로 이 안이면 도착
+    approach_yaw_tol: 0.03   # [rad]
+    approach_timeout_s: 30.0
     # 팔이 닿게 다가가기 — pick · place <물체 id> 때 대상이 로봇 중심에서 reach_m 넘으면 먼저 approach_m 앞까지 navigate (단계마다 한 번)
     #   바닥 퍽은 팔 회전축(차체 중심 앞 0.05)에서 수평 약 0.08~0.26 — 차체 중심 기준 약 0.13~0.31 (simulator 팔 범위 지도)
     reach_m: 0.30
     approach_m: 0.24         # [m] 다가간 뒤 로봇 중심 ~ 물체 중심 (범퍼 0.18 + 여유 — 팔 범위 가운데쯤)
     # inspect <퍽 id> — 퍽 윗면 16mm AprilTag는 gripper_cam이 위에서 봐야 읽힘 (pole_front_cam은 한 칸 1~2px라 못 읽음)
-    inspect_height_m: 0.15   # [m] 손끝을 퍽 윗면 위 이만큼 (16mm 태그 ≈ 50px — 한 칸 약 6px)
+    inspect_height_m: 0.08   # [m] 손끝을 퍽 윗면 위 이만큼 — Isaac 도달 지도(dice_reach.py): 0.08이면 칸 7/9 보임·16mm 태그 63px, 0.10 넘으면 팔이 못 만듦
     inspect_wait_s: 1.0      # [s] 그 자리에서 기다림 (perception 추론 4Hz × 몇 장)
+
+mission_manager:             # 주사위 기억 미션 (documents/mission/README.md) — 좌표는 경기장(arena) m · 왼쪽 아래 기둥 원점 · +Y 위
+  ros__parameters:
+    # 로봇을 켠 자리의 arena 자세 [x, y, yaw] — 운영 규칙: 출발 관측 위치에서 −X(π)를 보고 켬. 다르면 launch 인자 start_pose:=x,y,yaw
+    start_pose_arena: [0.734, 0.950, 3.14159]
+    start_zone: [0.434, 0.650, 1.034, 1.250]   # 출발 구역 [x0, y0, x1, y1] (복귀 판정·RViz)
+    start_boxes: [1.468, 0.950, 3.670, 3.152, 2.936, 5.354, 0.734, 5.354, 2.202, 5.354, 3.670, 3.886]   # 시작 박스 1~6 중심
+    box_half: 0.1025                         # 205 박스 반 변
+    puck_offsets_x: [-0.040, 0.040]          # 박스 위 퍽 두 개 — 중심 X±40
+    locations: [3.670, 0.950, 2.202, 3.700, 3.670, 5.354]   # L1·L2·L3 격자 중심
+    location_boxes: [3.670, 0.950, 0.1025, 2.202, 3.495, 0.41, 3.670, 5.354, 0.1025]   # 장소가 놓인 박스 [x, y, 반 변] — L2는 중앙 받침대 820
+    box_top_z: 0.070                         # 박스 윗면 = 퍽 바닥
+    puck_height: 0.060
+    grid_step: 0.060                         # 주사위 칸 간격
+    standoff: 0.25                           # [m] Nav2로 박스 변 바깥 이만큼까지 (로봇을 원 0.18로 보므로 더는 못 붙음)
+    approach_gap: 0.085                      # [m] 그다음 approach로 base_footprint ~ 박스 변을 이만큼까지 (로봇 앞면 0.069 → 1.6 cm)
+                                             #   Isaac 도달 지도(dice_reach.py): 0.08이면 3×3 칸 9개 다 닿음 · 0.10이면 먼 줄 양끝 못 닿음
+    approach_tries: 3                        # 접근 자리 실패 시 다른 변으로 몇 번까지
+    match_radius: 0.04                       # [m] 조사 때 퍽 자리와 트랙을 짝짓는 거리
+    verify_radius: 0.15                      # [m] 재검증 때 장소 중심에서 이 안의 퍽만
+    # 바코드 보는 자세 (출발 구역 안) — 관측 자리(−X)에선 바코드(80, 650, 450)가 화면 위·왼쪽 끝에 걸림 (시뮬레이터 렌더 확인).
+    #   조금 뒤로 물러나 바코드 쪽으로 돌면 화면 안. 실물 카메라 시야로 다시 정할 것
+    barcode_pose_arena: [0.950, 0.800, 3.3126]
+    barcode_timeout_s: 20.0                  # [s] 이번에 본 바코드가 없으면 오류
+    signal_timeout_s: 90.0                   # [s] READ 시작부터 신호 DONE까지 (12회 미만이면 오류)
+    home_hold_s: 3.0                         # [s] 출발 구역에서 정지 (발제: 3초)
+    log_dir: "~/.ros/mission"                # 회차별 signal.json · allocation.json · verify.json
 
 explorer:                    # 자동 탐사 — /state/operation_mode EXPLORE일 때 /map 프론티어로 Nav2 목표
   ros__parameters:
