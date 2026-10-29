@@ -20,6 +20,8 @@
 //     출력: ✉️ /state/map_mode (std_msgs/String "MAPPING" | "LOCALIZATION" | "COURSE", transient_local) — RTAB-Map 응답이 온 뒤에만 바꿈
 //           COURSE = RTAB-Map 없이 정지 지도(테스트베드 코스 지도) — 바꿀 수 없음
 //     파라미터 map_dir: 지도 폴더들이 있는 곳 (테스트베드 /ws/map — faker가 넘김, 비면 /cmd/map_name 거부)
+//     파라미터 slam · map_file (bringup): slam:=cuvslam_nvblox면 지도 목록은 nvblox.nvblx 기준, 실행 중 모드·지도 전환은 거절
+//       (RTAB-Map 서비스가 없음 — 다시 띄울 때 map:=slam · saved로)
 //     시작 값: 파라미터 map_mode (launch가 RTAB-Map을 띄운 모드 그대로 — 실기 LOCALIZATION · faker map:=slam → MAPPING)
 //     출력: ✉️ /state/map_list (std_msgs/String, transient_local) — 가진 지도 폴더 이름들 (줄바꿈 구분, <map_dir>/<이름>/rtabmap.db 있는 것)
 //           2초마다 확인 · 바뀔 때만 발행 → 시뮬레이터 지도 목록 (실기에 붙여도 로봇에 있는 지도를 보여 줌)
@@ -95,6 +97,7 @@ private:
   bool recent(const std::string & key) const;
 
   std::string operation_ = "AUTO", map_mode_, map_name_, map_dir_, map_list_, map_pending_, map_error_, explore_note_;
+  std::string slam_, map_file_;  // 어느 SLAM인지 (rtabmap만 실행 중 지도 모드·지도 전환) · 지도 폴더 안 파일 이름
   std::string restart_prepare_, restart_log_, restart_marker_, restart_registry_, restart_note_, restartable_;
   bool restartable_published_ = false;
   // 연결된 장치·토픽 상태 (/state/devices · /state/topics)

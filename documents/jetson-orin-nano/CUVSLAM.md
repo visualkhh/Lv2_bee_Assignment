@@ -1,21 +1,51 @@
-# cuVSLAM (NVIDIA 시각 SLAM) — 설치·실행·시험 기록
+# cuVSLAM + nvblox (NVIDIA GPU SLAM) — 설치·실행·시험 기록
 
-브랜치 `feature/cuvslam`. RTAB-Map 대신(또는 함께) NVIDIA cuVSLAM을 쓰는 시험 옵션이다.
-**기본 동작은 그대로** (`slam:=rtabmap`, `cuvslam_odom:=false`) — 인자를 주지 않으면 지금까지와 같다.
+브랜치 `feature/cuvslam`. SLAM을 **실행할 때 둘 중 하나로 고른다** — `slam:=rtabmap`(기본) | `slam:=cuvslam_nvblox`.
+**기본 동작은 그대로** — 인자를 주지 않으면 지금까지와 같다 (RTAB-Map).
 
-- 노드: [`ros_system/scripts/cuvslam_slam.py`](../../lv2_module6/ros2_ws/src/ros_system/scripts/cuvslam_slam.py)
+- 노드: [`ros_system/scripts/cuvslam_slam.py`](../../lv2_module6/ros2_ws/src/ros_system/scripts/cuvslam_slam.py) (위치) ·
+  [`nvblox_map.py`](../../lv2_module6/ros2_ws/src/ros_system/scripts/nvblox_map.py) (nvblox 격자 → /map) ·
+  [`scan_cam_gate.py`](../../lv2_module6/ros2_ws/src/ros_system/scripts/scan_cam_gate.py) (nvblox depth에서 자기 몸 빼기)
+- nvblox 설정: [`ros_system/config/nvblox.yaml`](../../lv2_module6/ros2_ws/src/ros_system/config/nvblox.yaml)
+- 구조 검사: [`ros_system/test/test_slam_launch.py`](../../lv2_module6/ros2_ws/src/ros_system/test/test_slam_launch.py) — 두 모드가 맞는 노드로 펼쳐지는지 (test-all)
 - launch 인자: [`ros_system.launch.py`](../../lv2_module6/ros2_ws/src/ros_system/launch/ros_system.launch.py) · [`bringup.launch.py`](../../lv2_module6/ros2_ws/src/bringup/launch/bringup.launch.py)
 - EKF 입력: [`ros_system/config/ekf.yaml`](../../lv2_module6/ros2_ws/src/ros_system/config/ekf.yaml) `odom1`
 
-## 1. 방식 3가지 (launch 인자만 바꿈)
+## 1. 방식 (launch 인자만 바꿈)
 
-| 방식 | 실행 인자 | map→odom | /map 격자 | 용도 |
-|---|---|---|---|---|
-| RTAB-Map만 (기본) | `map:=slam` | RTAB-Map | O | 지금까지와 같음 |
-| **RTAB-Map + cuVSLAM 오도메트리 (권장안)** | `map:=slam cuvslam_odom:=true gripper_cam_pointcloud:=true` | RTAB-Map | O | cuVSLAM 속도를 EKF에 합쳐 바퀴 미끄러짐 보정. 지도·저장·위치추정·Nav2·explorer는 RTAB-Map 그대로 |
-| cuVSLAM 단독 SLAM 시험 | `map:=slam slam:=cuvslam use_nav2:=false` | cuVSLAM | **X** | 위치 정확도·루프 클로저만 비교 (격자 없음 → Nav2 끔) |
+| 방식 | 실행 인자 | map→odom | /map | 지도 파일 | 용도 |
+|---|---|---|---|---|---|
+| RTAB-Map (기본) | `map:=slam` | RTAB-Map | RTAB-Map 격자 | `rtabmap.db` | 지금까지와 같음 (CPU) |
+| RTAB-Map + cuVSLAM 오도메트리 | `map:=slam cuvslam_odom:=true gripper_cam_pointcloud:=true` | RTAB-Map | RTAB-Map 격자 | `rtabmap.db` | cuVSLAM 속도를 EKF에 합쳐 바퀴 미끄러짐 보정 |
+| **cuVSLAM + nvblox** | `map:=slam slam:=cuvslam_nvblox` | **cuVSLAM** | **nvblox 격자** | `nvblox.nvblx` | RTAB-Map 없이 GPU로 위치·지도 |
+
+위쪽(Nav2 · explorer · state_manager · mission_manager · 시뮬레이터)은 **어느 쪽이든 같은 것만 받는다** — 그래서 위쪽 코드는 그대로:
+
+| 계약 | RTAB-Map | cuVSLAM + nvblox |
+|---|---|---|
+| `map→odom` TF | rtabmap | cuvslam_slam (루프 클로저 · 평면 제약) |
+| `/map` (OccupancyGrid, latched) | rtabmap `/map` | nvblox `~/static_occupancy_grid` → **nvblox_map**이 latched로 다시 냄 (1 Hz) |
+| 지도 원점 | 출발 자리 base_footprint | 같음 |
+| 지도 폴더 `<map_dir>/<이름>/` | `rtabmap.db` | `nvblox.nvblx` (매핑: 끌 때 자동 저장 · 위치추정: 시작할 때 불러옴) |
+| `/odometry/filtered` (EKF) | 바퀴 + IMU (+ cuvslam_odom이면 시각) | 바퀴 + IMU + 시각 (`/cuvslam/odom` 늘 켬) |
 
 ```text
+[cuvslam_nvblox]
+pole_front_cam 컬러 + 정렬 depth ─▶ cuvslam_slam ─▶ map→odom · /cuvslam/odom ─▶ EKF(odom→base_footprint)
+pole_front_cam 정렬 depth ─▶ pole_depth_gate (0.5 m 안 = 자기 팔 → 0) ─┐
+gripper_cam 정렬 depth ─▶ gripper_depth_gate (스캔 자세일 때만 · 0.5 m 안 → 0) ─┴▶ nvblox_node ─▶ ~/static_occupancy_grid
+                                                                                       └─▶ nvblox_map ─▶ /map (latched)
+```
+
+- **자기 몸 빼기**: RTAB-Map은 몸을 뺀 점구름(body_filter)으로 격자를 만들지만, nvblox는 depth 영상을 받는다. 그래서 depth에서 카메라 0.5 m 안 픽셀을 0(측정 없음)으로 바꿔서 넘긴다. `scan_cam_gate`의 `depth_min_range` 옵션이 이 일을 한다.
+  - 0.5 m 안의 실제 장애물은 nvblox 지도에 안 들어간다. 대신 Nav2 local costmap(몸 뺀 점구름)이 피한다.
+- **실행 중 지도 모드·지도 전환**(`/cmd/map_mode` · `/cmd/map_name`)은 RTAB-Map만 된다. cuvslam_nvblox에서는 state_manager가 이유를 붙여 거절한다. 다시 띄울 때 `map:=slam` · `map:=saved map_name:=…`로 고른다.
+- **저장 지도로 위치추정(`map:=saved`)**: nvblox 지도를 불러오고, cuVSLAM은 원점부터 새로 시작한다. 그래서 **출발 자리·방향이 저장할 때와 같아야** 맞는다 (운영 규칙과 같음).
+  - cuVSLAM 자체 지도 저장·재위치추정은 아직 없다 (7절).
+- 필요한 것(cuVSLAM · nvblox)이 설치돼 있지 않으면 시작할 때 무엇이 없는지 알리고 멈춘다 (`check_slam`). 그때는 `slam:=rtabmap`으로 띄운다.
+
+```text
+[rtabmap + cuvslam_odom]
 pole_front_cam 컬러 + 정렬 depth ─▶ cuvslam_slam ─▶ /cuvslam/odom (base_footprint 속도 vx·vy·vyaw)
 바퀴 /odom + /imu + /cuvslam/odom ─▶ EKF ─▶ odom→base_footprint
 두 카메라 점구름 ─▶ RTAB-Map ─▶ /map · map→odom · rtabmap.db
@@ -24,7 +54,7 @@ pole_front_cam 컬러 + 정렬 depth ─▶ cuvslam_slam ─▶ /cuvslam/odom (b
 - cuVSLAM은 **RGBD 모드** (D435는 IMU가 없어 VIO 불가). 입력은 RTAB-Map과 같은 pole_front_cam 컬러·정렬 depth라 카메라 설정은 안 바꿈.
 - 카메라에서 0.5 m 안 픽셀(화면 가운데 자기 팔)은 마스크로 추적에서 뺌 — RTAB-Map `Vis/MinDepth`와 같은 이유.
 - EKF에는 **위치가 아니라 속도**만 넣음 — cuVSLAM 좌표는 추적을 잃으면 새로 시작해 위치를 그대로 넣으면 튐. yaw는 IMU만(기존과 같음).
-- `map→odom`은 한 곳(RTAB-Map)에서만 낸다. 둘 다 내면 TF가 충돌한다.
+- `map→odom`은 한 곳에서만 낸다 (rtabmap이면 RTAB-Map, cuvslam_nvblox면 cuVSLAM). 둘 다 내면 TF가 충돌한다 — launch가 slam:= 하나로 고르므로 겹치지 않는다.
 - `/cuvslam/odom`이 없으면 EKF는 예전처럼 바퀴·IMU만 쓴다.
 
 ## 2. 설치 (Jetson Orin Nano · JetPack 7 / L4T R39 · Ubuntu 24.04 · Python 3.12 · CUDA 13)
@@ -59,6 +89,27 @@ python3 -c "import cuvslam; print(cuvslam.get_version()); cuvslam.warm_up_gpu();
 # → ('17.0.1+51631ba', 17, 0, 1) / gpu ok
 ```
 
+### 2-1. nvblox (Jetson — 아직 설치 전)
+
+**NVIDIA Isaac ROS 5.0 apt 저장소의 Lyrical nvblox는 x86(amd64)용만 있다** (2026-10-29 확인).
+- 확인한 저장소: `isaac.download.nvidia.com/isaac-ros/release-5.0`
+- amd64: `ros-lyrical-isaac-ros-nvblox` · `nvblox-ros` · `nvblox-nav2` … 있음
+- arm64: 파이썬 패키지 60개뿐
+
+그래서 Jetson에서는 둘 중 하나로 올린다. **먼저 반나절 안에 어느 쪽이 되는지 확인한다.**
+
+| 방법 | 내용 | 확인할 것 |
+|---|---|---|
+| (a) 소스 빌드 | `isaac_ros_nvblox`(nvblox 코어 포함)와 의존 패키지를 Lyrical 워크스페이스에서 colcon 빌드. CUDA 아키텍처 87 (Orin) | 의존: `nvblox_msgs` · `nvblox_ros_common` · `nvblox_ros_python_utils` · `nvblox_rviz_plugin` · `isaac_ros_common` · `cuda_buffer` (deb Depends 기준). 빌드 시간·메모리 (스왑 없음 → jobs 줄이기) |
+| (b) Isaac ROS 컨테이너 | NVIDIA 공식 컨테이너에서 nvblox만 띄우고 나머지는 지금 Lyrical 스택 | 컨테이너가 JetPack 7 + Orin을 지원하는지 · 배포판이 달라도 `nvblox_msgs`·`OccupancyGrid`·TF가 오가는지 |
+
+설치 확인:
+
+```bash
+ros2 pkg prefix nvblox_ros && ros2 pkg executables nvblox_ros | grep nvblox_node
+python3 -c "import cuvslam; print(cuvslam.get_version())"
+```
+
 ## 3. 실행
 
 ```bash
@@ -82,6 +133,28 @@ export POLE_FRONT_CAM_SERIAL=261822074109 GRIPPER_CAM_SERIAL=261622075828
 ```
 
 `추적`이 늘지 않으면 카메라 영상이 안 오는 것 — 아래 4절 "카메라·RTAB-Map이 멈춤" 참고.
+
+### 3-1. cuVSLAM + nvblox 실기 시험 순서 (정지 상태부터)
+
+```bash
+./start.sh map:=slam map_name:=nvblox_test slam:=cuvslam_nvblox gripper_cam_pointcloud:=false use_moveit:=false
+```
+
+| 단계 | 확인 명령 | 정상 |
+|---|---|---|
+| 1. 노드 | `ros2 node list \| grep -E "cuvslam\|nvblox\|depth_gate"` | cuvslam_slam · nvblox_node · nvblox_map · pole_depth_gate · gripper_depth_gate |
+| 2. cuVSLAM 추적 | cuvslam_slam 로그 | `시작 (단독 SLAM)` · `추적 N · 잃음 0`이 10초마다 늘어남 |
+| 3. TF | `ros2 run tf2_ros tf2_echo map base_footprint` | 정지 상태에서 값이 흔들리지 않음 (1 cm · 1° 안) |
+| 4. depth 마스크 | `ros2 topic hz /pole_front_cam/aligned_depth_to_color/image_nvblox` | 카메라와 같은 15 Hz. RViz에서 화면 가운데 팔 부분이 검게(0) |
+| 5. nvblox 격자 | `ros2 topic hz /nvblox_node/static_occupancy_grid` | 1~5 Hz. **안 나오면 nvblox 쪽 이름·설정부터 확인** |
+| 6. /map | `ros2 topic echo /map --once --field info` · nvblox_map 로그 | 해상도 0.05 · `격자 받음 N · /map 냄 N` |
+| 7. Nav2 | `ros2 lifecycle get /planner_server` · RViz global costmap | active · 주변 벽이 costmap에 보임 |
+| 8. 부하 | `tegrastats` | GPU·RAM 기록 (RTAB-Map 모드와 비교) |
+| 9. 손으로 밀기 | 로봇을 손으로 20~30 cm 밀었다 되돌림 | TF가 따라가고, 되돌린 뒤 처음 자리로 돌아옴 |
+| 10. 저장 | Ctrl+C 한 번 → `ls ~/.ros/beebot_maps/nvblox_test/` | `nvblox.nvblx` 생김 |
+| 11. 불러오기 | 같은 자리에서 `./start.sh map:=saved map_name:=nvblox_test slam:=cuvslam_nvblox …` | nvblox_map 로그 `지도 불러오기 … 성공` · 처음부터 /map이 그려져 있음 |
+
+주행 시험(Nav2 목표)은 로봇 주변이 비어 있고 사람이 지켜볼 때 따로 한다.
 
 ## 4. 원격 PC에서 보기 · 주의
 
@@ -145,4 +218,7 @@ export FASTDDS_DEFAULT_PROFILES_FILE=~/fastdds_pc_unicast.xml
 1. `Grid/RangeMax 2.5`로 미로 지도 재시험 → 좋아지면 `rtabmap_args` 기본값에 반영.
 2. 같은 코스를 `cuvslam_odom:=false` / `true`로 각각 돌려 출발점 복귀 오차·지도 틀어진 각도 비교 (포트폴리오 근거).
 3. EKF 기동 직후 튐 원인 (바퀴 엔코더 첫 값·`/odom` 첫 메시지 의심).
-4. cuVSLAM 단독 모드에 지도 저장·재위치추정(`save_map`/`localize_in_map`)은 아직 없음 — 단독 모드를 운영에 쓸 때만.
+4. cuVSLAM 지도 저장·재위치추정(`save_map`/`localize_in_map`) — 지금 `map:=saved`는 nvblox 지도만 불러오고 cuVSLAM은 원점에서 새로 시작 (출발 자리 고정 전제).
+5. nvblox를 Jetson에 올리기 (2-1절) → 3-1절 실기 시험 → RTAB-Map 모드와 같은 코스에서 지도·위치·부하 비교.
+6. (선택) Nav2 costmap에 nvblox ESDF 층(`nvblox::nav2::NvbloxCostmapLayer`, `/nvblox_node/static_map_slice`) — 지금은 /map 격자만 씀 (위쪽 설정을 안 바꾸려고).
+7. cuVSLAM 루프 클로저로 map→odom이 크게 튀면 nvblox에 이미 쌓인 복셀은 안 옮겨짐 — 튐이 크면 nvblox `global_frame: odom`으로 바꾸고 격자만 map으로 옮기는 방식 검토.

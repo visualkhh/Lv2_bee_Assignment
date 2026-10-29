@@ -3,7 +3,7 @@
 
   slam:=rtabmap cuvslam_odom:=true (권장) — 시각 오도메트리만: /cuvslam/odom(속도) → EKF가 바퀴·IMU와 합침 → RTAB-Map은 그대로
                                             (지도 · 저장 · 위치추정 · Nav2 · explorer 전부 RTAB-Map 기준 그대로)
-  slam:=cuvslam                            — 단독 SLAM 시험: 루프 클로저 켜고 TF map→odom · /cuvslam/path (/map 격자 없음)
+  slam:=cuvslam_nvblox                     — SLAM: 루프 클로저 켜고 TF map→odom · /cuvslam/path (/map 격자는 nvblox → nvblox_map)
   두 방식 모두 /cuvslam/odom을 냄 (EKF는 이 토픽이 없으면 그냥 바퀴·IMU만 씀)
 
   입력: pole_front_cam 컬러 + 정렬 depth + camera_info (RGBD 모드 — D435는 IMU가 없어 VIO 불가)

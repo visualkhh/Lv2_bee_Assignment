@@ -43,6 +43,8 @@ StateManager::StateManager(const rclcpp::NodeOptions & options)
   map_mode_ = declare_parameter<std::string>("map_mode", "LOCALIZATION");
   map_name_ = declare_parameter<std::string>("map_name", "");
   map_dir_ = declare_parameter<std::string>("map_dir", "");
+  slam_ = declare_parameter<std::string>("slam", "rtabmap");
+  map_file_ = declare_parameter<std::string>("map_file", "rtabmap.db");
   restart_prepare_ = declare_parameter<std::string>("restart_prepare", "");
   restart_log_ = declare_parameter<std::string>("restart_log", "/tmp/bringup.log");
   restart_marker_ = declare_parameter<std::string>("restart_marker", "/tmp/beebot_restart.pending");
@@ -193,6 +195,8 @@ void StateManager::request_map_mode(const std::string & mode) {
     map_error_ = "모르는 값 '" + mode + "' (MAPPING | LOCALIZATION)";
   } else if (map_mode_ == "COURSE") {
     map_error_ = "COURSE(정지 지도)는 바꿀 수 없음 — faker map:=slam · saved 로 RTAB-Map을 띄울 것";
+  } else if (slam_ != "rtabmap") {
+    map_error_ = "slam:=" + slam_ + "은 실행 중 전환 없음 — 다시 띄울 때 map:=slam(매핑) · saved(위치추정)로";
   } else if (!map_pending_.empty()) {
     map_error_ = map_pending_ + " 전환 중";
   } else if (mode != map_mode_) {
@@ -218,12 +222,12 @@ void StateManager::request_map_mode(const std::string & mode) {
 }
 
 void StateManager::publish_map_list() {
-  // 가진 지도 = map_dir 안에서 rtabmap.db가 있는 폴더 (이름순, 줄바꿈으로 구분) — 바뀔 때만 발행
+  // 가진 지도 = map_dir 안에서 map_file(SLAM마다 — rtabmap.db · nvblox.nvblx)이 있는 폴더 (이름순, 줄바꿈으로 구분) — 바뀔 때만 발행
   std::vector<std::string> names;
   std::error_code ec;
   if (!map_dir_.empty()) {
     for (const auto & e : std::filesystem::directory_iterator(map_dir_, ec)) {
-      if (e.is_directory(ec) && std::filesystem::exists(e.path() / "rtabmap.db", ec)) names.push_back(e.path().filename().string());
+      if (e.is_directory(ec) && std::filesystem::exists(e.path() / map_file_, ec)) names.push_back(e.path().filename().string());
     }
   }
   std::sort(names.begin(), names.end());
@@ -240,6 +244,8 @@ void StateManager::request_map_name(const std::string & name) {
   const auto db = std::filesystem::path(map_dir_) / name / "rtabmap.db";
   if (map_dir_.empty()) {
     map_error_ = "map_dir 파라미터 없음 — 지도 폴더를 모름";
+  } else if (slam_ != "rtabmap") {
+    map_error_ = "slam:=" + slam_ + "은 실행 중 지도 갈아끼우기 없음 — 다시 띄울 때 map:=saved map_name:=" + name;
   } else if (map_mode_ == "COURSE") {
     map_error_ = "COURSE(정지 지도)에선 지도를 갈아끼울 수 없음 — faker map:=slam · saved";
   } else if (!map_pending_.empty()) {

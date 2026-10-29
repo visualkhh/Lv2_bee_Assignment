@@ -6,25 +6,31 @@
 
   ros2 launch ros_system ros_system.launch.py mock_hardware:=true   # 실기 없이 controller_manager (명령 → 상태 되돌림)
   ros2 launch ros_system ros_system.launch.py cuvslam_odom:=true    # cuVSLAM 시각 오도메트리 → EKF (documents/jetson-orin-nano/CUVSLAM.md)
+  ros2 launch ros_system ros_system.launch.py slam:=cuvslam_nvblox  # RTAB-Map 대신 cuVSLAM(위치) + nvblox(지도) — Jetson GPU
 
 기본으로 켜는 것: robot_state_publisher(URDF) + ros2_control(controller_manager + 컨트롤러),
-                  RealSense ×2(pole_front_cam·gripper_cam), robot_localization EKF, RTAB-Map(위치추정 모드)
+                  RealSense ×2(pole_front_cam·gripper_cam), robot_localization EKF, SLAM(위치추정 모드)
+  - SLAM은 slam:= 로 둘 중 하나 (위쪽 노드는 어느 쪽이든 같은 것만 받음 — map→odom TF · /map(latched) · 지도 원점 = 출발 자리):
+      rtabmap         RTAB-Map — 두 카메라 RGB-D + 몸 뺀 점구름 → map→odom · /map · rtabmap.db   (CPU, 기본)
+      cuvslam_nvblox  cuVSLAM(scripts/cuvslam_slam.py) → map→odom · /cuvslam/odom(EKF)
+                      + nvblox(depth → 3D TSDF → 2D 점유 격자) → scripts/nvblox_map.py가 /map(latched)으로 · nvblox.nvblx  (GPU)
   - Nav2 (use_nav2:=true, config/nav2_params.yaml): 서버를 직접 띄운다 — nav2_bringup navigation_launch는
           velocity_smoother 입력을 /cmd_vel_nav로 고정해 rl_nav_correction·twist_mux를 건너뛰므로 안 씀.
           속도 체인: controller·behavior → /cmd_vel_nav → rl_nav_correction → /cmd_vel_corrected → twist_mux
                      → /cmd_vel_mux → velocity_smoother → /cmd_vel_smoothed → collision_monitor → /cmd_vel
-          map→odom·/map은 RTAB-Map (faker는 map_server + 항등 TF)
+          map→odom·/map은 SLAM (faker는 map_server + fake_localizer)
 TODO(권형중) 아직 자리만 있는 것 — 설정 패키지가 필요:
   - move_group (+ MTC capability): config/moveit 으로 해소 (use_moveit:=true) — pick_ik·octomap 센서(pole_front_cam 점구름)는 아직
 테스트베드에서는 faker가 이 패키지들 대신 같은 토픽·액션을 낸다 (ros2 launch faker faker.launch.py).
 """
 
+import importlib.util
 import os
 
 import yaml
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription, RegisterEventHandler
+from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription, OpaqueFunction, RegisterEventHandler
 from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -173,11 +179,12 @@ def generate_launch_description():
         flag('pole_front_cam_pointcloud', 'true', 'pole_front_cam PointCloud2 발행 (body_filter/Nav2용)'),
         flag('gripper_cam_pointcloud', 'false', 'gripper_cam PointCloud2 발행 (grasp_scorer용, 필요할 때만 true)'),
         flag('use_ekf', 'true', 'robot_localization EKF'),
-        flag('use_rtabmap', 'true', 'RTAB-Map'),
-        flag('slam', 'rtabmap', 'rtabmap | cuvslam (cuVSLAM 단독 시험: map→odom만, /map 격자 없음 — use_nav2:=false로)'),
-        flag('cuvslam_odom', 'false', 'true면 cuVSLAM 시각 오도메트리(/cuvslam/odom)를 EKF에 — slam:=rtabmap과 함께 (지도는 RTAB-Map)'),
-        flag('localization', 'true', 'true=위치추정 모드(운영, rtabmap_db 지도로), false=매핑 모드(rtabmap_db를 새로 만듦)'),
+        flag('use_rtabmap', 'true', 'SLAM 켬 (이름은 예전 그대로 — 어느 SLAM인지는 slam:=). false면 map→odom·/map 없음'),
+        flag('slam', 'rtabmap', 'rtabmap | cuvslam_nvblox — 위 모듈 설명 (cuvslam_nvblox는 Jetson GPU + cuVSLAM·nvblox 설치 필요)'),
+        flag('cuvslam_odom', 'false', 'true면 cuVSLAM 시각 오도메트리(/cuvslam/odom)를 EKF에 — slam:=rtabmap과 함께 (cuvslam_nvblox는 늘 켬)'),
+        flag('localization', 'true', 'true=위치추정 모드(운영, 저장 지도로), false=매핑 모드(지도를 새로 만듦)'),
         flag('rtabmap_db', '~/.ros/rtabmap.db', 'RTAB-Map 지도 DB — 매핑이 여기에 쓰고 위치추정이 여기서 읽음 (테스트베드: /ws/map/<이름>/rtabmap.db)'),
+        flag('nvblox_map', '~/.ros/nvblox.nvblx', 'nvblox 지도 파일 — 매핑이면 끌 때 여기에 저장, 위치추정이면 시작할 때 여기서 불러옴'),
         flag('use_nav2', 'true', '진짜 Nav2 서버 (planner · controller · behavior · bt_navigator · velocity_smoother · collision_monitor)'),
         flag('nav2_params_file', share('config', 'nav2_params.yaml'), 'Nav2 파라미터 파일'),
         flag('use_moveit', 'false', 'true면 진짜 move_group (config/moveit) — spawner 완료 후 기동 (동시 기동 레이스 회피)'),
@@ -226,6 +233,7 @@ def generate_launch_description():
         # rtabmap_launch는 카메라 두 대 인자가 없어 노드를 직접 띄움 — 파라미터·리매핑은 rtabmap_launch와 같게 (이름공간 rtabmap · 노드 rtabmap:
         #   state_manager가 /rtabmap/rtabmap/set_mode_* · load_database를 부름)
         *rtabmap_nodes(),
+        *cuvslam_nvblox_nodes(),
 
         *nav2_nodes(),
     ])
@@ -295,13 +303,6 @@ def rtabmap_nodes():
                     parameters=[{'approx_sync': True, 'topic_queue_size': 10, 'sync_queue_size': 10, **qos}],
                     remappings=[('rgb/image', rgb), ('depth/image', depth), ('rgb/camera_info', info), ('rgbd_image', out)])
     return [
-        # cuVSLAM (scripts/cuvslam_slam.py): slam:=cuvslam이면 단독 SLAM(map→odom), cuvslam_odom:=true면 시각 오도메트리만 → EKF
-        Node(package='ros_system', executable='cuvslam_slam', name='cuvslam_slam', output='screen',
-             condition=IfCondition(PythonExpression(["'", LaunchConfiguration('use_rtabmap'), "'.lower() == 'true' and ('",
-                                                     LaunchConfiguration('slam'), "' == 'cuvslam' or '",
-                                                     LaunchConfiguration('cuvslam_odom'), "'.lower() == 'true')"])),
-             parameters=[{'publish_map_tf': ParameterValue(PythonExpression(["'", LaunchConfiguration('slam'), "' == 'cuvslam'"]),
-                                                           value_type=bool)}]),
         Node(package='ros_system', executable='scan_cam_gate', name='scan_cam_gate', output='screen', condition=on,
              parameters=[share('config', 'scan_pose.yaml'),
                          {'depth_in': '/gripper_cam/aligned_depth_to_color/image_raw',
@@ -347,4 +348,70 @@ def rtabmap_nodes():
                          ('odom', '/odometry/filtered'), ('map', '/map'),  # 기본은 이름공간 안 /rtabmap/map — Nav2 · 시뮬레이터는 /map
                          # 초기 위치: 표준 /initialpose로 (RViz '2D Pose Estimate' · 시뮬레이터 지도 우클릭 '초기 위치 지정')
                          ('initialpose', '/initialpose')]),
+    ]
+
+
+SLAMS = ('rtabmap', 'cuvslam_nvblox')
+
+
+def check_slam(context):
+    """slam:= 값 확인 + cuvslam_nvblox면 설치 확인 — 없는 걸 띄우다 노드가 하나씩 죽는 대신 시작할 때 한 번에 알림"""
+    slam = LaunchConfiguration('slam').perform(context)
+    if slam not in SLAMS:
+        raise RuntimeError(f'slam:={slam} — {" | ".join(SLAMS)}')
+    if slam != 'cuvslam_nvblox' or LaunchConfiguration('use_rtabmap').perform(context).lower() != 'true':
+        return []
+    missing = [] if importlib.util.find_spec('cuvslam') else ['cuvslam (PyCuVSLAM — documents/jetson-orin-nano/CUVSLAM.md)']
+    try:
+        get_package_share_directory('nvblox_ros')
+    except Exception:  # noqa: BLE001 — PackageNotFoundError
+        missing.append('nvblox_ros (isaac_ros_nvblox — documents/jetson-orin-nano/CUVSLAM.md "nvblox")')
+    if missing:
+        raise RuntimeError('slam:=cuvslam_nvblox에 필요한 것이 없음: ' + ', '.join(missing) + ' — 지금은 slam:=rtabmap으로')
+    return []
+
+
+def cuvslam_nvblox_nodes():
+    """cuVSLAM(위치) + nvblox(지도) — slam:=cuvslam_nvblox (설명은 모듈 머리말). cuVSLAM 시각 오도메트리만(cuvslam_odom:=true,
+    slam:=rtabmap과 함께)도 여기서 띄움. 지도 계약은 RTAB-Map과 같게: map→odom TF(cuVSLAM) · /map latched(nvblox_map) · 원점 = 출발 자리
+      cuvslam_slam   pole_front_cam RGB-D → map→odom (루프 클로저) + /cuvslam/odom (EKF odom1)
+      depth gate ×2  scan_cam_gate 재사용 — nvblox에 줄 depth에서 카메라 0.5 m 안(자기 팔·손가락·폴대)을 0(측정 없음)으로.
+                     pole_front_cam은 늘, gripper_cam은 팔이 스캔 자세일 때만 (아니면 전부 0 — RTAB-Map 때와 같은 규칙).
+                     RTAB-Map은 몸 뺀 점구름(body_filter)으로 격자를 만들지만 nvblox는 depth 영상을 받으므로 영상에서 뺌
+      nvblox_node    depth 2대 + TF(map→카메라) → TSDF → 2D 점유 격자 (config/nvblox.yaml). 매핑이면 끌 때 nvblox_map 파일에 저장
+      nvblox_map     ~/static_occupancy_grid → /map (latched, 1 Hz) · 위치추정이면 시작할 때 저장 지도를 load_map"""
+    slam_on = ["'", LaunchConfiguration('use_rtabmap'), "'.lower() == 'true' and '", LaunchConfiguration('slam'), "' == 'cuvslam_nvblox'"]
+    on = IfCondition(PythonExpression(slam_on))
+    loc = ["'", LaunchConfiguration('localization'), "'.lower() == 'true'"]
+    nvblox_file = ["__import__('os').path.expanduser('", LaunchConfiguration('nvblox_map'), "')"]
+    save_path = PythonExpression(["'' if ", *loc, " else ", *nvblox_file])  # 매핑일 때만 저장 (위치추정이면 불러온 지도를 안 덮어씀)
+    load_path = PythonExpression([*nvblox_file, " if ", *loc, " else ''"])
+
+    def gate(name, cam, by_pose):
+        return Node(package='ros_system', executable='scan_cam_gate', name=name, output='screen', condition=on,
+                    parameters=[share('config', 'scan_pose.yaml'),
+                                {'gate_by_pose': by_pose, 'depth_min_range': 0.5, 'cloud_in': '',
+                                 'depth_in': f'/{cam}/aligned_depth_to_color/image_raw',
+                                 'depth_out': f'/{cam}/aligned_depth_to_color/image_nvblox'}])
+
+    def camera_remaps(i, cam):
+        return [(f'camera_{i}/depth/image', f'/{cam}/aligned_depth_to_color/image_nvblox'),
+                (f'camera_{i}/depth/camera_info', f'/{cam}/aligned_depth_to_color/camera_info'),
+                (f'camera_{i}/color/image', f'/{cam}/color/image_raw'),
+                (f'camera_{i}/color/camera_info', f'/{cam}/color/camera_info')]
+    return [
+        OpaqueFunction(function=check_slam),
+        Node(package='ros_system', executable='cuvslam_slam', name='cuvslam_slam', output='screen',
+             condition=IfCondition(PythonExpression(['(', *slam_on, ") or ('", LaunchConfiguration('use_rtabmap'),
+                                                     "'.lower() == 'true' and '", LaunchConfiguration('cuvslam_odom'), "'.lower() == 'true')"])),
+             parameters=[{'publish_map_tf': ParameterValue(PythonExpression(["'", LaunchConfiguration('slam'), "' == 'cuvslam_nvblox'"]),
+                                                           value_type=bool)}]),
+        gate('pole_depth_gate', 'pole_front_cam', False),
+        gate('gripper_depth_gate', 'gripper_cam', True),
+        Node(package='nvblox_ros', executable='nvblox_node', name='nvblox_node', output='screen', condition=on,
+             parameters=[share('config', 'nvblox.yaml'),
+                         {'after_shutdown_map_save_path': ParameterValue(save_path, value_type=str)}],
+             remappings=camera_remaps(0, 'pole_front_cam') + camera_remaps(1, 'gripper_cam')),
+        Node(package='ros_system', executable='nvblox_map', name='nvblox_map', output='screen', condition=on,
+             parameters=[{'load_path': ParameterValue(load_path, value_type=str)}]),
     ]

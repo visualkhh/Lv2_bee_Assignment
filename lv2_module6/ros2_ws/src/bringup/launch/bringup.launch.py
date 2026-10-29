@@ -66,11 +66,15 @@ ROS_SYSTEM_ARGS = {
     'pole_front_cam_pointcloud': ('true', 'pole_front_cam PointCloud2 발행 (body_filter/Nav2)'),
     'gripper_cam_pointcloud': ('false', 'gripper_cam PointCloud2 발행 (grasp_scorer용, 필요할 때만 true)'),
     'use_ekf': ('true', 'robot_localization EKF'),
-    'slam': ('rtabmap', 'rtabmap | cuvslam (cuVSLAM 단독 시험: map→odom만, /map 격자 없음 — use_nav2:=false로)'),
+    'slam': ('rtabmap', 'rtabmap | cuvslam_nvblox — 지도·위치를 누가 만드나 (ros_system.launch.py 머리말). 지도 파일도 따라 바뀜'),
     'cuvslam_odom': ('false', 'true면 cuVSLAM 시각 오도메트리를 EKF에 (slam:=rtabmap과 함께 — 지도·Nav2는 RTAB-Map 그대로)'),
     'use_nav2': ('true', '진짜 Nav2 서버'),
     'use_moveit': ('true', '진짜 move_group — coordinator의 pick/place가 씀 (ros_system 기본은 false라 실기에서 팔 작업이 안 됐음)'),
 }
+
+
+# SLAM마다 지도 폴더 안 파일 — 이 파일이 있는 폴더 = 그 SLAM으로 저장한 지도 (state_manager 목록도 같은 기준)
+MAP_FILES = {'rtabmap': 'rtabmap.db', 'cuvslam_nvblox': 'nvblox.nvblx'}
 
 
 def setup_map(context):
@@ -78,6 +82,10 @@ def setup_map(context):
     course → RTAB-Map 없음(테스트베드 faker의 코스 지도). ros_system에 넘길 use_rtabmap · localization · rtabmap_db와
     state_manager 시작 값(map_mode · map_name · map_dir)을 정한다. ros_system을 안 띄우면(use_ros_system:=false) 확인만 건너뜀"""
     mode = LaunchConfiguration('map').perform(context)
+    slam = LaunchConfiguration('slam').perform(context)
+    if slam not in MAP_FILES:
+        raise RuntimeError(f'slam:={slam} — {" | ".join(MAP_FILES)}')
+    map_file = MAP_FILES[slam]
     d = os.path.expanduser(LaunchConfiguration('map_dir').perform(context) or '~/.ros/beebot_maps')
     name = LaunchConfiguration('map_name').perform(context)
     if mode not in ('course', 'slam', 'saved'):
@@ -86,21 +94,21 @@ def setup_map(context):
     if LaunchConfiguration('use_ros_system').perform(context).lower() == 'true' and mode != 'course':
         if mode == 'slam':
             name = name or time.strftime('%Y%m%d_%H%M%S')
-            if os.path.exists(os.path.join(d, name, 'rtabmap.db')):
-                raise RuntimeError(f'이미 있는 지도: {d}/{name} — 덮어쓰지 않음, 다른 map_name')
-            os.makedirs(os.path.join(d, name), exist_ok=True)  # RTAB-Map은 DB 폴더를 안 만듦
+            if os.path.exists(os.path.join(d, name, map_file)):
+                raise RuntimeError(f'이미 있는 지도: {d}/{name}/{map_file} — 덮어쓰지 않음, 다른 map_name')
+            os.makedirs(os.path.join(d, name), exist_ok=True)  # RTAB-Map·nvblox 둘 다 폴더를 안 만듦
         else:
             saved = sorted(p for p in (os.listdir(d) if os.path.isdir(d) else [])
-                           if os.path.exists(os.path.join(d, p, 'rtabmap.db')))
+                           if os.path.exists(os.path.join(d, p, map_file)))
             if not saved:
                 # 센서·지도가 아직 없어도 state_manager와 나머지 노드는 뜨게 한다.
-                print(f'WARN: 저장한 지도 없음: {d}/<이름>/rtabmap.db — RTAB-Map 없이 시작', file=sys.stderr)
+                print(f'WARN: 저장한 지도 없음: {d}/<이름>/{map_file} — SLAM 없이 시작', file=sys.stderr)
                 name = ''
                 no_map = True
             else:
                 name = name or ('default' if 'default' in saved else saved[-1])  # 기본 지도 폴더 = default (rtabmap.db가 있어야)
                 if name not in saved:
-                    print(f'WARN: 지도 없음: {d}/{name}/rtabmap.db — RTAB-Map 없이 시작 (있는 것: {", ".join(saved)})',
+                    print(f'WARN: 지도 없음: {d}/{name}/{map_file} — SLAM 없이 시작 (있는 것: {", ".join(saved)})',
                           file=sys.stderr)
                     name = ''
                     no_map = True
@@ -111,7 +119,9 @@ def setup_map(context):
             SetLaunchConfiguration('map_mode', {'course': 'COURSE', 'slam': 'MAPPING', 'saved': 'LOCALIZATION'}[mode]),
             SetLaunchConfiguration('use_rtabmap', use_rtabmap),
             SetLaunchConfiguration('localization', 'false' if mode == 'slam' else 'true'),
-            SetLaunchConfiguration('rtabmap_db', os.path.join(d, name, 'rtabmap.db'))]
+            SetLaunchConfiguration('rtabmap_db', os.path.join(d, name, 'rtabmap.db')),
+            SetLaunchConfiguration('nvblox_map', os.path.join(d, name, 'nvblox.nvblx')),
+            SetLaunchConfiguration('map_file', map_file)]
 
 
 def generate_launch_description():
@@ -149,7 +159,8 @@ def generate_launch_description():
             launch_arguments={**{k: LaunchConfiguration(k) for k in ROS_SYSTEM_ARGS},
                               'use_rtabmap': LaunchConfiguration('use_rtabmap'),
                               'localization': LaunchConfiguration('localization'),
-                              'rtabmap_db': LaunchConfiguration('rtabmap_db')}.items())],
+                              'rtabmap_db': LaunchConfiguration('rtabmap_db'),
+                              'nvblox_map': LaunchConfiguration('nvblox_map')}.items())],
             condition=IfCondition(LaunchConfiguration('use_ros_system'))),
         # RTAB-Map(slam·saved)일 때: 지도 저장 서버 — /map_saver/save_map → <map_dir>/<map_name>/map.pgm·yaml (시뮬레이터 [지도 저장])
         Node(package='nav2_map_server', executable='map_saver_server', name='map_saver', output='screen',
@@ -175,6 +186,8 @@ def generate_launch_description():
         node('perception', 'body_filter'),
         node('perception', 'signal_decoder'),
         node('manager', 'state_manager', {'map_mode': LaunchConfiguration('map_mode'),
+                                          'slam': LaunchConfiguration('slam'),
+                                          'map_file': LaunchConfiguration('map_file'),
                                           'map_name': ParameterValue(LaunchConfiguration('map_name'), value_type=str),
                                           'map_dir': ParameterValue(LaunchConfiguration('map_dir'), value_type=str),
                                           'restart_prepare': ParameterValue(LaunchConfiguration('restart_prepare'), value_type=str),
