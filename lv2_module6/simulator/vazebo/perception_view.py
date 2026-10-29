@@ -1,7 +1,7 @@
 """인지 결과 읽기·그리기 공용 — 지도 · RGB-SEG · 감지 물체 보기 창 · 로봇 3D · 조작 창 3D가 같이 쓴다 (tkinter 없음)
 
   /tracked_objects              두 카메라 융합 트랙 (보라)
-  /perception/<cam>/detections  융합 전 카메라별 검출 (pole_cam 주황 · gripper_cam 분홍), id = 붙은 트랙
+  /perception/<cam>/detections  융합 전 카메라별 검출 (pole_front_cam 주황 · gripper_cam 분홍), id = 붙은 트랙
 좌표: 인지 결과는 map 기준, 시뮬레이터 미로 좌표 = map + spawn (map→odom 보정은 무시 — 지도와 같은 규약).
 3D 뷰(로봇 기준)는 **로봇이 아는 자기 위치**(TF map→odom∘odom→base_footprint — perception이 쓴 것과 같은 것)로 로봇 기준에
 옮긴다 — 위치추정(EKF) 오차가 빠지고 인지 오차만 보인다. 지도(2D)는 미로 위라 위치추정 오차까지 같이 보인다.
@@ -13,7 +13,7 @@ from bridge import read_msg
 
 FRESH_S = 2.0        # 파일이 이 안에 바뀐 것만 '지금 받은 것' (이전 실행 파일은 안 그림)
 FUSED_COLOR = (150, 0, 150)  # BGR
-CAM_COLORS = {'pole_cam': (0, 170, 255), 'gripper_cam': (147, 20, 255)}  # 카메라 시야선 · 카메라별 검출 색 (BGR)
+CAM_COLORS = {'pole_front_cam': (0, 170, 255), 'gripper_cam': (147, 20, 255)}  # 카메라 시야선 · 카메라별 검출 색 (BGR)
 # 상자 12모서리 (꼭짓점 번호: x·y·z 비트)
 _EDGES = [(0, 1), (2, 3), (4, 5), (6, 7), (0, 2), (1, 3), (4, 6), (5, 7), (0, 4), (1, 5), (2, 6), (3, 7)]
 

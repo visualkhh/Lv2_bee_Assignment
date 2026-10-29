@@ -11,16 +11,25 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-COURSE = Path(__file__).resolve().parents[1] / 'course' / 'twin_closed_maze' / 'walls.json'
+COURSES = Path(__file__).resolve().parents[2] / 'course'
+COURSE = COURSES / 'twin_closed_maze' / 'walls.json'
 
 
 def load(path=COURSE):
-    """→ {'size': (w, h), 'spawn': (x, y), 'wall_h': m, 'boxes': [(cx, cy, cz, sx, sy, sz)], 'posts': [(x, y)]}"""
+    """→ {'size': (w, h), 'spawn': (x, y), 'wall_h': m, 'boxes': [(cx, cy, cz, sx, sy, sz)], 'posts': [(x, y)]}
+    path = walls.json 경로 또는 코스 이름 (course/<이름>/walls.json). 상자마다 'sz'가 있으면 그 높이 (박스 70mm) ·
+    'mission'이 있으면 그대로 (주사위 미션 물체 — dice.py), 'arena_center_mm' = 경기장 원점 → 미로 중심"""
+    if not str(path).endswith('.json'):
+        path = COURSES / str(path) / 'walls.json'
     walls = json.loads(Path(path).read_text())
     h = walls['wall_height_m']
-    return {'size': tuple(walls['size_m']), 'spawn': tuple(walls['spawn_xy_m']), 'wall_h': h,
-            'boxes': [(b['x'], b['y'], h / 2, b['sx'], b['sy'], h) for b in walls['boxes']],
-            'posts': [(b['x'], b['y']) for b in walls['boxes'] if b['name'].startswith('post_')]}
+    out = {'name': walls['name'], 'size': tuple(walls['size_m']), 'spawn': tuple(walls['spawn_xy_m']), 'wall_h': h,
+           'boxes': [(b['x'], b['y'], b.get('sz', h) / 2, b['sx'], b['sy'], b.get('sz', h)) for b in walls['boxes']],
+           'posts': [(b['x'], b['y']) for b in walls['boxes'] if b['name'].startswith('post_')]}
+    for k in ('mission', 'arena_center_mm'):
+        if k in walls:
+            out[k] = walls[k]
+    return out
 
 
 def walls_mask(course, to_px, shape):

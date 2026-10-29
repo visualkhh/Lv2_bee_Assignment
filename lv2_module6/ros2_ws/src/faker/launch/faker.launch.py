@@ -23,8 +23,8 @@
   robot_state_publisher(URDF) · controller_manager + control/BeebotSystemHardware(가상 시리얼 ↔ fake_opencr) + 컨트롤러 · robot_localization EKF
   · 진짜 Nav2 (planner · controller · behavior · bt_navigator · velocity_smoother · collision_monitor)
 map:=course일 때만 — 실기에서 RTAB-Map이 하는 일의 대신 (시뮬레이터 = 코스를 알고 있음):
-  map_server       코스 지도 /map (maps/twin_closed_maze — course/tools/build_map.py, 원점 = 출발 칸)
-  map→odom 항등    위치 추정 없이 odom 원점 = 출발 칸 (미끄럼으로 odom이 어긋나면 그대로 어긋남 — RTAB-Map 몫)
+  map_server       코스 지도 /map (maps/<course>.yaml — course/tools/build_map.py · build_dice.py, 원점 = 출발 칸)
+  map→odom         fake_localizer: 진짜 위치(fake_opencr ground_truth)로 보정 · mock_hardware:=true면 항등 (RTAB-Map 몫의 대신)
 대역 (도커 이미지에 없는 📦 · GPU·모델이 없는 ML):
   ML 대역 (ml 패키지와 1:1 — 같은 노드 이름·토픽, 하나씩 진짜/대역 선택):
     fake_grasp_scorer       → 노드 grasp_scorer
@@ -98,6 +98,8 @@ def generate_launch_description():
         arg('learning_enabled', 'true', '학습 노드 on/off (ml:=real일 때)'),
         arg('vlm_endpoint', default_vlm_endpoint(),
             '호스트 ai-service 주소 (비면 템플릿 고정) — 기본: host.docker.internal이 풀리면(macOS) 그것, 아니면(리눅스 host망) 127.0.0.1'),
+        arg('course', 'twin_closed_maze', '코스 = faker/maps/<이 이름>.yaml (fake_opencr 충돌 · map:=course 지도) — 주사위 미션: dice_maze'),
+        arg('start_pose', '', 'mission_manager 출발 자세 arena [x, y, yaw] (비면 plan.yaml) — 시뮬레이터 dice_maze는 "[0.734, 0.950, 0.0]" (+X를 보고 켬)'),
         arg('map', 'course', 'course = 코스 지도 외움 · slam = RTAB-Map 매핑(rtabmap.db 새로) · saved = 저장한 rtabmap.db로 위치추정'),
         arg('map_dir', '/ws/map', '지도 폴더 (호스트 ros2_ws/map 바인드) — 지도마다 <map_name>/ rtabmap.db · map.pgm · map.yaml'),
         arg('map_name', '', '지도 폴더 이름 — slam: 비우면 날짜_시각으로 새로 · saved: 비우면 default (rtabmap.db 없으면 가장 최근 — bringup이 정함)'),
@@ -111,6 +113,7 @@ def generate_launch_description():
         # 진짜 bringup 그대로 (🛠 노드 + ros_system 📦 + 지도 처리) — 대역에 맞는 인자만 덮어씀
         include('bringup', 'bringup.launch.py', {
             'command': LaunchConfiguration('command'),
+            'start_pose': LaunchConfiguration('start_pose'),
             'learning_enabled': LaunchConfiguration('learning_enabled'),
             'vlm_endpoint': LaunchConfiguration('vlm_endpoint'),
             'map': LaunchConfiguration('map'),
@@ -133,7 +136,7 @@ def generate_launch_description():
         fake('fake_camera', 'gripper_cam', respawn=True,
              condition=IfCondition(PythonExpression(["'", LaunchConfiguration('use_gz_cameras'), "' == 'false'"]))),
         fake('fake_opencr', 'fake_opencr', {
-            'map_yaml': PathJoinSubstitution([FindPackageShare('faker'), 'maps', 'twin_closed_maze.yaml']),
+            'map_yaml': PathJoinSubstitution([FindPackageShare('faker'), 'maps', [LaunchConfiguration('course'), '.yaml']]),
         }, condition=IfCondition(PythonExpression(["'", LaunchConfiguration('mock_hardware'), "' == 'false'"]))),
         *[fake(f'fake_{n}', n, condition=IfCondition(PythonExpression(["'", LaunchConfiguration(n), "' == 'fake'"])))
           for n in ML_NODES],
@@ -141,13 +144,16 @@ def generate_launch_description():
         # 매핑·저장 지도면 RTAB-Map이 지도·map→odom을 발행 — 여기는 끈다
         Node(package='nav2_map_server', executable='map_server', name='map_server', output='screen',
              condition=IfCondition(COURSE_MAP),
-             parameters=[{'yaml_filename': PathJoinSubstitution([FindPackageShare('faker'), 'maps', 'twin_closed_maze.yaml'])}]),
+             parameters=[{'yaml_filename': PathJoinSubstitution([FindPackageShare('faker'), 'maps', [LaunchConfiguration('course'), '.yaml']])}]),
         Node(package='nav2_lifecycle_manager', executable='lifecycle_manager', name='lifecycle_manager_map', output='screen',
              condition=IfCondition(COURSE_MAP),
              parameters=[{'autostart': True, 'node_names': ['map_server'], 'bond_timeout': 60.0}]),
+        # map → odom: fake_opencr가 있으면 진짜 위치로 보정 (fake_localizer — 걸리거나 미끄러져도 위치가 안 틀어짐) · mock이면 항등
         Node(package='tf2_ros', executable='static_transform_publisher', name='map_to_odom', output='screen',
-             condition=IfCondition(COURSE_MAP),
+             condition=IfCondition(PythonExpression([COURSE_MAP, " and '", LaunchConfiguration('mock_hardware'), "' == 'true'"])),
              arguments=['--frame-id', 'map', '--child-frame-id', 'odom']),
+        fake('fake_localizer', 'fake_localizer',
+             condition=IfCondition(PythonExpression([COURSE_MAP, " and '", LaunchConfiguration('mock_hardware'), "' == 'false'"]))),
         fake('monitor_manager', 'monitor_manager', {'debug_dir': LaunchConfiguration('debug_dir')}, respawn=True,  # 죽으면 시뮬레이터가 다 멈춰 보임 → 다시 띄움
              condition=IfCondition(PythonExpression(["'", LaunchConfiguration('use_monitor'), "' == 'true'"]))),
         fake('input_manager', 'input_manager', {'debug_dir': LaunchConfiguration('debug_dir')}),

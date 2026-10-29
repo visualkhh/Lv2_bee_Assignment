@@ -19,6 +19,22 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt   # 최초 1�
 | 카메라·명령·수동 조작·service/action 입력·상태/진단 보기 | `test-faker 0` (mock도 됨) | 카메라 `waiting`, 진단은 `(진단 없음)` |
 | 미끄럼·마찰·충돌·통신 끊김·팔 붙잡기 (fake_opencr) | `test-faker 0` (기본) | `mock_hardware:=true`면 상태 'OpenCR 없음', 실제 로봇(채움) 안 뜸 |
 
+## 주사위 미션 (course dice_maze)
+
+```bash
+# 컨테이너 — 주사위 코스 지도 · 출발 자세(시뮬레이터는 +X를 보고 켬) · 예전 텍스트 명령 끔
+test-faker 0 course:=dice_maze start_pose:="[0.734, 0.950, 0.0]" command:=""
+# 호스트
+.venv/bin/python main.py --course dice_maze            # 문제 dice/q1.json을 깐 채 시작 (--dice 다른이름)
+```
+
+- 오른쪽 [주사위 미션]: 문제 깔기 · 신호 시작(12회 점멸) · 미션 시작/중지 (`/cmd/mission start|abort` → mission_manager)
+  · "READ가 되면 신호 자동 시작" 체크면 mission_manager가 신호 관측 단계에 들어갈 때 신호등이 시작됨
+- 장면 (`dice.py`): 시작 박스 6 × 퍽 2 (Z=70, 윗면 AprilTag = 퍽 ID) · 장소 태그 12~14 (박스 수직면) · 바코드 판 Code 128 · 신호등
+  — 태그·바코드 무늬는 640×480으로 키운 영상에 입힌다 (320 렌더에선 16mm 태그·바코드 칸이 뭉개짐)
+- 놓은 퍽은 박스 위면 박스 윗면(70mm)에 안착 (`on_box`) — 로봇과 같이 움직이지 않음
+- 문제 파일 `dice/<이름>.json`: signal · barcode · pucks[tag, color, shape(cylinder|cuboid), box(1~6), side(−1|+1)]
+
 ## 호스트 CLI (`bee.py`) — 컨테이너에 안 들어가고 지시
 
 ```bash

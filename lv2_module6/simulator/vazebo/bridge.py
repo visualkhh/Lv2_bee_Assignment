@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-DEBUG = HERE.parent / 'debug'
+DEBUG = HERE.parents[1] / 'debug'  # lv2_module6/debug (컨테이너 /debug 바인드) — vazebo가 simulator/ 아래로 옮겨진 뒤 경로가 어긋났었음
 TOPIC_DIR = DEBUG / 'output' / 'topic'
 INPUT_DIR = DEBUG / 'input' / 'topic'
 LIVE_DIR = DEBUG / 'input' / 'hardware' / 'camera'
