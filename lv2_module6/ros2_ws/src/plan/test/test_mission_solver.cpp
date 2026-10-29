@@ -102,3 +102,58 @@ TEST(MissionSolver, DiceAndGeometry) {
   EXPECT_NEAR(a[0].y, 0.950, 1e-9);
   EXPECT_NEAR(a[0].yaw, 0.0, 1e-9);
 }
+
+TEST(MissionFlow, NextPhase) {  // 설계 D1·D9 — 관측 실패만 정지, 그 뒤는 끝까지 (복귀까지)
+  EXPECT_EQ(next_phase(Phase::IDLE, true), Phase::GO_OBSERVE);
+  EXPECT_EQ(next_phase(Phase::READ, true), Phase::SURVEY);
+  EXPECT_EQ(next_phase(Phase::BARCODE, false), Phase::ERROR);
+  EXPECT_EQ(next_phase(Phase::READ, false), Phase::ERROR);
+  EXPECT_EQ(next_phase(Phase::SURVEY, false), Phase::RETURN);
+  EXPECT_EQ(next_phase(Phase::BUILD, false), Phase::VERIFY);
+  EXPECT_EQ(next_phase(Phase::VERIFY, false), Phase::RETURN);
+  EXPECT_EQ(next_phase(Phase::RETURN, true), Phase::DONE);
+  EXPECT_EQ(next_phase(Phase::RETURN, false), Phase::ERROR);
+  EXPECT_EQ(next_phase(Phase::DONE, true), Phase::DONE);
+  EXPECT_STREQ(phase_name(Phase::VERIFY), "VERIFY");
+}
+
+TEST(MissionFlow, TagCorrection) {  // 설계 D4
+  auto [dx, dy] = tag_correction(1.0, 2.0, 1.012, 1.995, 0.05);
+  EXPECT_NEAR(dx, 0.012, 1e-9);
+  EXPECT_NEAR(dy, -0.005, 1e-9);
+  std::tie(dx, dy) = tag_correction(1.0, 2.0, 1.2, 2.0, 0.05);  // 20 cm — 잘못 본 것
+  EXPECT_EQ(dx, 0.0);
+  EXPECT_EQ(dy, 0.0);
+}
+
+TEST(MissionFlow, JudgeLocation) {  // 설계 D11 — 칸별 tag·오차 · 빈 칸 퍽
+  const std::vector<std::pair<int, int>> want{{3, 0}, {7, 8}};  // 주사위 2: 북서 · 남동
+  const auto [x0, y0] = cell_offset(0);
+  const auto [x8, y8] = cell_offset(8);
+  auto r = judge_location(want, 1.0, 1.0, 0.060, {{3, 1.0 + x0 + 0.004, 1.0 + y0}, {7, 1.0 + x8, 1.0 + y8 - 0.006}}, 0.010);
+  EXPECT_TRUE(r.ok);
+  ASSERT_EQ(r.cells.size(), 2u);
+  EXPECT_NEAR(r.cells[0].err, 0.004, 1e-9);
+  r = judge_location(want, 1.0, 1.0, 0.060, {{3, 1.0 + x0 + 0.02, 1.0 + y0}, {7, 1.0 + x8, 1.0 + y8}}, 0.010);
+  EXPECT_FALSE(r.ok);  // 2 cm 벗어남
+  r = judge_location(want, 1.0, 1.0, 0.060, {{3, 1.0 + x0, 1.0 + y0}, {7, 1.0 + x8, 1.0 + y8}, {-1, 1.0, 1.0}}, 0.010);
+  EXPECT_FALSE(r.ok);  // 가운데 칸에 번호 못 읽은 퍽
+  ASSERT_EQ(r.extra.size(), 1u);
+  r = judge_location(want, 1.0, 1.0, 0.060, {{3, 1.0 + x0, 1.0 + y0}}, 0.010);
+  EXPECT_FALSE(r.ok);
+  EXPECT_FALSE(r.cells[1].found);
+}
+
+TEST(MissionFlow, GlobalCheck) {  // 설계 D11 — 12개 중복·누락
+  std::vector<int> dup, missing;
+  global_check({{0, 1, 2}, {2, 3}, {4, -1}}, {0, 1, 2, 3, 4, 5}, dup, missing);
+  EXPECT_EQ(dup, std::vector<int>{2});
+  EXPECT_EQ(missing, std::vector<int>{5});
+}
+
+TEST(MissionFlow, FootprintInZone) {  // 설계 D12 — 출발 구역 600×600 · 로봇 외곽 (앞 0.069 · 뒤 −0.233 · 옆 ±0.153)
+  const std::vector<double> zone{0.434, 0.650, 1.034, 1.250};
+  EXPECT_TRUE(footprint_in_zone({0.734, 0.950, M_PI}, 0.069, -0.233, 0.153, zone));
+  EXPECT_FALSE(footprint_in_zone({0.480, 0.950, M_PI}, 0.069, -0.233, 0.153, zone));  // −X를 봄 → 앞 모서리 x 0.411 < 0.434
+  EXPECT_FALSE(footprint_in_zone({0.734, 0.950, 0.0}, 0.069, -0.233, 0.153, {0.434, 0.650, 0.780, 1.250}));  // +X를 봄 → 앞 0.803 > 0.780
+}

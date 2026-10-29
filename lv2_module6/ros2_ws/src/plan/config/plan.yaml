@@ -55,11 +55,18 @@ mission_manager:             # 주사위 기억 미션 (documents/mission/README
     # 로봇을 켠 자리의 arena 자세 [x, y, yaw] — 운영 규칙: 출발 관측 위치에서 −X(π)를 보고 켬. 다르면 launch 인자 start_pose:=x,y,yaw
     start_pose_arena: [0.734, 0.950, 3.14159]
     start_zone: [0.434, 0.650, 1.034, 1.250]   # 출발 구역 [x0, y0, x1, y1] (복귀 판정·RViz)
+    footprint: [0.069, -0.233, 0.153]        # 로봇 외곽 [앞, 뒤, 옆 반폭] (base_footprint, URDF) — 복귀 때 차체 전체가 구역 안인지 (D12)
     start_boxes: [1.468, 0.950, 3.670, 3.152, 2.936, 5.354, 0.734, 5.354, 2.202, 5.354, 3.670, 3.886]   # 시작 박스 1~6 중심
     box_half: 0.1025                         # 205 박스 반 변
     puck_offsets_x: [-0.040, 0.040]          # 박스 위 퍽 두 개 — 중심 X±40
     locations: [3.670, 0.950, 2.202, 3.700, 3.670, 5.354]   # L1·L2·L3 격자 중심
     location_boxes: [3.670, 0.950, 0.1025, 2.202, 3.495, 0.41, 3.670, 5.354, 0.1025]   # 장소가 놓인 박스 [x, y, 반 변] — L2는 중앙 받침대 820
+    location_tags: [12, 13, 14]              # L1·L2·L3 장소 태그 번호
+    location_tag_normals: [-1.0, 0.0, 0.0, 1.0, 0.0, -1.0]   # 태그가 붙은 박스 옆면 방향 [nx, ny] × 3 — 태그 예상 자리 = 박스 중심 + 방향 × 반 변
+    tag_correction_max: 0.05                 # [m] 놓기 직전 장소 태그로 칸을 옮기는 최대 거리 (D4) — 넘으면 잘못 본 것으로 보고 보정 안 함
+    # 적재함 (D3) — 조사하면서 읽은 퍽을 이 칸들에 싣고 칸 → tag를 기억. 칸 번호 = coordinator tray_slots 순서.
+    #   팔이 잘 못 닿는 칸은 여기서 뺌 (Isaac 10/27: 12칸 적재함의 2·8·9 성공률 낮음). 다 차면 나머지는 시작 박스에서 직접 운반
+    tray_slots: [0, 1, 2, 3]
     box_top_z: 0.070                         # 박스 윗면 = 퍽 바닥
     puck_height: 0.060
     grid_step: 0.060                         # 주사위 칸 간격
@@ -67,6 +74,9 @@ mission_manager:             # 주사위 기억 미션 (documents/mission/README
     approach_gap: 0.085                      # [m] 그다음 approach로 base_footprint ~ 박스 변을 이만큼까지 (로봇 앞면 0.069 → 1.6 cm)
                                              #   Isaac 도달 지도(dice_reach.py): 0.08이면 3×3 칸 9개 다 닿음 · 0.10이면 먼 줄 양끝 못 닿음
     approach_tries: 3                        # 접근 자리 실패 시 다른 변으로 몇 번까지
+    retries: 2                               # skill(집기·놓기·inspect)이 실패하면 다시 하는 횟수 (D6). 그래도 안 되면 그 퍽만 실패로 두고 다음 (D1)
+    place_tol: 0.010                         # [m] 놓은 뒤 확인 · 재검증 — 칸 중심에서 이 안이어야 성공 (D5·D11)
+    place_search: 0.05                       # [m] 놓은 뒤 확인 때 칸에서 이 안의 퍽만 그 퍽으로 봄
     match_radius: 0.04                       # [m] 조사 때 퍽 자리와 트랙을 짝짓는 거리
     verify_radius: 0.15                      # [m] 재검증 때 장소 중심에서 이 안의 퍽만
     # 바코드 보는 자세 (출발 구역 안) — 관측 자리(−X)에선 바코드(80, 650, 450)가 화면 위·왼쪽 끝에 걸림 (시뮬레이터 렌더 확인).
@@ -75,7 +85,8 @@ mission_manager:             # 주사위 기억 미션 (documents/mission/README
     barcode_timeout_s: 20.0                  # [s] 이번에 본 바코드가 없으면 오류
     signal_timeout_s: 90.0                   # [s] READ 시작부터 신호 DONE까지 (12회 미만이면 오류)
     home_hold_s: 3.0                         # [s] 출발 구역에서 정지 (발제: 3초)
-    log_dir: "~/.ros/mission"                # 회차별 signal.json · allocation.json · verify.json
+    log_dir: "~/.ros/mission"                # 회차별 signal · allocation · build · verify · return (· error) .json + photos/ (D13)
+    photo_topic: "/gripper_cam/color/image_raw"   # 단계 사진 (찍을 때만 잠깐 구독) — 빈 문자열이면 안 찍음
 
 explorer:                    # 자동 탐사 — /state/operation_mode EXPLORE일 때 /map 프론티어로 Nav2 목표
   ros__parameters:

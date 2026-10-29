@@ -28,7 +28,7 @@ import sys
 import time
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription, OpaqueFunction, SetLaunchConfiguration
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, GroupAction, IncludeLaunchDescription, OpaqueFunction, SetLaunchConfiguration
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
@@ -127,6 +127,8 @@ def generate_launch_description():
                               description='호스트 ai-service 주소 (비면 템플릿 고정, 예: http://127.0.0.1:8000)'),
         DeclareLaunchArgument('start_pose', default_value='',
                               description='mission_manager 출발 자세 arena [x, y, yaw] YAML (비면 plan.yaml start_pose_arena)'),
+        DeclareLaunchArgument('mission_bag', default_value='false',
+                              description='true면 미션 기록용 rosbag (작은 토픽만 — 영상·점구름 제외) → ~/.ros/mission/bag_<시각>'),
         DeclareLaunchArgument('command', default_value='',
                               description='user_input이 시작 후 한 번 보낼 텍스트 명령'),
         DeclareLaunchArgument('restart_prepare', default_value='',
@@ -173,6 +175,12 @@ def generate_launch_description():
         node('plan', 'mission_manager', condition=IfCondition(PythonExpression(["'", LaunchConfiguration('start_pose'), "' == ''"]))),
         node('plan', 'mission_manager', {'start_pose_arena': ParameterValue(LaunchConfiguration('start_pose'), value_type=None)},
              condition=IfCondition(PythonExpression(["'", LaunchConfiguration('start_pose'), "' != ''"]))),
+        # 미션 기록 rosbag (설계 D13) — 미션·신호·skill·위치 토픽만. 영상은 mission_manager 단계 사진 + 외부 촬영
+        ExecuteProcess(cmd=['ros2', 'bag', 'record', '-o', os.path.expanduser(time.strftime('~/.ros/mission/bag_%Y%m%d_%H%M%S')),
+                            '/mission/state', '/mission/signal', '/mission/barcode', '/mission/markers', '/cmd/mission',
+                            '/task/sub_goals', '/task/status', '/tracked_objects', '/odometry/filtered', '/tf', '/tf_static',
+                            '/robot/say', '/diagnostics_agg'],
+                       output='log', condition=IfCondition(LaunchConfiguration('mission_bag'))),
         *[node('ml', n, learning, condition=IfCondition(LaunchConfiguration(f'use_{n}'))) for n in ML_NODES],
         node('control', 'arm_safety_monitor'),
         node('control', 'manual_control'),

@@ -50,4 +50,36 @@ Pose2 arena_to_map(const Pose2 & p, const Pose2 & start);
 //   변 바깥 standoff [m]에 서서 박스 안쪽을 바라봄, 변을 따라서는 p와 나란히 (박스 범위 안으로 자름). arena 좌표
 std::vector<Pose2> approach_poses(double cx, double cy, double half, double px, double py, double standoff);
 
+// ---------- 미션 단계 (설계 D9 — 순서와 실패 시 갈 곳만 정한다. 각 단계에서 무엇을 하는지는 mission_manager)
+enum class Phase { IDLE, GO_OBSERVE, BARCODE, READ, SURVEY, BUILD, VERIFY, RETURN, DONE, ERROR };
+const char * phase_name(Phase p);
+// 단계가 끝났을 때 다음 단계 (설계 D1 — 그때까지 점수는 유효하므로 끝까지 간다):
+//   관측(GO_OBSERVE · BARCODE · READ) 실패 = ERROR (발제: 신호·바코드 오류면 정지 · 추정 금지)
+//   SURVEY 실패(할당 불가) = 쌓을 게 없으니 RETURN · BUILD는 퍽 단위로 실패를 기록하고 VERIFY · VERIFY 실패도 RETURN
+//   RETURN 실패 = ERROR. DONE · ERROR는 그대로
+Phase next_phase(Phase p, bool ok);
+
+// ---------- 놓기 기준 보정 (설계 D4) — 장소 태그를 예상 자리(ex, ey)가 아닌 (ox, oy)에서 봤으면 그만큼 칸을 옮긴다 (arena).
+//   max_m 넘게 어긋나면 잘못 본 것으로 보고 보정 안 함 (0, 0)
+std::pair<double, double> tag_correction(double ex, double ey, double ox, double oy, double max_m);
+
+// ---------- 재검증 (설계 D11) — 이번에 새로 본 퍽(arena)만으로 판정
+struct Seen { int tag = -1; double x = 0, y = 0; };  // tag -1 = 번호 못 읽음
+struct CellResult { int tag = -1, cell = -1; bool found = false; double err = 0; };  // err [m] = 칸 중심 ~ 본 자리
+struct LocationResult {
+  std::vector<CellResult> cells;
+  std::vector<Seen> extra;  // 기대하지 않은 퍽 (빈 칸 · 다른 장소 퍽 · 번호 못 읽은 퍽)
+  bool ok = false;          // 모든 칸이 found · err ≤ tol 이고 extra 없음
+};
+// expected = (tag, 칸) 목록 · (cx, cy) 장소 중심 · step 칸 간격
+LocationResult judge_location(const std::vector<std::pair<int, int>> & expected, double cx, double cy, double step,
+                              const std::vector<Seen> & seen, double tol);
+// 12개 전체 — 두 장소 이상에서 보인 tag(dup) · 어디서도 안 보인 tag(missing)
+void global_check(const std::vector<std::vector<int>> & seen_per_location, const std::vector<int> & all_tags,
+                  std::vector<int> & dup, std::vector<int> & missing);
+
+// ---------- 복귀 (설계 D12) — 로봇 외곽 직사각형(base_footprint 기준 앞 front · 뒤 rear(음수) · 옆 ±side)의
+//   네 모서리가 구역 [x0, y0, x1, y1] 안인지. p = 로봇 자세 (arena)
+bool footprint_in_zone(const Pose2 & p, double front, double rear, double side, const std::vector<double> & zone);
+
 }  // namespace plan
