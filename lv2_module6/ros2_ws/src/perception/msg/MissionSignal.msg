@@ -1,6 +1,14 @@
-# 신호등 암호 미션 (documents/mission/README.md) — signal_decoder가 깜빡임 3단계를 읽은 결과
-string color      # 1단계: 옮길 퍽 색 (red | green | yellow — 깜빡인 색)
-int32 count       # 1단계: 그 색 퍽 개수 (깜빡인 횟수)
-int32 sum         # 2단계: 고를 퍽들의 태그 번호 합 (깜빡인 색 점수의 합)
-int32 dest_tag    # 3단계: 목적지 장소 태그 번호 (노랑 1·2·3번 → 12·13·14)
-string raw        # 읽은 깜빡임 그대로 (예: "R R | R Y G G R | Y Y") — 확인용
+# 주사위 기억 미션 (documents/mission/README.md §3) — signal_decoder가 신호등 12회 점멸을 관측한 결과
+# 해석(정렬·배정)은 plan이 한다. 여기는 본 그대로의 사실만 (발제: 순서·횟수는 실제 센서 관측 기록으로 평가)
+std_msgs/Header header
+uint8 WAITING=0          # 신호 시작 전
+uint8 OBSERVING=1        # 세는 중 — 점멸마다 갱신
+uint8 DONE=2             # 12회 + 마지막 3초 연속 소등 확인
+uint8 ERROR=3            # 관측 실패 — 추정하지 않고 멈춤
+uint8 state
+string[] sequence                  # 관측 순서 "R" | "Y" | "G" — DONE이면 정확히 12개
+builtin_interfaces/Time[] onsets   # 각 점멸이 켜진 시각 (기록·재현용)
+uint8 count_r
+uint8 count_y
+uint8 count_g
+string error             # "" | too_many | unknown_color
