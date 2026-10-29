@@ -7,8 +7,8 @@
                 double radius = 5
             }
             dictionary Perspective = {
-                double3 position = (-1.8609239761363081, -3.552728326621407, 0.7469819308991473)
-                double3 target = (-1.976087976888178, -1.9321686687690425, 0.05912545336346431)
+                double3 position = (-2.1809602771973235, -3.8196984700861316, 1.551683837592069)
+                double3 target = (-1.9619889229595777, -2.2078268890581354, 0.230230454257643)
             }
             dictionary Right = {
                 double3 position = (0, -5, 0)
@@ -44,9 +44,9 @@ def Xform "World"
         prepend payload = @./beebot/beebot.usda@
     )
     {
-        quatf xformOp:orient = (0.08497763, 0, 0, -0.99638283)
+        quatf xformOp:orient = (-0.08636859, 0, 0, -0.99626327)
         float3 xformOp:scale = (1, 1, 1)
-        double3 xformOp:translate = (-2.1491937606855354, -2.352441781888314, 0.0000013708473711737668)
+        double3 xformOp:translate = (-1.997250385971205, -2.5174464531110643, 0.0000013708473616258487)
         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
 
         over "Geometry"
@@ -488,6 +488,33 @@ def Xform "World"
         float3 xformOp:scale = (1, 1, 1)
         double3 xformOp:translate = (-2.611635884753067, -2.314750165208043, 9.221745402854253e-7)
         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+
+        over "light"
+        {
+            over "green"
+            {
+                over "CylinderLight"
+                {
+                    token visibility = "invisible"
+                }
+            }
+
+            over "red"
+            {
+                over "CylinderLight"
+                {
+                    token visibility = "invisible"
+                }
+            }
+
+            over "yellow"
+            {
+                over "CylinderLight"
+                {
+                    token visibility = "invisible"
+                }
+            }
+        }
     }
 
     def "shelf_L2" (
@@ -496,6 +523,7 @@ def Xform "World"
     {
         float3 xformOp:rotateXYZ = (0, 0, 0)
         float3 xformOp:scale = (1, 1, 1)
+        double3 xformOp:translate = (-0.5275516843299711, 0.3465862982886536, 0)
         float3 xformOp:translate:pivot = (0, 0, 0)
         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
     }
@@ -506,6 +534,7 @@ def Xform "World"
     {
         float3 xformOp:rotateXYZ = (0, 0, 0)
         float3 xformOp:scale = (1, 1, 1)
+        double3 xformOp:translate = (1.0208668076686216, 1.9598456646528648, -1.474376176702208e-13)
         float3 xformOp:translate:pivot = (0, 0, 0)
         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
     }
@@ -516,6 +545,29 @@ def Xform "World"
     {
         float3 xformOp:rotateXYZ = (0, 0, 0)
         float3 xformOp:scale = (1, 1, 1)
+        double3 xformOp:translate = (1.0179110884100624, -2.5110015906969827, -1.4210854715202004e-14)
+        float3 xformOp:translate:pivot = (0, 0, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+    }
+
+    def "puck_box_green_0" (
+        prepend payload = @./puck/box/puck_box_green_0.usda@
+    )
+    {
+        float3 xformOp:rotateXYZ = (0, 0, 0)
+        float3 xformOp:scale = (1, 1, 1)
+        double3 xformOp:translate = (0, 0, 0)
+        float3 xformOp:translate:pivot = (0, 0, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+    }
+
+    def "puck_cyl_green_2" (
+        prepend payload = @./puck/cyl/puck_cyl_green_2.usda@
+    )
+    {
+        float3 xformOp:rotateXYZ = (0, 0, 0)
+        float3 xformOp:scale = (1, 1, 1)
+        double3 xformOp:translate = (0, 0, 0)
         float3 xformOp:translate:pivot = (0, 0, 0)
         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
     }
@@ -579,6 +631,7 @@ def "Render" (
             )
             {
                 rel camera = </World/beebot/Geometry/base_footprint/base_link/pole_front_cam_link/pole_front_cam_color_optical_frame/pole_front_cam_rgb>
+                bool omni:rtx:rt:ecoMode:enabled
                 rel orderedVars = </Render/Vars/LdrColor>
                 custom bool overrideClipRange = 0
                 uniform int2 resolution = (640, 360)
@@ -634,10 +687,10 @@ over "OmniverseKit_Persp" (
     float exposure:time = 0.02
     float focalLength = 18.147562
     float focusDistance = 400
-    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -1.7642627030619746)
-    float3 xformOp:rotateXYZ = (67.052765, -1.1207479e-12, 4.064853)
+    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -2.0957856503059675)
+    float3 xformOp:rotateXYZ = (50.910847, -1.0941108e-12, -7.736223)
     float3 xformOp:scale = (1, 1, 1)
-    double3 xformOp:translate = (-1.8609239761363081, -3.552728326621407, 0.7469819308991473)
+    double3 xformOp:translate = (-2.1809602771973235, -3.8196984700861316, 1.551683837592069)
     uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
 }
 
