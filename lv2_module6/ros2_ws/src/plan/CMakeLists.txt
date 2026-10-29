@@ -30,15 +30,13 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   msg/SubGoal.msg
   msg/SubGoalArray.msg
   msg/TaskStatus.msg
-  msg/MissionSignal.msg
   DEPENDENCIES std_msgs)
 rosidl_get_typesupport_target(msgs_cpp ${PROJECT_NAME} rosidl_typesupport_cpp)
 include_directories(include)
 
 # --- 노드: 클래스 구현(src/<노드>.cpp)은 라이브러리 하나로 묶고, 실행 파일(src/<노드>_main.cpp)과 테스트가 함께 링크
 #     선언·설명은 include/plan/<노드>.hpp
-add_library(${PROJECT_NAME}_nodes STATIC src/user_input.cpp src/vlm_task_planner.cpp src/coordinator.cpp src/explorer.cpp
-  src/signal_decoder.cpp)
+add_library(${PROJECT_NAME}_nodes STATIC src/user_input.cpp src/vlm_task_planner.cpp src/coordinator.cpp src/explorer.cpp)
 target_include_directories(${PROJECT_NAME}_nodes PUBLIC include)
 target_compile_features(${PROJECT_NAME}_nodes PUBLIC cxx_std_17)
 target_link_libraries(${PROJECT_NAME}_nodes PUBLIC rclcpp::rclcpp rclcpp_action::rclcpp_action
@@ -47,11 +45,11 @@ target_link_libraries(${PROJECT_NAME}_nodes PUBLIC rclcpp::rclcpp rclcpp_action:
   ${moveit_msgs_TARGETS} ${control_msgs_TARGETS} ${shape_msgs_TARGETS}
   ${perception_TARGETS} ${control_TARGETS} ${ml_TARGETS} ${msgs_cpp} diagnostic_updater::diagnostic_updater
   ${OpenCV_LIBS})
-foreach(node user_input vlm_task_planner coordinator explorer signal_decoder)
+foreach(node user_input vlm_task_planner coordinator explorer)
   add_executable(${node} src/${node}_main.cpp)
   target_link_libraries(${node} ${PROJECT_NAME}_nodes)
 endforeach()
-install(TARGETS user_input vlm_task_planner coordinator explorer signal_decoder DESTINATION lib/${PROJECT_NAME})
+install(TARGETS user_input vlm_task_planner coordinator explorer DESTINATION lib/${PROJECT_NAME})
 
 # 파라미터 (bringup이 share/plan/config/plan.yaml을 노드에 넘긴다)
 install(DIRECTORY config DESTINATION share/${PROJECT_NAME})
@@ -63,8 +61,6 @@ if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   ament_add_gtest(test_coordinator test/test_coordinator.cpp TIMEOUT 60 ENV ROS_DOMAIN_ID=104)
   target_link_libraries(test_coordinator ${PROJECT_NAME}_nodes)
-  ament_add_gtest(test_signal test/test_signal.cpp TIMEOUT 60)
-  target_link_libraries(test_signal ${PROJECT_NAME}_nodes)
   ament_add_gtest(test_explorer test/test_explorer.cpp TIMEOUT 60 ENV ROS_DOMAIN_ID=110)
   target_link_libraries(test_explorer ${PROJECT_NAME}_nodes)
   ament_add_test(test_launch GENERATE_RESULT_FOR_RETURN_CODE_ZERO

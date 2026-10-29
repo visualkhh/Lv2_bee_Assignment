@@ -162,7 +162,7 @@ string reason       # grasp_failed_all | nav_failed | arm_contact ...
 - 주의: [노드 사전](project/ros/10-catalog.md)의 reason 예시(`nav_blocked`)와 파일(`nav_failed`)이 다릅니다 — 파일이 정본.
 
 <a id="api-msg-missionsignal"></a>
-### plan/msg/MissionSignal ([파일](../lv2_module6/ros2_ws/src/plan/msg/MissionSignal.msg))
+### perception/msg/MissionSignal ([파일](../lv2_module6/ros2_ws/src/perception/msg/MissionSignal.msg))
 
 ```text
 string color      # 1단계: 옮길 퍽 색 (red | green | yellow — 깜빡인 색)
@@ -172,8 +172,8 @@ int32 dest_tag    # 3단계: 목적지 장소 태그 번호 (노랑 1·2·3번 �
 string raw        # 읽은 깜빡임 그대로 (예: "R R | R Y G G R | Y Y") — 확인용
 ```
 
-- 내는 쪽: signal_decoder → `/mission/signal` (reliable + transient_local, 확정될 때마다). 받는 쪽: vlm_task_planner.
-- 신호등 미션 규칙은 [mission/README.md](mission/README.md). 단계 구분(세 색 동시 `separator_s` · 꺼짐 `gap_s`)·색 점수·목적지 태그는 [plan.yaml](../lv2_module6/ros2_ws/src/plan/config/plan.yaml) `signal_decoder` 파라미터 (발제 미정 — 제안값).
+- 내는 쪽: signal_decoder (perception — 인지가 신호를 해석해 미션 토픽으로 냄. `/mission/qr`와 같은 자리) → `/mission/signal` (reliable + transient_local, 확정될 때마다). 받는 쪽: vlm_task_planner.
+- 신호등 미션 규칙은 [mission/README.md](mission/README.md). 단계 구분(세 색 동시 `separator_s` · 꺼짐 `gap_s`)·색 점수·목적지 태그는 [perception.yaml](../lv2_module6/ros2_ws/src/perception/config/perception.yaml) `signal_decoder` 파라미터 (발제 미정 — 제안값).
 
 <a id="api-msg-armsafetyevent"></a>
 ### control/msg/ArmSafetyEvent ([파일](../lv2_module6/ros2_ws/src/control/msg/ArmSafetyEvent.msg))
@@ -248,7 +248,7 @@ string message
 | --- | --- | --- | --- |
 | `/cmd/user_command` | std_msgs/String | user_input → vlm_task_planner | 명령마다 · reliable |
 | `/mission/qr` | std_msgs/String | perception → vlm_task_planner | 장소 바코드(작업 지시 문자열, 예 `P2-01`) · QR — 읽은 내용이 바뀔 때만 · reliable + transient_local. VLM이 해석 |
-| `/mission/signal` | plan/MissionSignal | signal_decoder → vlm_task_planner | 신호등 암호 미션 답 {color, count, sum, dest_tag, raw} — 확정될 때마다 · reliable + transient_local. planner가 규칙으로 계획 (번호 모르면 inspect → 조합 → 적재함 → 목적지 장소 → **수납 확인**: 옮긴 직후와 `verify_period_s`마다 목적지로 가서 옮긴 번호가 `verify_radius_m` 안에 있는지 보고, 다른 곳에 있으면 다시 옮김 · 없으면 say) |
+| `/mission/signal` | perception/MissionSignal | signal_decoder (perception) → vlm_task_planner | 신호등 암호 미션 답 {color, count, sum, dest_tag, raw} — 확정될 때마다 · reliable + transient_local. planner가 규칙으로 계획 (번호 모르면 inspect → 조합 → 적재함 → 목적지 장소 → **수납 확인**: 옮긴 직후와 `verify_period_s`마다 목적지로 가서 옮긴 번호가 `verify_radius_m` 안에 있는지 보고, 다른 곳에 있으면 다시 옮김 · 없으면 say) |
 | `/robot/say` | std_msgs/String | coordinator → user_input | 알릴 때 · reliable |
 | `/task/sub_goals` | plan/SubGoalArray | vlm_task_planner → coordinator | 계획마다 · reliable + transient_local. target = 물체 id · `"x,y"`(navigate) · **`"tray"`(pick·place — 로봇 뒤 적재함: place tray = 다음 칸에 싣기, pick tray = 나중에 실은 것부터 꺼내기, 최대 4칸)** · 퍽 id(inspect) · 말할 내용(say) |
 | `/task/status` | plan/TaskStatus | coordinator → vlm_task_planner, user_input | 단계 완료·실패 시 · reliable + transient_local |
@@ -269,7 +269,7 @@ string message
 | `/odometry/filtered` | nav_msgs/Odometry | ekf → rtabmap, bt_navigator, controller_server, rl_nav_tuner | 50Hz |
 | `/tf` (map→odom) | tf2_msgs/TFMessage | rtabmap → 전체 | 위치 찾을 때만 (없으면 coordinator가 대기) |
 | `/tf` (odom→base_footprint) | tf2_msgs/TFMessage | ekf → 전체 | 연속 |
-| `/collision_monitor_state` | nav2_msgs/CollisionMonitorState | collision_monitor → RViz, coordinator | 걸린 다각형 표시 |
+| `/collision_monitor_state` | nav2_msgs/CollisionMonitorState | collision_monitor → RViz | 걸린 다각형 표시 |
 
 ### 베이스 명령 체인 ([06](project/ros/06-base.md))
 
@@ -294,11 +294,11 @@ string message
 
 | 이름 | 타입 | 보내는 쪽 → 받는 쪽 | 주기 · QoS |
 | --- | --- | --- | --- |
-| `/cmd/operation_mode` | std_msgs/String | 시뮬레이터 · 운영자 → state_manager | MANUAL · AUTO · EXPLORE(자동 탐사 — 지도 모드 MAPPING일 때만 허락) — 조작 모드 명령 (외부 명령은 `/cmd/<이름>`(보내고 끝 — cmd_vel 관례), 결과는 `/state/<이름>` — 둘 다 state_manager만 구독·발행) |
+| `/cmd/operation_mode` | std_msgs/String | 시뮬레이터 · 운영자 → state_manager | MANUAL · AUTO · EXPLORE(자동 탐사 — 지도 모드 MAPPING일 때만 허락) · TEACH(팔 토크 끄고 손으로 자세 — MAPPING이 아닐 때만) — 조작 모드 명령 (외부 명령은 `/cmd/<이름>`(보내고 끝 — cmd_vel 관례), 결과는 `/state/<이름>` — 둘 다 state_manager만 구독·발행) |
 | `/cmd/manual/cmd_vel` | geometry_msgs/TwistStamped | teleop_twist_keyboard · 시뮬레이터 → manual_control | 수동일 때만 넘김, 0.5초 끊기면 0 |
 | `/cmd/manual/arm` | sensor_msgs/JointState | 시뮬레이터 · 운영자 → manual_control | joint1~5 rad · gripper_left_joint m |
 | `/cmd/manual/reboot_motors` | std_msgs/Empty | 시뮬레이터 · 운영자 → manual_control | 수동 모드에서만. Hardware Error(과부하·과열 등) 난 DYNAMIXEL만 재부팅 → 📞 `/beebotsystem/reboot_motors` (std_srvs/Trigger) → 펌웨어 `R`. 결과는 manual_control 진단 |
-| `/state/operation_mode` | std_msgs/String (transient_local) | state_manager → manual_control · coordinator · explorer · vlm_task_planner | AUTO · MANUAL · EXPLORE (AUTO가 아니면 coordinator는 작업 멈춤, EXPLORE면 explorer가 탐사, planner의 주기 수납 확인은 AUTO일 때만) |
+| `/state/operation_mode` | std_msgs/String (transient_local) | state_manager → manual_control · coordinator · explorer · vlm_task_planner | AUTO · MANUAL · EXPLORE · TEACH (TEACH면 manual_control이 팔 토크를 끄고 나갈 때 켬, AUTO가 아니면 coordinator는 작업 멈춤, EXPLORE면 explorer가 탐사, planner의 주기 수납 확인은 AUTO일 때만) |
 | `/state/devices` | std_msgs/String (transient_local) | state_manager → 시뮬레이터 · 누구나 | **장치 이름만 쉼표 구분** — `pole_front_cam,gripper_cam,opencr,imu,wheels,arm,gripper` · 상태가 아니라 목록 (2초마다 확인, 바뀔 때만) |
 | `/state/devices/<이름>` | std_msgs/String (transient_local) | state_manager → 시뮬레이터 · 누구나 | 장치별 상세 — `종류\|active · disconnected · error\|세부 토픽·관절` (예: `camera\|disconnected\|/pole_front_cam/...`) · 장치마다 동적 토픽. `wheels`·`arm`·`gripper`는 그 관절 DYNAMIXEL에 Hardware Error가 있으면 `error` + 세부 끝에 `joint2:과부하` (원본은 `/motor_status`, 재부팅 `/cmd/manual/reboot_motors`) |
 | `/state/topics` | std_msgs/String (transient_local) | state_manager → 시뮬레이터 · 누구나 | 전체 ROS 그래프 — `토픽\|타입\|publisher 수` 줄들. `/state/devices`에 없는 새 센서도 여기서 찾음 |
@@ -324,9 +324,9 @@ string message
 | 이름 | 타입 | 보내는 쪽 → 받는 쪽 | 주기 |
 | --- | --- | --- | --- |
 | `/arm_controller/follow_joint_trajectory` | 액션이지만 토픽 아님 — [§3](#3-액션-목록) 참조 | move_group → arm_controller | 궤적마다 |
-| `/joint_states` | sensor_msgs/JointState | joint_state_broadcaster → robot_state_publisher, move_group, arm_safety_monitor | 100Hz |
+| `/joint_states` | sensor_msgs/JointState | joint_state_broadcaster → robot_state_publisher, move_group, arm_safety_monitor(전류 감시), coordinator(현재 팔 각), manual_control(수동 팔 기준 각), state_manager(OpenCR 살아 있나), scan_cam_gate(스캔 자세인가) | 100Hz |
 | `/arm_safety_event` | control/ArmSafetyEvent | arm_safety_monitor → coordinator | 접촉 시 |
-| `/monitored_planning_scene` | moveit_msgs/PlanningScene | move_group → coordinator(MTC), RViz | 갱신 시 |
+| `/monitored_planning_scene` | moveit_msgs/PlanningScene | move_group → RViz | 갱신 시 |
 | `/arm_controller/controller_state` | control_msgs/JointTrajectoryControllerState | arm_controller → 모니터링·RViz | 상태 표시 |
 
 ### ros2_control·진단 ([08](project/ros/08-ctrl.md))
@@ -349,13 +349,13 @@ string message
 
 | 이름 | 타입 | 요청 → 서버 | 용도 |
 | --- | --- | --- | --- |
-| `/navigate_to_pose` | nav2_msgs/action/NavigateToPose | coordinator → bt_navigator | 이동 단계마다. feedback: 남은 거리 |
+| `/navigate_to_pose` | nav2_msgs/action/NavigateToPose | coordinator · explorer → bt_navigator | 이동 단계마다 (explorer = 탐색 모드 목표). feedback: 남은 거리 |
 | `/compute_path_to_pose` | nav2_msgs/action/ComputePathToPose | bt_navigator → planner_server | 약 1Hz 재계획 |
 | `/follow_path` | nav2_msgs/action/FollowPath | bt_navigator → controller_server | 경로 변경 시 |
 | `/spin`, `/backup`, `/wait` | nav2_msgs/action/Spin · BackUp · Wait | bt_navigator → behavior_server | 복구 시. BackUp은 0.1m 이하로 제한 (뒤를 못 봄) |
-| `/execute_task_solution` | moveit_task_constructor_msgs/action/ExecuteTaskSolution | coordinator(MTC 태스크) → move_group | pick·place마다 |
-| `/arm_controller/follow_joint_trajectory` | control_msgs/action/FollowJointTrajectory | move_group → arm_controller | MTC 단계마다 |
-| `/gripper_controller/gripper_cmd` | control_msgs/action/GripperCommand | move_group(MTC) → gripper_controller | 열기·닫기. 결과 stalled로 빈손 판단 |
+| `/execute_trajectory` | moveit_msgs/action/ExecuteTrajectory | coordinator → move_group | pick·place·inspect 단계마다 — `/plan_kinematic_path`로 받은 궤적 실행 (MTC 안 씀) |
+| `/arm_controller/follow_joint_trajectory` | control_msgs/action/FollowJointTrajectory | move_group → arm_controller | `/execute_trajectory` 실행 때 (moveit_controllers.yaml엔 arm_controller만) |
+| `/gripper_controller/gripper_cmd` | control_msgs/action/ParallelGripperCommand | coordinator · manual_control → gripper_controller | 열기·닫기 (position = 손가락 하나 이동량 m). MoveIt을 거치지 않음 — parallel_gripper_action_controller. 결과 stalled로 빈손 판단 |
 
 <a id="api-services"></a>
 ## 4. 서비스 목록
@@ -363,17 +363,22 @@ string message
 | 이름 | 타입 | 호출 → 서버 | 용도 |
 | --- | --- | --- | --- |
 | `/score_grasps` | ml/srv/ScoreGrasps | coordinator → grasp_scorer | pick 직전 1회 |
+| `/collision_monitor/toggle` | nav2_msgs/srv/Toggle | manual_control → collision_monitor | `/state/operation_mode`가 MANUAL이면 끔(속도 명령 그대로 통과 — 근접 정지 없음) · 나가면 켬. 비상정지 잠금(twist_mux)·가속 제한(velocity_smoother)은 수동도 그대로. collision_monitor가 다시 뜨면 다시 보냄 |
+| `/beebotsystem/set_arm_torque` | std_srvs/srv/SetBool | manual_control → BeebotSystemHardware | 운영 모드 TEACH에 들어가면 팔(joint1~5)·그리퍼 토크 끔 · 나가면 JTC·그리퍼 목표를 지금 값으로 맞춘 뒤 켬 (펌웨어 `T`, 바퀴 그대로). 직접 부르면 켤 때 팔이 예전 목표로 튈 수 있음 — `/cmd/operation_mode TEACH`로 |
 | `/beebotsystem/reboot_motors` | std_srvs/srv/Trigger | manual_control(`/cmd/manual/reboot_motors`) → BeebotSystemHardware | Hardware Error 난 DYNAMIXEL만 재부팅 (펌웨어 `R` 줄) — 운영자는 토픽 `/cmd/manual/reboot_motors`로 (수동 모드에서만) |
-| `/compute_ik` | moveit_msgs/srv/GetPositionIK | grasp_scorer → move_group | 후보마다 도달 가능 여부 |
+| `/plan_kinematic_path` | moveit_msgs/srv/GetMotionPlan | coordinator → move_group | pick·place·inspect 단계마다 팔 궤적 계획 → `/execute_trajectory` |
 | `/apply_planning_scene` | moveit_msgs/srv/ApplyPlanningScene | coordinator → move_group | pick 전 퍽·장애물 등록 |
 | `/clear_octomap` | std_srvs/srv/Empty | coordinator → move_group | pick 직전 octomap 초기화 |
 | `/controller_server/set_parameters` | rcl_interfaces/srv/SetParameters | rl_nav_tuner → controller_server | FollowPath.max_vel_theta 등 (실행 중 반영되는 것만) |
-| `/local_costmap/local_costmap/set_parameters` | rcl_interfaces/srv/SetParameters | coordinator → controller_server | 퍽을 들면 footprint 확장 |
+| `/rtabmap/rtabmap/set_mode_mapping` · `/rtabmap/rtabmap/set_mode_localization` | std_srvs/srv/Empty | state_manager → rtabmap | `/cmd/map_mode`에 따라 매핑 ↔ 위치추정 전환 |
+| `/rtabmap/rtabmap/load_database` | rtabmap_msgs/srv/LoadDatabase | state_manager → rtabmap | 저장 지도(`<map_dir>/<이름>/rtabmap.db`) 불러오기 |
 | `/arm_controller/follow_joint_trajectory/_action/cancel_goal` | action_msgs/srv/CancelGoal | arm_safety_monitor → arm_controller | 빈 goal_id = 전체 취소 → JTC 현재 자세 유지 |
 | `/controller_manager/load_controller` 등 | controller_manager_msgs/srv/* | spawner → controller_manager | load · configure · switch · list (기동 시) |
 | `*/change_state` | lifecycle_msgs/srv/ChangeState | lifecycle_manager → Nav2 서버들 | configure → activate |
 | `/lifecycle_manager_navigation/manage_nodes` | nav2_msgs/srv/ManageLifecycleNodes | 운영자·launch → lifecycle_manager | 주행 계획 서버 (planner · controller · behavior · bt_navigator) 시작·정지·리셋 |
 | `/lifecycle_manager_base/manage_nodes` | nav2_msgs/srv/ManageLifecycleNodes | 운영자·launch → lifecycle_manager | 바퀴 명령 체인 (velocity_smoother · collision_monitor) 시작·정지·리셋 — 지도 없이도 뜸 |
+
+- 아직 코드에 없는 것 (설계만): grasp_scorer → `/compute_ik`(후보 도달 검사 — 지금은 고정 후보), coordinator → `/local_costmap/local_costmap/set_parameters`(퍽을 들면 footprint 확장 — coordinator.hpp TODO).
 
 <a id="api-tf"></a>
 ## 5. TF

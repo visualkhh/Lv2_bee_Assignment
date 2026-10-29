@@ -2,7 +2,7 @@
 
 // vlm_task_planner (🛠 직접 작성, 담당: 권형중) — 설계: documents/project/ros/03-plan.md
 //   입력: /cmd/user_command (명령), /mission/qr (장소 바코드 작업 지시 — perception), /tracked_objects (지금 보이는 물체),
-//         /task/status (FAILED면 재계획), /mission/signal (신호등 암호 미션 — signal_decoder)
+//         /task/status (FAILED면 재계획), /mission/signal (신호등 암호 미션 — perception signal_decoder)
 //   출력: /task/sub_goals (plan/SubGoalArray, reliable + transient_local) → coordinator
 // VLM은 "무엇을, 어떤 순서로"만 정한다. 어떻게 움직일지·파지 후보 재시도는 coordinator 몫.
 // VLM 경로: vlm_endpoint가 비어 있지 않으면 호스트 ai-service에 POST /plan (계약: lv2_module6/ai-service/README)
@@ -26,7 +26,7 @@
 #include "diagnostic_updater/diagnostic_updater.hpp"
 #include "perception/msg/tracked_object_array.hpp"
 #include "plan/msg/sub_goal_array.hpp"
-#include "plan/msg/mission_signal.hpp"
+#include "perception/msg/mission_signal.hpp"
 #include "plan/msg/task_status.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/image.hpp"
@@ -72,7 +72,7 @@ struct SignalPlan {
   std::vector<int> carry_tags;  // carry일 때 옮기는 퍽 번호 (수납 확인용)
   std::string why;
 };
-SignalPlan signal_plan(const TrackedObjectArray & objs, const plan::msg::MissionSignal & sig, double rx, double ry,
+SignalPlan signal_plan(const TrackedObjectArray & objs, const perception::msg::MissionSignal & sig, double rx, double ry,
   const std::set<uint32_t> & inspected, int capacity);
 
 // 수납 확인 한 번 판단 — 목적지 장소(location, dest_tag) 근처 radius 안에 tags(옮긴 퍽 번호)가 다 있는지
@@ -148,8 +148,8 @@ private:
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr qr_sub_;
   rclcpp::Subscription<TrackedObjectArray>::SharedPtr objects_sub_;
   rclcpp::Subscription<TaskStatus>::SharedPtr status_sub_;
-  rclcpp::Subscription<plan::msg::MissionSignal>::SharedPtr signal_sub_;
-  plan::msg::MissionSignal signal_;
+  rclcpp::Subscription<perception::msg::MissionSignal>::SharedPtr signal_sub_;
+  perception::msg::MissionSignal signal_;
   bool signal_active_ = false;          // 신호등 미션 진행 중 (옮기기 끝나거나 조합 없음이면 끝)
   std::set<uint32_t> inspected_;        // 이번 미션에서 inspect한 퍽 (같은 퍽을 다시 보지 않게)
   std::string plan_kind_;               // 마지막으로 낸 계획 종류 (inspect면 끝난 뒤 이어서 판단)

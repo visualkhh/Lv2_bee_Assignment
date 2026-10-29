@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Fast DDS 프로파일 — 한 기기 안에서만 (실기 Jetson 격리용). fastdds.xml과 같고 UDP만 뺐다: 전송 = 공유 메모리(SHM)뿐.
+  쓰는 법 (Jetson ~/.bashrc — bringup·run-cli·ros2 명령이 모두 같은 파일을 써야 서로 보인다):
+    export FASTDDS_DEFAULT_PROFILES_FILE=$HOME/Lv2_bee_Assignment/lv2_module6/ros2_ws/fastdds_local.xml
+    export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET   # 기본값 — 전송이 SHM뿐이라 밖으로 안 나감
+    (ROS_LOCALHOST_ONLY · ROS_DISCOVERY_SERVER는 쓰지 않음)
+  왜: 노드 찾기(discovery)도 SHM으로 돌아 네트워크에 아무것도 안 나간다 (노드 UDP 소켓 0개 — 테스트베드 실측).
+    LOCALHOST 범위는 Fast DDS가 localhost 참가자 몇 개에만 discovery를 보내 노드 40여 개 중 일부가 안 보였고,
+    Discovery Server는 서비스 응답이 요청자를 찾기 전에 버려져(failed to send response … timeout)
+    lifecycle_manager가 velocity_smoother·collision_monitor를 못 켜 텔레오퍼가 안 움직였다 (2026-10-26 실기).
+  한계: PC에서 Jetson 토픽을 직접 볼 수 없다 (RViz는 Jetson에서 띄워 원격 데스크톱으로). type_propagation·SHM 32MB 이유는 fastdds.xml. -->
+<dds xmlns="http://www.eprosima.com">
+  <profiles>
+    <transport_descriptors>
+      <transport_descriptor>
+        <transport_id>beebot_shm</transport_id>
+        <type>SHM</type>
+        <segment_size>33554432</segment_size>
+        <maxMessageSize>4194304</maxMessageSize>
+      </transport_descriptor>
+    </transport_descriptors>
+    <participant profile_name="beebot_local" is_default_profile="true">
+      <rtps>
+        <userTransports>
+          <transport_id>beebot_shm</transport_id>
+        </userTransports>
+        <useBuiltinTransports>false</useBuiltinTransports>
+        <propertiesPolicy>
+          <properties>
+            <property><name>fastdds.type_propagation</name><value>disabled</value></property>
+          </properties>
+        </propertiesPolicy>
+      </rtps>
+    </participant>
+  </profiles>
+</dds>

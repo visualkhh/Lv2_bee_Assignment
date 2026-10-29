@@ -1,9 +1,9 @@
-// signal_decoder 구현 — 노드 설명·입출력·멤버 선언은 include/plan/signal_decoder.hpp, main은 signal_decoder_main.cpp
-#include "plan/signal_decoder.hpp"
+// signal_decoder 구현 — 노드 설명·입출력·멤버 선언은 include/perception/signal_decoder.hpp, main은 signal_decoder_main.cpp
+#include "perception/signal_decoder.hpp"
 
 #include <algorithm>
 
-namespace plan {
+namespace perception {
 
 namespace {
 bool is_color(const std::string & s) { return s == "red" || s == "yellow" || s == "green"; }
@@ -118,4 +118,4 @@ void SignalDecoderNode::on_objects(const perception::msg::TrackedObjectArray & m
     out.raw.c_str(), out.color.c_str(), out.count, out.sum, out.dest_tag);
 }
 
-}  // namespace plan
+}  // namespace perception

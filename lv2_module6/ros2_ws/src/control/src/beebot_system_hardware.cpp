@@ -79,6 +79,11 @@ CallbackReturn BeebotSystemHardware::on_configure(const rclcpp_lifecycle::State 
       "~/reboot_motors", [this](const std_srvs::srv::Trigger::Request::SharedPtr req,
                                 std_srvs::srv::Trigger::Response::SharedPtr res) { reboot_motors(req, res); });
   }
+  if (!torque_srv_ && get_node()) {  // ~/set_arm_torque — 팔(joint1~5)·그리퍼 토크 끄기·켜기 (펌웨어 T) — 손으로 자세 잡기
+    torque_srv_ = get_node()->create_service<std_srvs::srv::SetBool>(
+      "~/set_arm_torque", [this](const std_srvs::srv::SetBool::Request::SharedPtr req,
+                                 std_srvs::srv::SetBool::Response::SharedPtr res) { set_arm_torque(req, res); });
+  }
   return mock_ || open_port() ? CallbackReturn::SUCCESS : CallbackReturn::ERROR;
 }
 
@@ -147,6 +152,8 @@ void BeebotSystemHardware::report(diagnostic_updater::DiagnosticStatusWrapper & 
     s.mergeSummary(DiagnosticStatus::WARN, "모터 온도 높음: " + hot + " (" + std::to_string(TEMP_WARN_C) + "°C 이상 — 80°C면 과열로 멈춤)");
   if (!mock_ && !errors.empty())
     s.mergeSummary(DiagnosticStatus::ERROR, "모터 에러: " + errors + " → ~/reboot_motors 서비스로 재부팅");
+  if (!mock_ && !arm_torque_.load()) s.mergeSummary(DiagnosticStatus::WARN, "팔·그리퍼 토크 꺼짐 (손으로 자세 잡기)");
+  s.add("팔·그리퍼 토크", arm_torque_.load() ? "켬" : "끔");
   s.add("mock", mock_);
   s.add("port", port_);
   s.add("마지막 S [s 전]", mock_ ? 0.0 : age);
@@ -320,7 +327,29 @@ void BeebotSystemHardware::reboot_motors(const std_srvs::srv::Trigger::Request::
   RCLCPP_WARN(get_logger(), "%s", res->message.c_str());
 }
 
+void BeebotSystemHardware::set_arm_torque(const std_srvs::srv::SetBool::Request::SharedPtr req,
+                                          std_srvs::srv::SetBool::Response::SharedPtr res) {
+  if (mock_) {
+    res->success = false;
+    res->message = "mock — 토크 없음";
+    return;
+  }
+  torque_req_ = req->data ? 1 : 0;  // write()가 다음 주기에 T 줄로 보냄 (시리얼 쓰기는 제어 주기 한 곳에서만)
+  res->success = true;
+  res->message = req->data ? "팔·그리퍼 토크 켬 (지금 자세를 목표로)" : "팔·그리퍼 토크 끔 — 손으로 자세를 잡을 수 있음 (팔이 처질 수 있으니 잡고 있을 것)";
+  RCLCPP_WARN(get_logger(), "%s", res->message.c_str());
+}
+
 return_type BeebotSystemHardware::write_serial() {
+  if (const int t = torque_req_.exchange(-1); t >= 0) {  // T,<바퀴L>,<바퀴R>,<j1>…<j5>,<그리퍼> — 바퀴 빈칸 = 그대로
+    std::string line = "T,,";
+    for (size_t i = 0; i < ARM.size(); ++i) line += t ? ",1" : ",0";  // joint1~5 + 그리퍼
+    line += '\n';
+    if (::write(fd_, line.data(), line.size()) < 0 && errno != EAGAIN)
+      RCLCPP_ERROR(get_logger(), "OpenCR T 쓰기 실패: %s", strerror(errno));
+    else
+      arm_torque_ = t != 0;
+  }
   if (const uint32_t mask = reboot_mask_.exchange(0)) {  // R,<8필드> — 고른 모터만 1
     std::string r = "R";
     for (size_t i = 0; i < MOTORS; ++i) r += (mask & (1u << i)) ? ",1" : ",";

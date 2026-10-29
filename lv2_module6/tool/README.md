@@ -78,7 +78,7 @@ cd tool
   6) 그리퍼
   7) 지도
   8) 비상정지
-  9) 재시작
+  9) 노드 (상태 · 재시작 · 전체 재시작)
  10) RViz 열기 (Best Effort QoS)
   q) 종료
 ```
@@ -179,7 +179,11 @@ cd tool
 ./run-cli arm set joint1=0.0 joint2=0.4 joint3=-0.2
 ./run-cli arm delta joint2=+0.05
 ./run-cli arm home
+./run-cli arm initial       # 시작 자세로 — 떠 있는 coordinator의 initial_pose·initial_gripper (없으면 plan.yaml) (메뉴: 팔 → 7)
 ./run-cli arm reboot          # 과부하 등 Hardware Error 난 모터만 재부팅 (메뉴: 팔 → 5)
+./run-cli mode teach          # TEACH: 팔(joint1~5)·그리퍼 토크 끔 — 손으로 자세 잡기 (팔이 처지니 잡고 있을 것)
+./run-cli arm capture         # 지금 팔·그리퍼 자세를 plan.yaml initial_pose·initial_gripper 줄로 출력 (파일은 안 고침)
+./run-cli mode manual         # TEACH를 나가면 그 자리에서 토크 켬 (튀지 않게 목표를 지금 각으로 먼저 맞춤)
 
 ./run-cli gripper show
 ./run-cli gripper open
@@ -190,6 +194,7 @@ cd tool
 - `arm set`은 지정한 관절만 보내고, 나머지는 `manual_control`이 현재 각으로 채웁니다.
 - `MAPPING` 중에는 팔 명령이 스캔 자세 고정 때문에 거절됩니다. 그리퍼는 가능합니다.
 - 관절 한계는 `controller_manager`의 joint limiter가 최종 적용합니다.
+- 시작 자세 다시 잡기: 메뉴 **팔 → 6** — TEACH로 바꿈(팔·그리퍼 토크 끔) → 손으로 자세 → 확인 → `initial_pose`·`initial_gripper` 줄 출력 → 바로 MANUAL로(그 자리에서 토크 켬). 출력된 줄을 `ros2_ws/src/plan/config/plan.yaml`(coordinator)에 직접 붙여 넣고 bringup을 재시작하면 시작 자세가 됩니다. MANUAL은 토크가 늘 켜져 있고, 토크를 푸는 건 운영 모드 **TEACH**뿐입니다(메뉴 조작 모드 → 4). TEACH 동안 수동 바퀴·팔·그리퍼 명령과 자동 작업·시작 자세 이동은 멈추고, 바퀴 토크는 그대로입니다. 지도 MAPPING 중에는 TEACH가 거절됩니다.
 - `arm reboot`은 `/state/devices/<wheels·arm·gripper>`에서 모터 에러(`joint2:과부하`)를 보고, 있으면 `/cmd/manual/reboot_motors`를 보낸 뒤 풀릴 때까지(최대 8초) 기다립니다. 에러가 없으면 보내지 않습니다. MANUAL 모드에서만 동작하며, 팔 메뉴에도 에러가 빨간색으로 표시됩니다.
 
 ### 지도
@@ -208,14 +213,19 @@ cd tool
 `map save`는 `/map_saver/save_map` 서비스를 호출해 `.pgm`·`.yaml`을 저장합니다.
 기본 경로는 `ros2_ws/map/<현재 지도 이름>/map`입니다.
 
-### 재시작
+### 노드 (상태 · 재시작)
 
 ```bash
-./run-cli restart all --yes
-./run-cli restart perception --yes
+./run-cli node list                          # 노드 전부 — ● 보임 / ✗ 안 보임 · pid · 수명주기 노드는 [active] 등
+./run-cli node status velocity_smoother      # 한 노드 상세 (pid · 수명주기 상태 · 발행/구독 수 · 진단)
+./run-cli node activate velocity_smoother    # 수명주기 노드 unconfigured·inactive → active
+./run-cli node restart perception --yes      # 그 노드만 다시 띄움 (수명주기 노드면 다시 뜬 뒤 active까지)
+./run-cli restart all --yes                  # 전체 재시작 — bringup launch 전체를 같은 명령으로 다시 띄움
 ```
 
-`--yes` 없이는 실행되지 않습니다. 전체 스택이 재시작되므로 주의합니다.
+- 메뉴 **9) 노드**: 맨 위 `a)` 전체 재시작(RESTART 입력), 그 아래 노드 목록. 노드를 고르면 1) 상태 보기 · 2) 재시작 · 3) 활성화(수명주기 노드만).
+- 수명주기 노드(velocity_smoother · collision_monitor · Nav2 서버)는 `lifecycle_manager_base`·`_navigation`이 기동 때 켭니다. 기동 중 응답 시간 초과 등으로 멈춰 `[unconfigured]`·`[inactive]`로 남으면 바퀴 명령이 `/cmd_vel`까지 못 가 텔레오퍼가 안 움직입니다 → 그 노드를 **3) 활성화**.
+- 재시작은 state_manager 재시작 목록(이 launch 아래 노드)에 있는 것만 됩니다. `--yes` 없이는 실행되지 않습니다.
 
 ## RViz
 
@@ -242,11 +252,11 @@ cd tool
 필요할 때 RViz Displays에서 켜세요.
 
 Jetson에서 로컬로 실행하면 네트워크를 타지 않습니다. PC에서 원격으로 볼 때는
-Jetson과 PC의 `ROS_DOMAIN_ID`를 맞추고, `ROS_LOCALHOST_ONLY`는 끄세요.
+PC도 Jetson과 같은 `ROS_DOMAIN_ID`(Jetson은 0)로 맞추고, `ROS_LOCALHOST_ONLY`는 끄세요.
 
 ```bash
-# Jetson과 PC 모두 같은 값
-export ROS_DOMAIN_ID=42
+# PC — Jetson과 같은 값
+export ROS_DOMAIN_ID=0
 ```
 
 느리면 RViz Image Display의 **Transport Hint**를 `compressed`로 바꾸거나

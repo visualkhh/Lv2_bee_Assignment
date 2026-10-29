@@ -110,7 +110,7 @@ class Ui:
         return run_select(self, title, items, center, back, main, timeout)
 
     def draw(self, title: str, left: list[str], center: list[str],
-                 back: bool = True, main: bool = True, poll: bool = True):
+                 back: bool = True, main: bool = True, poll: bool = True, focus: int | None = None):
         """4분할 화면: 상단 타이틀+상태바 고정 · 왼쪽 메뉴 · 중앙 내용 · 하단 힌트+입력.
 
         터미널 크기에 맞춰 다시 계산하므로 창을 늘리면 다음 그리기부터 넓어진다.
@@ -118,6 +118,7 @@ class Ui:
         전체 지우기 없이 커서를 맨 위로 옮겨 제자리에서 다시 그려 깜빡이지 않는다
         (처음·크기 변경 때만 전체 지우기).
         poll=False면 ROS 폴링을 건너뛴다 (방향키 연속 입력 때 0.3초 지연 방지).
+        focus: 왼쪽 메뉴에서 고른 줄 — 메뉴가 화면보다 길면 그 줄이 보이게 위아래로 스크롤한다.
         """
         if poll:
             self._poll(0.3)
@@ -150,7 +151,7 @@ class Ui:
         left_lines = list(left)
         center_lines = list(center)
         if len(left_lines) > body_h:
-            left_lines = left_lines[:body_h - 1] + [f'  … 외 {len(left_lines) - body_h + 1}줄']
+            left_lines = self._scroll(left_lines, body_h, focus)
         if len(center_lines) > body_h:
             center_lines = center_lines[:body_h - 1] + [f' … 외 {len(center_lines) - body_h + 1}줄']
         frame = list(top)
@@ -169,6 +170,19 @@ class Ui:
             self.console.write('\033[K' + ln if ln else '\033[K')
             self.console.write('\n')
         self.console.flush()
+
+    @staticmethod
+    def _scroll(lines: list[str], height: int, focus: int | None) -> list[str]:
+        """height줄 창으로 자르기 — focus 줄이 창 안에 오게, 잘린 쪽은 '↑ 위 N줄'·'↓ 아래 N줄'로 표시."""
+        if height < 3:
+            return lines[:height]
+        f = 0 if focus is None else max(0, min(focus, len(lines) - 1))
+        room = height - 2  # 위·아래 표시 줄 자리
+        start = max(0, min(f - room // 2, len(lines) - room))
+        view = lines[start:start + room]
+        above, below = start, len(lines) - start - len(view)
+        return ([f'  ↑ 위 {above}줄' if above else ''] + view +
+                [f'  ↓ 아래 {below}줄 (↓로 내리기)' if below else ''])
 
     def hints_line(self, back: bool = True, main: bool = True) -> str:
         """하단 고정 키 안내 — 모든 메뉴 공통 (최상위면 뒤로·메인 없음)."""
@@ -191,7 +205,7 @@ class Ui:
         ]
         op = self.operation or '?'
         mode = self.map_mode or '?'
-        op_c = {'AUTO': GREEN, 'MANUAL': YELLOW, 'EXPLORE': CYAN}.get(op, RED)
+        op_c = {'AUTO': GREEN, 'MANUAL': YELLOW, 'EXPLORE': CYAN, 'TEACH': RED}.get(op, RED)
         mode_c = {'MAPPING': YELLOW, 'LOCALIZATION': GREEN}.get(mode, '')
         op_txt = self.term.paint(op, op_c + BOLD)
         mode_txt = self.term.paint(mode, mode_c) if mode_c else self.term.paint(mode, DIM)

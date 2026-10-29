@@ -264,7 +264,7 @@ ros2 topic echo /task/status --qos-durability transient_local
 ~/Lv2_bee_Assignment/lv2_module6/tool/run-cli status --diagnostics vlm_task_planner
 ```
 
-- 신호가 안 잡힘: `/tracked_objects`에 `traffic_light`가 있고 `color`가 바뀌는지 (`all` = 세 색 동시 — 단계 구분). 단계 구분 시간은 `plan.yaml` `signal_decoder`.
+- 신호가 안 잡힘: `/tracked_objects`에 `traffic_light`가 있고 `color`가 바뀌는지 (`all` = 세 색 동시 — 단계 구분). 단계 구분 시간은 `perception.yaml` `signal_decoder`.
 - 계속 `wait`: 목적지 장소 태그(`location`, tag 12~14)를 아직 못 봤다. 퍽 번호(`details.tag`)는 gripper_cam이 위에서 봐야 읽힌다 (`inspect`).
 - 수납 확인은 옮긴 직후 한 번, 그 뒤 `verify_period_s`(기본 60초)마다 AUTO이고 하던 계획이 없을 때만 돈다.
 

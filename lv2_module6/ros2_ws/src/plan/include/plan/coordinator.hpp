@@ -141,8 +141,12 @@ private:
   void move_arm(const geometry_msgs::msg::PoseStamped & target, std::function<void(bool)> done, int tries_left = -1);
 
   // ---------- 시작 자세 — bringup 직후 한 번 팔을 initial_pose로 (MoveIt 없이 JTC 토픽)
+  //   못 가면 initial_pose_retries번만 다시 보내고 지금 자세로 멈춤 (걸린 채 계속 밀면 과부하)
+  //   initial_pose_enabled는 실행 중에도 바꿀 수 있음 (false → 바로 멈춤, true → 다시 시도)
   void check_initial_pose();
   bool at_initial_pose() const;
+  std::string initial_pose_error() const;  // 목표와 0.05rad 넘게 다른 관절 "joint2 −0.31" …
+  void hold_arm();                          // 지금 각도를 목표로 보내 JTC가 더 밀지 않게
   void publish_arm_targets(const std::vector<std::string> & names, const std::vector<double> & pos, double seconds);
 
   // ---------- 스캔 자세 — 지도 만드는 중이고 작업이 없으면 팔을 scan_pose로
@@ -174,6 +178,11 @@ private:
   double initial_move_s_ = 3.0;
   bool initial_enabled_ = true;
   bool initial_waiting_ = false;
+  int initial_retries_ = 1;
+  double initial_gripper_ = 0.0;      // [m] 음수 = 안 건드림
+  bool initial_gripper_sent_ = false;
+  int initial_sent_count_ = 0;
+  rclcpp::node_interfaces::PostSetParametersCallbackHandle::SharedPtr param_cb_;
   std::chrono::steady_clock::time_point initial_sent_{};
   rclcpp::TimerBase::SharedPtr initial_timer_;
   rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr arm_traj_pub_;

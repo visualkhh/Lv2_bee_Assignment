@@ -8,11 +8,11 @@ analyzers:
     perception:
       type: diagnostic_aggregator/GenericAnalyzer
       path: 인지
-      startswith: [ 'perception', 'body_filter' ]
+      startswith: [ 'perception', 'body_filter', 'signal_decoder' ]
     plan:
       type: diagnostic_aggregator/GenericAnalyzer
       path: 계획·임무
-      startswith: [ 'user_input', 'vlm_task_planner', 'coordinator', 'explorer', 'signal_decoder' ]
+      startswith: [ 'user_input', 'vlm_task_planner', 'coordinator', 'explorer' ]
     ml:
       type: diagnostic_aggregator/GenericAnalyzer
       path: 학습

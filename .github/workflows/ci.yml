@@ -86,7 +86,7 @@ jobs:
           rm -rf ros2_ws/firmware/build && cp -r lv2_module6/debug/firmware ros2_ws/firmware/build
           find ros2_ws/firmware/build -type f ! -name '*.bin' -delete
           cp lv2_module6/ros2_ws/*.sh ros2_ws/
-          cp lv2_module6/ros2_ws/fastdds.xml ros2_ws/
+          cp lv2_module6/ros2_ws/fastdds.xml lv2_module6/ros2_ws/fastdds_local.xml ros2_ws/   # _local = 실기 기기 안 격리 (SHM만)
           cp docker/*.sh ros2_ws/   # test-*.sh · build-ws.sh · ros-kill.sh · ros-restart.sh (entrypoint.sh 제외 — 컨테이너 전용)
           rm -f ros2_ws/entrypoint.sh
           echo "${{ matrix.arch }}" > ros2_ws/ARCH

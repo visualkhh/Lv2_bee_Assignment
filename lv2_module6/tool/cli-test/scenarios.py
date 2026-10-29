@@ -259,11 +259,11 @@ def _(s):
 @scenario('letter-key-focus-restart-validate')
 def _(s):
     s.step(b'9', wait=0.3)
-    s.step(ENTER, '전체 스택 재시작')
+    s.step(ENTER, '전체 재시작')
     s.step(b'a', wait=0.3)
     s.step(ENTER, 'RESTART를 입력')
     s.step(b'nope' + ENTER, 'RESTART를 정확히 입력하세요')
-    s.step(ESC, '노드 이름 직접 입력')
+    s.step(ESC, '노드 (상태 · 재시작)')
     s.absent('/cmd/restart')
     s.finish()
 

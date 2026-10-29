@@ -15,7 +15,7 @@
   'all map:=slam' (그 인자만 바꿔) · 'node perception' (그 노드만, 같은 파라미터)
 
 🛠 노드 (패키지 · 담당):
-  perception: perception (전승혜)
+  perception: perception, body_filter, signal_decoder(신호등 암호 → /mission/signal) (전승혜)
   plan:       user_input(외부 텍스트 입력), vlm_task_planner, coordinator (권형중)
   ml:         grasp_scorer, rl_nav_tuner, rl_nav_correction (송정혁)
               rl_arm_correction은 노드가 아니라 컨트롤러 플러그인(ml/RlArmCorrection) — ros_system의 controller_manager가 올린다
@@ -167,11 +167,11 @@ def generate_launch_description():
              parameters=[PathJoinSubstitution([FindPackageShare('plan'), 'config', 'plan.yaml']),
                          PathJoinSubstitution([FindPackageShare('ros_system'), 'config', 'scan_pose.yaml'])]),
         node('plan', 'explorer'),
-        node('plan', 'signal_decoder'),
         *[node('ml', n, learning, condition=IfCondition(LaunchConfiguration(f'use_{n}'))) for n in ML_NODES],
         node('control', 'arm_safety_monitor'),
         node('control', 'manual_control'),
         node('perception', 'body_filter'),
+        node('perception', 'signal_decoder'),
         node('manager', 'state_manager', {'map_mode': LaunchConfiguration('map_mode'),
                                           'map_name': ParameterValue(LaunchConfiguration('map_name'), value_type=str),
                                           'map_dir': ParameterValue(LaunchConfiguration('map_dir'), value_type=str),

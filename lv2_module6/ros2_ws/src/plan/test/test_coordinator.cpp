@@ -156,7 +156,7 @@ TEST(Signal, PickCombo) {
 }
 
 TEST(Signal, MissionPlan) {
-  plan::msg::MissionSignal sig;
+  perception::msg::MissionSignal sig;
   sig.color = "red";
   sig.count = 2;
   sig.sum = 5;

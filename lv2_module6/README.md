@@ -165,8 +165,8 @@ sequenceDiagram
 
 | 묶음 | 노드 · 주요 값 |
 | --- | --- |
-| 인지 | perception — pole_cam 영상 끊김, 발행 수 |
-| 계획·임무 | user_input — 못 보낸 명령 · vlm_task_planner — 계획 보류·재계획·신호등 미션·수납 확인 · signal_decoder — 깜빡임·단계·확정 · coordinator — 모드·단계·연속 실패·서버 대기 |
+| 인지 | perception — pole_cam 영상 끊김, 발행 수 · signal_decoder — 깜빡임·단계·확정 |
+| 계획·임무 | user_input — 못 보낸 명령 · vlm_task_planner — 계획 보류·재계획·신호등 미션·수납 확인 · coordinator — 모드·단계·연속 실패·서버 대기 |
 | 학습 | grasp_scorer — enabled·요청 · rl_nav_tuner — 프리셋 · rl_nav_correction — /odom 끊김(Δ=0)·속도 상한 |
 | 제어 | arm_safety_monitor — 접촉 감지 · manual_control — 모드·모터 재부팅 결과 · **beebotsystem: OpenCR 연결** — 마지막 S 수신·송수신 줄 수·모터 Hardware Error · controller_manager |
 | 제공 패키지 | EKF · twist_mux · … |
@@ -224,11 +224,11 @@ lv2_module6/
 ├── ros2_ws/
 │   ├── start.sh · firmware-upload.sh · download-artifact.sh · monitor.sh   실기·배포 패키지용 스크립트
 │   └── src/
-│       ├── perception/   🛠 perception · body_filter                           + msg TrackedObject(Array)
+│       ├── perception/   🛠 perception · body_filter · signal_decoder          + msg TrackedObject(Array) · MissionSignal
 │       ├── control/      🛠 arm_safety_monitor · manual_control · BeebotSystemHardware(ros2_control)  + msg ArmSafetyEvent · MotorStatus
 │       ├── manager/      🛠 state_manager (상태의 주인 — /state/operation_mode · /state/map_mode · /state/map_name · /state/emergency · /state/devices(모터 에러 포함))
 │       ├── ml/           🛠 grasp_scorer · rl_nav_tuner · rl_nav_correction · rl_arm_correction  + srv ScoreGrasps
-│       ├── plan/         🛠 user_input · vlm_task_planner · signal_decoder · explorer · coordinator  + msg SubGoal(Array) · TaskStatus · MissionSignal
+│       ├── plan/         🛠 user_input · vlm_task_planner · explorer · coordinator  + msg SubGoal(Array) · TaskStatus
 │       ├── ros_system/   🛠 scan_cam_gate · 📦 robot_state_publisher · controller_manager · twist_mux · RealSense ×2 · EKF · RTAB-Map · Nav2
 │       ├── bringup/      전체 실행 = ros_system + 🛠 노드 전부 + diagnostic_aggregator
 │       └── faker/        도커에 없는 📦·ML(GPU) 대역 + 호스트 파일 연동

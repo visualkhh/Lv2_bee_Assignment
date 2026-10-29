@@ -15,13 +15,17 @@ vlm_task_planner:
 coordinator:
   ros__parameters:
     # 시작 자세 — bringup 직후 한 번 팔을 이 자세로 (MoveIt 없이 JTC 토픽, 3초 궤적).
-    #   실기에서 손으로 잡아 test-firmware로 읽은 값 (2026-10-23, joint3가 URDF 한계 안).
+    #   0 = 서보 영점(팔 곧게 위). 다시 잡으려면 run-cli 팔 → 6 (TEACH로 손으로 잡으면 initial_pose·initial_gripper 줄을 보여 줌 → 여기 붙여 넣기).
+    #   (예전 실측 [-0.0898, -1.8069, 1.3432, 1.6473, -0.0268]은 한계 안이었지만 실기에서 도달 못 하고 계속 밀어 과부하 — 그래서 재전송 1회 제한)
     #   MAPPING/EXPLORE면 스캔 자세가 우선이라 건너뛴다. false면 자동 이동 안 함.
+    #   실행 중 끄기: ros2 param set /coordinator initial_pose_enabled false (가는 중이면 그 자리에서 멈춤)
     initial_pose_enabled: true
     initial_pose_joints: [joint1, joint2, joint3, joint4, joint5]
-    initial_pose: [-0.0898, -1.8069, 1.3432, 1.6473, -0.0268]
+    initial_pose: [-0.0215, -2.0019, 1.1152, 0.8682, 0.0936]
     initial_pose_tolerance: 0.05   # [rad] 이 안이면 이미 그 자세 (이동 생략)
     initial_pose_move_s: 3.0       # [s] 궤적 시간 — 너무 짧으면 급정지·흔들림
+    initial_pose_retries: 1        # 못 가면 다시 보낼 횟수 — 넘으면 지금 자세로 멈추고 ERROR (걸린 채 계속 밀면 과부하)
+    initial_gripper: 0.0           # [m] 시작 그리퍼 (손가락 하나 이동량 — 0 닫힘 · 0.0265 열림) · 음수면 안 건드림. 팔 시작 자세와 함께 한 번
     max_grasp_tries: 2       # 파지 후보를 점수순으로 몇 개까지 시도 (규칙 4)
     max_step_failures: 2     # 같은 단계가 이만큼 연속 실패하면 알리고 정지 (규칙 5)
     server_wait_s: 30.0      # [s] Nav2·MoveIt 서버가 뜰 때까지 기다리는 시간
@@ -41,17 +45,6 @@ coordinator:
     # inspect <퍽 id> — 퍽 윗면 16mm AprilTag는 gripper_cam이 위에서 봐야 읽힘 (pole_front_cam은 한 칸 1~2px라 못 읽음)
     inspect_height_m: 0.15   # [m] 손끝을 퍽 윗면 위 이만큼 (16mm 태그 ≈ 50px — 한 칸 약 6px)
     inspect_wait_s: 1.0      # [s] 그 자리에서 기다림 (perception 추론 4Hz × 몇 장)
-
-signal_decoder:              # 신호등 암호 미션 (documents/mission/README.md) — 깜빡임 3단계 → /mission/signal
-  ros__parameters:           #   단계 구분·점수 등은 MISSION §6 미정 — 제안값 (공지 나오면 여기만 바꿈)
-    min_on_s: 0.15           # [s] 이보다 짧은 켜짐은 잡음
-    separator_s: 2.0         # [s] 세 색 동시(all)가 이만큼 이어지면 단계 구분 (제안: 3초 켜짐)
-    gap_s: 3.0               # [s] 꺼짐(신호등 안 보임 포함)이 이만큼 이어져도 단계 끝
-    score_red: 1             # 2단계 색 점수 (제안: 모두 1)
-    score_yellow: 1
-    score_green: 1
-    dest_tags: [12, 13, 14]  # 3단계 노랑 1·2·3번 → 목적지 장소 태그 (L1~L3)
-    confirm: 1               # 같은 답이 이만큼 연달아 나와야 확정 (신호를 반복하면 2)
 
 explorer:                    # 자동 탐사 — /state/operation_mode EXPLORE일 때 /map 프론티어로 Nav2 목표
   ros__parameters:

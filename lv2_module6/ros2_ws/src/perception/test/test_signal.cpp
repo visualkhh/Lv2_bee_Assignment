@@ -4,9 +4,9 @@
 #include <string>
 #include <vector>
 
-#include "plan/signal_decoder.hpp"
+#include "perception/signal_decoder.hpp"
 
-using namespace plan;
+using namespace perception;
 
 namespace {
 // 신호 한 줄: "S" = 세 색 동시 3초 · "R"/"Y"/"G" = 0.5초 켜짐 + 0.5초 꺼짐 · "_" = 4초 꺼짐 · "!" = 0.1초 빨강 잡음

@@ -273,7 +273,7 @@ def run_select(ui, title: str, items: list[tuple[str, str]], center: list[str],
             for i, (key, label) in enumerate(items):
                 row = f"  {'❯' if i == idx else ' '} {key}) {label}"
                 left.append(ui.term.paint(row, '\033[7m\033[36m\033[1m') if i == idx else row)
-            ui.draw(title, left, center, back=back, main=main, poll=False)
+            ui.draw(title, left, center, back=back, main=main, poll=False, focus=idx)
             ui._sel_idx = idx
             while True:
                 remain = end - time.monotonic()

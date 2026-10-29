@@ -173,10 +173,10 @@ ssh -t bee@bee.local 'sudo systemctl set-default graphical.target && sudo system
 - `operator_tool`은 SSH 터미널에서 실행하는 것이 가장 가볍다.
 - RViz를 Jetson에서 띄우고 x11vnc/RDP/NoMachine으로 화면만 보는 방식이
   Wi-Fi에서 RealSense raw 영상을 직접 전송하지 않아 유리하다.
-- PC에서 RViz가 직접 ROS 토픽을 구독하게 하려면 `ROS_LOCALHOST_ONLY`를 끄고
-  `ROS_DOMAIN_ID=88`을 맞춰야 한다. 이 경우 카메라/점구름 트래픽이 Wi-Fi를 탄다.
-- Jetson 로컬에서만 ROS를 쓰려면 `ROS_LOCALHOST_ONLY=1`을 유지해도 되고,
-  원격 데스크톱으로 화면만 보면 된다.
+- Jetson은 ROS를 기기 안에서만 쓴다 — `FASTDDS_DEFAULT_PROFILES_FILE=…/ros2_ws/fastdds_local.xml`(공유 메모리만, [SETTING.md](../SETTING.md) 5).
+  RViz는 Jetson에서 띄우고 원격 데스크톱으로 화면만 본다.
+- PC에서 RViz가 직접 토픽을 구독해야 할 때만 Jetson 프로파일을 `fastdds.xml`(UDP 포함)로 바꾸고 PC와 `ROS_DOMAIN_ID`를 같게.
+  이 경우 카메라/점구름 트래픽이 Wi-Fi를 탄다.
 
 ## 5. 공통 체크리스트
 

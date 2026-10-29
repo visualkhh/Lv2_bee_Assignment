@@ -44,6 +44,16 @@ perception:
     edge_px: 5              # 박스가 화면 가장자리 이 안에 닿으면 잘린 퍽 — 크기 하한·자세 안 봄 [px]
     near_px: 70             # 깊이 없는데 박스 짧은 변이 이 이상이면 너무 가까운 퍽 — 위치 갱신 없이 마지막 위치 유지 [px]
     depth_min_valid: 0.5    # 박스 가운데 깊이 화소가 이 비율보다 적으면 깊이 없음 (배경 몇 화소로 엉뚱한 거리 안 냄)
+signal_decoder:              # 신호등 암호 미션 (documents/mission/README.md) — /tracked_objects 신호등 상태 → 깜빡임 3단계 → /mission/signal (→ plan)
+  ros__parameters:           #   단계 구분·점수 등은 MISSION §6 미정 — 제안값 (공지 나오면 여기만 바꿈)
+    min_on_s: 0.15           # [s] 이보다 짧은 켜짐은 잡음
+    separator_s: 2.0         # [s] 세 색 동시(all)가 이만큼 이어지면 단계 구분 (제안: 3초 켜짐)
+    gap_s: 3.0               # [s] 꺼짐(신호등 안 보임 포함)이 이만큼 이어져도 단계 끝
+    score_red: 1             # 2단계 색 점수 (제안: 모두 1)
+    score_yellow: 1
+    score_green: 1
+    dest_tags: [12, 13, 14]  # 3단계 노랑 1·2·3번 → 목적지 장소 태그 (L1~L3)
+    confirm: 1               # 같은 답이 이만큼 연달아 나와야 확정 (신호를 반복하면 2)
 # 자기 몸 점구름 필터 (C++ body_filter, 담당: 전승혜) — Nav2 costmap·collision_monitor 입력에서 팔·차체 점을 뺀다
 body_filter:
   ros__parameters:

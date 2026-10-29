@@ -252,6 +252,10 @@ class Bus:
         target = args.mode.upper()
         if target == 'EXPLORE' and self.state.map_mode not in ('MAPPING', ''):
             print('WARN: EXPLORE는 지도 모드 MAPPING에서만 허용됩니다', file=sys.stderr)
+        if target == 'TEACH':
+            if self.state.map_mode == 'MAPPING':
+                print('WARN: TEACH는 지도 모드 MAPPING에서는 거절됩니다 (팔 스캔 자세 고정)', file=sys.stderr)
+            print('TEACH: 팔(joint1~5)·그리퍼 토크가 꺼집니다 — 팔이 처지니 손으로 잡으세요. 끝나면 `arm capture` → `mode manual`(토크 켬)')
         self._publish(self.pub_operation, String(data=target))
         if self._wait_value('operation_mode', target, 2.5):
             print(f'조작 모드 → {target}')
@@ -435,9 +439,54 @@ class Bus:
               ' — manual_control 진단 "마지막 모터 재부팅"·기구 걸림 확인', file=sys.stderr)
         return 1
 
+    PLAN_YAML = Path(__file__).resolve().parents[3] / 'ros2_ws' / 'src' / 'plan' / 'config' / 'plan.yaml'
+
+    def cmd_capture(self) -> int:
+        """지금 팔·그리퍼 자세를 plan.yaml(coordinator) 형식으로 보여 준다 — 파일은 안 고침, 사람이 붙여 넣는다."""
+        if not self._wait_joints():
+            print('/joint_states 없음 — bringup/OpenCR 확인', file=sys.stderr)
+            return 1
+        self._poll(0.3)  # 최신 값
+        missing = [j for j in ARM_JOINTS if j not in self.state.joints]
+        if missing:
+            print('/joint_states에 없는 팔 관절: ' + ', '.join(missing), file=sys.stderr)
+            return 1
+        values = [self.state.joints[j] for j in ARM_JOINTS]
+        print('  '.join(f'{j}={self._rad_deg(v)}' for j, v in zip(ARM_JOINTS, values)))
+        gripper = self.state.joints.get(GRIPPER_JOINT)
+        print(f'\n{self.PLAN_YAML} 의 coordinator: ros__parameters: 아래에 붙여 넣으세요 (bringup 재시작 후 적용)\n')
+        print('    initial_pose: [' + ', '.join(f'{v:.4f}' for v in values) + ']')
+        if gripper is None:
+            print('    # initial_gripper: (/joint_states에 gripper_left_joint 없음)')
+        else:
+            print(f'    initial_gripper: {gripper:.4f}')
+        return 0
+
+    def initial_pose(self) -> tuple[dict[str, float], float | None, str] | None:
+        """시작 자세 — 떠 있는 coordinator 파라미터(지금 적용 중인 값)를 먼저, 없으면 plan.yaml.
+        반환: ({관절: rad}, 그리퍼 m 또는 None(음수 = 안 건드림), 출처)"""
+        cli = self.param_client('coordinator', '/')
+        if cli is not None and cli.wait_for_services(timeout_sec=2.0):
+            vals = self.param_get_vals(cli, ['initial_pose_joints', 'initial_pose', 'initial_gripper'])
+            if vals and len(vals) == 3 and list(vals[0].string_array_value) and list(vals[1].double_array_value):
+                g = vals[2].double_value
+                return (dict(zip(vals[0].string_array_value, vals[1].double_array_value)),
+                        g if g >= 0.0 else None, 'coordinator 파라미터')
+        try:
+            import yaml
+            p = yaml.safe_load(self.PLAN_YAML.read_text())['coordinator']['ros__parameters']
+            g = float(p.get('initial_gripper', -1.0))
+            return (dict(zip(p['initial_pose_joints'], map(float, p['initial_pose']))),
+                    g if g >= 0.0 else None, str(self.PLAN_YAML))
+        except Exception as exc:
+            print(f'시작 자세를 못 읽음 (coordinator 없음 · {self.PLAN_YAML}: {exc})', file=sys.stderr)
+            return None
+
     def cmd_arm(self, args) -> int:
         if args.action == 'reboot':
             return self.cmd_reboot(args.force)
+        if args.action == 'capture':
+            return self.cmd_capture()
         if args.action == 'show':
             self._wait_joints()
             values = [f'{name}={self._rad_deg(self.state.joints[name])}' for name in ARM_JOINTS if name in self.state.joints]
@@ -452,6 +501,15 @@ class Bus:
 
         if args.action == 'home':
             targets = {name: 0.0 for name in ARM_JOINTS}
+        elif args.action == 'initial':
+            pose = self.initial_pose()
+            if pose is None:
+                return 1
+            targets, gripper, source = pose
+            print(f'시작 자세 ({source}): ' + '  '.join(f'{n}={self._rad_deg(v)}' for n, v in targets.items()) +
+                  (f'  그리퍼={gripper:.4f}m' if gripper is not None else ''))
+            if gripper is not None:
+                self._send_gripper(gripper)
         else:
             try:
                 targets = self._parse_targets(args.targets)
@@ -698,6 +756,146 @@ class Bus:
         print(f'재시작 요청: {data}')
         return 0
 
+    # ------------------------------------------------------------------- node
+
+    LIFECYCLE_STATES = {0: 'unknown', 1: 'unconfigured', 2: 'inactive', 3: 'active', 4: 'finalized'}
+
+    def node_rows(self) -> list[dict]:
+        """노드 목록 — 그래프(실행 중 ROS 노드) + state_manager 재시작 목록(pid) 합침.
+        lifecycle = <노드>/get_state 서비스가 있으면 True (Nav2 수명주기 노드)."""
+        self._poll(0.3)
+        pids: dict[str, str] = {}
+        for line in (self.state.values.get('restartable') or '').splitlines():
+            parts = line.split()
+            if parts:
+                pids[parts[0]] = parts[1] if len(parts) > 1 else '?'
+        me = self.node.get_name()
+        graph: set[str] = set()
+        try:
+            for n, ns in self.node.get_node_names_and_namespaces():
+                if n != me and not n.startswith('_'):
+                    graph.add(n if ns in ('/', '') else f'{ns.strip("/")}/{n}')
+        except Exception:
+            pass
+        try:
+            services = {name for name, _ in self.node.get_service_names_and_types()}
+        except Exception:
+            services = set()
+        rows = []
+        for name in sorted(graph | set(pids)):
+            rows.append({'name': name, 'pid': pids.get(name), 'alive': name in graph,
+                         'lifecycle': f'/{name}/get_state' in services})
+        return rows
+
+    def lifecycle_state(self, name: str, timeout: float = 2.0) -> str | None:
+        """수명주기 노드 상태 (active · inactive · unconfigured …), 응답 없으면 None."""
+        try:
+            from lifecycle_msgs.srv import GetState
+        except ImportError:
+            return None
+        cli = self.node.create_client(GetState, f'/{name}/get_state')
+        try:
+            if not cli.wait_for_service(timeout_sec=timeout):
+                return None
+            res = self.param_wait(cli.call_async(GetState.Request()), timeout)
+            return self.LIFECYCLE_STATES.get(res.current_state.id, res.current_state.label) if res else None
+        finally:
+            self.node.destroy_client(cli)
+
+    def lifecycle_activate(self, name: str) -> bool:
+        """수명주기 노드를 active까지 — unconfigured면 configure → activate, inactive면 activate.
+        lifecycle_manager가 기동 중 응답 시간 초과로 멈춘 경우(bond 없음)를 사람이 이어 주는 용도."""
+        try:
+            from lifecycle_msgs.msg import Transition
+            from lifecycle_msgs.srv import ChangeState
+        except ImportError:
+            print('lifecycle_msgs 없음', file=sys.stderr)
+            return False
+        steps = {'unconfigured': [(Transition.TRANSITION_CONFIGURE, 'configure'), (Transition.TRANSITION_ACTIVATE, 'activate')],
+                 'inactive': [(Transition.TRANSITION_ACTIVATE, 'activate')], 'active': []}
+        state = self.lifecycle_state(name)
+        if state not in steps:
+            print(f'{name}: 상태 {state or "응답 없음"} — 활성화할 수 없음', file=sys.stderr)
+            return False
+        cli = self.node.create_client(ChangeState, f'/{name}/change_state')
+        try:
+            for tid, label in steps[state]:
+                req = ChangeState.Request()
+                req.transition.id = tid
+                res = self.param_wait(cli.call_async(req), 15.0)
+                if not res or not res.success:
+                    print(f'{name}: {label} 실패 ({"시간 초과" if not res else "거절"}) — 그 노드 로그 확인', file=sys.stderr)
+                    return False
+                print(f'{name}: {label} OK')
+        finally:
+            self.node.destroy_client(cli)
+        print(f'{name}: {self.lifecycle_state(name) or "?"}')
+        return True
+
+    def node_status_lines(self, name: str) -> list[str]:
+        row = next((r for r in self.node_rows() if r['name'] == name), None)
+        lines = [f'[{name}]']
+        if row is None:
+            return lines + [' 그래프에도 재시작 목록에도 없음 (안 떠 있음)']
+        lines.append(f' 실행: {"그래프에 보임" if row["alive"] else "그래프에 안 보임 (죽었거나 디스커버리 늦음)"}'
+                     f' · pid {row["pid"] or "-"}{"" if row["pid"] else " (state_manager 재시작 목록에 없음)"}')
+        if row['lifecycle']:
+            lines.append(f' 수명주기: {self.lifecycle_state(name) or "응답 없음"} (active가 아니면 3) 활성화)')
+        try:
+            ns = '/'
+            pubs = self.node.get_publisher_names_and_types_by_node(name.split('/')[-1], ns)
+            subs = self.node.get_subscriber_names_and_types_by_node(name.split('/')[-1], ns)
+            lines.append(f' 발행 {len(pubs)}개 · 구독 {len(subs)}개')
+        except Exception:
+            pass
+        diags = [d for d in self.state.diagnostics if name in d]
+        for d in diags[:6]:
+            level, message = self.state.diagnostics[d]
+            lines.append(f' 진단 {self.diag_short(d)}: {DIAG_LEVELS.get(level, "?")} {message}')
+        return lines
+
+    def node_restart(self, name: str) -> int:
+        """state_manager로 재시작 → 수명주기 노드면 다시 뜬 뒤 active까지."""
+        rows = {r['name']: r for r in self.node_rows()}
+        row = rows.get(name)
+        if row and not row['pid']:
+            print(f'거부: {name}은 state_manager 재시작 목록에 없음 (이 launch 밖 노드)', file=sys.stderr)
+            return 1
+        old_pid = row['pid'] if row else None
+        self.cmd_restart(argparse.Namespace(target=name, yes=True))
+        if not (row and row['lifecycle']):
+            return 0
+        print(f'{name}: 수명주기 노드 — 다시 뜰 때까지 기다린 뒤 활성화')
+        end = time.monotonic() + 20.0
+        while time.monotonic() < end and rclpy.ok():
+            self._poll(1.0)
+            new = {r['name']: r for r in self.node_rows()}.get(name)
+            if new and new['pid'] and new['pid'] != old_pid and self.lifecycle_state(name, 1.0):
+                return 0 if self.lifecycle_activate(name) else 1
+        print(f'FAIL: {name} 20초 안에 다시 안 뜸 — /tmp/restart_{name}.log 확인', file=sys.stderr)
+        return 1
+
+    def cmd_node(self, args) -> int:
+        if args.action == 'list':
+            for r in self.node_rows():
+                life = f' [{self.lifecycle_state(r["name"], 1.0) or "?"}]' if r['lifecycle'] else ''
+                print(f'{r["name"]:<32} {"●" if r["alive"] else "✗"} pid {r["pid"] or "-":<8}{life}')
+            return 0
+        if not args.name:
+            print('노드 이름이 필요합니다', file=sys.stderr)
+            return 2
+        if args.action == 'status':
+            print('\n'.join(self.node_status_lines(args.name)))
+            return 0
+        if args.action == 'activate':
+            return 0 if self.lifecycle_activate(args.name) else 1
+        if args.action == 'restart':
+            if not args.yes:
+                print('거부: 재시작은 확인 후 --yes를 붙이세요', file=sys.stderr)
+                return 2
+            return self.node_restart(args.name)
+        return 2
+
     # ------------------------------------------------------------------- menu
 
     def param_nodes(self) -> list[tuple[str, str]]:
@@ -887,7 +1085,7 @@ class Bus:
 
     @staticmethod
     def diag_short(name: str) -> str:
-        """/diagnostics_agg 이름 '/Beebot/계획·임무/signal_decoder: 상태' → '계획·임무 / signal_decoder: 상태'"""
+        """/diagnostics_agg 이름 '/Beebot/인지/signal_decoder: 상태' → '인지 / signal_decoder: 상태'"""
         parts = [p for p in name.split('/') if p and p != 'Beebot']
         return ' / '.join(parts) or name
 

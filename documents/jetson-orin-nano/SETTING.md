@@ -85,10 +85,20 @@ rosdep update
 
 *5. 환경 변수 (~/.bashrc)*
 ```bash
-echo -e '\n# ROS 2 Lyrical\nsource /opt/ros/lyrical/setup.bash\nexport ROS_DOMAIN_ID=88' >> ~/.bashrc
+cat >> ~/.bashrc <<'EOF'
+
+# ROS 2 Lyrical — Jetson 안에서만 (공유 메모리만, 네트워크로 안 나감)
+source /opt/ros/lyrical/setup.bash
+export ROS_DOMAIN_ID=0
+export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
+export FASTDDS_DEFAULT_PROFILES_FILE=$HOME/Lv2_bee_Assignment/lv2_module6/ros2_ws/fastdds_local.xml
+EOF
 source ~/.bashrc
 ```
-• `ROS_DOMAIN_ID=88` 팀 공통값, 꼭 맞출 것
+• Jetson은 ROS를 **기기 안에서만** 돌린다(bringup·`tool/run-cli`·`ros2` 명령 모두 Jetson에서). `fastdds_local.xml`이 DDS 전송을 공유 메모리(SHM)로만 제한해 노드 찾기·토픽이 네트워크로 나가지 않는다 — PC docker·시뮬레이터·다른 팀과 안 섞임
+• bringup·run-cli·`ros2` 명령이 **모두 같은 프로파일**이어야 서로 보인다 → `~/.bashrc`에 두고 새 터미널에서 실행
+• `ROS_LOCALHOST_ONLY`·`ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`·`ROS_DISCOVERY_SERVER`는 쓰지 말 것 — LOCALHOST는 노드 일부가 안 보이고, Discovery Server는 서비스 응답이 버려져(`failed to send response … timeout`) lifecycle_manager가 velocity_smoother·collision_monitor를 못 켜 텔레오퍼가 안 움직임 (2026-10-26 실기)
+• PC에서 Jetson 토픽을 직접 봐야 할 때만: 프로파일을 `fastdds.xml`(UDP 포함)로 바꾸고 양쪽 `ROS_DOMAIN_ID`를 같게 — 아래 Wi-Fi 주의 참고
 • 부트캠프 Wi-Fi는 멀티캐스트가 막혀서 자동 탐색이 안 됨 → `ROS_STATIC_PEERS`에 상대 IP 필수. 여러 대면 `"IP1;IP2"`
 • 이름(`xxx.local`) 대신 *IP로* 적을 것. 이름은 상대가 꺼져 있으면 노드 실행 자체가 실패함
 • 내 IP 확인: `hostname -I`

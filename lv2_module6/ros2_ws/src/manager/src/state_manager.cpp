@@ -163,8 +163,12 @@ void StateManager::set_estop(bool engaged) {
 }
 
 void StateManager::request_operation(const std::string & mode) {
-  if (mode != "MANUAL" && mode != "AUTO" && mode != "EXPLORE") {
-    RCLCPP_WARN(get_logger(), "조작 모드 요청 '%s' 모름 (MANUAL | AUTO | EXPLORE)", mode.c_str());
+  if (mode != "MANUAL" && mode != "AUTO" && mode != "EXPLORE" && mode != "TEACH") {
+    RCLCPP_WARN(get_logger(), "조작 모드 요청 '%s' 모름 (MANUAL | AUTO | EXPLORE | TEACH)", mode.c_str());
+    return;
+  }
+  if (mode == "TEACH" && map_mode_ == "MAPPING") {  // 지도 만드는 중엔 팔이 스캔 자세에 고정 (gripper_cam = 두 번째 지도 카메라)
+    RCLCPP_WARN(get_logger(), "조작 모드 요청 TEACH 거절: 지도 만드는 중(MAPPING) — 팔 스캔 자세 고정");
     return;
   }
   if (mode == "EXPLORE" && (map_mode_ != "MAPPING" || estop_)) {  // 탐사 = 매핑하며 스스로 돌아다님

@@ -394,7 +394,7 @@ std::string detail(const perception::msg::TrackedObject & o, const std::string &
   return "";
 }
 
-SignalPlan signal_plan(const TrackedObjectArray & objs, const plan::msg::MissionSignal & sig, double rx, double ry,
+SignalPlan signal_plan(const TrackedObjectArray & objs, const perception::msg::MissionSignal & sig, double rx, double ry,
   const std::set<uint32_t> & inspected, int capacity) {
   SignalPlan r;
   auto dist = [&](const perception::msg::TrackedObject & o) {
@@ -561,8 +561,8 @@ VlmTaskPlanner::VlmTaskPlanner()
       // 물체 집합이 바뀔 때만 재시도 — 같은 목록(빈 목록 포함)으로 매번 VLM을 때리면 초당 요청 폭주
       if (pending_ && changed) make_plan();  // 물체 목록보다 명령이 먼저 왔으면 지금 계획
     });
-  signal_sub_ = create_subscription<plan::msg::MissionSignal>("/mission/signal", rclcpp::QoS(1).reliable().transient_local(),
-    [this](plan::msg::MissionSignal::ConstSharedPtr m) {
+  signal_sub_ = create_subscription<perception::msg::MissionSignal>("/mission/signal", rclcpp::QoS(1).reliable().transient_local(),
+    [this](perception::msg::MissionSignal::ConstSharedPtr m) {
       RCLCPP_INFO(get_logger(), "신호등 미션: %s %d개 · 합 %d · 목적지 태그 %d", m->color.c_str(), m->count, m->sum, m->dest_tag);
       replans_ = 0;
       {
@@ -729,7 +729,7 @@ void VlmTaskPlanner::publish_plan(std::vector<SubGoal> goals, const char * how) 
 
 void VlmTaskPlanner::make_signal_plan() {
   TrackedObjectArray::ConstSharedPtr objs;
-  plan::msg::MissionSignal sig;
+  perception::msg::MissionSignal sig;
   {
     std::lock_guard<std::mutex> lock(mutex_);
     objs = objects_;

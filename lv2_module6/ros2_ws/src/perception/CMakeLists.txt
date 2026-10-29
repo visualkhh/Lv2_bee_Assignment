@@ -24,21 +24,23 @@ find_package(ament_index_cpp REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   msg/TrackedObject.msg
   msg/TrackedObjectArray.msg
+  msg/MissionSignal.msg
   DEPENDENCIES std_msgs builtin_interfaces geometry_msgs diagnostic_msgs)
+rosidl_get_typesupport_target(msgs_cpp ${PROJECT_NAME} rosidl_typesupport_cpp)  # 같은 패키지 메시지를 C++ 노드가 씀
 
 # --- C++ 노드: 클래스 구현(src/<노드>.cpp)은 라이브러리로 묶고, 실행 파일(src/<노드>_main.cpp)과 테스트가 함께 링크
 #     선언·설명은 include/perception/<노드>.hpp
-add_library(${PROJECT_NAME}_nodes STATIC src/body_filter.cpp)
+add_library(${PROJECT_NAME}_nodes STATIC src/body_filter.cpp src/signal_decoder.cpp)
 target_include_directories(${PROJECT_NAME}_nodes PUBLIC include)
 target_compile_features(${PROJECT_NAME}_nodes PUBLIC cxx_std_17)
 target_link_libraries(${PROJECT_NAME}_nodes PUBLIC rclcpp::rclcpp ${sensor_msgs_TARGETS} ${std_msgs_TARGETS} ${geometry_msgs_TARGETS}
   diagnostic_updater::diagnostic_updater urdf::urdf tf2::tf2 tf2_ros::tf2_ros tf2_geometry_msgs::tf2_geometry_msgs
-  ament_index_cpp::ament_index_cpp)
-foreach(node body_filter)
+  ament_index_cpp::ament_index_cpp ${msgs_cpp})
+foreach(node body_filter signal_decoder)
   add_executable(${node} src/${node}_main.cpp)
   target_link_libraries(${node} ${PROJECT_NAME}_nodes)
 endforeach()
-install(TARGETS body_filter DESTINATION lib/${PROJECT_NAME})
+install(TARGETS body_filter signal_decoder DESTINATION lib/${PROJECT_NAME})
 
 # YOLO 노드 (Python, scripts/perception_node.py) — 메시지 패키지는 이 CMake가 만든다
 install(PROGRAMS scripts/perception_node.py
@@ -67,6 +69,8 @@ if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   ament_add_gtest(test_body_filter test/test_body_filter.cpp TIMEOUT 60 ENV ROS_DOMAIN_ID=108)
   target_link_libraries(test_body_filter ${PROJECT_NAME}_nodes)
+  ament_add_gtest(test_signal test/test_signal.cpp TIMEOUT 60)
+  target_link_libraries(test_signal ${PROJECT_NAME}_nodes)
   ament_add_test(test_launch GENERATE_RESULT_FOR_RETURN_CODE_ZERO
     COMMAND ros2 launch "${CMAKE_CURRENT_SOURCE_DIR}/launch/perception.launch.py" --show-args
     TIMEOUT 60)

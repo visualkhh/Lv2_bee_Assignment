@@ -1,12 +1,13 @@
 #pragma once
 
-// signal_decoder (🛠 직접 작성) — 신호등 암호 미션(documents/mission/README.md) 1·2·3단계를 시간축으로 읽는다
+// signal_decoder (🛠 직접 작성, 담당: 전승혜) — 신호등 암호 미션(documents/mission/README.md) 1·2·3단계를 시간축으로 읽는다
 //   입력: ✉️ /tracked_objects — class traffic_light의 color (perception: red | yellow | green | off | all(두 색 이상 동시에 켜짐))
-//   출력: ✉️ /mission/signal (plan/MissionSignal, reliable + transient_local) → vlm_task_planner — 확정될 때마다
+//   출력: ✉️ /mission/signal (perception/MissionSignal, reliable + transient_local) → vlm_task_planner — 확정될 때마다
+//   (인지 쪽이 신호를 해석해 미션 토픽으로 낸다 — 바코드 → /mission/qr 와 같은 자리. plan은 받아서 계획만)
 //         ✉️ /diagnostics
 //   읽는 법 (MISSION §2):
 //     1단계 한 색이 N번 → 그 색 퍽 N개 · 2단계 깜빡인 색 점수의 합 = 태그 번호 합 · 3단계 노랑 1·2·3번 → 목적지 태그 12·13·14
-//   단계 구분 (MISSION §6 미정 — 제안값이 기본, plan.yaml에서 바꿈):
+//   단계 구분 (MISSION §6 미정 — 제안값이 기본, perception.yaml에서 바꿈):
 //     all(세 색 동시)이 separator_s 넘게 이어지면 단계 끝 · 꺼짐이 gap_s 넘게 이어져도 단계 끝 (한 바퀴 사이 쉬는 시간)
 //     켜짐이 min_on_s보다 짧으면 잡음. 끝난 단계 셋이 [한 색만 · 아무거나 · 노랑만 1~3번] 모양이면 답 (반복 신호에서 어디가 1단계인지도 이걸로)
 //     confirm번 같은 답이 연달아 나와야 확정 (신호를 반복하면 2로 — 깜빡임을 놓치거나 두 번 센 답을 거름)
@@ -16,12 +17,12 @@
 
 #include "diagnostic_updater/diagnostic_updater.hpp"
 #include "perception/msg/tracked_object_array.hpp"
-#include "plan/msg/mission_signal.hpp"
+#include "perception/msg/mission_signal.hpp"
 #include "rclcpp/rclcpp.hpp"
 
-namespace plan {
+namespace perception {
 
-using plan::msg::MissionSignal;
+using perception::msg::MissionSignal;
 
 struct SignalParams {
   double min_on_s = 0.15;       // 이보다 짧은 켜짐은 잡음
@@ -71,4 +72,4 @@ private:
   diagnostic_updater::Updater diag_{this};
 };
 
-}  // namespace plan
+}  // namespace perception

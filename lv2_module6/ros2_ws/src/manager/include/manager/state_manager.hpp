@@ -7,10 +7,11 @@
 //   상태를 바꾸는 일(RTAB-Map 모드 전환 등)도 여기서 직접 해서, 발행 값 = 진짜 상태. 건강·오류는 상태가 아니라 diagnostics 몫.
 //   새 상태를 늘릴 때도 /state/<이름> (std_msgs, transient_local) 하나씩.
 //   조작 모드
-//     입력: ✉️ /cmd/operation_mode (std_msgs/String "MANUAL" | "AUTO" | "EXPLORE") — 시뮬레이터 [수동 조작] · [자동 탐사] · bee.py manual
+//     입력: ✉️ /cmd/operation_mode (std_msgs/String "MANUAL" | "AUTO" | "EXPLORE" | "TEACH") — 시뮬레이터 [수동 조작] · [자동 탐사] · bee.py manual
 //           EXPLORE(자동 탐사 — plan/explorer가 프론티어로 Nav2 목표를 보냄)는 지도 모드 MAPPING · 비상정지 아님일 때만 허락.
+//           TEACH(손으로 팔 자세 가르치기 — manual_control이 팔 토크를 끔)는 지도 모드 MAPPING이 아닐 때만 허락.
 //           ✉️ /explore/result (std_msgs/String "DONE …" | "FAILED …", explorer) · MAPPING이 끝남 · 지도 바꿈 · 비상정지 → AUTO로 되돌림
-//   출력: ✉️ /state/operation_mode (std_msgs/String "AUTO" | "MANUAL" | "EXPLORE", transient_local) → manual_control(수동 명령 통과) · coordinator(자동 실행 멈춤)
+//   출력: ✉️ /state/operation_mode (std_msgs/String "AUTO" | "MANUAL" | "EXPLORE" | "TEACH", transient_local) → manual_control(수동 명령 통과 · TEACH면 팔 토크 끔) · coordinator(자동 실행 멈춤)
 //         ✉️ /state/emergency (std_msgs/Bool, transient_local) — /cmd/e_stop 그대로. coordinator는 이것만 본다 (원본 직접 구독 금지)
 //   지도 모드
 //     입력: ✉️ /cmd/map_mode (std_msgs/String "MAPPING" | "LOCALIZATION") — 시뮬레이터 [스캔 시작] · [위치추정으로]

@@ -16,6 +16,8 @@
 //   read():  가장 최근의 완전한 S 줄 (40개 값 — 끝 8개 = 모터 온도 °C · 예전 펌웨어 32개도 받음) → 상태.
 //            순서는 STATE_* 와 firmware/README.md "프로토콜". E 줄(모터 에러, 0.5초) · S 온도 → /motor_status · 진단
 //   OpenCR가 DYNAMIXEL 8개 + 내장 IMU를 맡고, 단위 변환(rad ↔ 서보 각도·rpm)도 펌웨어가 한다.
+// 팔 토크: 서비스 ~/set_arm_torque (std_srvs/SetBool) → write()가 T 줄 (joint1~5 + 그리퍼 — 바퀴는 그대로).
+//   끄면 손으로 자세를 잡을 수 있다(S로 각은 계속 읽힘). 켜기 전에 JTC 목표를 지금 각으로 맞춰야 안 튄다 — manual_control이 함.
 // 상태: /diagnostics "BeebotSystem: OpenCR 연결" (mock · 마지막 S 수신 · 송수신 줄 수 · 해석 실패) — 컴포넌트 노드로 발행
 #include <fcntl.h>
 #include <termios.h>
@@ -40,6 +42,7 @@
 #include "hardware_interface/types/hardware_interface_type_values.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "control/msg/motor_status.hpp"
+#include "std_srvs/srv/set_bool.hpp"
 #include "std_srvs/srv/trigger.hpp"
 
 namespace control {
@@ -84,6 +87,8 @@ private:
 
   void reboot_motors(const std_srvs::srv::Trigger::Request::SharedPtr, std_srvs::srv::Trigger::Response::SharedPtr res);
 
+  void set_arm_torque(const std_srvs::srv::SetBool::Request::SharedPtr req, std_srvs::srv::SetBool::Response::SharedPtr res);
+
   return_type write_serial();
 
   bool mock_ = false;
@@ -99,6 +104,9 @@ private:
   std::array<std::atomic<int>, 8> hw_temp_{};   // 같은 순서, °C · −1 = 모름(응답 없음·온도 없는 예전 펌웨어·mock) — on_init에서 −1로
   std::atomic<uint32_t> reboot_mask_{0};         // 서비스가 고른 모터 — write()가 R 줄로 보냄
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr reboot_srv_;
+  std::atomic<int> torque_req_{-1};    // 서비스가 고른 팔·그리퍼 토크 (0 끄기 · 1 켜기 · −1 없음) — write()가 T 줄로 보냄
+  std::atomic<bool> arm_torque_{true}; // 마지막으로 보낸 팔 토크 (펌웨어는 부팅 때 켬) — 진단 표시
+  rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr torque_srv_;
   rclcpp::Publisher<control::msg::MotorStatus>::SharedPtr motor_pub_;  // /motor_status — 바뀔 때만 (state_manager가 읽음)
   rclcpp::TimerBase::SharedPtr motor_timer_;                           // read()(실시간 루프)에서 발행하지 않으려고 따로 0.5초
   std::array<int, 8> motor_sent_{};

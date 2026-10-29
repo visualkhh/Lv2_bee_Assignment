@@ -4,6 +4,7 @@
 #include <algorithm>
 
 #include <cmath>
+#include <cstdio>
 
 #include "shape_msgs/msg/solid_primitive.hpp"
 
@@ -54,9 +55,11 @@ Coordinator::Coordinator()
   initial_joints_ = declare_parameter<std::vector<std::string>>(
     "initial_pose_joints", {"joint1", "joint2", "joint3", "joint4", "joint5"});
   initial_pose_ = declare_parameter<std::vector<double>>(
-    "initial_pose", {-0.0898, -1.8069, 1.3432, 1.6473, -0.0268});
+    "initial_pose", {0.0, 0.0, 0.0, 0.0, 0.0});
   initial_tol_ = declare_parameter<double>("initial_pose_tolerance", 0.05);
   initial_move_s_ = declare_parameter<double>("initial_pose_move_s", 3.0);
+  initial_retries_ = declare_parameter<int>("initial_pose_retries", 1);
+  initial_gripper_ = declare_parameter<double>("initial_gripper", 0.0);
   arm_traj_pub_ = create_publisher<trajectory_msgs::msg::JointTrajectory>(
     "/arm_controller/joint_trajectory", rclcpp::QoS(10));
   scan_joints_ = declare_parameter<std::vector<std::string>>("scan_pose_joints", {"joint1", "joint2", "joint3", "joint4", "joint5"});
@@ -107,6 +110,23 @@ Coordinator::Coordinator()
   // 시작 자세는 1초부터 자주 확인 (팔이 늦게 뜨는 경우 대비), 스캔 자세는 기존대로 2초
   initial_timer_ = create_wall_timer(std::chrono::seconds(1), [this]() { check_initial_pose(); });
   scan_timer_ = create_wall_timer(std::chrono::seconds(2), [this]() { check_scan_pose(); });
+  // initial_pose_enabled 실행 중 변경 — ros2 param set /coordinator initial_pose_enabled false
+  param_cb_ = add_post_set_parameters_callback([this](const std::vector<rclcpp::Parameter> & ps) {
+    for (const auto & p : ps) {
+      if (p.get_name() != "initial_pose_enabled") continue;
+      initial_enabled_ = p.as_bool();
+      if (!initial_enabled_) {
+        initial_timer_->cancel();
+        if (initial_waiting_) hold_arm();  // 가는 중이면 그 자리에서 멈춤
+        initial_waiting_ = false;
+        RCLCPP_INFO(get_logger(), "팔 초기 자세 끔");
+      } else {
+        initial_sent_count_ = 0;
+        initial_timer_->reset();
+        RCLCPP_INFO(get_logger(), "팔 초기 자세 켬 — 다시 시도");
+      }
+    }
+  });
   nav_ = rclcpp_action::create_client<NavigateToPose>(this, "/navigate_to_pose");
   motion_plan_ = create_client<GetMotionPlan>("/plan_kinematic_path");
   exec_ = rclcpp_action::create_client<ExecuteTrajectory>(this, "/execute_trajectory");
@@ -134,10 +154,15 @@ void Coordinator::on_mode(const std::string & mode) {
   if (mode == mode_) return;
   mode_ = mode;
   RCLCPP_WARN(get_logger(), "운영 모드: %s", mode.c_str());
-  if (mode != "AUTO" && running_) {  // 수동 · 자동 탐사(EXPLORE) — 둘 다 작업 실행과 동시에 하면 안 됨
+  if (mode == "TEACH") {  // 손으로 자세를 잡는 중 — 시작 자세로 끌고 가지 않는다 (나온 뒤에도 그 자세 그대로)
+    initial_waiting_ = false;
+    if (initial_timer_) initial_timer_->cancel();
+  }
+  if (mode != "AUTO" && running_) {  // 수동 · 자동 탐사(EXPLORE) · TEACH — 작업 실행과 동시에 하면 안 됨
     cancel_all();
     running_ = false;
-    status(idx_ < plan_.goals.size() ? plan_.goals[idx_].step : 0, TaskStatus::FAILED, mode == "MANUAL" ? "manual_override" : "explore_override");
+    status(idx_ < plan_.goals.size() ? plan_.goals[idx_].step : 0, TaskStatus::FAILED,
+           mode == "MANUAL" ? "manual_override" : mode == "TEACH" ? "manual_teach_override" : "explore_override");
   }
 }
 
@@ -179,7 +204,7 @@ void Coordinator::on_plan(const SubGoalArray & plan) {
   if (mode_ != "AUTO") {
     plan_ = plan;
     RCLCPP_WARN(get_logger(), "계획 %u 거부: %s 모드", plan.plan_id, mode_.c_str());
-    status(0, TaskStatus::FAILED, mode_ == "MANUAL" ? "manual_mode" : "explore_mode");
+    status(0, TaskStatus::FAILED, mode_ == "MANUAL" ? "manual_mode" : mode_ == "TEACH" ? "manual_teach_mode" : "explore_mode");
     return;
   }
   if (!objects_) {  // 대상 id를 검증할 수 없음 — 첫 /tracked_objects까지 미룬다
@@ -330,6 +355,35 @@ bool Coordinator::at_initial_pose() const {
   return !joints_.empty();
 }
 
+std::string Coordinator::initial_pose_error() const {
+  std::string out;
+  for (size_t i = 0; i < initial_joints_.size() && i < initial_pose_.size(); ++i) {
+    const auto it = joints_.find(initial_joints_[i]);
+    if (it == joints_.end()) {
+      out += (out.empty() ? "" : ", ") + initial_joints_[i] + " 모름";
+      continue;
+    }
+    const double d = std::remainder(it->second - initial_pose_[i], 2 * M_PI);
+    if (std::abs(d) <= initial_tol_) continue;
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "%s %+.2f", initial_joints_[i].c_str(), d);
+    out += (out.empty() ? "" : ", ") + std::string(buf);
+  }
+  return out.empty() ? "차이 없음" : out + " rad";
+}
+
+void Coordinator::hold_arm() {
+  std::vector<std::string> names;
+  std::vector<double> pos;
+  for (const auto & j : initial_joints_) {
+    const auto it = joints_.find(j);
+    if (it == joints_.end()) continue;
+    names.push_back(j);
+    pos.push_back(it->second);
+  }
+  if (!names.empty()) publish_arm_targets(names, pos, 0.5);
+}
+
 void Coordinator::publish_arm_targets(const std::vector<std::string> & names,
                                       const std::vector<double> & pos, double seconds) {
   if (!arm_traj_pub_) return;
@@ -354,27 +408,45 @@ void Coordinator::check_initial_pose() {
     // 보낸 뒤 도달 확인 — 도달하면 타이머 자체를 끔, 6초 넘게 못 가면 한 번 더 보냄 (JTC 재시작·일시 거절 대비)
     if (at_initial_pose()) {
       initial_waiting_ = false;
-      initial_timer_->cancel();
+      if (initial_gripper_sent_ || initial_gripper_ < 0.0) initial_timer_->cancel();  // 그리퍼가 남았으면 다음 확인 때
       RCLCPP_INFO(get_logger(), "팔 초기 자세 완료");
     } else if (std::chrono::duration<double>(
                  std::chrono::steady_clock::now() - initial_sent_).count() > initial_move_s_ + 3.0) {
       initial_waiting_ = false;
-      RCLCPP_WARN(get_logger(), "팔 초기 자세 미도달 — 다시 보냄");
+      if (initial_sent_count_ > initial_retries_) {
+        // 어딘가에 걸려 못 가는 것 — 계속 밀면 모터 과부하(Hardware Error)로 멈춘다
+        initial_timer_->cancel();
+        hold_arm();
+        RCLCPP_ERROR(get_logger(), "팔 초기 자세 %d번 미도달 — 포기하고 지금 자세로 멈춤 (%s). "
+                     "plan.yaml initial_pose 확인", initial_sent_count_, initial_pose_error().c_str());
+      } else {
+        RCLCPP_WARN(get_logger(), "팔 초기 자세 미도달 (%s) — 다시 보냄", initial_pose_error().c_str());
+      }
     }
     return;
   }
   if (estop_ || running_ || joints_.empty()) return;
+  if (!initial_gripper_sent_ && initial_gripper_ >= 0.0 && gripper_->action_server_is_ready()) {
+    initial_gripper_sent_ = true;  // 한 번만 — 실패해도 다시 안 보냄 (쥔 채 계속 힘주지 않게)
+    RCLCPP_INFO(get_logger(), "그리퍼를 시작 값으로 %.4fm", initial_gripper_);
+    set_gripper(initial_gripper_, [this](bool ok) {
+      if (!ok) RCLCPP_WARN(get_logger(), "그리퍼 시작 값 실패 — plan.yaml initial_gripper 확인");
+    });
+  }
   if (map_mode_ == "MAPPING" || mode_ == "EXPLORE") {
     initial_timer_->cancel();  // 스캔 자세(coordinator check_scan_pose)가 대신 잡는다
     return;
   }
   if (at_initial_pose()) {
-    initial_timer_->cancel();
-    RCLCPP_INFO(get_logger(), "팔이 이미 초기 자세 — 이동 생략");
+    if (initial_gripper_sent_ || initial_gripper_ < 0.0) {  // 그리퍼 서버가 아직 없으면 1초마다 다시 확인
+      initial_timer_->cancel();
+      RCLCPP_INFO(get_logger(), "팔 초기 자세 확인 끝");
+    }
     return;
   }
   if (arm_traj_pub_->get_subscription_count() == 0) return;  // JTC 아직 없음
   initial_waiting_ = true;
+  ++initial_sent_count_;
   initial_sent_ = std::chrono::steady_clock::now();
   RCLCPP_INFO(get_logger(), "팔을 초기 자세로 이동 (%.1fs)", initial_move_s_);
   publish_arm_targets(initial_joints_, initial_pose_, initial_move_s_);

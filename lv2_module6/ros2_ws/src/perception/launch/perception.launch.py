@@ -1,7 +1,7 @@
 """perception 패키지 노드만 단독 실행.
 
-전체 로봇은 bringup/bringup.launch.py를 쓴다. 이 파일은 YOLO 인지 노드와
-body_filter(자기 몸 점구름 필터)를 카메라 토픽과 함께 시험할 때 쓴다.
+전체 로봇은 bringup/bringup.launch.py를 쓴다. 이 파일은 YOLO 인지 노드 ·
+body_filter(자기 몸 점구름 필터) · signal_decoder(신호등 암호 → /mission/signal)를 카메라 토픽과 함께 시험할 때 쓴다.
 
   ros2 launch perception perception.launch.py
   ros2 launch perception perception.launch.py device:=cuda model_path:=/path/to/model.pt
@@ -31,4 +31,5 @@ def generate_launch_description():
                  'rate_hz': ParameterValue(LaunchConfiguration('rate_hz'), value_type=float),
              }]),
         Node(package='perception', executable='body_filter', output='screen', parameters=[config]),
+        Node(package='perception', executable='signal_decoder', output='screen', parameters=[config]),
     ])
