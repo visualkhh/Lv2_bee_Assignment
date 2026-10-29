@@ -24,6 +24,7 @@ from geometry_msgs.msg import PoseStamped, TransformStamped
 from nav_msgs.msg import Odometry, Path
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
+from rclpy.duration import Duration
 from rclpy.time import Time
 from sensor_msgs.msg import CameraInfo, Image
 from tf2_ros import Buffer, TransformBroadcaster, TransformListener
@@ -83,6 +84,10 @@ class CuvslamSlam(Node):
         self.map = self.declare_parameter('map_frame', 'map').value
         # true = 단독 SLAM(루프 클로저 + TF map→odom) · false = 시각 오도메트리만 (RTAB-Map이 map→odom)
         self.publish_map_tf = bool(self.declare_parameter('publish_map_tf', True).value)
+        # map→odom을 이만큼 미래 시각으로 냄 (AMCL·slam_toolbox transform_tolerance와 같은 관례) — 영상 처리 지연 때문에
+        # 최신 map→odom이 방금 들어온 depth 영상보다 옛 시각이라, nvblox가 그 영상 시각으로 TF를 찾으면 '미래 외삽'으로 실패해
+        # depth를 버렸음 (실기 2026-10-29: 지도가 시작 몇 프레임 뒤로 안 자람). map→odom은 천천히 바뀌어 미래로 내도 안전
+        self.map_tf_tolerance = Duration(seconds=float(self.declare_parameter('map_tf_tolerance', 0.2).value))
         self.depth_scale = float(self.declare_parameter('depth_scale_factor', 1000.0).value)  # 16UC1 mm → m
         self.min_depth = float(self.declare_parameter('min_depth', 0.5).value)  # [m] 이 안 픽셀(자기 팔)은 추적에서 뺌
         # EKF에 주는 속도 분산 — 실측으로 맞출 값 (σ 0.05 m/s · 0.05 rad/s에서 시작)
@@ -192,7 +197,8 @@ class CuvslamSlam(Node):
         base = base_pose(self.base_from_cam, mat(p.rotation, p.translation))
         x, y, yaw = map_to_odom(base, odom_from_base)
         tf = TransformStamped()
-        tf.header.stamp, tf.header.frame_id, tf.child_frame_id = stamp, self.map, self.odom
+        tf.header.stamp = (Time.from_msg(stamp) + self.map_tf_tolerance).to_msg()
+        tf.header.frame_id, tf.child_frame_id = self.map, self.odom
         tf.transform.translation.x, tf.transform.translation.y = x, y
         tf.transform.rotation.z, tf.transform.rotation.w = math.sin(yaw / 2), math.cos(yaw / 2)
         self.tf_pub.sendTransform(tf)
