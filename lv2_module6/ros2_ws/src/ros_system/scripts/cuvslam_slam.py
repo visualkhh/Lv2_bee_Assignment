@@ -120,7 +120,7 @@ class CuvslamSlam(Node):
         try:
             t = self.tf_buf.lookup_transform(self.base, frame, Time()).transform
         except Exception as e:  # noqa: BLE001 — TF가 아직 안 왔으면 다음 프레임에
-            self.get_logger().warn(f'TF {self.base}←{frame} 대기: {e}', throttle_duration_sec=5.0)
+            self.get_logger().warning(f'TF {self.base}←{frame} 대기: {e}', throttle_duration_sec=5.0)
             return
         r = t.rotation
         self.base_from_cam = mat((r.x, r.y, r.z, r.w), (t.translation.x, t.translation.y, t.translation.z))
@@ -159,7 +159,7 @@ class CuvslamSlam(Node):
         if est.world_from_rig is None:
             self.lost += 1
             self.prev = None
-            self.get_logger().warn('추적 잃음', throttle_duration_sec=2.0)
+            self.get_logger().warning('추적 잃음', throttle_duration_sec=2.0)
             return
         self.ok += 1
         p = est.world_from_rig.pose
