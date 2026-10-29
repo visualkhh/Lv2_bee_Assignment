@@ -118,11 +118,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # YOLO perception (CPU 추론용) — torch CPU + ultralytics. libGL은 cv2용.
 # 모델 가중치는 ros2_ws/model/yolo/*.pt 로 커밋 (약 6MB) → perception이 share에 설치.
+# zxing-cpp: 바코드(Code 128, P2-01…) 해독 — OpenCV barcode는 EAN·UPC만 읽음 (perception_node barcode_detector)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 libglib2.0-0 python3-pip ros-lyrical-ament-cmake-pytest \
     && rm -rf /var/lib/apt/lists/* \
     && pip install --break-system-packages --ignore-installed --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
-    && pip install --break-system-packages --ignore-installed --no-cache-dir "numpy<2" ultralytics pytest
+    && pip install --break-system-packages --ignore-installed --no-cache-dir \
+       --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple \
+       "numpy<2" ultralytics pytest zxing-cpp
+# ↑ CPU 색인을 먼저: --ignore-installed 때문에 ultralytics가 torch를 다시 깔면서 PyPI CUDA 판(nvidia-* 수 GB)을 받던 것 —
+#   CPU 색인을 앞에 두면 같은 버전의 +cpu 판을 고름 (실측: CUDA 판 다운로드에서 20분 넘게 멈춤)
 
 # Arduino CLI (OpenCR 펌웨어 빌드·업로드용, Linux ARM64/x86_64 지원)
 # 근거: https://docs.arduino.cc/arduino-cli/installation (install.sh + BINDIR)
