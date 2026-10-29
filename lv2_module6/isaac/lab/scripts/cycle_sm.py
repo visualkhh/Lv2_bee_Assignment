@@ -45,7 +45,12 @@ parser.add_argument("--latency", action="store_true")
 parser.add_argument("--open_gap_mm", type=float, default=40.0)
 parser.add_argument("--lower_mm", type=float, default=3.0, help="puck bottom above the slot floor when letting go [mm]")
 parser.add_argument("--release_gap_mm", type=float, default=None, help="finger gap when letting go (default = --open_gap_mm)")
-parser.add_argument("--mirror_wrist", action="store_true", help="tool yaw heading - 90 deg on the -y side of the basket (mirror)")
+parser.add_argument("--mirror_wrist", action="store_true", help="tool yaw heading - 90 deg on one side of the basket (mirror), carry pose too")
+parser.add_argument("--mirror_side", type=int, choices=[-1, 1], default=-1,
+                    help="side that turns the wrist the other way with --mirror_wrist: -1 = -y (camera to the pole on both sides), 1 = +y (camera outwards)")
+parser.add_argument("--box_wall", choices=["none", "all", "no_pole"], default="none",
+                    help="box pucks: tool yaw snapped to the nearest cell wall axis, so the faces go in parallel to the walls; "
+                         "no_pole = not on the pole row (fingers stay along the arm there)")
 parser.add_argument("--no_correct", action="store_true", help="do not aim the puck bottom (measured in the hand) at the slot")
 parser.add_argument("--no_diag", action="store_true", help="cylinders: keep the face rule instead of the grid diagonal")
 parser.add_argument("--layout", choices=["grid", "start_x", "start_y"], default="grid",
@@ -67,7 +72,7 @@ parser.add_argument("--cell_noise_mm", type=float, default=5.0, help="place: err
 parser.add_argument("--hand_noise_mm", type=float, default=2.0, help="place: error of the puck-in-hand measurement, uniform +- [mm]")
 parser.add_argument("--flip_slots", default="",
                     help="slots where the wrist turns the other way (tool yaw heading - 90 deg), e.g. 2: gripper camera on the other side")
-parser.add_argument("--slots", default=None, help="single puck: only these slots, e.g. 2,8,9 (env i -> i-th of them, cycling)")
+parser.add_argument("--slots", default=None, help="single puck: only these slots, e.g. 2,8,9 (envs 4i..4i+3 -> i-th of them, cycling); also for --unload")
 parser.add_argument("--contacts", action="store_true", help="record the largest contact force per robot body and move")
 parser.add_argument("--out", default=None)
 AppLauncher.add_app_launcher_args(parser)
@@ -120,6 +125,17 @@ LATENCY_S = (0.045, 0.062, 0.052, 0.045, 0.045, 0.020)
 SLOT_ORDER = {"back_first": [1, 2, 0, 3, 5, 6, 4, 7, 9, 10, 8, 11], "front_first": [9, 10, 8, 11, 5, 6, 4, 7, 1, 2, 0, 3],
               # single-puck placement per slot (2026-10-28, 16 envs each): 2 -> 25 %, 8 -> 12 %, 9 -> 6 %, the rest 75-100 %
               "good_first": [0, 1, 3, 4, 5, 6, 7, 10, 11, 2, 8, 9]}
+
+
+def wall_yaw(yaw):
+    """Nearest cell wall axis (0 / 90 deg in the basket = base frame) to a tool yaw: a box face then lies along a wall."""
+    if torch.is_tensor(yaw):
+        return yaw + torch.remainder(-yaw + math.pi / 4, math.pi / 2) - math.pi / 4
+    return yaw + math.remainder(-yaw, math.pi / 2)
+
+
+def box_snap(row):
+    return args.box_wall == "all" or (args.box_wall == "no_pole" and row > 0)
 
 
 def rot_tool(heading, pitch_deg, yaw):
@@ -208,7 +224,9 @@ def main():
     cell_of = torch.arange(n, device=dev) % 9
     # Lab's MultiUsdFileCfg hands out the puck types round robin (env i -> type i % 4), so a slot of i % 12 would
     # always get the same type. Consecutive groups of 4 envs share a slot instead: every slot sees all 4 types.
-    env_slot = (torch.arange(n, device=dev) // 4) % len(SLOTS)
+    # --slots narrows the slots used (loading and unloading); the full basket still holds all 12
+    pool = torch.tensor([int(v) for v in args.slots.split(",")] if args.slots else list(range(len(SLOTS))), device=dev)
+    env_slot = pool[(torch.arange(n, device=dev) // 4) % len(pool)]
 
     # ---- shelf grid of pucks (target = puck 0 at the env's random reset pose, the rest around it)
     grip_now = torch.full((n,), OPEN, device=dev)
@@ -232,7 +250,7 @@ def main():
                 sl = (env_slot + p_idx) % len(SLOTS)
                 sxy = torch.tensor(SLOTS, device=dev)[sl]
                 hd_s = torch.atan2(sxy[:, 1] - JOINT1_XY[1], sxy[:, 0] - JOINT1_XY[0])
-                wr = torch.where(sxy[:, 1] < 0, -WRIST, WRIST) if args.mirror_wrist else torch.full_like(hd_s, WRIST)
+                wr = torch.where(sxy[:, 1] * args.mirror_side > 0, -WRIST, WRIST) if args.mirror_wrist else torch.full_like(hd_s, WRIST)
                 wr = torch.where(torch.tensor([v in FLIP for v in sl.tolist()], device=dev), -wr, wr)
                 off = math.radians(args.unload_yaw_deg) * torch.where(torch.rand(n, device=dev) < 0.5, -1.0, 1.0)
                 is_box = torch.tensor(["box" in kinds[p_idx][i] for i in range(n)], device=dev)
@@ -241,7 +259,9 @@ def main():
                 pos_b = sxy.clone()
                 pos_b[:, :2] += (torch.rand(n, 2, device=dev) * 2 - 1) * play[:, None]
                 pos_b[:, 2] += 0.002
-                q_b = math_utils.quat_from_euler_xyz(torch.zeros(n, device=dev), torch.zeros(n, device=dev), hd_s + wr + off)
+                snap = is_box & ((sl // 4 > 0) if args.box_wall == "no_pole" else torch.full_like(is_box, args.box_wall == "all"))
+                yaw_b = torch.where(snap, wall_yaw(hd_s + wr), hd_s + wr)
+                q_b = math_utils.quat_from_euler_xyz(torch.zeros(n, device=dev), torch.zeros(n, device=dev), yaw_b + off)
                 p.write_root_pose_to_sim_index(root_pose=torch.cat([bp + math_utils.quat_apply(bq, pos_b), math_utils.quat_mul(bq, q_b)], dim=1))
                 p.write_root_velocity_to_sim_index(root_velocity=torch.zeros(n, 6, device=dev))
         elif k == 0 and args.layout != "grid":
@@ -330,7 +350,7 @@ def main():
     carry_q = {}
     for side in (1, -1):
         hd = side * CARRY_HEADING
-        wr = -WRIST if (args.mirror_wrist and side < 0) else WRIST
+        wr = -WRIST if (args.mirror_wrist and side == args.mirror_side) else WRIST
         rot = rot_tool(hd, 0.0, hd + wr)
         best = None
         for z in np.arange(0.40, 0.20, -0.01):
@@ -347,8 +367,7 @@ def main():
     order = SLOT_ORDER[args.order]
     slot_of = torch.zeros(n, n_p, dtype=torch.long, device=dev)
     if n_p == 1:
-        pool = torch.tensor([int(v) for v in args.slots.split(",")] if args.slots else list(range(len(SLOTS))), device=dev)
-        slot_of[:, 0] = pool[(torch.arange(n, device=dev) // 4) % len(pool)]
+        slot_of[:, 0] = env_slot
     else:
         rank = torch.cumsum(on_shelf.long(), dim=1) - 1  # k-th puck on the shelf goes to the k-th slot in the order
         slot_of = torch.tensor(order, device=dev)[rank.clamp(min=0)]
@@ -440,14 +459,15 @@ def main():
             sx, sy, sz = SLOTS[slot[i].item()]
             row = slot[i].item() // 4
             hd_s = math.atan2(sy - JOINT1_XY[1], sx - JOINT1_XY[0])
-            wr = -WRIST if (args.mirror_wrist and sy < 0) else WRIST
+            wr = -WRIST if (args.mirror_wrist and sy * args.mirror_side > 0) else WRIST
             wr = -wr if slot[i].item() in FLIP else wr
+            yaw_s = wall_yaw(hd_s + wr) if (box_snap(row) and "box" in kinds[0][i]) else hd_s + wr
             h_over, t_over = OVER[row]
-            seeds = [np.array([hd_s, j2, j3, j4, -wr]) for j2 in (-0.3, 0.3, 0.8) for j3 in (0.7, -0.5) for j4 in (1.0, 1.9)]
-            rot = rot_tool(hd_s, t_over, hd_s + wr)
+            seeds = [np.array([hd_s, j2, j3, j4, hd_s - yaw_s]) for j2 in (-0.3, 0.3, 0.8) for j3 in (0.7, -0.5) for j4 in (1.0, 1.9)]
+            rot = rot_tool(hd_s, t_over, yaw_s)
             q_over, *_ = ik.solve(np.array([sx, sy, sz + h_over]) - rot @ d_nom, rot, seeds)
             for t_ in SET_TILTS:
-                rot = rot_tool(hd_s, t_, hd_s + wr)
+                rot = rot_tool(hd_s, t_, yaw_s)
                 q_g, e_pos, e_ang = ik.solve(np.array([sx, sy, sz + args.unload_dz_mm / 1000]) - rot @ d_nom, rot, [q_over])
                 if e_pos < 2e-3 and e_ang < math.radians(2.0):
                     break
@@ -558,11 +578,11 @@ def main():
             sx, sy, sz = SLOTS[slot[i].item()]
             row = slot[i].item() // 4
             hd_s = math.atan2(sy - JOINT1_XY[1], sx - JOINT1_XY[0])
-            wr = -WRIST if (args.mirror_wrist and sy < 0) else WRIST
+            wr = -WRIST if (args.mirror_wrist and sy * args.mirror_side > 0) else WRIST
             wr = -wr if slot[i].item() in FLIP else wr
-            yaw_s = hd_s + wr
+            yaw_s = wall_yaw(hd_s + wr) if (box_snap(row) and "box" in kinds[p_idx][i]) else hd_s + wr
             h_over, t_over = OVER[row]
-            seeds = [np.array([hd_s, j2, j3, j4, -wr]) for j2 in (-0.3, 0.3, 0.8) for j3 in (0.7, -0.5) for j4 in (1.0, 1.9)]
+            seeds = [np.array([hd_s, j2, j3, j4, hd_s - yaw_s]) for j2 in (-0.3, 0.3, 0.8) for j3 in (0.7, -0.5) for j4 in (1.0, 1.9)]
             rot = rot_tool(hd_s, t_over, yaw_s)
             q_over, *_ = ik.solve(np.array([sx, sy, sz + h_over]) - rot @ d_np[i], rot, seeds)
             for t_ in SET_TILTS:

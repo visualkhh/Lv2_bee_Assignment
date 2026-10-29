@@ -7,8 +7,8 @@
                 double radius = 5
             }
             dictionary Perspective = {
-                double3 position = (-2.1809602771973235, -3.8196984700861316, 1.551683837592069)
-                double3 target = (-1.9619889229595777, -2.2078268890581354, 0.230230454257643)
+                double3 position = (3.4328067859738276, 2.932285223584471, 4.921101631187934)
+                double3 target = (-0.42278370778124064, 0.19303909857439683, 0.4769786377173926)
             }
             dictionary Right = {
                 double3 position = (0, -5, 0)
@@ -517,15 +517,340 @@ def Xform "World"
         }
     }
 
-    def "shelf_L2" (
-        prepend payload = @./shelf/shelf_L2.usda@
-    )
+    def Xform "start_boxes"
     {
-        float3 xformOp:rotateXYZ = (0, 0, 0)
-        float3 xformOp:scale = (1, 1, 1)
-        double3 xformOp:translate = (-0.5275516843299711, 0.3465862982886536, 0)
-        float3 xformOp:translate:pivot = (0, 0, 0)
-        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+        def "start_1" (
+            prepend payload = @./shelf/shelf.usda@
+        )
+        {
+            float3 xformOp:rotateXYZ = (0, 0, 1)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (-1.253, -2.471, 0)
+            float3 xformOp:translate:pivot = (0, 0, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+        }
+
+        def "start_2" (
+            prepend payload = @./shelf/shelf.usda@
+        )
+        {
+            float3 xformOp:rotateXYZ = (0, 0, -2.3)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (0.949, -0.269, 0)
+            float3 xformOp:translate:pivot = (0, 0, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+        }
+
+        def "start_3" (
+            prepend payload = @./shelf/shelf.usda@
+        )
+        {
+            float3 xformOp:rotateXYZ = (0, 0, 0)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (0.215, 1.933, 0)
+            float3 xformOp:translate:pivot = (0, 0, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+        }
+
+        def "start_4" (
+            prepend payload = @./shelf/shelf.usda@
+        )
+        {
+            float3 xformOp:rotateXYZ = (0, 0, -5.6)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (-1.987, 1.933, 0)
+            float3 xformOp:translate:pivot = (0, 0, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+        }
+
+        def "start_5" (
+            prepend payload = @./shelf/shelf.usda@
+        )
+        {
+            float3 xformOp:rotateXYZ = (0, 0, -5.8)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (-0.519, 1.933, 0)
+            float3 xformOp:translate:pivot = (0, 0, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+        }
+
+        def "start_6" (
+            prepend payload = @./shelf/shelf.usda@
+        )
+        {
+            float3 xformOp:rotateXYZ = (0, 0, 10.8)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (0.949, 0.465, 0)
+            float3 xformOp:translate:pivot = (0, 0, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+        }
+    }
+
+    def Xform "pucks"
+    {
+        def "puck_box_red_0" (
+            prepend payload = @./puck/box/puck_box_red_1.usda@
+        )
+        {
+            float3 xformOp:rotateXYZ = (0, 0, 165.7)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (-1.2986, -2.4624, 0.0705)
+            float3 xformOp:translate:pivot = (0, 0, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+
+            over "box"
+            {
+                over "Looks"
+                {
+                    over "mtlximage5"
+                    {
+                        asset inputs:file = @../source/texture/puck/puck_box_basecolor_id0.png@
+                    }
+                }
+            }
+        }
+
+        def "puck_box_green_6" (
+            prepend payload = @./puck/box/puck_box_green_0.usda@
+        )
+        {
+            float3 xformOp:rotateXYZ = (0, 0, 352.9)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (-1.2194, -2.4667, 0.0705)
+            float3 xformOp:translate:pivot = (0, 0, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+
+            over "box"
+            {
+                over "Looks"
+                {
+                    over "mtlximage5"
+                    {
+                        asset inputs:file = @../source/texture/puck/puck_box_basecolor_id6.png@
+                    }
+                }
+            }
+        }
+
+        def "puck_box_red_1" (
+            prepend payload = @./puck/box/puck_box_red_1.usda@
+        )
+        {
+            float3 xformOp:rotateXYZ = (0, 0, 94.2)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (0.9006, -0.2717, 0.0705)
+            float3 xformOp:translate:pivot = (0, 0, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+
+            over "box"
+            {
+                over "Looks"
+                {
+                    over "mtlximage5"
+                    {
+                        asset inputs:file = @../source/texture/puck/puck_box_basecolor_id1.png@
+                    }
+                }
+            }
+        }
+
+        def "puck_box_green_7" (
+            prepend payload = @./puck/box/puck_box_green_0.usda@
+        )
+        {
+            float3 xformOp:rotateXYZ = (0, 0, 83.2)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (0.9877, -0.2631, 0.0705)
+            float3 xformOp:translate:pivot = (0, 0, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+
+            over "box"
+            {
+                over "Looks"
+                {
+                    over "mtlximage5"
+                    {
+                        asset inputs:file = @../source/texture/puck/puck_box_basecolor_id7.png@
+                    }
+                }
+            }
+        }
+
+        def "puck_box_red_2" (
+            prepend payload = @./puck/box/puck_box_red_1.usda@
+        )
+        {
+            float3 xformOp:rotateXYZ = (0, 0, 210.7)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (0.1701, 1.9414, 0.0705)
+            float3 xformOp:translate:pivot = (0, 0, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+
+            over "box"
+            {
+                over "Looks"
+                {
+                    over "mtlximage5"
+                    {
+                        asset inputs:file = @../source/texture/puck/puck_box_basecolor_id2.png@
+                    }
+                }
+            }
+        }
+
+        def "puck_box_red_8" (
+            prepend payload = @./puck/box/puck_box_red_1.usda@
+        )
+        {
+            float3 xformOp:rotateXYZ = (0, 0, 88)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (0.263, 1.9251, 0.0705)
+            float3 xformOp:translate:pivot = (0, 0, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+
+            over "box"
+            {
+                over "Looks"
+                {
+                    over "mtlximage5"
+                    {
+                        asset inputs:file = @../source/texture/puck/puck_box_basecolor_id8.png@
+                    }
+                }
+            }
+        }
+
+        def "puck_cyl_red_3" (
+            prepend payload = @./puck/cyl/puck_cyl_red_3.usda@
+        )
+        {
+            float3 xformOp:rotateXYZ = (0, 0, 72.7)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (-2.0313, 1.9361, 0.0705)
+            float3 xformOp:translate:pivot = (0, 0, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+
+            over "cyl"
+            {
+                over "Looks"
+                {
+                    over "mtlximage5"
+                    {
+                        asset inputs:file = @../source/texture/puck/puck_cyl_basecolor_id3.png@
+                    }
+                }
+            }
+        }
+
+        def "puck_cyl_green_9" (
+            prepend payload = @./puck/cyl/puck_cyl_green_2.usda@
+        )
+        {
+            float3 xformOp:rotateXYZ = (0, 0, 36.3)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (-1.9475, 1.9215, 0.0705)
+            float3 xformOp:translate:pivot = (0, 0, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+
+            over "cyl"
+            {
+                over "Looks"
+                {
+                    over "mtlximage5"
+                    {
+                        asset inputs:file = @../source/texture/puck/puck_cyl_basecolor_id9.png@
+                    }
+                }
+            }
+        }
+
+        def "puck_cyl_red_4" (
+            prepend payload = @./puck/cyl/puck_cyl_red_3.usda@
+        )
+        {
+            float3 xformOp:rotateXYZ = (0, 0, 105.1)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (-0.5636, 1.946, 0.0705)
+            float3 xformOp:translate:pivot = (0, 0, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+
+            over "cyl"
+            {
+                over "Looks"
+                {
+                    over "mtlximage5"
+                    {
+                        asset inputs:file = @../source/texture/puck/puck_cyl_basecolor_id4.png@
+                    }
+                }
+            }
+        }
+
+        def "puck_cyl_green_10" (
+            prepend payload = @./puck/cyl/puck_cyl_green_2.usda@
+        )
+        {
+            float3 xformOp:rotateXYZ = (0, 0, 314.2)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (-0.4709, 1.9208, 0.0705)
+            float3 xformOp:translate:pivot = (0, 0, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+
+            over "cyl"
+            {
+                over "Looks"
+                {
+                    over "mtlximage5"
+                    {
+                        asset inputs:file = @../source/texture/puck/puck_cyl_basecolor_id10.png@
+                    }
+                }
+            }
+        }
+
+        def "puck_cyl_red_5" (
+            prepend payload = @./puck/cyl/puck_cyl_red_3.usda@
+        )
+        {
+            float3 xformOp:rotateXYZ = (0, 0, 170.7)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (0.9103, 0.4654, 0.0705)
+            float3 xformOp:translate:pivot = (0, 0, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+
+            over "cyl"
+            {
+                over "Looks"
+                {
+                    over "mtlximage5"
+                    {
+                        asset inputs:file = @../source/texture/puck/puck_cyl_basecolor_id5.png@
+                    }
+                }
+            }
+        }
+
+        def "puck_cyl_green_11" (
+            prepend payload = @./puck/cyl/puck_cyl_green_2.usda@
+        )
+        {
+            float3 xformOp:rotateXYZ = (0, 0, 175.8)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (0.9857, 0.4776, 0.0705)
+            float3 xformOp:translate:pivot = (0, 0, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+
+            over "cyl"
+            {
+                over "Looks"
+                {
+                    over "mtlximage5"
+                    {
+                        asset inputs:file = @../source/texture/puck/puck_cyl_basecolor_id11.png@
+                    }
+                }
+            }
+        }
     }
 
     def "shelf_L3" (
@@ -534,7 +859,7 @@ def Xform "World"
     {
         float3 xformOp:rotateXYZ = (0, 0, 0)
         float3 xformOp:scale = (1, 1, 1)
-        double3 xformOp:translate = (1.0208668076686216, 1.9598456646528648, -1.474376176702208e-13)
+        double3 xformOp:translate = (0.949, 1.933, 0)
         float3 xformOp:translate:pivot = (0, 0, 0)
         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
     }
@@ -543,31 +868,20 @@ def Xform "World"
         prepend payload = @./shelf/shelf_L1.usda@
     )
     {
-        float3 xformOp:rotateXYZ = (0, 0, 0)
+        float3 xformOp:rotateXYZ = (0, 0, 84.86867)
         float3 xformOp:scale = (1, 1, 1)
-        double3 xformOp:translate = (1.0179110884100624, -2.5110015906969827, -1.4210854715202004e-14)
+        double3 xformOp:translate = (0.949, -2.471, 0)
         float3 xformOp:translate:pivot = (0, 0, 0)
         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
     }
 
-    def "puck_box_green_0" (
-        prepend payload = @./puck/box/puck_box_green_0.usda@
+    def "shelf_L2" (
+        prepend payload = @./shelf/shelf_L2.usda@
     )
     {
-        float3 xformOp:rotateXYZ = (0, 0, 0)
+        float3 xformOp:rotateXYZ = (0, 0, 180)
         float3 xformOp:scale = (1, 1, 1)
-        double3 xformOp:translate = (0, 0, 0)
-        float3 xformOp:translate:pivot = (0, 0, 0)
-        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
-    }
-
-    def "puck_cyl_green_2" (
-        prepend payload = @./puck/cyl/puck_cyl_green_2.usda@
-    )
-    {
-        float3 xformOp:rotateXYZ = (0, 0, 0)
-        float3 xformOp:scale = (1, 1, 1)
-        double3 xformOp:translate = (0, 0, 0)
+        double3 xformOp:translate = (-0.5221550738382368, 0.30731076910165944, -9.769962616701378e-15)
         float3 xformOp:translate:pivot = (0, 0, 0)
         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
     }
@@ -621,7 +935,7 @@ def "Render" (
                 bool omni:rtx:scene:useViewLightingMode
                 rel orderedVars = </Render/Vars/LdrColor>
                 custom bool overrideClipRange = 0
-                uniform int2 resolution = (1280, 720)
+                uniform int2 resolution = (827, 654)
             }
 
             def RenderProduct "Replicator" (
@@ -631,7 +945,9 @@ def "Render" (
             )
             {
                 rel camera = </World/beebot/Geometry/base_footprint/base_link/pole_front_cam_link/pole_front_cam_color_optical_frame/pole_front_cam_rgb>
+                bool omni:rtx:material:db:syncLoads = 1
                 bool omni:rtx:rt:ecoMode:enabled
+                bool omni:rtx:scene:hydra:materialSyncLoads = 1
                 rel orderedVars = </Render/Vars/LdrColor>
                 custom bool overrideClipRange = 0
                 uniform int2 resolution = (640, 360)
@@ -664,6 +980,10 @@ def "Render" (
             uniform token sourceType = "raw"
         }
     }
+
+    over "PostProcess"
+    {
+    }
 }
 
 over "OmniverseKit_Persp" (
@@ -687,10 +1007,10 @@ over "OmniverseKit_Persp" (
     float exposure:time = 0.02
     float focalLength = 18.147562
     float focusDistance = 400
-    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -2.0957856503059675)
-    float3 xformOp:rotateXYZ = (50.910847, -1.0941108e-12, -7.736223)
+    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -6.489936561324057)
+    float3 xformOp:rotateXYZ = (46.782368, -1.0177776e-12, 125.3923)
     float3 xformOp:scale = (1, 1, 1)
-    double3 xformOp:translate = (-2.1809602771973235, -3.8196984700861316, 1.551683837592069)
+    double3 xformOp:translate = (3.4328067859738276, 2.932285223584471, 4.921101631187934)
     uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
 }
 

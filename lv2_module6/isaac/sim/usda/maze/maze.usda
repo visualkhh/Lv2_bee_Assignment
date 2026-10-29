@@ -28,8 +28,14 @@ over "maze"
 
     over "wall_edge"
     {
+        double3 xformOp:translate = (0.00665, -0.01249, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+
         over "collision"
         {
+            double3 xformOp:translate = (-0.00665, 0.01249, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
             over "geo_84" (
                 prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
             )
@@ -884,6 +890,9 @@ over "maze"
 
         over "PLA"
         {
+            double3 xformOp:translate = (-0.00665, 0.01249, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
@@ -894,6 +903,9 @@ over "maze"
 
         over "wall"
         {
+            double3 xformOp:translate = (-0.00665, 0.01249, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
@@ -904,6 +916,9 @@ over "maze"
 
         over "profile"
         {
+            double3 xformOp:translate = (-0.00665, 0.01249, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
@@ -914,6 +929,9 @@ over "maze"
 
         over "steel"
         {
+            double3 xformOp:translate = (-0.00665, 0.01249, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
@@ -925,8 +943,14 @@ over "maze"
 
     over "wall_e0"
     {
+        double3 xformOp:translate = (1.1853, -0.41069, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+
         over "collision"
         {
+            double3 xformOp:translate = (-1.1853, 0.41069, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
             over "geo_5" (
                 prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
             )
@@ -991,6 +1015,9 @@ over "maze"
 
         over "PLA"
         {
+            double3 xformOp:translate = (-1.1853, 0.41069, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
@@ -1001,6 +1028,9 @@ over "maze"
 
         over "wall"
         {
+            double3 xformOp:translate = (-1.1853, 0.41069, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
@@ -1011,6 +1041,9 @@ over "maze"
 
         over "profile"
         {
+            double3 xformOp:translate = (-1.1853, 0.41069, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
@@ -1022,8 +1055,14 @@ over "maze"
 
     over "wall_d0"
     {
+        double3 xformOp:translate = (-0.79206, -1.56622, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+
         over "collision"
         {
+            double3 xformOp:translate = (0.79206, 1.56622, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
             over "geo_6" (
                 prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
             )
@@ -1098,6 +1137,9 @@ over "maze"
 
         over "PLA"
         {
+            double3 xformOp:translate = (0.79206, 1.56622, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
@@ -1108,6 +1150,9 @@ over "maze"
 
         over "wall"
         {
+            double3 xformOp:translate = (0.79206, 1.56622, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
@@ -1118,6 +1163,9 @@ over "maze"
 
         over "profile"
         {
+            double3 xformOp:translate = (0.79206, 1.56622, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
@@ -1129,8 +1177,14 @@ over "maze"
 
     over "wall_c0"
     {
+        double3 xformOp:translate = (1.12984, -1.93611, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+
         over "collision"
         {
+            double3 xformOp:translate = (-1.12984, 1.93611, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
             over "geo_3" (
                 prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
             )
@@ -1175,6 +1229,9 @@ over "maze"
 
         over "PLA"
         {
+            double3 xformOp:translate = (-1.12984, 1.93611, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
@@ -1185,6 +1242,9 @@ over "maze"
 
         over "wall"
         {
+            double3 xformOp:translate = (-1.12984, 1.93611, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
@@ -1195,6 +1255,9 @@ over "maze"
 
         over "profile"
         {
+            double3 xformOp:translate = (-1.12984, 1.93611, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
@@ -1206,8 +1269,14 @@ over "maze"
 
     over "wall_b2"
     {
+        double3 xformOp:translate = (1.51737, 1.12126, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+
         over "collision"
         {
+            double3 xformOp:translate = (-1.51737, -1.12126, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
             over "geo_2" (
                 prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
             )
@@ -1242,6 +1311,9 @@ over "maze"
 
         over "PLA"
         {
+            double3 xformOp:translate = (-1.51737, -1.12126, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
@@ -1252,6 +1324,9 @@ over "maze"
 
         over "wall"
         {
+            double3 xformOp:translate = (-1.51737, -1.12126, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
@@ -1262,6 +1337,9 @@ over "maze"
 
         over "profile"
         {
+            double3 xformOp:translate = (-1.51737, -1.12126, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
@@ -1273,8 +1351,14 @@ over "maze"
 
     over "wall_b1"
     {
+        double3 xformOp:translate = (1.15718, 2.20736, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+
         over "collision"
         {
+            double3 xformOp:translate = (-1.15718, -2.20736, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
             over "geo_2" (
                 prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
             )
@@ -1309,6 +1393,9 @@ over "maze"
 
         over "PLA"
         {
+            double3 xformOp:translate = (-1.15718, -2.20736, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
@@ -1319,6 +1406,9 @@ over "maze"
 
         over "wall"
         {
+            double3 xformOp:translate = (-1.15718, -2.20736, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
@@ -1329,6 +1419,9 @@ over "maze"
 
         over "profile"
         {
+            double3 xformOp:translate = (-1.15718, -2.20736, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
@@ -1340,8 +1433,14 @@ over "maze"
 
     over "wall_b0"
     {
+        double3 xformOp:translate = (-1.10207, 2.09695, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+
         over "collision"
         {
+            double3 xformOp:translate = (1.10207, -2.09695, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
             over "geo_2" (
                 prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
             )
@@ -1376,6 +1475,9 @@ over "maze"
 
         over "PLA"
         {
+            double3 xformOp:translate = (1.10207, -2.09695, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
@@ -1386,6 +1488,9 @@ over "maze"
 
         over "wall"
         {
+            double3 xformOp:translate = (1.10207, -2.09695, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
@@ -1396,6 +1501,9 @@ over "maze"
 
         over "profile"
         {
+            double3 xformOp:translate = (1.10207, -2.09695, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
@@ -1407,8 +1515,14 @@ over "maze"
 
     over "wall_a1"
     {
+        double3 xformOp:translate = (-1.54096, 0.72762, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+
         over "collision"
         {
+            double3 xformOp:translate = (1.54096, -0.72762, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
             over "geo_3" (
                 prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
             )
@@ -1453,6 +1567,9 @@ over "maze"
 
         over "PLA"
         {
+            double3 xformOp:translate = (1.54096, -0.72762, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
@@ -1463,6 +1580,9 @@ over "maze"
 
         over "wall"
         {
+            double3 xformOp:translate = (1.54096, -0.72762, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
@@ -1473,6 +1593,9 @@ over "maze"
 
         over "profile"
         {
+            double3 xformOp:translate = (1.54096, -0.72762, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
@@ -1484,8 +1607,14 @@ over "maze"
 
     over "wall_a0"
     {
+        double3 xformOp:translate = (0.01665, 2.18047, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+
         over "collision"
         {
+            double3 xformOp:translate = (-0.01665, -2.18047, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
             over "geo_3" (
                 prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
             )
@@ -1530,6 +1659,9 @@ over "maze"
 
         over "PLA"
         {
+            double3 xformOp:translate = (-0.01665, -2.18047, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
@@ -1540,6 +1672,9 @@ over "maze"
 
         over "wall"
         {
+            double3 xformOp:translate = (-0.01665, -2.18047, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
@@ -1550,6 +1685,9 @@ over "maze"
 
         over "profile"
         {
+            double3 xformOp:translate = (-0.01665, -2.18047, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
