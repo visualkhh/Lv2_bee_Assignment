@@ -1,5 +1,5 @@
 // manager 테스트: state_manager는 요청을 받아 직접 바꾼 상태만 발행한다
-//   /cmd/operation_mode → /state/operation_mode · /cmd/map_mode → RTAB-Map 서비스 응답 뒤 /state/map_mode · 서버 없으면 그대로
+//   /cmd/operation_mode → /state/operation_mode · /cmd/map_mode · /cmd/map_name → launch 다시 띄우기 요청 (/state/restart)
 #include <gtest/gtest.h>
 
 #include <filesystem>
@@ -34,11 +34,13 @@ TEST_F(RosTest, OperationAndMapMode) {
   auto node = std::make_shared<StateManager>(rclcpp::NodeOptions().parameter_overrides({{"map_mode", "LOCALIZATION"}}));
   auto probe = std::make_shared<rclcpp::Node>("probe");
   const auto latched = rclcpp::QoS(1).reliable().transient_local();
-  std::string op, map;
+  std::string op, map, restart;
   auto op_sub = probe->create_subscription<std_msgs::msg::String>("/state/operation_mode", latched,
     [&](std_msgs::msg::String::SharedPtr m) { op = m->data; });
   auto map_sub = probe->create_subscription<std_msgs::msg::String>("/state/map_mode", latched,
     [&](std_msgs::msg::String::SharedPtr m) { map = m->data; });
+  auto restart_sub = probe->create_subscription<std_msgs::msg::String>("/state/restart", latched,
+    [&](std_msgs::msg::String::SharedPtr m) { restart = m->data; });
   auto op_pub = probe->create_publisher<std_msgs::msg::String>("/cmd/operation_mode", rclcpp::QoS(1).reliable());
   auto req_pub = probe->create_publisher<std_msgs::msg::String>("/cmd/map_mode", rclcpp::QoS(1).reliable());
   rclcpp::executors::SingleThreadedExecutor exec;
@@ -52,26 +54,23 @@ TEST_F(RosTest, OperationAndMapMode) {
   // 조작 모드
   ASSERT_TRUE(spin_until(exec, [&] { std_msgs::msg::String o; o.data = "MANUAL"; op_pub->publish(o); },
     [&] { return op == "MANUAL"; }));
-  // RTAB-Map 서비스가 없으면 지도 모드는 그대로
-  spin_until(exec, [&] { req_pub->publish(req); }, [] { return false; }, 0.5);
+  // 지도 모드 = launch 전체를 map:=slam으로 다시 띄우기 요청 — 테스트는 ros2 launch 아래가 아니라 재시작이 거절되고 모드는 그대로
+  // (/state/restart는 시작할 때 "시작 (pid …)"을 냄 — 요청이 갔는지는 거절 이유의 "ros2 launch"로 봄)
+  ASSERT_TRUE(spin_until(exec, [&] { req_pub->publish(req); }, [&] { return restart.find("ros2 launch") != std::string::npos; }))
+    << restart;
   EXPECT_EQ(map, "LOCALIZATION");
-  // RTAB-Map(대역 서버)이 응답하면 MAPPING
-  int calls = 0;
-  auto srv = probe->create_service<std_srvs::srv::Empty>("/rtabmap/rtabmap/set_mode_mapping",
-    [&](const std::shared_ptr<std_srvs::srv::Empty::Request>, std::shared_ptr<std_srvs::srv::Empty::Response>) { ++calls; });
-  ASSERT_TRUE(spin_until(exec, [&] { req_pub->publish(req); }, [&] { return map == "MAPPING"; }));
-  EXPECT_GE(calls, 1);
 }
 
 TEST_F(RosTest, CourseCannotChange) {
   auto node = std::make_shared<StateManager>(rclcpp::NodeOptions().parameter_overrides({{"map_mode", "COURSE"}}));
   auto probe = std::make_shared<rclcpp::Node>("probe2");
-  std::string map;
-  auto map_sub = probe->create_subscription<std_msgs::msg::String>("/state/map_mode", rclcpp::QoS(1).reliable().transient_local(),
+  std::string map, restart;
+  const auto latched = rclcpp::QoS(1).reliable().transient_local();
+  auto map_sub = probe->create_subscription<std_msgs::msg::String>("/state/map_mode", latched,
     [&](std_msgs::msg::String::SharedPtr m) { map = m->data; });
+  auto restart_sub = probe->create_subscription<std_msgs::msg::String>("/state/restart", latched,
+    [&](std_msgs::msg::String::SharedPtr m) { restart = m->data; });
   auto req_pub = probe->create_publisher<std_msgs::msg::String>("/cmd/map_mode", rclcpp::QoS(1).reliable());
-  auto srv = probe->create_service<std_srvs::srv::Empty>("/rtabmap/rtabmap/set_mode_mapping",
-    [](const std::shared_ptr<std_srvs::srv::Empty::Request>, std::shared_ptr<std_srvs::srv::Empty::Response>) {});
   rclcpp::executors::SingleThreadedExecutor exec;
   exec.add_node(node);
   exec.add_node(probe);
@@ -80,71 +79,70 @@ TEST_F(RosTest, CourseCannotChange) {
   ASSERT_TRUE(spin_until(exec, [] {}, [&] { return map == "COURSE"; }));
   spin_until(exec, [&] { req_pub->publish(req); }, [] { return false; }, 0.5);
   EXPECT_EQ(map, "COURSE");
+  EXPECT_EQ(restart.find("ros2 launch"), std::string::npos) << restart;  // 다시 띄우기도 안 함 (시작 알림만)
 }
 
 TEST_F(RosTest, SwitchMapFolder) {
-  // 지도 폴더 갈아끼우기: /cmd/map_name → (폴더에 rtabmap.db 있으면) load_database → set_mode_localization → /state/map_name · LOCALIZATION
+  // 지도 폴더 갈아끼우기: /cmd/map_name → (폴더에 nvblox.nvblx 있으면) map:=saved map_name:=<이름>으로 다시 띄우기 요청
   const auto dir = std::filesystem::temp_directory_path() / "state_manager_maps";
   std::filesystem::create_directories(dir / "a");
-  std::ofstream(dir / "a" / "rtabmap.db") << "x";
+  std::filesystem::create_directories(dir / "c");
+  std::ofstream(dir / "a" / "nvblox.nvblx") << "x";
+  std::ofstream(dir / "c" / "map.pgm") << "x";  // 미리보기만 있는 폴더 — 목록에 안 나옴
   auto node = std::make_shared<StateManager>(rclcpp::NodeOptions().parameter_overrides(
     {{"map_mode", "MAPPING"}, {"map_name", "b"}, {"map_dir", dir.string()}}));
   auto probe = std::make_shared<rclcpp::Node>("probe3");
-  std::string name, mode, loaded;
+  std::string name, mode, list, restart;
   const auto latched = rclcpp::QoS(1).reliable().transient_local();
   auto name_sub = probe->create_subscription<std_msgs::msg::String>("/state/map_name", latched,
     [&](std_msgs::msg::String::SharedPtr m) { name = m->data; });
   auto mode_sub = probe->create_subscription<std_msgs::msg::String>("/state/map_mode", latched,
     [&](std_msgs::msg::String::SharedPtr m) { mode = m->data; });
-  auto load = probe->create_service<rtabmap_msgs::srv::LoadDatabase>("/rtabmap/rtabmap/load_database",
-    [&](const std::shared_ptr<rtabmap_msgs::srv::LoadDatabase::Request> r, std::shared_ptr<rtabmap_msgs::srv::LoadDatabase::Response>) {
-      loaded = r->database_path; });
-  auto loc = probe->create_service<std_srvs::srv::Empty>("/rtabmap/rtabmap/set_mode_localization",
-    [](const std::shared_ptr<std_srvs::srv::Empty::Request>, std::shared_ptr<std_srvs::srv::Empty::Response>) {});
+  auto list_sub = probe->create_subscription<std_msgs::msg::String>("/state/map_list", latched,
+    [&](std_msgs::msg::String::SharedPtr m) { list = m->data; });
+  auto restart_sub = probe->create_subscription<std_msgs::msg::String>("/state/restart", latched,
+    [&](std_msgs::msg::String::SharedPtr m) { restart = m->data; });
   auto pub = probe->create_publisher<std_msgs::msg::String>("/cmd/map_name", rclcpp::QoS(1).reliable());
   rclcpp::executors::SingleThreadedExecutor exec;
   exec.add_node(node);
   exec.add_node(probe);
-  std::string list;
-  auto list_sub = probe->create_subscription<std_msgs::msg::String>("/state/map_list", latched,
-    [&](std_msgs::msg::String::SharedPtr m) { list = m->data; });
-  ASSERT_TRUE(spin_until(exec, [] {}, [&] { return name == "b" && mode == "MAPPING" && list == "a"; }));  // b는 rtabmap.db 없음
+  ASSERT_TRUE(spin_until(exec, [] {}, [&] { return name == "b" && mode == "MAPPING" && list == "a"; }));  // b는 지도 파일 없음
   std_msgs::msg::String req;
-  req.data = "nope";  // 없는 폴더 → 그대로
+  req.data = "nope";  // 없는 폴더 → 그대로, 다시 띄우지도 않음
   spin_until(exec, [&] { pub->publish(req); }, [] { return false; }, 0.5);
   EXPECT_EQ(name, "b");
-  req.data = "a";
-  ASSERT_TRUE(spin_until(exec, [&] { pub->publish(req); }, [&] { return name == "a" && mode == "LOCALIZATION"; }));
-  EXPECT_EQ(loaded, (dir / "a" / "rtabmap.db").string());
+  EXPECT_EQ(restart.find("ros2 launch"), std::string::npos) << restart;
+  req.data = "a";  // 있는 폴더 → 다시 띄우기 요청 (테스트는 launch 아래가 아니라 거절 — 요청까지 갔는지만)
+  ASSERT_TRUE(spin_until(exec, [&] { pub->publish(req); }, [&] { return restart.find("ros2 launch") != std::string::npos; }))
+    << restart;
 }
 
 TEST_F(RosTest, ExploreOnlyWhileMapping) {
   // EXPLORE는 지도 모드 MAPPING일 때만 · explorer가 /explore/result 를 내면 AUTO로
-  auto node = std::make_shared<StateManager>(rclcpp::NodeOptions().parameter_overrides({{"map_mode", "LOCALIZATION"}}));
-  auto probe = std::make_shared<rclcpp::Node>("probe4");
-  std::string op;
-  auto op_sub = probe->create_subscription<std_msgs::msg::String>("/state/operation_mode", rclcpp::QoS(1).reliable().transient_local(),
-    [&](std_msgs::msg::String::SharedPtr m) { op = m->data; });
-  auto op_pub = probe->create_publisher<std_msgs::msg::String>("/cmd/operation_mode", rclcpp::QoS(1).reliable());
-  auto map_pub = probe->create_publisher<std_msgs::msg::String>("/cmd/map_mode", rclcpp::QoS(1).reliable());
-  auto done_pub = probe->create_publisher<std_msgs::msg::String>("/explore/result", rclcpp::QoS(1).reliable());
-  auto srv = probe->create_service<std_srvs::srv::Empty>("/rtabmap/rtabmap/set_mode_mapping",
-    [](const std::shared_ptr<std_srvs::srv::Empty::Request>, std::shared_ptr<std_srvs::srv::Empty::Response>) {});
-  rclcpp::executors::SingleThreadedExecutor exec;
-  exec.add_node(node);
-  exec.add_node(probe);
-  std_msgs::msg::String m;
-  ASSERT_TRUE(spin_until(exec, [] {}, [&] { return op == "AUTO"; }));
-  m.data = "EXPLORE";  // 위치추정 중 → 거절
-  spin_until(exec, [&] { op_pub->publish(m); }, [] { return false; }, 0.5);
-  EXPECT_EQ(op, "AUTO");
-  std_msgs::msg::String mapping;
-  mapping.data = "MAPPING";
-  spin_until(exec, [&] { map_pub->publish(mapping); }, [] { return false; }, 1.0);
-  ASSERT_TRUE(spin_until(exec, [&] { op_pub->publish(m); }, [&] { return op == "EXPLORE"; }));
-  std_msgs::msg::String done;
-  done.data = "DONE 프론티어 없음";
-  ASSERT_TRUE(spin_until(exec, [&] { done_pub->publish(done); }, [&] { return op == "AUTO"; }));
+  for (const std::string start : {"LOCALIZATION", "MAPPING"}) {
+    auto node = std::make_shared<StateManager>(rclcpp::NodeOptions().parameter_overrides({{"map_mode", start}}));
+    auto probe = std::make_shared<rclcpp::Node>("probe4");
+    std::string op;
+    auto op_sub = probe->create_subscription<std_msgs::msg::String>("/state/operation_mode",
+      rclcpp::QoS(1).reliable().transient_local(), [&](std_msgs::msg::String::SharedPtr m) { op = m->data; });
+    auto op_pub = probe->create_publisher<std_msgs::msg::String>("/cmd/operation_mode", rclcpp::QoS(1).reliable());
+    auto done_pub = probe->create_publisher<std_msgs::msg::String>("/explore/result", rclcpp::QoS(1).reliable());
+    rclcpp::executors::SingleThreadedExecutor exec;
+    exec.add_node(node);
+    exec.add_node(probe);
+    std_msgs::msg::String m;
+    m.data = "EXPLORE";
+    ASSERT_TRUE(spin_until(exec, [] {}, [&] { return op == "AUTO"; }));
+    if (start == "LOCALIZATION") {  // 위치추정 중 → 거절
+      spin_until(exec, [&] { op_pub->publish(m); }, [] { return false; }, 0.5);
+      EXPECT_EQ(op, "AUTO");
+      continue;
+    }
+    ASSERT_TRUE(spin_until(exec, [&] { op_pub->publish(m); }, [&] { return op == "EXPLORE"; }));
+    std_msgs::msg::String done;
+    done.data = "DONE 프론티어 없음";
+    ASSERT_TRUE(spin_until(exec, [&] { done_pub->publish(done); }, [&] { return op == "AUTO"; }));
+  }
 }
 
 TEST_F(RosTest, MotorErrorInDeviceState) {

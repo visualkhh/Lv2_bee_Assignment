@@ -1,29 +1,34 @@
 """📦 제공 패키지 기동 (실기용). 설계: documents/project/ros/09-nodes.md "직접 작성 노드와 제공 노드"
 
   ros2 launch ros_system ros_system.launch.py
-  ros2 launch ros_system ros_system.launch.py use_rtabmap:=false pole_front_cam_serial:=123456
+  ros2 launch ros_system ros_system.launch.py use_slam:=false pole_front_cam_serial:=123456
   ros2 launch ros_system ros_system.launch.py use_nav2:=true            # config/nav2_params.yaml
 
   ros2 launch ros_system ros_system.launch.py mock_hardware:=true   # 실기 없이 controller_manager (명령 → 상태 되돌림)
+  ros2 launch ros_system ros_system.launch.py localization:=false   # 매핑 — 지도를 새로 (끌 때 nvblox_map 파일에 저장)
 
 기본으로 켜는 것: robot_state_publisher(URDF) + ros2_control(controller_manager + 컨트롤러),
-                  RealSense ×2(pole_front_cam·gripper_cam), robot_localization EKF, RTAB-Map(위치추정 모드)
+                  RealSense ×2(pole_front_cam·gripper_cam), robot_localization EKF, SLAM(위치추정 모드)
+  - SLAM (Jetson GPU — documents/jetson-orin-nano/CUVSLAM.md): 위쪽 노드는 map→odom TF · /map(latched) · 지도 원점 = 출발 자리만 받음
+      cuVSLAM(scripts/cuvslam_slam.py) → map→odom · /cuvslam/odom(EKF)
+      + nvblox(depth → 3D TSDF → 2D 점유 격자) → scripts/nvblox_map.py가 /map(latched)으로 · 지도 파일 nvblox.nvblx
   - Nav2 (use_nav2:=true, config/nav2_params.yaml): 서버를 직접 띄운다 — nav2_bringup navigation_launch는
           velocity_smoother 입력을 /cmd_vel_nav로 고정해 rl_nav_correction·twist_mux를 건너뛰므로 안 씀.
           속도 체인: controller·behavior → /cmd_vel_nav → rl_nav_correction → /cmd_vel_corrected → twist_mux
                      → /cmd_vel_mux → velocity_smoother → /cmd_vel_smoothed → collision_monitor → /cmd_vel
-          map→odom·/map은 RTAB-Map (faker는 map_server + 항등 TF)
+          map→odom·/map은 SLAM (faker는 map_server + fake_localizer)
 TODO(권형중) 아직 자리만 있는 것 — 설정 패키지가 필요:
   - move_group (+ MTC capability): config/moveit 으로 해소 (use_moveit:=true) — pick_ik·octomap 센서(pole_front_cam 점구름)는 아직
 테스트베드에서는 faker가 이 패키지들 대신 같은 토픽·액션을 낸다 (ros2 launch faker faker.launch.py).
 """
 
+import importlib.util
 import os
 
 import yaml
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription, RegisterEventHandler
+from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription, OpaqueFunction, RegisterEventHandler
 from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -172,9 +177,9 @@ def generate_launch_description():
         flag('pole_front_cam_pointcloud', 'true', 'pole_front_cam PointCloud2 발행 (body_filter/Nav2용)'),
         flag('gripper_cam_pointcloud', 'false', 'gripper_cam PointCloud2 발행 (grasp_scorer용, 필요할 때만 true)'),
         flag('use_ekf', 'true', 'robot_localization EKF'),
-        flag('use_rtabmap', 'true', 'RTAB-Map'),
-        flag('localization', 'true', 'true=위치추정 모드(운영, rtabmap_db 지도로), false=매핑 모드(rtabmap_db를 새로 만듦)'),
-        flag('rtabmap_db', '~/.ros/rtabmap.db', 'RTAB-Map 지도 DB — 매핑이 여기에 쓰고 위치추정이 여기서 읽음 (테스트베드: /ws/map/<이름>/rtabmap.db)'),
+        flag('use_slam', 'true', 'SLAM(cuVSLAM + nvblox) — false면 map→odom·/map 없음 (테스트베드 faker map:=course는 map_server가 대신)'),
+        flag('localization', 'true', 'true=위치추정 모드(운영, 저장 지도로), false=매핑 모드(지도를 새로 만듦)'),
+        flag('nvblox_map', '~/.ros/nvblox.nvblx', 'nvblox 지도 파일 — 매핑이면 끌 때 여기에 저장, 위치추정이면 시작할 때 여기서 불러옴'),
         flag('use_nav2', 'true', '진짜 Nav2 서버 (planner · controller · behavior · bt_navigator · velocity_smoother · collision_monitor)'),
         flag('nav2_params_file', share('config', 'nav2_params.yaml'), 'Nav2 파라미터 파일'),
         flag('use_moveit', 'false', 'true면 진짜 move_group (config/moveit) — spawner 완료 후 기동 (동시 기동 레이스 회피)'),
@@ -211,18 +216,8 @@ def generate_launch_description():
             condition=IfCondition(LaunchConfiguration('use_ekf')),
             parameters=[share('config', 'ekf.yaml')]),
 
-        # 설계 3-1: 하향 카메라라 시각 오도메트리 끔, x·y·yaw만 (Reg/Force3DoF)
-        # 격자(/map)는 body_filter가 자기 몸을 뺀 점구름으로 (Grid/Sensor 0 = scan_cloud). depth 영상(Grid/Sensor 1)으로 만들면
-        # pole_front_cam에 찍힌 팔이 로봇 둘레 벽으로 남아 출발점이 늘 장애물 → planner가 매번 실패, 자동 탐사가 한 곳도 못 감 (실측)
-        # 초기 위치: RTAB-Map은 이름공간 안 /rtabmap/initialpose를 구독 → 표준 /initialpose로 (RViz '2D Pose Estimate' · 시뮬레이터 지도
-        # 우클릭 '초기 위치 지정'). 위치추정 모드에서 위치를 잃었을 때 "여기쯤"이라고 알려 줌
-        # 카메라 두 대: pole_front_cam(앞 · 늘) + gripper_cam(지도 만들 때 팔을 스캔 자세에 고정 — 왼쪽 뒤를 봄, config/scan_pose.yaml)
-        #   pole_front_cam      rgb · depth · info → rgbd_sync → rgbd_image0
-        #   gripper_cam   rgb · depth(scan_cam_gate: 스캔 자세에 멈춰 있을 때만 그대로, 아니면 0) · info → rgbd_sync → rgbd_image1
-        #   rgbdx_sync    둘을 묶어 rgbd_images → rtabmap (rgbd_cameras 0 = 묶음 메시지) + scan_cloud (몸 뺀 pole_front_cam 점구름)
-        # rtabmap_launch는 카메라 두 대 인자가 없어 노드를 직접 띄움 — 파라미터·리매핑은 rtabmap_launch와 같게 (이름공간 rtabmap · 노드 rtabmap:
-        #   state_manager가 /rtabmap/rtabmap/set_mode_* · load_database를 부름)
-        *rtabmap_nodes(),
+        # SLAM = cuVSLAM(위치 · map→odom) + nvblox(지도 · /map) — cuvslam_nvblox_nodes() 설명
+        *slam_nodes(),
 
         *nav2_nodes(),
     ])
@@ -254,86 +249,57 @@ def nav2_nodes():
         server('nav2_lifecycle_manager', 'lifecycle_manager', name='lifecycle_manager_navigation'),
     ]
 
-def rtabmap_nodes():
-    """RTAB-Map (설명은 generate_launch_description 주석) — use_rtabmap일 때만"""
-    on = IfCondition(LaunchConfiguration('use_rtabmap'))
-    loc = PythonExpression(["'", LaunchConfiguration('localization'), "'.lower() == 'true'"])
-    # 매핑 모드면 DB를 새로 (--delete_db_on_start). localization 값은 'true'·'True' 둘 다 올 수 있어 lower()
-    # 클로저(루프·근접)를 엄격하게 — 제자리 회전 때 아래를 보는 pole_front_cam이 같은 모양 미로 벽만 보며 잘못 맞춘 클로저를
-    # 받아들여, odom은 맞는데(실제와 2cm·0.7°) map→odom이 0.21m·−7.9° 틀어져 지도가 깨졌음 (실측 2026-10-19):
-    #   Vis/MinInliers 20→30→50→35 (특징점 대응 더 요구 — 아래) · RGBD/OptimizeMaxError 3→1.5 (odom과 많이 어긋나는 클로저 거부)
-    #   Reg/Strategy 0→2 (시각으로 찾고 점구름 ICP로 다시 맞춤 — scan_cloud = 몸 뺀 pole_front_cam 점구름)
-    #   RGBD/AngularUpdate 0.1→0.3 rad (제자리 회전 중 비슷한 노드가 줄줄이 쌓이지 않게)
-    #   RGBD/ProximityPathMaxNeighbors 0 — Reg/Strategy 2면 RTAB-Map이 1로 켜는 '점구름만으로 근접 검출'을 끔:
-    #     통로에선 양쪽 벽 점구름이 옆으로는 맞아도 통로 방향으로는 미끄러져, 통로 방향으로 0.18m 튄 보정을 받아들였음 (실측)
-    #   Vis/MinDepth · Kp/MinDepth 0.5 — pole_front_cam 화면 가운데에 로봇 자기 팔이 찍힘(카메라에서 0.2~0.35m). 팔은 로봇과 같이 돌아
-    #     그 특징점은 영상에서 안 움직임 → 클로저가 회전을 덜 잡음 (실측: 위치 1~2cm는 맞는데 회전 평균 2~6°, 늘 실제보다 작게).
-    #     바닥·벽은 화면 맨 아래도 0.59m 이상 (카메라 높이 0.42 · 18° 하향 · 세로 화각 ~54°) → 0.5m 안 특징점만 버림
-    #   Grid 바닥 판정을 법선 → 높이로: 바닥(base_footprint) 위 3cm까지 바닥 · 3~60cm 장애물 (Nav2 costmap과 같은 기준 — 경기장 바닥은 평평)
-    #     법선(이웃 20점 기울기 45°)은 gripper_cam이 비스듬히 본 먼 바닥(성기고 depth 잡음 큼)을 장애물로 찍어
-    #     지도 통로가 통째로 검게 칠해졌음 (실측: 저장 지도 장애물 3878칸 · 빈 칸 564칸)
-    #   Rtabmap/LoopThr 0.11→0.2→0.15 · Vis/MinInliers 30→50→35 (카메라 두 대·팔 특징점 제거 뒤 다시 풂 — 0.2·50이면 같은 곳에 돌아와도 클로저를 하나도 안 받음) — 그래도 같은 모양 벽·바닥에서 루프 클로저 12개를 받아 지도가 15.8° 돌았음
-    #     (실측 2026-10-19 — 실제 경기장도 미로라 같은 착각이 날 수 있어 판정 자체를 엄격하게)
-    rtabmap_args = PythonExpression(["'--Reg/Force3DoF true --Grid/Sensor 0 --Vis/MinInliers 35 "
-                      "--RGBD/OptimizeMaxError 1.5 --Reg/Strategy 2 --RGBD/AngularUpdate 0.3 "
-                      "--RGBD/ProximityPathMaxNeighbors 0 --Rtabmap/LoopThr 0.15 "
-                      "--Vis/MinDepth 0.5 --Kp/MinDepth 0.5 "
-                      "--Grid/NormalsSegmentation false --Grid/MaxGroundHeight 0.03 --Grid/MaxObstacleHeight 0.6' + ('' if '",
-                      LaunchConfiguration('localization'),
-                      "'.lower() == 'true' else ' --delete_db_on_start')"])
-    # best effort 구독 — 카메라가 best effort(fake_camera SensorData)든 reliable이든 받음.
-    # queue 10은 컬러·depth·두 카메라 approximate sync용이다. 여기를 1로 줄이면
-    # 한쪽 프레임이 먼저 도착할 때 짝을 못 찾아 RTAB-Map이 'Did not receive data'로 멈출 수 있다.
-    qos = {'qos': 2, 'qos_camera_info': 2}
+def check_slam(context):
+    """cuVSLAM·nvblox 설치 확인 — 없는 걸 띄우다 노드가 하나씩 죽는 대신 시작할 때 한 번에 알림"""
+    if LaunchConfiguration('use_slam').perform(context).lower() != 'true':
+        return []
+    missing = [] if importlib.util.find_spec('cuvslam') else ['cuvslam (PyCuVSLAM — documents/jetson-orin-nano/CUVSLAM.md)']
+    try:
+        get_package_share_directory('nvblox_ros')
+    except Exception:  # noqa: BLE001 — PackageNotFoundError
+        missing.append('nvblox_ros (isaac_ros_nvblox — documents/jetson-orin-nano/CUVSLAM.md "nvblox")')
+    if missing:
+        raise RuntimeError('SLAM(cuVSLAM + nvblox)에 필요한 것이 없음: ' + ', '.join(missing) +
+                           ' — GPU 없는 곳(테스트베드)은 faker map:=course 또는 use_slam:=false로')
+    return []
 
-    def rgbd_sync(name, rgb, depth, info, out):
-        return Node(package='rtabmap_sync', executable='rgbd_sync', name=name, namespace='rtabmap', output='screen', condition=on,
-                    parameters=[{'approx_sync': True, 'topic_queue_size': 10, 'sync_queue_size': 10, **qos}],
-                    remappings=[('rgb/image', rgb), ('depth/image', depth), ('rgb/camera_info', info), ('rgbd_image', out)])
+
+def slam_nodes():
+    """SLAM = cuVSLAM(위치) + nvblox(지도) — use_slam일 때. 위쪽이 받는 것: map→odom TF(cuVSLAM) · /map latched(nvblox_map) · 원점 = 출발 자리
+      cuvslam_slam   pole_front_cam RGB-D → map→odom (루프 클로저) + /cuvslam/odom (EKF odom1)
+      depth gate ×2  scan_cam_gate 재사용 — nvblox에 줄 depth에서 카메라 0.5 m 안(자기 팔·손가락·폴대)을 0(측정 없음)으로.
+                     pole_front_cam은 늘, gripper_cam은 팔이 스캔 자세일 때만 (아니면 전부 0 — 팔이 움직이며 본 것은 지도에 안 넣음).
+                     Nav2 costmap은 몸 뺀 점구름(body_filter)을 쓰지만 nvblox는 depth 영상을 받으므로 영상에서 뺌
+      nvblox_node    depth 2대 + TF(map→카메라) → TSDF → 2D 점유 격자 (config/nvblox.yaml). 매핑이면 끌 때 nvblox_map 파일에 저장
+      nvblox_map     ~/static_occupancy_grid → /map (latched, 1 Hz) · 위치추정이면 시작할 때 저장 지도를 load_map"""
+    on = IfCondition(LaunchConfiguration('use_slam'))
+    loc = ["'", LaunchConfiguration('localization'), "'.lower() == 'true'"]
+    nvblox_file = ["__import__('os').path.expanduser('", LaunchConfiguration('nvblox_map'), "')"]
+    save_path = PythonExpression(["'' if ", *loc, " else ", *nvblox_file])  # 매핑일 때만 저장 (위치추정이면 불러온 지도를 안 덮어씀)
+    load_path = PythonExpression([*nvblox_file, " if ", *loc, " else ''"])
+
+    def gate(name, cam, by_pose):
+        return Node(package='ros_system', executable='scan_cam_gate', name=name, output='screen', condition=on,
+                    parameters=[share('config', 'scan_pose.yaml'),
+                                {'gate_by_pose': by_pose, 'depth_min_range': 0.5, 'cloud_in': '',
+                                 'depth_in': f'/{cam}/aligned_depth_to_color/image_raw',
+                                 'depth_out': f'/{cam}/aligned_depth_to_color/image_nvblox'}])
+
+    def camera_remaps(i, cam):
+        return [(f'camera_{i}/depth/image', f'/{cam}/aligned_depth_to_color/image_nvblox'),
+                (f'camera_{i}/depth/camera_info', f'/{cam}/aligned_depth_to_color/camera_info'),
+                (f'camera_{i}/color/image', f'/{cam}/color/image_raw'),
+                (f'camera_{i}/color/camera_info', f'/{cam}/color/camera_info')]
     return [
-        Node(package='ros_system', executable='scan_cam_gate', name='scan_cam_gate', output='screen', condition=on,
-             parameters=[share('config', 'scan_pose.yaml'),
-                         {'depth_in': '/gripper_cam/aligned_depth_to_color/image_raw',
-                          'depth_out': '/gripper_cam/aligned_depth_to_color/image_scan',
-                          'cloud_in': '/gripper_cam/depth/color/points', 'cloud_out': '/gripper_cam/depth/color/points_scan',
-                          'min_range': 0.5}]),
-        # 점구름 둘(몸 뺀 pole_front_cam · 스캔 자세일 때만 gripper_cam)을 base_footprint 하나로 → RTAB-Map scan_cloud (격자 /map · ICP)
-        Node(package='rtabmap_util', executable='point_cloud_aggregator', name='scan_cloud_merge', namespace='rtabmap', output='screen',
-             condition=on,
-             parameters=[{'count': 2, 'frame_id': 'base_footprint', 'approx_sync': True, 'topic_queue_size': 10,
-                          'sync_queue_size': 10, 'qos': 2}],
-             remappings=[('cloud1', '/pole_front_cam/depth/color/points_filtered'), ('cloud2', '/gripper_cam/depth/color/points_scan'),
-                         ('combined_cloud', '/rtabmap/scan_cloud')]),
-        rgbd_sync('pole_rgbd_sync', '/pole_front_cam/color/image_raw', '/pole_front_cam/aligned_depth_to_color/image_raw',
-                  '/pole_front_cam/color/camera_info', '/rtabmap/rgbd_image0'),
-        rgbd_sync('gripper_rgbd_sync', '/gripper_cam/color/image_raw', '/gripper_cam/aligned_depth_to_color/image_scan',
-                  '/gripper_cam/color/camera_info', '/rtabmap/rgbd_image1'),
-        Node(package='rtabmap_sync', executable='rgbdx_sync', name='rgbdx_sync', namespace='rtabmap', output='screen', condition=on,
-             parameters=[{'rgbd_cameras': 2, 'approx_sync': True, 'topic_queue_size': 10, 'sync_queue_size': 10, 'qos': 2}],
-             remappings=[('rgbd_image0', '/rtabmap/rgbd_image0'), ('rgbd_image1', '/rtabmap/rgbd_image1'),
-                         ('rgbd_images', '/rtabmap/rgbd_images')]),
-        Node(package='rtabmap_slam', executable='rtabmap', name='rtabmap', namespace='rtabmap', output='screen', condition=on,
-             arguments=[rtabmap_args],
-             parameters=[{
-                 'subscribe_depth': False, 'subscribe_rgb': False, 'subscribe_rgbd': True, 'rgbd_cameras': 0,
-                 'subscribe_scan_cloud': True,
-                 'frame_id': 'base_footprint', 'map_frame_id': 'map', 'odom_frame_id': 'odom', 'publish_tf': True,
-                 # odom은 토픽 대신 TF(odom→base_footprint, EKF)에서 영상 시각으로 읽음 — 토픽 동기화는 odom 50Hz·큐 10(=0.2초)이라
-                 # 영상이 그보다 늦게 오면(카메라 지연·렌더 지연 ~1초 실측) 묶음이 안 맞아 'Did not receive data'로 지도를 못 만듦
-                 # odom(TF) 링크 분산 — rtabmap_launch 기본 회전 0.01(σ 5.7°)이라 클로저가 회전을 마음대로 끌고 감.
-                 # 실측 (회전 시험, 2026-10-19): EKF(IMU) yaw는 80초 끝 오차 0.15° · 클로저는 위치 1~2cm로 정확하나 회전이 평균 2~3°, 최대 6.6° 틀림
-                 # → map→odom −6.5°로 지도가 비틀림. 회전은 odom을 믿게(σ 0.6°) — 어긋나는 클로저는 OptimizeMaxError가 거부
-                 'odom_tf_angular_variance': 0.0001, 'odom_tf_linear_variance': 0.001,
-                 'odom_sensor_sync': True, 'wait_for_transform': 0.2, 'approx_sync': True,
-                 'topic_queue_size': 10, 'sync_queue_size': 10,
-                 'qos_image': 2, 'qos_scan': 2, 'qos_odom': 2, 'qos_camera_info': 2,
-                 'database_path': LaunchConfiguration('rtabmap_db'),
-                 # RTAB-Map 파라미터는 문자열이어야 함 — 'true'를 그냥 넘기면 launch가 bool로 바꿔 rtabmap이 죽음 (InvalidParameterType, 실측)
-                 'Mem/IncrementalMemory': ParameterValue(PythonExpression(["'false' if ", loc, " else 'true'"]), value_type=str),
-                 'Mem/InitWMWithAllNodes': ParameterValue(PythonExpression(["'true' if ", loc, " else 'false'"]), value_type=str),
-             }],
-             remappings=[('rgbd_images', '/rtabmap/rgbd_images'), ('scan_cloud', '/rtabmap/scan_cloud'),  # 두 카메라 합친 점구름
-                         ('odom', '/odometry/filtered'), ('map', '/map'),  # 기본은 이름공간 안 /rtabmap/map — Nav2 · 시뮬레이터는 /map
-                         # 초기 위치: 표준 /initialpose로 (RViz '2D Pose Estimate' · 시뮬레이터 지도 우클릭 '초기 위치 지정')
-                         ('initialpose', '/initialpose')]),
+        OpaqueFunction(function=check_slam),
+        Node(package='ros_system', executable='cuvslam_slam', name='cuvslam_slam', output='screen', condition=on,
+             parameters=[{'publish_map_tf': True}]),
+        gate('pole_depth_gate', 'pole_front_cam', False),
+        gate('gripper_depth_gate', 'gripper_cam', True),
+        Node(package='nvblox_ros', executable='nvblox_node', name='nvblox_node', output='screen', condition=on,
+             parameters=[share('config', 'nvblox.yaml'),
+                         {'after_shutdown_map_save_path': ParameterValue(save_path, value_type=str)}],
+             remappings=camera_remaps(0, 'pole_front_cam') + camera_remaps(1, 'gripper_cam')),
+        Node(package='ros_system', executable='nvblox_map', name='nvblox_map', output='screen', condition=on,
+             parameters=[{'load_path': ParameterValue(load_path, value_type=str)}]),
     ]
