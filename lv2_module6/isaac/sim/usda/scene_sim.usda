@@ -1,0 +1,1130 @@
+#usda 1.0
+(
+    customLayerData = {
+        dictionary cameraSettings = {
+            dictionary Front = {
+                double3 position = (5, 0, 0)
+                double radius = 5
+            }
+            dictionary Perspective = {
+                double3 position = (-0.5746046145321866, -4.191710090010674, 1.257804174713824)
+                double3 target = (-1.0483014667910564, -2.5662276887805096, 0.3753250692128426)
+            }
+            dictionary Right = {
+                double3 position = (0, -5, 0)
+                double radius = 5
+            }
+            dictionary Top = {
+                double3 position = (0, 0, 5)
+                double radius = 10.532421875
+            }
+            string boundCamera = "/World/beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link/gripper_cam_link/gripper_cam_color_optical_frame/gripper_cam_rgb"
+        }
+        dictionary omni_layer = {
+            string authoring_layer = "./scene_sim.usda"
+            dictionary locked = {
+            }
+            dictionary muteness = {
+            }
+        }
+        dictionary renderSettings = {
+        }
+    }
+    defaultPrim = "World"
+    endTimeCode = 1000000
+    metersPerUnit = 1
+    startTimeCode = 0
+    timeCodesPerSecond = 60
+    upAxis = "Z"
+)
+
+def Xform "World"
+{
+    def "beebot" (
+        prepend payload = @./beebot/beebot.usda@
+    )
+    {
+        quatf xformOp:orient = (0.08636859, 0, 0, 0.99626327)
+        float3 xformOp:scale = (1, 1, 1)
+        double3 xformOp:translate = (-0.6808730737752141, -2.597499998994426, 0.0000013708473702855883)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+
+        over "Geometry"
+        {
+            over "base_footprint"
+            {
+                over "base_link"
+                {
+                    rel physics:simulationOwner
+
+                    over "wheel_left_link"
+                    {
+                        rel physics:simulationOwner
+
+                        over "cylinder"
+                        {
+                            rel physics:simulationOwner
+                        }
+                    }
+
+                    over "wheel_right_link"
+                    {
+                        rel physics:simulationOwner
+
+                        over "cylinder"
+                        {
+                            rel physics:simulationOwner
+                        }
+                    }
+
+                    over "pole_front_cam_link"
+                    {
+                        rel physics:simulationOwner
+
+                        over "box"
+                        {
+                            rel physics:simulationOwner
+                        }
+                    }
+
+                    over "arm_base_link"
+                    {
+                        rel physics:simulationOwner
+
+                        over "shoulder_link"
+                        {
+                            rel physics:simulationOwner
+
+                            over "upper_arm_link"
+                            {
+                                rel physics:simulationOwner
+
+                                over "forearm_link"
+                                {
+                                    rel physics:simulationOwner
+
+                                    over "wrist_link"
+                                    {
+                                        rel physics:simulationOwner
+
+                                        over "gripper_link"
+                                        {
+                                            rel physics:simulationOwner
+
+                                            over "finger_left_link"
+                                            {
+                                                rel physics:simulationOwner
+                                            }
+
+                                            over "finger_right_link"
+                                            {
+                                                rel physics:simulationOwner
+                                            }
+
+                                            over "gripper_cam_link"
+                                            {
+                                                rel physics:simulationOwner
+
+                                                over "box"
+                                                {
+                                                    rel physics:simulationOwner
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    over "box"
+                    {
+                        rel physics:simulationOwner
+                    }
+
+                    over "box_1"
+                    {
+                        rel physics:simulationOwner
+                    }
+
+                    over "box_2"
+                    {
+                        rel physics:simulationOwner
+                    }
+
+                    over "box_3"
+                    {
+                        rel physics:simulationOwner
+                    }
+
+                    over "box_4"
+                    {
+                        rel physics:simulationOwner
+                    }
+
+                    over "sphere"
+                    {
+                        rel physics:simulationOwner
+                    }
+
+                    over "sphere_1"
+                    {
+                        rel physics:simulationOwner
+                    }
+
+                    over "sphere_2"
+                    {
+                        rel physics:simulationOwner
+                    }
+
+                    over "sphere_3"
+                    {
+                        rel physics:simulationOwner
+                    }
+                }
+            }
+        }
+
+        over "Physics"
+        {
+            over "wheel_left_joint"
+            {
+                float physics:lowerLimit = -inf
+                float physics:upperLimit = inf
+                float state:angular:physics:position = 0
+                float state:angular:physics:velocity = 0
+            }
+
+            over "wheel_right_joint"
+            {
+                bool[] isaac:actuator (
+                    displayName = "Actuator"
+                )
+                string isaac:NameOverride (
+                    displayName = "Joint Name Override"
+                )
+                token[] isaac:physics:DofOffsetOpOrder (
+                    displayName = "Dof Offset Op Order"
+                )
+                float physics:lowerLimit = -inf
+                float physics:upperLimit = inf
+                float state:angular:physics:position = 0
+                float state:angular:physics:velocity = 0
+            }
+
+            over "joint1"
+            {
+                float drive:angular:physics:targetPosition = 0
+                bool[] isaac:actuator (
+                    displayName = "Actuator"
+                )
+                string isaac:NameOverride (
+                    displayName = "Joint Name Override"
+                )
+                token[] isaac:physics:DofOffsetOpOrder (
+                    displayName = "Dof Offset Op Order"
+                )
+                float physics:lowerLimit = -179.99985
+                float physics:upperLimit = 179.99985
+                float state:angular:physics:position = 0
+                float state:angular:physics:velocity = 0
+            }
+
+            over "joint2"
+            {
+                float drive:angular:physics:targetPosition = -110
+                bool[] isaac:actuator (
+                    displayName = "Actuator"
+                )
+                string isaac:NameOverride (
+                    displayName = "Joint Name Override"
+                )
+                token[] isaac:physics:DofOffsetOpOrder (
+                    displayName = "Dof Offset Op Order"
+                )
+                float physics:lowerLimit = -110
+                float physics:upperLimit = 109.99999
+                float state:angular:physics:position = 0
+                float state:angular:physics:velocity = 0
+            }
+
+            over "joint3"
+            {
+                float drive:angular:physics:targetPosition = 80
+                bool[] isaac:actuator (
+                    displayName = "Actuator"
+                )
+                string isaac:NameOverride (
+                    displayName = "Joint Name Override"
+                )
+                token[] isaac:physics:DofOffsetOpOrder (
+                    displayName = "Dof Offset Op Order"
+                )
+                float physics:lowerLimit = -89.999985
+                float physics:upperLimit = 80
+                float state:angular:physics:position = 0
+                float state:angular:physics:velocity = 0
+            }
+
+            over "joint4"
+            {
+                float drive:angular:physics:targetPosition = 30
+                bool[] isaac:actuator (
+                    displayName = "Actuator"
+                )
+                string isaac:NameOverride (
+                    displayName = "Joint Name Override"
+                )
+                token[] isaac:physics:DofOffsetOpOrder (
+                    displayName = "Dof Offset Op Order"
+                )
+                float physics:lowerLimit = -97.402824
+                float physics:upperLimit = 112.87269
+                float state:angular:physics:position = 0
+                float state:angular:physics:velocity = 0
+            }
+
+            over "joint5"
+            {
+                bool[] isaac:actuator (
+                    displayName = "Actuator"
+                )
+                string isaac:NameOverride (
+                    displayName = "Joint Name Override"
+                )
+                token[] isaac:physics:DofOffsetOpOrder (
+                    displayName = "Dof Offset Op Order"
+                )
+                float physics:lowerLimit = -180.00002
+                float physics:upperLimit = 180.00002
+                float state:angular:physics:position = 0
+                float state:angular:physics:velocity = 0
+            }
+
+            over "gripper_left_joint"
+            {
+                bool[] isaac:actuator (
+                    displayName = "Actuator"
+                )
+                string isaac:NameOverride (
+                    displayName = "Joint Name Override"
+                )
+                token[] isaac:physics:DofOffsetOpOrder (
+                    displayName = "Dof Offset Op Order"
+                )
+                float physics:lowerLimit = 0
+                float physics:upperLimit = 0.0265
+                float state:linear:physics:position = 0
+                float state:linear:physics:velocity = 0
+            }
+
+            over "gripper_right_joint"
+            {
+                bool[] isaac:actuator (
+                    displayName = "Actuator"
+                )
+                string isaac:NameOverride (
+                    displayName = "Joint Name Override"
+                )
+                token[] isaac:physics:DofOffsetOpOrder (
+                    displayName = "Dof Offset Op Order"
+                )
+                float physics:lowerLimit = 0
+                float physics:upperLimit = 0.0265
+                float state:linear:physics:position = 0
+                float state:linear:physics:velocity = 0
+            }
+
+            over "arm_mount_joint"
+            {
+                bool[] isaac:actuator (
+                    displayName = "Actuator"
+                )
+                string isaac:NameOverride (
+                    displayName = "Joint Name Override"
+                )
+                token[] isaac:physics:DofOffsetOpOrder (
+                    displayName = "Dof Offset Op Order"
+                )
+            }
+        }
+    }
+
+    def Xform "Environment"
+    {
+        quatd xformOp:orient = (1, 0, 0, 0)
+        double3 xformOp:scale = (1, 1, 1)
+        double3 xformOp:translate = (0, 0, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+
+        def DomeLight "DomeLight" (
+            prepend apiSchemas = ["ShapingAPI"]
+        )
+        {
+            float inputs:exposure = 1.25
+            float inputs:intensity = 1000
+            float inputs:shaping:cone:angle = 180
+            float inputs:shaping:cone:softness
+            float inputs:shaping:focus
+            color3f inputs:shaping:focusTint
+            asset inputs:shaping:ies:file
+            asset inputs:texture:file = @../source/HDRI/class_room_03_4k.exr@
+            token inputs:texture:format = "latlong"
+            token omni:rtx:domeLight:mode = "sphere"
+            custom int omni:rtx:usdluxVersion = 2505
+            quatd xformOp:orient = (-0.674379723206628, -0.6743797232066278, 0.2126311099715938, 0.21263110997159382)
+            double3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (0, 0, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+        }
+
+        def Xform "GroundPlane" (
+            prepend apiSchemas = ["MaterialBindingAPI"]
+        )
+        {
+            rel material:binding = </World/Environment/GroundPlane/class_room_floor> (
+                bindMaterialAs = "weakerThanDescendants"
+            )
+            token visibility = "inherited"
+            quatf xformOp:orient = (1, 0, 0, 0)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (0, 0, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+
+            def Mesh "CollisionMesh"
+            {
+                uniform bool doubleSided = 0
+                int[] faceVertexCounts = [4]
+                int[] faceVertexIndices = [0, 1, 2, 3]
+                normal3f[] normals = [(0, 0, 1), (0, 0, 1), (0, 0, 1), (0, 0, 1)]
+                point3f[] points = [(-25, -25, 0), (25, -25, 0), (25, 25, 0), (-25, 25, 0)]
+                color3f[] primvars:displayColor = [(0.5, 0.5, 0.5)]
+                texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
+                    interpolation = "varying"
+                )
+                token visibility = "inherited"
+            }
+
+            def Plane "CollisionPlane" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                uniform token axis = "Z"
+                rel material:binding:physics = </World/Environment/GroundPlane/floor_PhysicsMaterial> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+                token visibility = "inherited"
+            }
+
+            def Material "class_room_floor"
+            {
+                token outputs:mdl:displacement.connect = </World/Environment/GroundPlane/class_room_floor/Shader.outputs:out>
+                token outputs:mdl:surface.connect = </World/Environment/GroundPlane/class_room_floor/Shader.outputs:out>
+                token outputs:mdl:volume.connect = </World/Environment/GroundPlane/class_room_floor/Shader.outputs:out>
+
+                def Shader "Shader"
+                {
+                    uniform token info:implementationSource = "sourceAsset"
+                    uniform asset info:mdl:sourceAsset = @OmniPBR.mdl@
+                    uniform token info:mdl:sourceAsset:subIdentifier = "OmniPBR"
+                    float inputs:albedo_add = 0.07
+                    float inputs:albedo_desaturation = 0
+                    float inputs:detail_bump_factor = 0.3
+                    color3f inputs:diffuse_color_constant = (0.9999933, 0.99999, 1)
+                    asset inputs:diffuse_texture = @../source/texture/class_room_floor/class_room_floor_albedo.png@ (
+                        colorSpace = "auto"
+                    )
+                    color3f inputs:diffuse_tint = (0.90250957, 0.8746739, 0.980695)
+                    asset inputs:normalmap_texture = @../source/texture/class_room_floor/class_room_floor_normal.png@ (
+                        colorSpace = "raw"
+                    )
+                    float inputs:reflection_roughness_constant = 1
+                    float2 inputs:texture_scale = (50, 50)
+                    token outputs:out (
+                        renderType = "material"
+                    )
+                }
+            }
+
+            def Material "floor_PhysicsMaterial" (
+                prepend apiSchemas = ["PhysicsMaterialAPI", "PhysxMaterialAPI"]
+            )
+            {
+                float physics:dynamicFriction = 0.7
+                float physics:restitution = 0.02
+                float physics:staticFriction = 0.85
+                uniform token physxMaterial:restitutionCombineMode = "min"
+            }
+        }
+    }
+
+    def "maze" (
+        prepend payload = @./maze/maze.usda@
+    )
+    {
+        float3 xformOp:rotateXYZ = (0, 0, 0)
+        float3 xformOp:scale = (1, 1, 1)
+        double3 xformOp:translate = (-0.4958156943321228, -0.22785460948944092, 6.565138619407662e-7)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+
+        over "Looks"
+        {
+            over "wall"
+            {
+                over "mtlxstandard_surface"
+                {
+                    color3f inputs:base_color = (0.22687498, 0.24933575, 0.34362936)
+                }
+            }
+
+            over "PLA"
+            {
+                over "mtlxstandard_surface"
+                {
+                    float inputs:diffuse_roughness = 0
+                }
+
+                over "mtlxpower1"
+                {
+                    color3f inputs:in1 = (0.24869932, 0.38060817, 0.7760618)
+                }
+            }
+        }
+    }
+
+    def "sign" (
+        prepend payload = @./sign/sign.usda@
+    )
+    {
+        float3 xformOp:rotateXYZ = (0, 0, 0)
+        float3 xformOp:scale = (1, 1, 1)
+        double3 xformOp:translate = (-2.611635884753067, -2.314750165208043, 9.221745402854253e-7)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+
+        over "light"
+        {
+            over "green"
+            {
+                over "CylinderLight"
+                {
+                    token visibility = "invisible"
+                }
+            }
+
+            over "red"
+            {
+                over "CylinderLight"
+                {
+                    token visibility = "invisible"
+                }
+            }
+
+            over "yellow"
+            {
+                over "CylinderLight"
+                {
+                    token visibility = "invisible"
+                }
+            }
+        }
+    }
+
+    def Xform "start_boxes"
+    {
+        def "start_1" (
+            prepend payload = @./shelf/shelf.usda@
+        )
+        {
+            float3 xformOp:rotateXYZ = (0, 0, 1)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (-1.253, -2.471, 0)
+            float3 xformOp:translate:pivot = (0, 0, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+        }
+
+        def "start_2" (
+            prepend payload = @./shelf/shelf.usda@
+        )
+        {
+            float3 xformOp:rotateXYZ = (0, 0, -2.3)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (0.949, -0.269, 0)
+            float3 xformOp:translate:pivot = (0, 0, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+        }
+
+        def "start_3" (
+            prepend payload = @./shelf/shelf.usda@
+        )
+        {
+            float3 xformOp:rotateXYZ = (0, 0, 0)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (0.215, 1.933, 0)
+            float3 xformOp:translate:pivot = (0, 0, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+        }
+
+        def "start_4" (
+            prepend payload = @./shelf/shelf.usda@
+        )
+        {
+            float3 xformOp:rotateXYZ = (0, 0, -5.6)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (-1.987, 1.933, 0)
+            float3 xformOp:translate:pivot = (0, 0, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+        }
+
+        def "start_5" (
+            prepend payload = @./shelf/shelf.usda@
+        )
+        {
+            float3 xformOp:rotateXYZ = (0, 0, -5.8)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (-0.519, 1.933, 0)
+            float3 xformOp:translate:pivot = (0, 0, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+        }
+
+        def "start_6" (
+            prepend payload = @./shelf/shelf.usda@
+        )
+        {
+            float3 xformOp:rotateXYZ = (0, 0, 10.8)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (0.949, 0.465, 0)
+            float3 xformOp:translate:pivot = (0, 0, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+        }
+    }
+
+    def Xform "pucks"
+    {
+        def "puck_box_red_0" (
+            prepend payload = @./puck/box/puck_box_red_1.usda@
+        )
+        {
+            float3 xformOp:rotateXYZ = (0, 0, 165.7)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (-1.2986, -2.4624, 0.0705)
+            float3 xformOp:translate:pivot = (0, 0, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+
+            over "box"
+            {
+                over "Looks"
+                {
+                    over "mtlximage5"
+                    {
+                        asset inputs:file = @../source/texture/puck/puck_box_basecolor_id0.png@
+                    }
+                }
+            }
+        }
+
+        def "puck_box_green_6" (
+            prepend payload = @./puck/box/puck_box_green_0.usda@
+        )
+        {
+            float3 xformOp:rotateXYZ = (0, 0, 352.9)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (-1.2194, -2.4667, 0.0705)
+            float3 xformOp:translate:pivot = (0, 0, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+
+            over "box"
+            {
+                over "Looks"
+                {
+                    over "mtlximage5"
+                    {
+                        asset inputs:file = @../source/texture/puck/puck_box_basecolor_id6.png@
+                    }
+                }
+            }
+        }
+
+        def "puck_box_red_1" (
+            prepend payload = @./puck/box/puck_box_red_1.usda@
+        )
+        {
+            float3 xformOp:rotateXYZ = (0, 0, 94.2)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (0.9006, -0.2717, 0.0705)
+            float3 xformOp:translate:pivot = (0, 0, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+
+            over "box"
+            {
+                over "Looks"
+                {
+                    over "mtlximage5"
+                    {
+                        asset inputs:file = @../source/texture/puck/puck_box_basecolor_id1.png@
+                    }
+                }
+            }
+        }
+
+        def "puck_box_green_7" (
+            prepend payload = @./puck/box/puck_box_green_0.usda@
+        )
+        {
+            float3 xformOp:rotateXYZ = (0, 0, 83.2)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (0.9877, -0.2631, 0.0705)
+            float3 xformOp:translate:pivot = (0, 0, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+
+            over "box"
+            {
+                over "Looks"
+                {
+                    over "mtlximage5"
+                    {
+                        asset inputs:file = @../source/texture/puck/puck_box_basecolor_id7.png@
+                    }
+                }
+            }
+        }
+
+        def "puck_box_red_2" (
+            prepend payload = @./puck/box/puck_box_red_1.usda@
+        )
+        {
+            float3 xformOp:rotateXYZ = (0, 0, 210.7)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (0.1701, 1.9414, 0.0705)
+            float3 xformOp:translate:pivot = (0, 0, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+
+            over "box"
+            {
+                over "Looks"
+                {
+                    over "mtlximage5"
+                    {
+                        asset inputs:file = @../source/texture/puck/puck_box_basecolor_id2.png@
+                    }
+                }
+            }
+        }
+
+        def "puck_box_red_8" (
+            prepend payload = @./puck/box/puck_box_red_1.usda@
+        )
+        {
+            float3 xformOp:rotateXYZ = (0, 0, 88)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (0.263, 1.9251, 0.0705)
+            float3 xformOp:translate:pivot = (0, 0, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+
+            over "box"
+            {
+                over "Looks"
+                {
+                    over "mtlximage5"
+                    {
+                        asset inputs:file = @../source/texture/puck/puck_box_basecolor_id8.png@
+                    }
+                }
+            }
+        }
+
+        def "puck_cyl_red_3" (
+            prepend payload = @./puck/cyl/puck_cyl_red_3.usda@
+        )
+        {
+            float3 xformOp:rotateXYZ = (0, 0, 72.7)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (-2.0313, 1.9361, 0.0705)
+            float3 xformOp:translate:pivot = (0, 0, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+
+            over "cyl"
+            {
+                over "Looks"
+                {
+                    over "mtlximage5"
+                    {
+                        asset inputs:file = @../source/texture/puck/puck_cyl_basecolor_id3.png@
+                    }
+                }
+            }
+        }
+
+        def "puck_cyl_green_9" (
+            prepend payload = @./puck/cyl/puck_cyl_green_2.usda@
+        )
+        {
+            float3 xformOp:rotateXYZ = (0, 0, 36.3)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (-1.9475, 1.9215, 0.0705)
+            float3 xformOp:translate:pivot = (0, 0, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+
+            over "cyl"
+            {
+                over "Looks"
+                {
+                    over "mtlximage5"
+                    {
+                        asset inputs:file = @../source/texture/puck/puck_cyl_basecolor_id9.png@
+                    }
+                }
+            }
+        }
+
+        def "puck_cyl_red_4" (
+            prepend payload = @./puck/cyl/puck_cyl_red_3.usda@
+        )
+        {
+            float3 xformOp:rotateXYZ = (0, 0, 105.1)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (-0.5636, 1.946, 0.0705)
+            float3 xformOp:translate:pivot = (0, 0, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+
+            over "cyl"
+            {
+                over "Looks"
+                {
+                    over "mtlximage5"
+                    {
+                        asset inputs:file = @../source/texture/puck/puck_cyl_basecolor_id4.png@
+                    }
+                }
+            }
+        }
+
+        def "puck_cyl_green_10" (
+            prepend payload = @./puck/cyl/puck_cyl_green_2.usda@
+        )
+        {
+            float3 xformOp:rotateXYZ = (0, 0, 314.2)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (-0.4709, 1.9208, 0.0705)
+            float3 xformOp:translate:pivot = (0, 0, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+
+            over "cyl"
+            {
+                over "Looks"
+                {
+                    over "mtlximage5"
+                    {
+                        asset inputs:file = @../source/texture/puck/puck_cyl_basecolor_id10.png@
+                    }
+                }
+            }
+        }
+
+        def "puck_cyl_red_5" (
+            prepend payload = @./puck/cyl/puck_cyl_red_3.usda@
+        )
+        {
+            float3 xformOp:rotateXYZ = (0, 0, 170.7)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (0.9103, 0.4654, 0.0705)
+            float3 xformOp:translate:pivot = (0, 0, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+
+            over "cyl"
+            {
+                over "Looks"
+                {
+                    over "mtlximage5"
+                    {
+                        asset inputs:file = @../source/texture/puck/puck_cyl_basecolor_id5.png@
+                    }
+                }
+            }
+        }
+
+        def "puck_cyl_green_11" (
+            prepend payload = @./puck/cyl/puck_cyl_green_2.usda@
+        )
+        {
+            float3 xformOp:rotateXYZ = (0, 0, 175.8)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (0.9857, 0.4776, 0.0705)
+            float3 xformOp:translate:pivot = (0, 0, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+
+            over "cyl"
+            {
+                over "Looks"
+                {
+                    over "mtlximage5"
+                    {
+                        asset inputs:file = @../source/texture/puck/puck_cyl_basecolor_id11.png@
+                    }
+                }
+            }
+        }
+    }
+
+    def "shelf_L3" (
+        prepend payload = @./shelf/shelf_L3.usda@
+    )
+    {
+        float3 xformOp:rotateXYZ = (0, 0, 0)
+        float3 xformOp:scale = (1, 1, 1)
+        double3 xformOp:translate = (0.949, 1.933, 0)
+        float3 xformOp:translate:pivot = (0, 0, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+    }
+
+    def "shelf_L1" (
+        prepend payload = @./shelf/shelf_L1.usda@
+    )
+    {
+        float3 xformOp:rotateXYZ = (0, 0, 84.86867)
+        float3 xformOp:scale = (1, 1, 1)
+        double3 xformOp:translate = (0.949, -2.471, 0)
+        float3 xformOp:translate:pivot = (0, 0, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+    }
+
+    def "shelf_L2" (
+        prepend payload = @./shelf/shelf_L2.usda@
+    )
+    {
+        float3 xformOp:rotateXYZ = (0, 0, 180)
+        float3 xformOp:scale = (1, 1, 1)
+        double3 xformOp:translate = (-0.5221550738382368, 0.30731076910165944, -9.769962616701378e-15)
+        float3 xformOp:translate:pivot = (0, 0, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+    }
+}
+
+def "Render" (
+    hide_in_stage_window = true
+    no_delete = true
+)
+{
+    def "OmniverseKit"
+    {
+        def "HydraTextures" (
+            hide_in_stage_window = true
+            no_delete = true
+        )
+        {
+            def RenderProduct "omni_kit_widget_viewport_ViewportTexture_0" (
+                prepend apiSchemas = ["OmniRtxSettingsCommonAdvancedAPI_1", "OmniRtxSettingsRtAdvancedAPI_1", "OmniRtxSettingsPtAdvancedAPI_1", "OmniRtxSettingsParticleFieldAPI_1", "OmniRtxPostColorGradingAPI_1", "OmniRtxPostChromaticAberrationAPI_1", "OmniRtxPostBloomPhysicalAPI_1", "OmniRtxPostMatteObjectAPI_1", "OmniRtxPostCompositingAPI_1", "OmniRtxPostDofAPI_1", "OmniRtxPostMotionBlurAPI_1", "OmniRtxPostTvNoiseAPI_1", "OmniRtxPostTonemapIrayReinhardAPI_1", "OmniRtxPostDebugSettingsAPI_1", "OmniRtxDebugSettingsAPI_1"]
+                hide_in_stage_window = true
+                no_delete = true
+            )
+            {
+                rel camera = </World/beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link/gripper_cam_link/gripper_cam_color_optical_frame/gripper_cam_rgb>
+                token omni:rtx:ambientOcclusion:denoiserMode = "none"
+                token omni:rtx:background:source:texture:textureMode = "repeatMirrored"
+                token omni:rtx:background:source:type = "domeLight"
+                bool omni:rtx:debug:view:pixelDebug:enableFixedTextPos = 1
+                token omni:rtx:directLighting:sampledLighting:denoisingTechnique = "None"
+                bool omni:rtx:dlss:frameGeneration
+                bool omni:rtx:indirectDiffuse:denoiser:enabled = 0
+                bool omni:rtx:material:db:syncLoads = 1
+                token omni:rtx:post:dlss:execMode = "performance"
+                bool omni:rtx:post:registeredCompositing:invertColorCorrection = 1
+                bool omni:rtx:post:registeredCompositing:invertToneMap = 1
+                bool omni:rtx:pt:adaptiveSampling:filterError = 0
+                uint omni:rtx:pt:adaptiveSampling:fixedSppIterations = 2
+                uint omni:rtx:pt:maxSamplesPerLaunch = 2073600
+                uint omni:rtx:pt:mgpu:maxPixelsPerRegionExponent = 12
+                bool omni:rtx:reflections:denoiser:enabled = 0
+                token omni:rtx:rendermode = "RealTimePathTracing"
+                color3f omni:rtx:rt:ambientLight:color = (0.1, 0.1, 0.1)
+                bool omni:rtx:rt:demoire = 0
+                bool omni:rtx:rt:ecoMode:enabled
+                bool omni:rtx:rt:lightcache:spatialCache:dontResolveConflicts = 1
+                int omni:rtx:rt:sss:samples = 1
+                uint omni:rtx:rtpt:maxVolumeBounces = 15
+                float omni:rtx:rtpt:modulatingRoughnessThreshold = 0.08
+                bool omni:rtx:scene:hydra:materialSyncLoads = 1
+                bool omni:rtx:scene:hydra:mdlMaterialWarmup = 1
+                bool omni:rtx:scene:useViewLightingMode
+                rel orderedVars = </Render/Vars/LdrColor>
+                custom bool overrideClipRange = 0
+                uniform int2 resolution = (1285, 654)
+            }
+
+            def RenderProduct "Replicator" (
+                prepend apiSchemas = ["OmniRtxSettingsCommonAdvancedAPI_1", "OmniRtxSettingsRtAdvancedAPI_1", "OmniRtxSettingsPtAdvancedAPI_1", "OmniRtxSettingsParticleFieldAPI_1", "OmniRtxPostColorGradingAPI_1", "OmniRtxPostChromaticAberrationAPI_1", "OmniRtxPostBloomPhysicalAPI_1", "OmniRtxPostMatteObjectAPI_1", "OmniRtxPostCompositingAPI_1", "OmniRtxPostDofAPI_1", "OmniRtxPostMotionBlurAPI_1", "OmniRtxPostTvNoiseAPI_1", "OmniRtxPostTonemapIrayReinhardAPI_1", "OmniRtxPostDebugSettingsAPI_1", "OmniRtxDebugSettingsAPI_1"]
+                hide_in_stage_window = true
+                no_delete = true
+            )
+            {
+                rel camera = </World/beebot/Geometry/base_footprint/base_link/pole_front_cam_link/pole_front_cam_color_optical_frame/pole_front_cam_rgb>
+                bool omni:rtx:material:db:syncLoads = 1
+                bool omni:rtx:rt:ecoMode:enabled
+                bool omni:rtx:scene:hydra:materialSyncLoads = 1
+                rel orderedVars = </Render/Vars/LdrColor>
+                custom bool overrideClipRange = 0
+                uniform int2 resolution = (640, 360)
+            }
+
+            def RenderProduct "Replicator_01" (
+                prepend apiSchemas = ["OmniRtxSettingsCommonAdvancedAPI_1", "OmniRtxSettingsRtAdvancedAPI_1", "OmniRtxSettingsPtAdvancedAPI_1", "OmniRtxSettingsParticleFieldAPI_1", "OmniRtxPostColorGradingAPI_1", "OmniRtxPostChromaticAberrationAPI_1", "OmniRtxPostBloomPhysicalAPI_1", "OmniRtxPostMatteObjectAPI_1", "OmniRtxPostCompositingAPI_1", "OmniRtxPostDofAPI_1", "OmniRtxPostMotionBlurAPI_1", "OmniRtxPostTvNoiseAPI_1", "OmniRtxPostTonemapIrayReinhardAPI_1", "OmniRtxPostDebugSettingsAPI_1", "OmniRtxDebugSettingsAPI_1"]
+                hide_in_stage_window = true
+                no_delete = true
+            )
+            {
+                rel camera = </World/beebot/Geometry/base_footprint/base_link/pole_front_cam_link/pole_front_cam_color_optical_frame/pole_front_cam_rgb>
+                bool omni:rtx:material:db:syncLoads = 1
+                bool omni:rtx:rt:ecoMode:enabled
+                bool omni:rtx:scene:hydra:materialSyncLoads = 1
+                rel orderedVars = </Render/Vars/LdrColor>
+                custom bool overrideClipRange = 0
+                uniform int2 resolution = (640, 480)
+            }
+        }
+    }
+
+    def RenderSettings "OmniverseGlobalRenderSettings" (
+        prepend apiSchemas = ["OmniRtxSettingsGlobalRtAdvancedAPI_1", "OmniRtxSettingsGlobalPtAdvancedAPI_1"]
+        no_delete = true
+    )
+    {
+        rel products = [
+            </Render/OmniverseKit/HydraTextures/omni_kit_widget_viewport_ViewportTexture_0>,
+            </Render/OmniverseKit/HydraTextures/Replicator>,
+            </Render/OmniverseKit/HydraTextures/Replicator_01>,
+        ]
+    }
+
+    def "Vars" (
+        hide_in_stage_window = true
+        no_delete = true
+    )
+    {
+        def RenderVar "LdrColor" (
+            hide_in_stage_window = true
+            no_delete = true
+        )
+        {
+            uniform string sourceName = "LdrColor"
+            uniform token sourceType = "raw"
+        }
+    }
+
+    over "PostProcess"
+    {
+    }
+}
+
+over "OmniverseKit_Persp" (
+    prepend apiSchemas = ["OmniRtxCameraAutoExposureAPI_1", "OmniRtxCameraExposureAPI_1"]
+    customData = {
+        dictionary omni = {
+            dictionary kit = {
+                bool hide_in_stage_window = 1
+                bool no_delete = 1
+            }
+        }
+    }
+    hide_in_stage_window = true
+    kind = "component"
+    no_delete = true
+)
+{
+    float2 clippingRange = (0.01, 10000000)
+    float exposure:fStop = 5
+    float exposure:responsivity = 1.1026709
+    float exposure:time = 0.02
+    float focalLength = 18.147562
+    float focusDistance = 400
+    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -1.9092802613012985)
+    float3 xformOp:rotateXYZ = (62.47051, -9.780206e-13, 16.247139)
+    float3 xformOp:scale = (1, 1, 1)
+    double3 xformOp:translate = (-0.5746046145321866, -4.191710090010674, 1.257804174713824)
+    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
+}
+
+def PhysicsScene "PhysicsScene" (
+    prepend apiSchemas = ["NewtonSceneAPI", "PhysxSceneAPI"]
+)
+{
+}
+
+over "OmniverseKit_Front" (
+    customData = {
+        dictionary omni = {
+            dictionary kit = {
+                bool hide_in_stage_window = 1
+                bool no_delete = 1
+            }
+        }
+    }
+    hide_in_stage_window = true
+    kind = "component"
+    no_delete = true
+)
+{
+    float2 clippingRange = (1, 10000000)
+    float horizontalAperture = 50
+    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -5)
+    token projection = "orthographic"
+    float verticalAperture = 50
+    float3 xformOp:rotateXYZ = (90, -1.2722219e-14, 90)
+    float3 xformOp:scale = (1, 1, 1)
+    double3 xformOp:translate = (5, 0, 0)
+    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
+}
+
+over "OmniverseKit_Right" (
+    customData = {
+        dictionary omni = {
+            dictionary kit = {
+                bool hide_in_stage_window = 1
+                bool no_delete = 1
+            }
+        }
+    }
+    hide_in_stage_window = true
+    kind = "component"
+    no_delete = true
+)
+{
+    float2 clippingRange = (1, 10000000)
+    float horizontalAperture = 50
+    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -5)
+    token projection = "orthographic"
+    float verticalAperture = 50
+    float3 xformOp:rotateXYZ = (90, -1.41245e-30, 1.2722219e-14)
+    float3 xformOp:scale = (1, 1, 1)
+    double3 xformOp:translate = (0, -5, 0)
+    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
+}
+
+over "OmniverseKit_Top" (
+    prepend apiSchemas = ["OmniRtxCameraAutoExposureAPI_1", "OmniRtxCameraExposureAPI_1"]
+    customData = {
+        dictionary omni = {
+            dictionary kit = {
+                bool hide_in_stage_window = 1
+                bool no_delete = 1
+            }
+        }
+    }
+    hide_in_stage_window = true
+    kind = "component"
+    no_delete = true
+)
+{
+    float2 clippingRange = (1, 10000000)
+    float exposure:fStop = 5
+    float exposure:responsivity = 1.1026709
+    float exposure:time = 0.02
+    float horizontalAperture = 105.32422
+    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -5)
+    token projection = "orthographic"
+    float verticalAperture = 105.32422
+    float3 xformOp:rotateXYZ = (-1.2722219e-14, -7.016709e-15, -90)
+    float3 xformOp:scale = (1, 1, 1)
+    double3 xformOp:translate = (0, 0, 5)
+    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
+}
+
