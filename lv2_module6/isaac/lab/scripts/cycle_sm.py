@@ -41,6 +41,11 @@ parser.add_argument("--vel_scale", type=float, default=0.3, help="x team joint l
 parser.add_argument("--transit_hold", type=float, default=0.0, help="pause [s] at transit waypoints")
 parser.add_argument("--settle", type=float, default=0.3, help="pause [s] after descend and lower (accuracy points)")
 parser.add_argument("--hz", type=float, default=100.0)
+parser.add_argument("--grip_force", type=float, default=None, help="squeeze per finger [N] at a 30 mm puck (default: env cfg, 8.3 N)")
+parser.add_argument("--grip_damping", type=float, default=None, help="gripper joint damping (default: env cfg, 10)")
+parser.add_argument("--contact", default="",
+                    help="contact diagnostics, comma list: rest=puck restitution, iters=solver position iterations, torsion=robot patch "
+                         "radius mm (0 = off), coff/roff=puck contact/rest offset mm, ffric=finger friction, cylhull=1 / cylsmooth=1 cylinder collider as a convex hull / PhysX custom geometry")
 parser.add_argument("--latency", action="store_true")
 parser.add_argument("--open_gap_mm", type=float, default=40.0)
 parser.add_argument("--lower_mm", type=float, default=3.0, help="puck bottom above the slot floor when letting go [mm]")
@@ -99,9 +104,10 @@ GRIP_DEPTH = 0.020
 GRASP_Z = PUCK_H - GRIP_DEPTH + FINGER_TIP  # end effector above the puck bottom when grasped
 APPROACH_Z, LIFT_Z = GRASP_Z + 0.05, GRASP_Z + 0.05
 DOWN = pin.Quaternion(np.array([0.0, 1.0, 0.0, 0.0])).toRotationMatrix()  # end effector z pointing down
-OPEN = (0.0083 + (args.open_gap_mm / 1000 - 0.030) / 2) / 0.0265  # finger gap 30 mm + 2 x (joint - 8.3 mm)
+GRIP_STOP = 0.0062  # gripper joint where the fingers stop on a 30 mm puck (finger colliders: convex decomposition, 2026-10-29)
+OPEN = (GRIP_STOP + (args.open_gap_mm / 1000 - 0.030) / 2) / 0.0265  # finger gap 30 mm + 2 x (joint - GRIP_STOP)
 CLOSE = 0.0
-RELEASE = OPEN if args.release_gap_mm is None else (0.0083 + (args.release_gap_mm / 1000 - 0.030) / 2) / 0.0265
+RELEASE = OPEN if args.release_gap_mm is None else (GRIP_STOP + (args.release_gap_mm / 1000 - 0.030) / 2) / 0.0265
 CLOSE_S, RELEASE_S = 0.5, 0.4  # gripper dwell
 START_GAP = 0.080  # mission start box: 2 pucks at the box centre +- 40 mm
 SLOT_IN = 0.045  # basket cell inner width
@@ -143,11 +149,62 @@ def rot_tool(heading, pitch_deg, yaw):
     return pin.utils.rotate("z", heading) @ pin.utils.rotate("y", math.radians(pitch_deg)) @ DOWN @ pin.utils.rotate("z", -(yaw - heading))
 
 
+def apply_contact(cfg, c, puck_names):
+    """--contact overrides on the env cfg (diagnostics of the grip contact)."""
+    if "rest" in c:
+        cfg.events.puck_material.params["restitution_range"] = (c["rest"], c["rest"])
+    if "ffric" in c:
+        cfg.events.finger_material.params["static_friction_range"] = (c["ffric"], c["ffric"])
+        cfg.events.finger_material.params["dynamic_friction_range"] = (c["ffric"], c["ffric"])
+    if "torsion" in c:
+        cp = cfg.scene.robot.spawn.collision_props
+        cp.torsional_patch_radius = c["torsion"] / 1000
+        cp.min_torsional_patch_radius = min(c["torsion"], 5.0) / 1000
+    if "iters" in c:
+        cfg.scene.robot.spawn.articulation_props.solver_position_iteration_count = int(c["iters"])
+    for nm in puck_names:
+        sp = getattr(cfg.scene, nm).spawn
+        if "iters" in c:
+            sp.rigid_props = sim_utils.RigidBodyPropertiesCfg(solver_position_iteration_count=int(c["iters"]))
+        if "coff" in c or "roff" in c:
+            sp.collision_props = sim_utils.CollisionPropertiesCfg(contact_offset=c.get("coff", 2.0) / 1000 if "coff" in c else None,
+                                                                  rest_offset=c["roff"] / 1000 if "roff" in c else None)
+    if c.get("cylhull") or c.get("cylsmooth"):
+        # the USD Cylinder collider of the cylinder pucks: convex hull (polygon prism) or PhysX custom geometry (smooth),
+        # through temp copies of the cylinder puck files
+        import shutil, tempfile
+        from pathlib import Path
+        tmp = Path(tempfile.mkdtemp(prefix="cylhull_"))
+        shutil.copytree(Path(bee_env_cfg.PUCK_USDS[2]).parent, tmp / "cyl")
+        swap = {}
+        for src in bee_env_cfg.PUCK_USDS[2:]:
+            dst = tmp / "cyl" / Path(src).name
+            txt = dst.read_text()
+            if c.get("cylsmooth"):
+                dst.write_text(txt.replace('uniform token purpose = "guide"', 'uniform token purpose = "guide"\n            bool physxCollisionCustomGeometry = 1', 1))
+                swap[src] = str(dst)
+                continue
+            txt = txt.replace('prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]',
+                                          'prepend apiSchemas = ["PhysicsCollisionAPI", "PhysicsMeshCollisionAPI", "MaterialBindingAPI"]', 1)
+            dst.write_text(txt.replace('uniform token purpose = "guide"', 'uniform token purpose = "guide"\n            uniform token physics:approximation = "convexHull"', 1))
+            swap[src] = str(dst)
+        for nm in puck_names:
+            sp = getattr(cfg.scene, nm).spawn
+            sp.usd_path = [swap.get(u, u) for u in sp.usd_path] if isinstance(sp.usd_path, (list, tuple)) else swap.get(sp.usd_path, sp.usd_path)
+
+
 def main():
     cfg = parse_env_cfg("Bee-Puck-Load", num_envs=args.num_envs)
     cfg.seed = args.seed
     cfg.sim.dt = 1.0 / (cfg.decimation * args.hz)
     cfg.episode_length_s = 600.0
+    if args.grip_force is not None:  # implicit PD: force = stiffness x (stop position - 0), as in pick_sm.py
+        grip = cfg.scene.robot.actuators["gripper"]
+        grip.stiffness = args.grip_force / GRIP_STOP
+        grip.effort_limit_sim = max(20.0, 2.0 * args.grip_force)
+    if args.grip_damping is not None:
+        cfg.scene.robot.actuators["gripper"].damping = args.grip_damping
+    contact = {k: float(v) for k, v in (kv.split("=") for kv in args.contact.split(",") if kv)}
     if args.layout != "grid":
         args.pucks = 2
     if args.place:
@@ -163,6 +220,8 @@ def main():
                     spawn=sim_utils.UsdFileCfg(usd_path=bee_env_cfg.PUCK_USDS[k % 4]),
                     init_state=cfg.scene.puck.init_state.replace(pos=(1.0, 0.2 * k, 0.0))))
             nb_names.append(name)
+    if contact:
+        apply_contact(cfg, contact, ["puck"] + nb_names)
     if args.contacts:
         from isaaclab.sensors import ContactSensorCfg
         cfg.scene.robot.spawn.activate_contact_sensors = True
@@ -188,6 +247,17 @@ def main():
         prim = "puck" if p_idx == 0 else nb_names[p_idx - 1]
         kinds.append([u.sim.stage.GetPrimAtPath(f"/World/envs/env_{i}/{prim}").GetPrimStack()[1].layer.identifier.split("/")[-1][:-5]
                       for i in range(n)])
+    if contact:  # show what the overrides did on env 2 (a cylinder) and the robot
+        from pxr import Usd
+        st_ = u.sim.stage
+        for p_ in Usd.PrimRange(st_.GetPrimAtPath("/World/envs/env_2/puck")):
+            if p_.GetName() == "collision":
+                print(f"[contact] {p_.GetPath()} {p_.GetTypeName()} layer {p_.GetPrimStack()[0].layer.identifier} "
+                      + " ".join(f"{a_.GetName()}={a_.Get()}" for a_ in p_.GetAttributes() if "physx" in a_.GetName() or "approx" in a_.GetName()))
+        for p_ in Usd.PrimRange(st_.GetPrimAtPath("/World/envs/env_2/beebot")):
+            a_ = p_.GetAttribute("physxArticulation:solverPositionIterationCount")
+            if a_ and a_.IsValid() and a_.HasAuthoredValue():
+                print(f"[contact] {p_.GetPath()} solverPositionIterationCount {a_.Get()}")
 
     def base_pose():
         return robot.data.body_pos_w.torch[:, base_id], robot.data.body_quat_w.torch[:, base_id]
@@ -388,7 +458,7 @@ def main():
         tgt = to_root(cell_xy[cell_of] + org)
         tgt_aim = tgt.clone()
         tgt_aim[:, :2] += (torch.rand(n, 2, device=dev) * 2 - 1) * args.cell_noise_mm / 1000
-        gap_q = (0.0083 + (args.place_gap_mm / 1000 - 0.030) / 2) / 0.0265
+        gap_q = (GRIP_STOP + (args.place_gap_mm / 1000 - 0.030) / 2) / 0.0265
         pq = {k: st["q_prev"].clone() for k in ("above", "down")}
         d_np, t_np = d_ee.cpu().numpy(), tgt_aim.cpu().numpy()
         ik_ok = torch.ones(n, dtype=torch.bool, device=dev)
@@ -479,7 +549,15 @@ def main():
         move(uq["over"], OPEN, 0.0, "over_slot", all_)
         blocked = move(uq["grasp"], OPEN, args.settle, "descend", all_)
         dwell(CLOSE, CLOSE_S, "close", all_)
+        hand = lambda: (to_root(P.data.root_pos_w.torch + math_utils.quat_apply(P.data.root_quat_w.torch, up_half)) - ee_pose_b()[0]).norm(dim=1) < HELD_DIST
+        held_close = hand()
+        # puck in the end effector frame (position, tilt) and finger joints, to see how a puck leaves the hand
+        in_ee = lambda: torch.cat([math_utils.quat_apply_inverse(ee_pose_b()[1], to_root(P.data.root_pos_w.torch) - ee_pose_b()[0]),
+                                   puck_tilt(P)[:, None], robot.data.joint_pos.torch[:, robot.find_joints("gripper_.*_joint")[0]]], dim=1)
+        ee_close = in_ee()
         blocked = torch.maximum(blocked, move(uq["over"], CLOSE, 0.0, "lift", all_))
+        held_lift = hand()
+        ee_lift = in_ee()
         # the neighbours are judged with the hand above the slot, before it swings away
         nb_now = torch.stack([to_root(p.data.root_pos_w.torch) for p in pucks], dim=1)
         nb_tilt = torch.stack([puck_tilt(p) for p in pucks], dim=1)
@@ -504,6 +582,8 @@ def main():
             print(f"[unload] row {r} (slots {r * 4}..{r * 4 + 3}): {' | '.join(row_)}")
         if args.out:
             np.savez_compressed(args.out, out_ok=out_ok.cpu().numpy(), held=held.cpu().numpy(), slot=slot.cpu().numpy(),
+                                held_close=held_close.cpu().numpy(), held_lift=held_lift.cpu().numpy(),
+                                ee_close=ee_close.cpu().numpy(), ee_lift=ee_lift.cpu().numpy(),
                                 nb_disp=nb_disp.cpu().numpy(), nb_dtilt=nb_dtilt.cpu().numpy(), blocked=blocked.cpu().numpy(),
                                 tilt_used=tilt_used.cpu().numpy(), kinds=np.array(kinds), args=str({k: v for k, v in vars(args).items() if k != "out"}))
             print(f"[out] {args.out}")

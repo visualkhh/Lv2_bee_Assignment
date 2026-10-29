@@ -7,8 +7,8 @@
                 double radius = 5
             }
             dictionary Perspective = {
-                double3 position = (3.4328067859738276, 2.932285223584471, 4.921101631187934)
-                double3 target = (-0.42278370778124064, 0.19303909857439683, 0.4769786377173926)
+                double3 position = (-0.5746046145321866, -4.191710090010674, 1.257804174713824)
+                double3 target = (-1.0483014667910564, -2.5662276887805096, 0.3753250692128426)
             }
             dictionary Right = {
                 double3 position = (0, -5, 0)
@@ -18,7 +18,7 @@
                 double3 position = (0, 0, 5)
                 double radius = 10.532421875
             }
-            string boundCamera = "/OmniverseKit_Persp"
+            string boundCamera = "/World/beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link/gripper_cam_link/gripper_cam_color_optical_frame/gripper_cam_rgb"
         }
         dictionary omni_layer = {
             string authoring_layer = "./scene_sim.usda"
@@ -44,9 +44,9 @@ def Xform "World"
         prepend payload = @./beebot/beebot.usda@
     )
     {
-        quatf xformOp:orient = (-0.08636859, 0, 0, -0.99626327)
+        quatf xformOp:orient = (0.08636859, 0, 0, 0.99626327)
         float3 xformOp:scale = (1, 1, 1)
-        double3 xformOp:translate = (-1.997250385971205, -2.5174464531110643, 0.0000013708473616258487)
+        double3 xformOp:translate = (-0.6808730737752141, -2.597499998994426, 0.0000013708473702855883)
         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
 
         over "Geometry"
@@ -474,7 +474,20 @@ def Xform "World"
             {
                 over "mtlxstandard_surface"
                 {
-                    color3f inputs:base_color = (0.15576693, 0.18596075, 0.31274134)
+                    color3f inputs:base_color = (0.22687498, 0.24933575, 0.34362936)
+                }
+            }
+
+            over "PLA"
+            {
+                over "mtlxstandard_surface"
+                {
+                    float inputs:diffuse_roughness = 0
+                }
+
+                over "mtlxpower1"
+                {
+                    color3f inputs:in1 = (0.24869932, 0.38060817, 0.7760618)
                 }
             }
         }
@@ -905,7 +918,7 @@ def "Render" (
                 no_delete = true
             )
             {
-                rel camera = </OmniverseKit_Persp>
+                rel camera = </World/beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link/gripper_cam_link/gripper_cam_color_optical_frame/gripper_cam_rgb>
                 token omni:rtx:ambientOcclusion:denoiserMode = "none"
                 token omni:rtx:background:source:texture:textureMode = "repeatMirrored"
                 token omni:rtx:background:source:type = "domeLight"
@@ -935,7 +948,7 @@ def "Render" (
                 bool omni:rtx:scene:useViewLightingMode
                 rel orderedVars = </Render/Vars/LdrColor>
                 custom bool overrideClipRange = 0
-                uniform int2 resolution = (827, 654)
+                uniform int2 resolution = (1285, 654)
             }
 
             def RenderProduct "Replicator" (
@@ -952,6 +965,21 @@ def "Render" (
                 custom bool overrideClipRange = 0
                 uniform int2 resolution = (640, 360)
             }
+
+            def RenderProduct "Replicator_01" (
+                prepend apiSchemas = ["OmniRtxSettingsCommonAdvancedAPI_1", "OmniRtxSettingsRtAdvancedAPI_1", "OmniRtxSettingsPtAdvancedAPI_1", "OmniRtxSettingsParticleFieldAPI_1", "OmniRtxPostColorGradingAPI_1", "OmniRtxPostChromaticAberrationAPI_1", "OmniRtxPostBloomPhysicalAPI_1", "OmniRtxPostMatteObjectAPI_1", "OmniRtxPostCompositingAPI_1", "OmniRtxPostDofAPI_1", "OmniRtxPostMotionBlurAPI_1", "OmniRtxPostTvNoiseAPI_1", "OmniRtxPostTonemapIrayReinhardAPI_1", "OmniRtxPostDebugSettingsAPI_1", "OmniRtxDebugSettingsAPI_1"]
+                hide_in_stage_window = true
+                no_delete = true
+            )
+            {
+                rel camera = </World/beebot/Geometry/base_footprint/base_link/pole_front_cam_link/pole_front_cam_color_optical_frame/pole_front_cam_rgb>
+                bool omni:rtx:material:db:syncLoads = 1
+                bool omni:rtx:rt:ecoMode:enabled
+                bool omni:rtx:scene:hydra:materialSyncLoads = 1
+                rel orderedVars = </Render/Vars/LdrColor>
+                custom bool overrideClipRange = 0
+                uniform int2 resolution = (640, 480)
+            }
         }
     }
 
@@ -963,6 +991,7 @@ def "Render" (
         rel products = [
             </Render/OmniverseKit/HydraTextures/omni_kit_widget_viewport_ViewportTexture_0>,
             </Render/OmniverseKit/HydraTextures/Replicator>,
+            </Render/OmniverseKit/HydraTextures/Replicator_01>,
         ]
     }
 
@@ -1007,10 +1036,10 @@ over "OmniverseKit_Persp" (
     float exposure:time = 0.02
     float focalLength = 18.147562
     float focusDistance = 400
-    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -6.489936561324057)
-    float3 xformOp:rotateXYZ = (46.782368, -1.0177776e-12, 125.3923)
+    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -1.9092802613012985)
+    float3 xformOp:rotateXYZ = (62.47051, -9.780206e-13, 16.247139)
     float3 xformOp:scale = (1, 1, 1)
-    double3 xformOp:translate = (3.4328067859738276, 2.932285223584471, 4.921101631187934)
+    double3 xformOp:translate = (-0.5746046145321866, -4.191710090010674, 1.257804174713824)
     uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
 }
 

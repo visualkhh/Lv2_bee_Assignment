@@ -7,8 +7,8 @@
                 double radius = 5
             }
             dictionary Perspective = {
-                double3 position = (0.8786268123772392, 1.1298153090134213, 0.5853082588264578)
-                double3 target = (-0.10613347410832263, -0.17344137442031027, 0.3016736654115514)
+                double3 position = (0.22556438083845123, 0.7063819511284161, 0.5394274733315824)
+                double3 target = (0.14409339280118558, -0.11017818614253672, 0.15697474443613096)
             }
             dictionary Right = {
                 double3 position = (0.03988901330187963, -5, 0.1922440657510208)
@@ -25,7 +25,17 @@
             string authoring_layer = "./beebot.usda"
         }
         dictionary renderSettings = {
+            double "rtx:directLighting:sampledLighting:maxRayUnexposedIntensity" = 6399.9990234375
+            double "rtx:indirectDiffuse:maxRayUnexposedIntensity" = 6399.9990234375
+            double "rtx:pathtracing:fireflyFilter:maxPerEmissiveUnexposedIntensity" = 3199.99951171875
+            double "rtx:pathtracing:fireflyFilter:maxUnexposedIntensityPerSample" = 3199.99951171875
+            double "rtx:pathtracing:fireflyFilter:maxUnexposedIntensityPerSampleDiffuse" = 3199.99951171875
+            double "rtx:raytracing:inscattering:maxRTSampleUnexposedIntensity" = 204799.96875
             token "rtx:rendermode" = "MinimalRendering"
+            double "rtx:rtpt:fireflyFilter:maxPerEmissiveUnexposedIntensity" = 3199.99951171875
+            double "rtx:rtpt:fireflyFilter:maxUnexposedIntensityPerSample" = 3199.99951171875
+            double "rtx:rtpt:fireflyFilter:maxUnexposedIntensityPerSampleDiffuse" = 3199.99951171875
+            double "rtx:translucency:maxRayUnexposedIntensity" = 19199.998046875
         }
     }
     defaultPrim = "beebot"
@@ -105,9 +115,9 @@ def Xform "beebot" (
                             float exposure:time = 0.02
                             float focalLength = 15.2449
                             float focusDistance = 400
-                            float horizontalAperture = 20.955
+                            float horizontalAperture = 15.855
                             bool omni:kit:cameraLock = 1
-                            float verticalAperture = 15.7162
+                            float verticalAperture = 11.891
                             quatd xformOp:orient = (6.123233995736766e-17, 1, 0, 0)
                             double3 xformOp:scale = (1, 1, 1)
                             double3 xformOp:translate = (0, 0, 0)
@@ -177,6 +187,17 @@ def Xform "beebot" (
                                                 displayName = "Name Override"
                                             )
                                             rel physics:simulationOwner
+
+                                            over "finger_right_link_collision" (
+                                                instanceable = false
+                                            )
+                                            {
+                                                over "finger_right_link_visual" (
+                                                    prepend apiSchemas = ["PhysxConvexDecompositionCollisionAPI"]
+                                                )
+                                                {
+                                                }
+                                            }
                                         }
 
                                         over "gripper_cam_link"
@@ -205,9 +226,9 @@ def Xform "beebot" (
                                                     float exposure:time = 0.02
                                                     float focalLength = 15.2449
                                                     float focusDistance = 400
-                                                    float horizontalAperture = 20.955
+                                                    float horizontalAperture = 15.855
                                                     bool omni:kit:cameraLock = 1
-                                                    float verticalAperture = 15.7162
+                                                    float verticalAperture = 11.891
                                                     quatd xformOp:orient = (6.123233995736766e-17, 1, 0, 0)
                                                     double3 xformOp:scale = (1, 1, 1)
                                                     double3 xformOp:translate = (0, 0, 0)
@@ -475,75 +496,6 @@ def Xform "beebot" (
             uniform float2 ui:nodegraph:node:pos = (119.37161, -1.7031183)
         }
 
-        def OmniGraphNode "isaac_read_imu_node" (
-            prepend apiSchemas = ["NodeGraphNodeAPI"]
-        )
-        {
-            custom uint inputs:execIn (
-                customData = {
-                    bool isExecution = 1
-                }
-            )
-            prepend uint inputs:execIn.connect = </beebot/ActionGraph/on_playback_tick.outputs:tick>
-            custom rel inputs:imuPrim = </beebot/Geometry/base_footprint/base_link/imu_link/Imu_Sensor> (
-                customData = {
-                    dictionary omni = {
-                        dictionary graph = {
-                            string relType = "target"
-                        }
-                    }
-                }
-            )
-            custom bool inputs:readGravity
-            custom bool inputs:useLatestData
-            token node:type = "isaacsim.sensors.physics.IsaacReadIMU"
-            int node:typeVersion = 1
-            custom vector3d outputs:angVel
-            custom uint outputs:execOut (
-                customData = {
-                    bool isExecution = 1
-                }
-            )
-            custom vector3d outputs:linAcc
-            custom quatd outputs:orientation
-            custom float outputs:sensorTime
-            uniform token ui:nodegraph:node:expansionState = "open"
-            uniform float2 ui:nodegraph:node:pos = (439.9466, -2.1904616)
-        }
-
-        def OmniGraphNode "ros2_publish_imu" (
-            prepend apiSchemas = ["NodeGraphNodeAPI"]
-        )
-        {
-            custom vector3d inputs:angularVelocity
-            prepend vector3d inputs:angularVelocity.connect = </beebot/ActionGraph/isaac_read_imu_node.outputs:angVel>
-            custom uint64 inputs:context
-            custom uint inputs:execIn (
-                customData = {
-                    bool isExecution = 1
-                }
-            )
-            prepend uint inputs:execIn.connect = </beebot/ActionGraph/isaac_read_imu_node.outputs:execOut>
-            custom string inputs:frameId = "imu_link"
-            custom vector3d inputs:linearAcceleration
-            prepend vector3d inputs:linearAcceleration.connect = </beebot/ActionGraph/isaac_read_imu_node.outputs:linAcc>
-            custom string inputs:nodeNamespace
-            custom quatd inputs:orientation
-            prepend quatd inputs:orientation.connect = </beebot/ActionGraph/isaac_read_imu_node.outputs:orientation>
-            custom bool inputs:publishAngularVelocity
-            custom bool inputs:publishLinearAcceleration
-            custom bool inputs:publishOrientation
-            custom string inputs:qosProfile
-            custom uint64 inputs:queueSize
-            custom double inputs:timeStamp
-            prepend double inputs:timeStamp.connect = </beebot/ActionGraph/isaac_read_imu_node.outputs:sensorTime>
-            custom string inputs:topicName = "/isaac/imu"
-            token node:type = "isaacsim.ros2.bridge.ROS2PublishImu"
-            int node:typeVersion = 1
-            uniform token ui:nodegraph:node:expansionState = "open"
-            uniform float2 ui:nodegraph:node:pos = (823.4115, -18.009165)
-        }
-
         def OmniGraphNode "isaac_create_render_product" (
             prepend apiSchemas = ["NodeGraphNodeAPI"]
         )
@@ -564,7 +516,7 @@ def Xform "beebot" (
                 }
             )
             prepend uint inputs:execIn.connect = </beebot/ActionGraph/on_playback_tick.outputs:tick>
-            custom uint inputs:height = 360
+            custom uint inputs:height = 480
             custom rel inputs:renderProductPrim (
                 customData = {
                     dictionary omni = {
@@ -602,7 +554,7 @@ def Xform "beebot" (
             prepend uint inputs:execIn.connect = </beebot/ActionGraph/isaac_create_render_product.outputs:execOut>
             custom string inputs:frameId = "pole_front_cam_color_optical_frame"
             custom uint inputs:frameSkipCount = 3
-            custom string inputs:nodeNamespace = "isaac/pole_front_cam"
+            custom string inputs:nodeNamespace = "pole_front_cam"
             custom string inputs:qosProfile = '{"history":"keepLast","depth":5,"reliability":"bestEffort","durability":"volatile","deadline":0.0,"lifespan":0.0,"liveliness":"systemDefault","leaseDuration":0.0}'
             prepend string inputs:qosProfile.connect = </beebot/ActionGraph/ros2_qos_profile.outputs:qosProfile>
             custom uint64 inputs:queueSize = 5
@@ -638,7 +590,7 @@ def Xform "beebot" (
             custom string inputs:frameId = "pole_front_cam_color_optical_frame"
             custom string inputs:frameIdRight
             custom uint inputs:frameSkipCount = 3
-            custom string inputs:nodeNamespace = "isaac/pole_front_cam"
+            custom string inputs:nodeNamespace = "pole_front_cam"
             custom string inputs:qosProfile = '{"history":"keepLast","depth":5,"reliability":"bestEffort","durability":"volatile","deadline":0.0,"lifespan":0.0,"liveliness":"systemDefault","leaseDuration":0.0}'
             custom uint64 inputs:queueSize
             custom token inputs:renderProductPath
@@ -669,7 +621,7 @@ def Xform "beebot" (
             prepend uint inputs:execIn.connect = </beebot/ActionGraph/isaac_create_render_product.outputs:execOut>
             custom string inputs:frameId = "pole_front_cam_color_optical_frame"
             custom uint inputs:frameSkipCount = 3
-            custom string inputs:nodeNamespace = "isaac/pole_front_cam"
+            custom string inputs:nodeNamespace = "pole_front_cam"
             custom string inputs:qosProfile = '{"history":"keepLast","depth":5,"reliability":"bestEffort","durability":"volatile","deadline":0.0,"lifespan":0.0,"liveliness":"systemDefault","leaseDuration":0.0}'
             prepend string inputs:qosProfile.connect = </beebot/ActionGraph/ros2_qos_profile.outputs:qosProfile>
             custom uint64 inputs:queueSize = 5
@@ -688,6 +640,152 @@ def Xform "beebot" (
             int node:typeVersion = 4
             uniform token ui:nodegraph:node:expansionState = "minimized"
             uniform float2 ui:nodegraph:node:pos = (886.3396, 458.23233)
+        }
+
+        def OmniGraphNode "gripper_create_render_product" (
+            prepend apiSchemas = ["NodeGraphNodeAPI"]
+        )
+        {
+            custom rel inputs:cameraPrim = </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link/gripper_cam_link/gripper_cam_color_optical_frame/gripper_cam_rgb> (
+                customData = {
+                    dictionary omni = {
+                        dictionary graph = {
+                            string relType = "target"
+                        }
+                    }
+                }
+            )
+            custom bool inputs:enabled
+            custom uint inputs:execIn (
+                customData = {
+                    bool isExecution = 1
+                }
+            )
+            prepend uint inputs:execIn.connect = </beebot/ActionGraph/on_playback_tick.outputs:tick>
+            custom uint inputs:height = 480
+            custom rel inputs:renderProductPrim (
+                customData = {
+                    dictionary omni = {
+                        dictionary graph = {
+                            string relType = "target"
+                        }
+                    }
+                }
+            )
+            custom uint inputs:width = 640
+            token node:type = "isaacsim.core.nodes.IsaacCreateRenderProduct"
+            int node:typeVersion = 3
+            custom uint outputs:execOut (
+                customData = {
+                    bool isExecution = 1
+                }
+            )
+            custom token outputs:renderProductPath
+            uniform token ui:nodegraph:node:expansionState = "minimized"
+            uniform float2 ui:nodegraph:node:pos = (351.0056, 986.1872)
+        }
+
+        def OmniGraphNode "gripper_camera_helper" (
+            prepend apiSchemas = ["NodeGraphNodeAPI"]
+        )
+        {
+            custom uint64 inputs:context
+            custom bool inputs:enabled
+            custom bool inputs:enableSemanticLabels
+            custom uint inputs:execIn (
+                customData = {
+                    bool isExecution = 1
+                }
+            )
+            prepend uint inputs:execIn.connect = </beebot/ActionGraph/gripper_create_render_product.outputs:execOut>
+            custom string inputs:frameId = "gripper_cam_color_optical_frame"
+            custom uint inputs:frameSkipCount = 3
+            custom string inputs:nodeNamespace = "gripper_cam"
+            custom string inputs:qosProfile = '{"history":"keepLast","depth":5,"reliability":"bestEffort","durability":"volatile","deadline":0.0,"lifespan":0.0,"liveliness":"systemDefault","leaseDuration":0.0}'
+            prepend string inputs:qosProfile.connect = </beebot/ActionGraph/ros2_qos_profile.outputs:qosProfile>
+            custom uint64 inputs:queueSize = 5
+            custom token inputs:renderProductPath
+            prepend token inputs:renderProductPath.connect = </beebot/ActionGraph/gripper_create_render_product.outputs:renderProductPath>
+            custom bool inputs:resetSimulationTimeOnStop
+            custom string inputs:semanticLabelsTopicName
+            custom string inputs:srtxCompressionType
+            custom float2 inputs:stereoOffset
+            custom string inputs:topicName = "color/image_raw"
+            custom token inputs:type (
+                allowedTokens = ["rgb", "rgb_h264", "rgb_hevc", "depth", "depth_pcl", "instance_segmentation", "semantic_segmentation", "bbox_2d_tight", "bbox_2d_loose", "bbox_3d"]
+            )
+            custom bool inputs:useSystemTime
+            token node:type = "isaacsim.ros2.bridge.ROS2CameraHelper"
+            int node:typeVersion = 4
+            uniform token ui:nodegraph:node:expansionState = "minimized"
+            uniform float2 ui:nodegraph:node:pos = (681.97815, 954.6638)
+        }
+
+        def OmniGraphNode "gripper_camera_info_helper" (
+            prepend apiSchemas = ["NodeGraphNodeAPI"]
+        )
+        {
+            custom uint64 inputs:context
+            custom bool inputs:enabled
+            custom uint inputs:execIn (
+                customData = {
+                    bool isExecution = 1
+                }
+            )
+            prepend uint inputs:execIn.connect = </beebot/ActionGraph/gripper_create_render_product.outputs:execOut>
+            custom string inputs:frameId = "gripper_cam_color_optical_frame"
+            custom string inputs:frameIdRight
+            custom uint inputs:frameSkipCount = 3
+            custom string inputs:nodeNamespace = "gripper_cam"
+            custom string inputs:qosProfile = '{"history":"keepLast","depth":5,"reliability":"bestEffort","durability":"volatile","deadline":0.0,"lifespan":0.0,"liveliness":"systemDefault","leaseDuration":0.0}'
+            custom uint64 inputs:queueSize
+            custom token inputs:renderProductPath
+            prepend token inputs:renderProductPath.connect = </beebot/ActionGraph/gripper_create_render_product.outputs:renderProductPath>
+            custom token inputs:renderProductPathRight
+            custom bool inputs:resetSimulationTimeOnStop
+            custom string inputs:topicName = "color/camera_info"
+            custom string inputs:topicNameRight
+            custom bool inputs:useSystemTime
+            token node:type = "isaacsim.ros2.bridge.ROS2CameraInfoHelper"
+            int node:typeVersion = 1
+            uniform token ui:nodegraph:node:expansionState = "minimized"
+            uniform float2 ui:nodegraph:node:pos = (773.557, 1206.3374)
+        }
+
+        def OmniGraphNode "gripper_camera_helper_depth" (
+            prepend apiSchemas = ["NodeGraphNodeAPI"]
+        )
+        {
+            custom uint64 inputs:context
+            custom bool inputs:enabled
+            custom bool inputs:enableSemanticLabels
+            custom uint inputs:execIn (
+                customData = {
+                    bool isExecution = 1
+                }
+            )
+            prepend uint inputs:execIn.connect = </beebot/ActionGraph/gripper_create_render_product.outputs:execOut>
+            custom string inputs:frameId = "gripper_cam_color_optical_frame"
+            custom uint inputs:frameSkipCount = 3
+            custom string inputs:nodeNamespace = "gripper_cam"
+            custom string inputs:qosProfile = '{"history":"keepLast","depth":5,"reliability":"bestEffort","durability":"volatile","deadline":0.0,"lifespan":0.0,"liveliness":"systemDefault","leaseDuration":0.0}'
+            prepend string inputs:qosProfile.connect = </beebot/ActionGraph/ros2_qos_profile.outputs:qosProfile>
+            custom uint64 inputs:queueSize = 5
+            custom token inputs:renderProductPath
+            prepend token inputs:renderProductPath.connect = </beebot/ActionGraph/gripper_create_render_product.outputs:renderProductPath>
+            custom bool inputs:resetSimulationTimeOnStop
+            custom string inputs:semanticLabelsTopicName
+            custom string inputs:srtxCompressionType
+            custom float2 inputs:stereoOffset
+            custom string inputs:topicName = "aligned_depth_to_color/image_raw"
+            custom token inputs:type = "depth" (
+                allowedTokens = ["rgb", "rgb_h264", "rgb_hevc", "depth", "depth_pcl", "instance_segmentation", "semantic_segmentation", "bbox_2d_tight", "bbox_2d_loose", "bbox_3d"]
+            )
+            custom bool inputs:useSystemTime
+            token node:type = "isaacsim.ros2.bridge.ROS2CameraHelper"
+            int node:typeVersion = 4
+            uniform token ui:nodegraph:node:expansionState = "minimized"
+            uniform float2 ui:nodegraph:node:pos = (886.3396, 958.2323)
         }
 
         def OmniGraphNode "ros2_qos_profile" (
@@ -774,22 +872,32 @@ def "Render" (
                 bool omni:rtx:post:registeredCompositing:invertToneMap = 1
                 bool omni:rtx:pt:adaptiveSampling:filterError = 0
                 uint omni:rtx:pt:adaptiveSampling:fixedSppIterations = 2
+                float omni:rtx:pt:fireflyFilter:maxPerEmissiveUnexposedIntensity = 3199.9995
+                float omni:rtx:pt:fireflyFilter:maxUnexposedIntensityPerSample = 3199.9995
+                float omni:rtx:pt:fireflyFilter:maxUnexposedIntensityPerSampleDiffuse = 3199.9995
                 uint omni:rtx:pt:maxSamplesPerLaunch = 2073600
                 uint omni:rtx:pt:mgpu:maxPixelsPerRegionExponent = 12
                 bool omni:rtx:reflections:denoiser:enabled = 0
                 token omni:rtx:rendermode = "MinimalRendering"
                 color3f omni:rtx:rt:ambientLight:color = (0.1, 0.1, 0.1)
                 bool omni:rtx:rt:demoire = 0
+                float omni:rtx:rt:directLighting:maxRayUnexposedIntensity = 6399.999
                 bool omni:rtx:rt:ecoMode:enabled
+                float omni:rtx:rt:indirectdiffuse:maxRayUnexposedIntensity = 6399.999
+                float omni:rtx:rt:inscattering:maxRTSampleUnexposedIntensity = 204799.97
                 bool omni:rtx:rt:lightcache:spatialCache:dontResolveConflicts = 1
+                float omni:rtx:rt:refractions:maxRayUnexposedIntensity = 19199.998
                 int omni:rtx:rt:sss:samples = 1
+                float omni:rtx:rtpt:fireflyFilter:maxPerEmissiveUnexposedIntensity = 3199.9995
+                float omni:rtx:rtpt:fireflyFilter:maxUnexposedIntensityPerSample = 3199.9995
+                float omni:rtx:rtpt:fireflyFilter:maxUnexposedIntensityPerSampleDiffuse = 3199.9995
                 uint omni:rtx:rtpt:maxVolumeBounces = 15
                 float omni:rtx:rtpt:modulatingRoughnessThreshold = 0.08
                 bool omni:rtx:scene:hydra:materialSyncLoads = 1
                 bool omni:rtx:scene:hydra:mdlMaterialWarmup = 1
                 rel orderedVars = </Render/Vars/LdrColor>
                 custom bool overrideClipRange = 0
-                uniform int2 resolution = (1285, 481)
+                uniform int2 resolution = (1285, 654)
             }
 
             def RenderProduct "Replicator" (
@@ -858,10 +966,10 @@ over "OmniverseKit_Persp" (
     float exposure:time = 0.02
     float focalLength = 18.147562
     float focusDistance = 400
-    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -1.6579141676623221)
-    float3 xformOp:rotateXYZ = (80.14943, -2.2899992e-13, 142.92476)
+    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -0.9053607399878251)
+    float3 xformOp:rotateXYZ = (65.01182, -2.854548e-13, 174.30226)
     float3 xformOp:scale = (1, 1, 1)
-    double3 xformOp:translate = (0.8786268123772392, 1.1298153090134213, 0.5853082588264578)
+    double3 xformOp:translate = (0.22556438083845123, 0.7063819511284161, 0.5394274733315824)
     uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
 }
 

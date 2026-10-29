@@ -132,6 +132,23 @@ over "beebot"
                     }
                 }
 
+                over "battery_link" (
+                    prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI", "NewtonMassAPI"]
+                )
+                {
+                    double[] newton:inertia = [0.000079218, 0.000074382, 0.000016793, 0, 0, 0]
+                    point3f physics:centerOfMass = (0, 0, 0)
+                    float3 physics:diagonalInertia = (0.000079218, 0.000074382, 0.000016793)
+                    float physics:mass = 0.106
+                    quatf physics:principalAxes = (1, 0, 0, 0)
+
+                    over "box" (
+                        prepend apiSchemas = ["NewtonCollisionAPI"]
+                    )
+                    {
+                    }
+                }
+
                 over "arm_base_link" (
                     prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI", "NewtonMassAPI"]
                 )
@@ -473,6 +490,18 @@ over "beebot"
             point3f physics:localPos0 = (-0.137869, 0.000185, 0.434932)
             point3f physics:localPos1 = (0, 0, 0)
             quatf physics:localRot0 = (0.98768836, 0, 0.15643433, 0)
+            quatf physics:localRot1 = (1, 0, 0, 0)
+        }
+
+        def PhysicsFixedJoint "battery_joint"
+        {
+            custom rel physics:body0
+            append rel physics:body0 = </beebot/Geometry/base_footprint/base_link>
+            custom rel physics:body1
+            append rel physics:body1 = </beebot/Geometry/base_footprint/base_link/battery_link>
+            point3f physics:localPos0 = (-0.2324, 0, 0.1062)
+            point3f physics:localPos1 = (0, 0, 0)
+            quatf physics:localRot0 = (1, 0, 0, 0)
             quatf physics:localRot1 = (1, 0, 0, 0)
         }
 

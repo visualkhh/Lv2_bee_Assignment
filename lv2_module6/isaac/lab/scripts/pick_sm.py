@@ -83,10 +83,13 @@ APPROACH_Z = GRASP_Z + 0.05
 LIFT_Z = GRASP_Z + 0.05
 DOWN_QUAT = (0.0, 1.0, 0.0, 0.0)  # xyzw, end effector z pointing down
 OPEN, CLOSE = 1.0, 0.0  # gripper action x 0.0265 m (JointPositionAction scale)
-# Sim finger inner gap = 30 mm + 2 x (joint - 8.3 mm): 13 mm closed, 66 mm at OPEN = 1.0. The real gripper
+# Sim finger inner gap = 30 mm + 2 x (joint - GRIP_STOP): 18 mm closed, 71 mm at OPEN = 1.0. The real gripper
 # opens only to about 38-40 mm (gap = 40.1 - 1.22 x value, R2S 2026-10-24), so --open_gap_mm 40 matches it.
+# gripper joint position where the fingers stop on a 30 mm puck (close command = 0). 6.2 mm since the finger colliders are a
+# convex decomposition (2026-10-29); the old single convex hull made a 10 deg wedge that stopped at 8.3 mm.
+GRIP_STOP = 0.0062
 if args.open_gap_mm is not None:
-    OPEN = (0.0083 + (args.open_gap_mm / 1000 - 0.030) / 2) / 0.0265
+    OPEN = (GRIP_STOP + (args.open_gap_mm / 1000 - 0.030) / 2) / 0.0265
 
 # Low joint stiffness (0.42 Nm/deg = 24 Nm/rad, matches the real servo with the measured KT 2.2 Nm/A) leaves the arm sagging below its target.
 # A joint-space integral after each ramp shifts the command until the joints sit on target,
@@ -109,7 +112,6 @@ STATES = [
 ]
 HELD_DIST = 0.05  # puck centre within this of the end effector = still in the hand
 BOX_LAT = 0.035  # box_clear: half width of the band the open fingers + a neighbour puck occupy beside the finger axis
-GRIP_STOP = 0.0083  # gripper joint position where the fingers stop on a 30 mm puck (close command = 0)
 CORR_DT = CORR_EVERY / 60.0  # the integral runs at a fixed time step, whatever the control rate
 PULL_S = 4.0  # pull test: linear ramp time
 SLIP_POS, SLIP_ANG = 0.005, math.radians(10.0)  # puck moved this far in the hand = slipped
@@ -121,7 +123,7 @@ JOINT1_XY = (0.047985, -0.00023)  # joint1 axis in base_link (arm_mount_joint)
 # (joint4 hits +113 deg). Tilting the gripper 20 deg (tip away from the arm) reaches 75-80 mm there.
 # per row (0 = pole side): (name, puck bottom above the slot floor [m], gripper pitch [deg], gripper, duration s)
 # release: fingers open to a 36 mm gap only (3 mm each side of the 30 mm puck), so they barely touch it on the way out
-RELEASE = (0.0083 + (0.036 - 0.030) / 2) / 0.0265
+RELEASE = (GRIP_STOP + (0.036 - 0.030) / 2) / 0.0265
 if args.basket_retreat == "direct":  # first version (2026-10-27 report, section 7): put down at 5 mm, open fully,
     # back up to the over-slot height, then one joint-space move home (sweeps the arm past the pole)
     BASKET_PLAN = {
@@ -500,7 +502,7 @@ def main():
     # pull-out: ramp a world force (down), a force along the fingers' approach axis (out) or a torque about the
     # finger closing axis (twist) on the held puck; record the value when the puck has moved in the hand
     if args.pull:
-        f_grip = args.grip_force if args.grip_force is not None else 1000.0 * GRIP_STOP
+        f_grip = args.grip_force if args.grip_force is not None else 8.3  # env cfg default
         top = 8.0 * f_grip if args.pull != "twist" else 0.05 * f_grip  # N or N m, well above the expected slip
         fing = robot.find_bodies("finger_.*_link")[0]
         ee_rot = torch.tensor(bee_env_cfg.EE_OFFSET_ROT, device=dev).repeat(n, 1)

@@ -78,7 +78,8 @@ beebotCFG = ArticulationCfg(
     actuators = {
         "arm": ImplicitActuatorCfg(joint_names_expr =["joint[1-5]"], stiffness = None, damping = None),
         "wheels": ImplicitActuatorCfg(joint_names_expr=["wheel_.*_joint"], stiffness = None, damping = None),
-        "gripper": ImplicitActuatorCfg(joint_names_expr=["gripper_.*_joint"], stiffness = 1000.0, damping = 10.0)
+        # 8.3 N per finger on a 30 mm puck: stiffness x stop position (6.2 mm, pick_sm.GRIP_STOP)
+        "gripper": ImplicitActuatorCfg(joint_names_expr=["gripper_.*_joint"], stiffness = 8.3 / 0.0062, damping = 10.0)
     }
 )
 

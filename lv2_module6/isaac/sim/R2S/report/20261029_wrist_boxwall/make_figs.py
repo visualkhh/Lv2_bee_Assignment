@@ -116,5 +116,105 @@ def main():
     print("-> fig_w1_overall.png fig_w2_slots.png fig_w3_box_loading.png")
 
 
+def grip():
+    """Grip force 0.3-0.4 A (22-29 N) vs the 8.3 N sim default, chosen basket rule. Pick runs at 8.3-29 N other than 22 N are in
+    ../20261028_retest/data (same command, 40 mm open)."""
+    old = HERE.parent / "20261028_retest" / "data"
+    print("pick (all randomization on, 256 envs x 3 seeds) | N | all % (seed range) | box | cyl")
+    pk = {}
+    for f, src in (("8.3", old), ("22", D), ("25", old), ("29", old), ("36", old)):
+        rs = [np.load(src / f"g{f}_s{s}.npz", allow_pickle=True) for s in (1, 2, 3)]
+        v = [100 * r["ok"].mean() for r in rs]
+        k = np.concatenate([r["kind"] for r in rs]).astype(str); ok = np.concatenate([r["ok"] for r in rs])
+        pk[f] = (np.mean(v), 100 * ok[np.char.find(k, "box") >= 0].mean(), 100 * ok[np.char.find(k, "cyl") >= 0].mean())
+        print(f"  {f} | {np.mean(v):.1f} ({min(v):.1f}-{max(v):.1f}) | {pk[f][1]:.1f} | {pk[f][2]:.1f}")
+    print("basket, chosen rule | N | task | all % | box | cyl | seed 1 / 2")
+    bs = {}
+    for f, tag in (("8.3", "best"), ("22", "g22"), ("29", "g29"), ("37", "g37")):
+        for task in ("ld", "ul"):
+            h, m = cfg_counts(task, f"{tag}_L", f"{tag}_R")
+            sd = [100 * a.sum() / b.sum() for a, b in (cfg_counts(task, f"{tag}_L", f"{tag}_R", s) for s in (1, 2))]
+            bs[(f, task)] = (100 * h.sum() / m.sum(), 100 * h[0].sum() / m[0].sum(), 100 * h[1].sum() / m[1].sum())
+            print(f"  {f} | {task} | {bs[(f, task)][0]:.1f} | {bs[(f, task)][1]:.1f} | {bs[(f, task)][2]:.1f} | {sd[0]:.1f} / {sd[1]:.1f}")
+    print("unload, -y slots, seed 1: puck in the hand after close / lift / carry back [%]")
+    for f in ("8.3", "29"):
+        d = np.load(D / f"ul_stage_g{f}.npz", allow_pickle=True)
+        cyl = np.char.find(d["kinds"][0].astype(str), "cyl") >= 0
+        for nm, msk in (("cyl", cyl), ("box", ~cyl)):
+            print(f"  {f} N {nm} | " + " / ".join(f"{100 * d[k][msk].mean():.0f}" for k in ("held_close", "held_lift", "held")))
+    print("unload 29 N, seed 1, gripper damping (default 10) | cyl % | box %")
+    for dmp, pat in (("10", "ul_g29_{}_s1"), ("19", "ul_g29d19_{}_s1"), ("35", "ul_g29d35_{}_s1")):
+        o = [np.load(D / f"{pat.format(sd)}.npz", allow_pickle=True) for sd in "LR"]
+        c = np.concatenate([d["out_ok"][np.char.find(d["kinds"][0].astype(str), "cyl") >= 0] for d in o])
+        b = np.concatenate([d["out_ok"][np.char.find(d["kinds"][0].astype(str), "box") >= 0] for d in o])
+        print(f"  {dmp} | {100 * c.mean():.0f} | {100 * b.mean():.0f}")
+
+    fig, axs = plt.subplots(1, 3, figsize=(12, 3.4), sharey=True)
+    for ax, (title, get, xs) in zip(axs, (("Pick (start box grid)", lambda f, k: pk[f][k], ["8.3", "22", "25", "29", "36"]),
+                                          ("Basket loading", lambda f, k: bs[(f, "ld")][k], ["8.3", "22", "29", "37"]),
+                                          ("Unloading full basket", lambda f, k: bs[(f, "ul")][k], ["8.3", "22", "29", "37"]))):
+        x = [float(f) for f in xs]
+        for k, lab, col, mk in ((1, "box", S1, "o-"), (2, "cylinder", S2, "s-")):
+            ax.plot(x, [get(f, k) for f in xs], mk, color=col, lw=2, label=lab)
+        ax.axvspan(22, 29, color=AXIS, alpha=0.35, lw=0)
+        ax.axvspan(29, 37, color=AXIS, alpha=0.15, lw=0)
+        ax.text(25.5, 42, "0.3-0.4 A", ha="center", fontsize=8, color=INK2)
+        ax.text(33, 42, "0.4-0.5 A", ha="center", fontsize=8, color=INK2)
+        ax.set(title=title, xlabel="squeeze per finger [N]")
+        ax.set_ylim(40, 102)
+    axs[0].set_ylabel("success [%]")
+    axs[0].legend(loc="lower left")
+    fig.tight_layout(); fig.savefig(HERE / "fig_w4_grip.png", dpi=150); plt.close(fig)
+    print("-> fig_w4_grip.png")
+
+
+def contact():
+    """Why cylinders leave the hand at 29 N: contact settings (unload, -y slots, seed 1) and the finger collider shape."""
+    runs = [("base29", "29 N as is"), ("rest0", "puck restitution 0"), ("iters32", "solver iterations 32"), ("tors0", "no torsional patch"),
+            ("hull", "cylinder as convex hull"), ("smooth29", "cylinder as custom geometry"), ("coff5", "puck contact offset 5 mm"),
+            ("fx_coff_10_roff_0", "puck contact offset 10 mm"), ("ffric1", "finger friction 1.2"),
+            ("fx_coff_5_roff_0_ffric_1.0", "offset 5 mm + friction 1.0"), ("pose8.3", "8.3 N")]
+    print("contact run | cylinder in the hand after close / lift / carry [%] | box taken out [%]")
+    for nm, lab in runs:
+        d = np.load(D / f"ct_{nm}.npz", allow_pickle=True)
+        cyl = np.char.find(d["kinds"][0].astype(str), "cyl") >= 0
+        print(f"  {lab} | " + " / ".join(f"{100 * d[k][cyl].mean():.0f}" for k in ("held_close", "held_lift", "held")) + f" | {100 * d['out_ok'][~cyl].mean():.0f}")
+    print("puck in the end effector frame after close (median): bottom z [mm], sideways |y| [mm], finger joint [mm] (8.3 = touching a 30 mm puck)")
+    for nm, lab in (("pose8.3", "8.3 N"), ("pose29", "29 N")):
+        d = np.load(D / f"ct_{nm}.npz", allow_pickle=True)
+        cyl = np.char.find(d["kinds"][0].astype(str), "cyl") >= 0
+        for g, m in (("held after lift", cyl & d["held_lift"]), ("lost on lift", cyl & ~d["held_lift"])):
+            if m.sum():
+                c = d["ee_close"][m]
+                print(f"  {lab} {g} (n {m.sum()}) | {1000 * np.median(c[:, 2]):.1f} | {1000 * np.median(np.abs(c[:, 1])):.1f} | {1000 * np.median(c[:, 4]):.2f}")
+
+    print("finger colliders as convex decomposition | cylinder / box in the hand after close / lift / carry [%] | finger joint at close [mm]")
+    for nm, lab in (("pose8.3", "hull, 8.3 N"), ("pose29", "hull, 29 N"), ("dec8.3", "decomposition, old stop 8.3 mm: 6.2 N, open 44 mm"),
+                    ("dec29", "decomposition, old stop 8.3 mm: 22 N, open 44 mm"), ("dec2_8.3", "decomposition, stop 6.2 mm: 8.3 N, open 40 mm"),
+                    ("dec2_29", "decomposition, stop 6.2 mm: 29 N, open 40 mm"), ("dec2_29_o44", "decomposition, stop 6.2 mm: 29 N, open 44 mm")):
+        d = np.load(D / f"ct_{nm}.npz", allow_pickle=True)
+        cyl = np.char.find(d["kinds"][0].astype(str), "cyl") >= 0
+        row = [" / ".join(f"{100 * d[k][m].mean():.0f}" for k in ("held_close", "held_lift", "held")) for m in (cyl, ~cyl)]
+        print(f"  {lab} | {row[0]} | {row[1]} | {1000 * np.median(d['ee_close'][:, 4]):.2f}")
+
+    from scipy.spatial import ConvexHull
+    fig, ax = plt.subplots(figsize=(9, 4))
+    for side, col in (("left", S1), ("right", S2)):
+        g = np.load(D / f"finger_{side}_mesh_gripper_frame.npy") * 1000
+        ax.scatter(g[:, 0], g[:, 1], s=0.3, color=col, alpha=0.4)
+        h = ConvexHull(g[:, :2]); v = np.r_[h.vertices, h.vertices[0]]
+        ax.plot(g[v, 0], g[v, 1], color=col, lw=1.4, label=f"{side} finger collider (convex hull)")
+    ax.axvspan(109.6, 129.6, color=AXIS, alpha=0.4, lw=0)
+    ax.text(119.6, -33, "puck contact\n(top 20 mm)", ha="center", fontsize=8, color=INK2)
+    ax.set_aspect("equal")
+    ax.set(xlabel="along the finger, towards the tips [mm]", ylabel="closing axis [mm]",
+           title="Finger mesh (dots) and the convex hull PhysX collides with, fingers closed")
+    ax.legend(loc="upper left", bbox_to_anchor=(1.02, 1.0), fontsize=8)
+    fig.tight_layout(); fig.savefig(HERE / "fig_w5_finger_hull.png", dpi=150); plt.close(fig)
+    print("-> fig_w5_finger_hull.png")
+
+
 if __name__ == "__main__":
     main()
+    grip()
+    contact()

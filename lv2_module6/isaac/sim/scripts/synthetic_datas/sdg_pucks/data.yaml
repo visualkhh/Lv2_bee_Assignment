@@ -1,0 +1,8 @@
+path: /home/pa2/git/Lv2_bee_Assignment/lv2_module6/isaac/sim/scripts/synthetic_datas/sdg_pucks
+train: images
+val: images
+names:
+  0: puck_red_box
+  1: puck_red_cyl
+  2: puck_green_box
+  3: puck_green_cyl
