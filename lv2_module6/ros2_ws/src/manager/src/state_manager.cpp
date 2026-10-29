@@ -15,6 +15,8 @@ namespace manager {
 using diagnostic_msgs::msg::DiagnosticStatus;
 
 namespace {
+constexpr const char * kMapFile = "nvblox.nvblx";  // 지도 폴더 = 이 파일이 있는 폴더 (nvblox — bringup MAP_FILE과 같게)
+
 struct DeviceSpec {
   const char * name;
   const char * kind;
@@ -100,9 +102,6 @@ StateManager::StateManager(const rclcpp::NodeOptions & options)
     publish_topics();
   });
   estop_pub_ = create_publisher<std_msgs::msg::Bool>("/state/emergency", latched);
-  mapping_cli_ = create_client<std_srvs::srv::Empty>("/rtabmap/rtabmap/set_mode_mapping");
-  localization_cli_ = create_client<std_srvs::srv::Empty>("/rtabmap/rtabmap/set_mode_localization");
-  load_db_cli_ = create_client<rtabmap_msgs::srv::LoadDatabase>("/rtabmap/rtabmap/load_database");
   op_req_sub_ = create_subscription<std_msgs::msg::String>("/cmd/operation_mode", rclcpp::QoS(1).reliable(),
     [this](std_msgs::msg::String::ConstSharedPtr m) { request_operation(m->data); });
   estop_sub_ = create_subscription<std_msgs::msg::Bool>("/cmd/e_stop", rclcpp::QoS(1).reliable(),
@@ -137,7 +136,6 @@ StateManager::StateManager(const rclcpp::NodeOptions & options)
     s.add("지도 폴더", map_name_.empty() ? "-" : map_name_);
     s.add("비상정지", estop_ ? "ON" : "-");
     s.add("탐사", explore_note_.empty() ? "-" : explore_note_);
-    s.add("지도 모드 전환 중", map_pending_.empty() ? "-" : map_pending_);
     s.add("재시작", restart_note_);
   });
   RCLCPP_INFO(get_logger(), "조작 %s · 지도 %s %s", operation_.c_str(), map_mode_.c_str(), map_name_.c_str());
@@ -188,42 +186,34 @@ void StateManager::set_operation_mode(const std::string & mode) {
 }
 
 void StateManager::request_map_mode(const std::string & mode) {
+  // cuVSLAM·nvblox는 실행 중 모드 전환이 없음 → launch 전체를 인자만 바꿔 다시 띄움 (request_restart "all" — 새 프로세스가 새 상태를 발행)
+  //   MAPPING → map:=slam (새 지도 폴더 — nvblox는 이어 붙이지 않음) · LOCALIZATION → map:=saved map_name:=<지금 폴더>
   map_error_.clear();
   if (mode != "MAPPING" && mode != "LOCALIZATION") {
     map_error_ = "모르는 값 '" + mode + "' (MAPPING | LOCALIZATION)";
   } else if (map_mode_ == "COURSE") {
-    map_error_ = "COURSE(정지 지도)는 바꿀 수 없음 — faker map:=slam · saved 로 RTAB-Map을 띄울 것";
-  } else if (!map_pending_.empty()) {
-    map_error_ = map_pending_ + " 전환 중";
-  } else if (mode != map_mode_) {
-    auto cli = mode == "MAPPING" ? mapping_cli_ : localization_cli_;
-    if (!cli->wait_for_service(std::chrono::seconds(0))) {
-      map_error_ = std::string(cli->get_service_name()) + " 없음 (RTAB-Map 꺼짐?)";
-    } else {
-      map_pending_ = mode;
-      cli->async_send_request(std::make_shared<std_srvs::srv::Empty::Request>(),
-        [this](rclcpp::Client<std_srvs::srv::Empty>::SharedFuture) {
-          map_mode_ = map_pending_;  // RTAB-Map이 응답한 뒤에만 바꾼다
-          map_pending_.clear();
-          RCLCPP_WARN(get_logger(), "지도 모드 → %s", map_mode_.c_str());
-          publish(map_pub_, map_mode_);
-          if (map_mode_ != "MAPPING" && operation_ == "EXPLORE") {
-            explore_note_ = "MAPPING이 끝나 탐사 멈춤";
-            set_operation_mode("AUTO");
-          }
-        });
+    map_error_ = "COURSE(정지 지도)는 바꿀 수 없음 — faker map:=slam · saved 로 띄울 것";
+  } else if (mode == map_mode_) {
+    return;
+  } else if (mode == "LOCALIZATION" && map_name_.empty()) {
+    map_error_ = "지금 지도 폴더가 없음 — /cmd/map_name으로 고를 것";
+  } else {
+    if (operation_ == "EXPLORE") {
+      explore_note_ = "지도 모드를 바꿔 탐사 멈춤 (다시 띄움)";
+      set_operation_mode("AUTO");
     }
+    request_restart(mode == "MAPPING" ? "all map:=slam" : "all map:=saved map_name:=" + map_name_);
   }
   if (!map_error_.empty()) RCLCPP_WARN(get_logger(), "지도 모드 요청 %s: %s", mode.c_str(), map_error_.c_str());
 }
 
 void StateManager::publish_map_list() {
-  // 가진 지도 = map_dir 안에서 rtabmap.db가 있는 폴더 (이름순, 줄바꿈으로 구분) — 바뀔 때만 발행
+  // 가진 지도 = map_dir 안에서 nvblox.nvblx가 있는 폴더 (이름순, 줄바꿈으로 구분) — 바뀔 때만 발행
   std::vector<std::string> names;
   std::error_code ec;
   if (!map_dir_.empty()) {
     for (const auto & e : std::filesystem::directory_iterator(map_dir_, ec)) {
-      if (e.is_directory(ec) && std::filesystem::exists(e.path() / "rtabmap.db", ec)) names.push_back(e.path().filename().string());
+      if (e.is_directory(ec) && std::filesystem::exists(e.path() / kMapFile, ec)) names.push_back(e.path().filename().string());
     }
   }
   std::sort(names.begin(), names.end());
@@ -236,44 +226,23 @@ void StateManager::publish_map_list() {
 }
 
 void StateManager::request_map_name(const std::string & name) {
+  // 고른 지도로 위치추정 — launch 전체를 map:=saved map_name:=<이름>으로 다시 띄움 (nvblox_map이 시작할 때 그 지도를 불러옴)
   map_error_.clear();
-  const auto db = std::filesystem::path(map_dir_) / name / "rtabmap.db";
+  const auto file = std::filesystem::path(map_dir_) / name / kMapFile;
   if (map_dir_.empty()) {
     map_error_ = "map_dir 파라미터 없음 — 지도 폴더를 모름";
   } else if (map_mode_ == "COURSE") {
     map_error_ = "COURSE(정지 지도)에선 지도를 갈아끼울 수 없음 — faker map:=slam · saved";
-  } else if (!map_pending_.empty()) {
-    map_error_ = map_pending_ + " 전환 중";
-  } else if (name.empty() || name.find('/') != std::string::npos || !std::filesystem::exists(db)) {
-    map_error_ = "지도 없음: " + db.string();
-  } else if (name == map_name_) {
+  } else if (name.empty() || name.find('/') != std::string::npos || !std::filesystem::exists(file)) {
+    map_error_ = "지도 없음: " + file.string();
+  } else if (name == map_name_ && map_mode_ == "LOCALIZATION") {
     return;  // 이미 그 지도
-  } else if (!load_db_cli_->wait_for_service(std::chrono::seconds(0)) ||
-    !localization_cli_->wait_for_service(std::chrono::seconds(0)))
-  {
-    map_error_ = std::string(load_db_cli_->get_service_name()) + " 없음 (RTAB-Map 꺼짐?)";
   } else {
-    // 1) 그 DB를 연다 (clear=false — 지도 그대로) 2) 위치추정 모드 — 고른 지도는 고정해서 쓰는 것
-    //    두 응답이 다 온 뒤에만 /state/map_name · /state/map_mode 를 바꾼다 (발행 값 = 진짜 상태)
-    map_pending_ = "지도 " + name;
-    auto req = std::make_shared<rtabmap_msgs::srv::LoadDatabase::Request>();
-    req->database_path = db.string();
-    req->clear = false;
-    load_db_cli_->async_send_request(req, [this, name](rclcpp::Client<rtabmap_msgs::srv::LoadDatabase>::SharedFuture) {
-      localization_cli_->async_send_request(std::make_shared<std_srvs::srv::Empty::Request>(),
-        [this, name](rclcpp::Client<std_srvs::srv::Empty>::SharedFuture) {
-          map_name_ = name;
-          map_mode_ = "LOCALIZATION";
-          if (operation_ == "EXPLORE") {
-            explore_note_ = "지도를 바꿔 탐사 멈춤";
-            set_operation_mode("AUTO");
-          }
-          map_pending_.clear();
-          RCLCPP_WARN(get_logger(), "지도 → %s (위치추정)", map_name_.c_str());
-          publish(map_name_pub_, map_name_);
-          publish(map_pub_, map_mode_);
-        });
-    });
+    if (operation_ == "EXPLORE") {
+      explore_note_ = "지도를 바꿔 탐사 멈춤 (다시 띄움)";
+      set_operation_mode("AUTO");
+    }
+    request_restart("all map:=saved map_name:=" + name);
   }
   if (!map_error_.empty()) RCLCPP_WARN(get_logger(), "지도 바꾸기 %s: %s", name.c_str(), map_error_.c_str());
 }

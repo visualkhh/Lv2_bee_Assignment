@@ -35,4 +35,4 @@ analyzers:
     system:
       type: diagnostic_aggregator/GenericAnalyzer
       path: 제공 패키지
-      startswith: [ 'ekf_filter_node', 'twist_mux', 'robot_state_publisher', 'rtabmap', 'controller_server', 'bt_navigator' ]
+      startswith: [ 'ekf_filter_node', 'twist_mux', 'robot_state_publisher', 'cuvslam_slam', 'nvblox', 'controller_server', 'bt_navigator' ]

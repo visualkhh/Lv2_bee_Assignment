@@ -48,13 +48,13 @@ ros_setup="/opt/ros/$ROS_DISTRO_NAME/setup.bash"
 # shellcheck disable=SC1090
 source "$ros_setup"
 
-# RTAB-Map을 별도 workspace에 소스 빌드한 경우 overlay를 자동으로 올린다.
-#   ~/ros2_rtabmap_ws/install/setup.bash
-# 없는 경우에도 계속 진행하고, RTAB-Map이 필요한 launch에서 원인이 드러난다.
-RTABMAP_WS="${RTABMAP_WS:-$HOME/ros2_rtabmap_ws}"
-if [ -f "$RTABMAP_WS/install/setup.bash" ]; then
+# nvblox(isaac_ros_nvblox)를 별도 workspace에 소스 빌드한 경우 overlay를 자동으로 올린다 (Jetson arm64용 apt가 없음).
+#   ~/isaac_ros_ws/install/setup.bash — documents/jetson-orin-nano/CUVSLAM.md "nvblox"
+# 없는 경우에도 계속 진행하고, SLAM을 띄울 때 ros_system check_slam이 무엇이 없는지 알려 준다.
+SLAM_WS="${SLAM_WS:-$HOME/isaac_ros_ws}"
+if [ -f "$SLAM_WS/install/setup.bash" ]; then
   # shellcheck disable=SC1091
-  source "$RTABMAP_WS/install/setup.bash"
+  source "$SLAM_WS/install/setup.bash"
 fi
 
 # --- 빌드 (저장소에서 실행할 때만)
