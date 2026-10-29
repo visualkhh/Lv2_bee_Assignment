@@ -74,7 +74,7 @@ def grip():
     for i, f in enumerate(FORCES):
         print(f"  {f:>4} | {new[0][i]:.1f} / {new[1][i]:.1f} / {new[2][i]:.1f} | {old[0][i]:.1f}")
     ax.plot([float(f) for f in FORCES], new[2], "s--", color=S2, ms=4, lw=1, label="new model, cylinders only")
-    for xa, lab in ((9.0, "0.15 A"), (12.0, "0.2 A"), (36.0, "0.6 A (now)")):
+    for xa, lab in ((11.0, "0.15 A"), (14.7, "0.2 A"), (44.1, "0.6 A (now)")):  # x 73.5 N/A (KT 2.2 Nm/A measured)
         ax.axvline(xa, color=AXIS, lw=1, ls=":")
         ax.text(xa, 101.2, lab, ha="center", fontsize=8, color=INK2)
     ax.set(xlabel="squeeze per finger [N] (sim)", ylabel="pick success [%]", title="Pick success vs grip force, all randomization on (256 envs x 3 seeds)")
@@ -130,6 +130,35 @@ def slot_rates(names):
     return 100 * pl / np.maximum(n, 1)
 
 
+def by_kind(names, key, slot_of):
+    """% per slot (12) for boxes and cylinders separately, pooled over runs."""
+    acc = {"box": [np.zeros(12), np.zeros(12)], "cyl": [np.zeros(12), np.zeros(12)]}
+    for nm in names:
+        d = load(nm)
+        kind = np.char.find(d["kinds"][0].astype(str), "box") >= 0
+        sl, v = slot_of(d), d[key] if d[key].ndim == 1 else d[key][:, 0]
+        for s in range(12):
+            for k, m in (("box", kind), ("cyl", ~kind)):
+                sel = (sl == s) & m
+                acc[k][0][s] += np.nansum(v[sel]); acc[k][1][s] += sel.sum()
+    return {k: 100 * a / np.maximum(n, 1) for k, (a, n) in acc.items()}
+
+
+def slots_kind():
+    ld = by_kind(["c12_slots_s1", "c12_slots_s2"], "placed", lambda d: d["slot_of"][:, 0])
+    ul = by_kind(["u_dz0"], "out_ok", lambda d: d["slot"])
+    fig, axs = plt.subplots(2, 2, figsize=(9, 5.2))
+    cols = ["y -97", "y -32", "y +32", "y +97"]
+    rows = ["pole side", "middle", "arm side"]
+    for j, (k, lab) in enumerate((("box", "box pucks"), ("cyl", "cylinders"))):
+        heat(axs[0, j], ld[k].reshape(3, 4), cols, rows, f"Loading, {lab} [%]")
+        heat(axs[1, j], ul[k].reshape(3, 4), cols, rows, f"Unloading full basket, {lab} [%]")
+    save(fig, "fig_r3b_slots_kind.png")
+    print("slot | loading box / cyl % | unloading box / cyl %")
+    for s in range(12):
+        print(f"  {s:>2} | {ld['box'][s]:.0f} / {ld['cyl'][s]:.0f} | {ul['box'][s]:.0f} / {ul['cyl'][s]:.0f}")
+
+
 def slots():
     base = slot_rates(["c12_slots_s1", "c12_slots_s2"])
     flip = slot_rates(["c12_flip2_s1", "c12_flip2_s2"])
@@ -143,7 +172,7 @@ def slots():
     for s in range(12):
         print(f"  {s:>2} | {base[s]:.0f} | {flip[s]:.0f}")
     print(f"  mean | {base.mean():.1f} | {flip.mean():.1f}")
-    for nm in ("c12_diag89", "c12_flip89"):
+    for nm in ():
         d = load(nm)
         sl = d["slot_of"][:, 0]
         print(f"{nm}: slot | placed / n | stuck | puck bottom off centre dx, dy mm (median) | tilt deg")
@@ -226,4 +255,4 @@ def place():
 
 
 if __name__ == "__main__":
-    grip(); hz(); start_box(); slots(); contacts(); sequence(); unload(); place()
+    grip(); hz(); start_box(); slots(); slots_kind(); contacts(); sequence(); unload(); place()

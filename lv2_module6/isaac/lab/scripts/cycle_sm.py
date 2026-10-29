@@ -1,7 +1,7 @@
 """Scripted pick -> basket cycles on Bee-Puck-Load: one puck per env (cycle timing / route comparison) or several
 pucks loaded one after another (sequential loading).
 
-    isaaclab.sh -p cycle_sm.py --num_envs 192 --latency                 (one puck per env, env i -> slot i % 12)
+    isaaclab.sh -p cycle_sm.py --num_envs 192 --latency                 (one puck per env, env i -> slot (i // 4) % 12)
     isaaclab.sh -p cycle_sm.py --num_envs 64 --latency --pucks 5        (5 pucks on the shelf grid, loaded in turn)
 Defaults are the setup chosen on 2026-10-28 (report sim/R2S/report/20261027_sim_tests, 11-13): carry pose at 90 deg (beside the
 robot), no pauses at transit waypoints, let go 3 mm above the slot floor, fill order with slots 2, 8, 9 last.
@@ -55,11 +55,11 @@ parser.add_argument("--finger_rule", choices=["heading", "perp"], default="headi
                     help="start layouts: perp = fingers close at right angles to the line through the 2 pucks (box: nearest face)")
 parser.add_argument("--park_err_mm", type=float, default=0.0, help="start layouts: both pucks shifted by uniform +- this (stopping error)")
 parser.add_argument("--no_held_check", action="store_true", help="carry on to the basket even when the puck was not lifted")
-parser.add_argument("--unload", action="store_true", help="start with all 12 slots full, env i takes the puck out of slot i %% 12")
+parser.add_argument("--unload", action="store_true", help="start with all 12 slots full, env i takes the puck out of slot (i // 4) %% 12")
 parser.add_argument("--unload_dz_mm", type=float, default=0.0, help="unload: grasp height error [mm] (- = towards the walls)")
 parser.add_argument("--unload_yaw_deg", type=float, default=0.0, help="unload: puck yaw in the slot off the loading wrist [deg]")
 parser.add_argument("--place", action="store_true",
-                    help="dice cell test: take the puck out of slot i %% 12, put it on cell i %% 9 of the 3 x 3 grid on the box")
+                    help="dice cell test: take the puck out of slot (i // 4) %% 12, put it on cell i %% 9 of the 3 x 3 grid on the box")
 parser.add_argument("--grid_nb", action="store_true", help="place: the other 8 cells already hold a puck (tightest case, 30 mm gaps)")
 parser.add_argument("--place_mm", type=float, default=0.0, help="place: puck bottom above the box top when letting go [mm]")
 parser.add_argument("--place_gap_mm", type=float, default=36.0, help="place: finger gap when letting go [mm]")
@@ -206,6 +206,9 @@ def main():
     cell_xy = torch.tensor([[cx_box + CELL_PITCH * (r - 1), CELL_PITCH * (c - 1), bee_env_cfg.SHELF_TOP] for r in range(3) for c in range(3)],
                            device=dev)  # env frame, cell 0 = near row, -y
     cell_of = torch.arange(n, device=dev) % 9
+    # Lab's MultiUsdFileCfg hands out the puck types round robin (env i -> type i % 4), so a slot of i % 12 would
+    # always get the same type. Consecutive groups of 4 envs share a slot instead: every slot sees all 4 types.
+    env_slot = (torch.arange(n, device=dev) // 4) % len(SLOTS)
 
     # ---- shelf grid of pucks (target = puck 0 at the env's random reset pose, the rest around it)
     grip_now = torch.full((n,), OPEN, device=dev)
@@ -226,7 +229,7 @@ def main():
                 p.write_root_pose_to_sim_index(root_pose=torch.cat([pos + org, q], dim=1))
                 p.write_root_velocity_to_sim_index(root_velocity=torch.zeros(n, 6, device=dev))
             for p_idx, p in enumerate(pucks[:1] if args.place else pucks):
-                sl = (torch.arange(n, device=dev) + p_idx) % len(SLOTS)
+                sl = (env_slot + p_idx) % len(SLOTS)
                 sxy = torch.tensor(SLOTS, device=dev)[sl]
                 hd_s = torch.atan2(sxy[:, 1] - JOINT1_XY[1], sxy[:, 0] - JOINT1_XY[0])
                 wr = torch.where(sxy[:, 1] < 0, -WRIST, WRIST) if args.mirror_wrist else torch.full_like(hd_s, WRIST)
@@ -345,7 +348,7 @@ def main():
     slot_of = torch.zeros(n, n_p, dtype=torch.long, device=dev)
     if n_p == 1:
         pool = torch.tensor([int(v) for v in args.slots.split(",")] if args.slots else list(range(len(SLOTS))), device=dev)
-        slot_of[:, 0] = pool[torch.arange(n, device=dev) % len(pool)]
+        slot_of[:, 0] = pool[(torch.arange(n, device=dev) // 4) % len(pool)]
     else:
         rank = torch.cumsum(on_shelf.long(), dim=1) - 1  # k-th puck on the shelf goes to the k-th slot in the order
         slot_of = torch.tensor(order, device=dev)[rank.clamp(min=0)]
@@ -422,12 +425,12 @@ def main():
     if args.unload:
         # ---- take the puck out of a full basket: carry -> over the slot (open) -> down to the grasp -> close -> back
         # over the slot -> carry. Wrist as when loading; no camera fix on the puck pose (aim at the cell centre).
-        slot = torch.arange(n, device=dev) % len(SLOTS)
+        slot = env_slot
         P = pucks[0]
         start_b = torch.stack([to_root(p.data.root_pos_w.torch) for p in pucks], dim=1)  # (n, 12, 3)
         start_tilt = torch.stack([puck_tilt(p) for p in pucks], dim=1)
         n_in = 1 if args.place else len(pucks)  # pucks that start in the basket
-        seat_z = torch.stack([(torch.arange(n, device=dev) + k) % len(SLOTS) for k in range(n_in)], dim=1)
+        seat_z = torch.stack([(env_slot + k) % len(SLOTS) for k in range(n_in)], dim=1)
         seated = ((start_b[:, :n_in, 2] - torch.tensor(SLOTS, device=dev)[seat_z][..., 2]).abs() < 0.005) & (start_tilt[:, :n_in] < math.radians(5.0))
         print(f"[unload] pucks seated upright in their cells at the start: {seated.sum().item()}/{seated.numel()}")
         d_nom = np.array([0.0, 0.0, GRASP_Z])

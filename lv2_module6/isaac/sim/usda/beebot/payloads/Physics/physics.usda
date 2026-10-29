@@ -296,7 +296,7 @@ over "beebot"
         {
             float drive:angular:physics:damping = 0.0105
             float drive:angular:physics:maxForce = 4.1
-            float drive:angular:physics:stiffness = 0.35
+            float drive:angular:physics:stiffness = 0.42
             token drive:angular:physics:type = "force"
             float newton:velocityLimit = 275.99377
             uniform token physics:axis = "Z"
@@ -319,7 +319,7 @@ over "beebot"
         {
             float drive:angular:physics:damping = 0.0105
             float drive:angular:physics:maxForce = 4.1
-            float drive:angular:physics:stiffness = 0.35
+            float drive:angular:physics:stiffness = 0.42
             token drive:angular:physics:type = "force"
             float newton:velocityLimit = 275.99377
             uniform token physics:axis = "Z"
@@ -342,7 +342,7 @@ over "beebot"
         {
             float drive:angular:physics:damping = 0.0105
             float drive:angular:physics:maxForce = 4.1
-            float drive:angular:physics:stiffness = 0.35
+            float drive:angular:physics:stiffness = 0.42
             token drive:angular:physics:type = "force"
             float newton:velocityLimit = 275.99377
             uniform token physics:axis = "Z"
@@ -365,7 +365,7 @@ over "beebot"
         {
             float drive:angular:physics:damping = 0.0105
             float drive:angular:physics:maxForce = 4.1
-            float drive:angular:physics:stiffness = 0.35
+            float drive:angular:physics:stiffness = 0.42
             token drive:angular:physics:type = "force"
             float newton:velocityLimit = 275.99377
             uniform token physics:axis = "Z"
@@ -388,7 +388,7 @@ over "beebot"
         {
             float drive:angular:physics:damping = 0.0105
             float drive:angular:physics:maxForce = 4.1
-            float drive:angular:physics:stiffness = 0.35
+            float drive:angular:physics:stiffness = 0.42
             token drive:angular:physics:type = "force"
             float newton:velocityLimit = 275.99377
             uniform token physics:axis = "Z"

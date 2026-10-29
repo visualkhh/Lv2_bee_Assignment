@@ -133,8 +133,8 @@ ros2 run control_test grip_test pull box_down    # 1.2 mm(닫힘)로 30 s 쥐는
 결과: `logs/profile/<ts>_gripper_left_joint_hold_grip_sweep_box/`. 같은 tag 는 최신 run 만 분석된다.
 팔은 set_center 의 0° 자세로 두고 그리퍼만 움직인다. `q` 정지는 다른 테스트와 같다.
 
-Isaac 의 그리퍼는 손가락 하나당 약 8 N 으로 쥔다(stiffness 1000 N/m, 8.3 mm 에서 퍽에 막힘). 실물 추정값 38 N(25~38 N)은
-전류 × 대략적인 KT 로만 구한 값이라 실측으로 확인한다.
+Isaac 의 그리퍼는 손가락 하나당 약 8 N 으로 쥔다(stiffness 1000 N/m, 8.3 mm 에서 퍽에 막힘). 실물 0.6 A 는 손가락당 약 44 N 으로
+추정한다(전류 × 실측 KT, 링크 마찰 무시).
 
 | 시험 | 하는 일 | 보는 것 |
 |---|---|---|
@@ -151,8 +151,8 @@ Isaac 의 그리퍼는 손가락 하나당 약 8 N 으로 쥔다(stiffness 1000 
 - 퍽이 빠지면 손가락이 1.2 mm 쪽으로 닫히며 `pos` 가 떨어지고 전류가 줄어든다. 빠진 시각은 `log.csv` 로 확인한다.
 - 당긴 힘·방향·퍽 종류는 run 폴더 이름과 함께 손으로 적는다. 로그에는 남지 않는다.
 
-분석은 `python3 profile_analysis.py` 다. hold 의 그리퍼 dwell 마다 `force_N_est`(손가락 하나가 누르는 힘, `GRIP_N_PER_A` = 87.7 N/A)가 나온다.
-이 값은 KT(1.78 Nm/A) 가 맞다는 가정 위의 추정이다. 당겨 빼기 저울 값과 함께 보고 판단한다.
+분석은 `python3 profile_analysis.py` 다. hold 의 그리퍼 dwell 마다 `force_N_est`(손가락 하나가 누르는 힘, `GRIP_N_PER_A` = 73.5 N/A)가 나온다.
+KT(2.2 Nm/A)는 joint2 에서 잰 값이라 그리퍼 서보에도 맞는다는 것은 가정이다. 당겨 빼기 저울 값과 함께 보고 판단한다.
 ROS 를 source 하지 않은 셸에서 돌리면 xacro 가 없어 팔 hold 의 URDF 비교가 빠진 채 기존 `analysis.yaml` 을 덮어쓴다. ROS 를 source 한 셸에서 돌린다.
 
 ### 6. idle_record — 정지 상태
@@ -242,12 +242,14 @@ source /opt/ros/lyrical/setup.bash        # xacro
 python3 profile_analysis.py               # 관절·모드별 최신 완료 run
 ```
 
-- `hold`: 자세마다 dwell 뒤 절반의 평균 처짐·전류, 접근 방향, 실측 토크(전류 × 1.78 Nm/A) vs URDF 중력 토크
+- `hold`: 자세마다 dwell 뒤 절반의 평균 처짐·전류, 접근 방향, 실측 토크(전류 × 2.2 Nm/A) vs URDF 중력 토크
 - `ramp`: 반전 직후를 뺀 일정 속도 구간에서 +/− 방향 오차·전류 → 히스테리시스 폭, 마찰 전류 `|I+ − I−|/2`, 중력 전류 `(I+ + I−)/2`
 - `step`: 명령 가장자리마다 최고 속도, dead time, 10→90 % 상승 시간, 오버슈트, 최종 오차
 - 요약: `logs/profile/profile_summary.yaml`, `logs/profile/ramp_hysteresis.png` (joint2~4 오차 vs 명령)
 
-전류 → 토크 계수 1.78 Nm/A 는 XM430-W350 정격(4.1 Nm / 2.3 A)으로 잡은 대략값이다.
+전류 → 토크 계수 2.2 Nm/A 는 2026-10-28 실측값이다. joint2 에 0.30 kg 을 수평 240 mm 에 매달고 ramp 를 돌려,
+중력 전류 증가(약 0.33 A)로 구했다(범위 2.0~2.5). XM430-W350 정격 비(4.1 Nm / 2.3 A = 1.78)보다 약 1.25 배 크다.
+이 시험에서 joint2 는 1.2~1.5 A 가 몇 초 이어지자 두 번 모두 Overload 로 토크가 꺼졌다.
 
 ---
 

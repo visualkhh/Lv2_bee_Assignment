@@ -7,8 +7,8 @@
                 double radius = 5
             }
             dictionary Perspective = {
-                double3 position = (0.09227250775806073, 2.1612933888130654, 0.4138293411488354)
-                double3 target = (-0.10613346512668381, -0.17344141382876632, 0.3016738153036488)
+                double3 position = (0.8786268123772392, 1.1298153090134213, 0.5853082588264578)
+                double3 target = (-0.10613347410832263, -0.17344137442031027, 0.3016736654115514)
             }
             dictionary Right = {
                 double3 position = (0.03988901330187963, -5, 0.1922440657510208)
@@ -25,6 +25,7 @@
             string authoring_layer = "./beebot.usda"
         }
         dictionary renderSettings = {
+            token "rtx:rendermode" = "MinimalRendering"
         }
     }
     defaultPrim = "beebot"
@@ -150,6 +151,9 @@ def Xform "beebot" (
 
                                 over "wrist_link"
                                 {
+                                    string isaac:nameOverride (
+                                        displayName = "Name Override"
+                                    )
                                     rel physics:simulationOwner
 
                                     over "gripper_link"
@@ -445,35 +449,6 @@ def Xform "beebot" (
         }
     }
 
-    def Xform "GroundPlane"
-    {
-        quatf xformOp:orient = (1, 0, 0, 0)
-        float3 xformOp:scale = (1, 1, 1)
-        double3 xformOp:translate = (0, 0, 0)
-        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
-
-        def Mesh "CollisionMesh"
-        {
-            uniform bool doubleSided = 0
-            int[] faceVertexCounts = [4]
-            int[] faceVertexIndices = [0, 1, 2, 3]
-            normal3f[] normals = [(0, 0, 1), (0, 0, 1), (0, 0, 1), (0, 0, 1)]
-            point3f[] points = [(-25, -25, 0), (25, -25, 0), (25, 25, 0), (-25, 25, 0)]
-            color3f[] primvars:displayColor = [(0.5, 0.5, 0.5)]
-            texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
-                interpolation = "varying"
-            )
-        }
-
-        def Plane "CollisionPlane" (
-            prepend apiSchemas = ["PhysicsCollisionAPI"]
-        )
-        {
-            uniform token axis = "Z"
-            uniform token purpose = "guide"
-        }
-    }
-
     def OmniGraph "ActionGraph"
     {
         token evaluationMode = "Automatic"
@@ -497,7 +472,7 @@ def Xform "beebot" (
             )
             custom double outputs:time
             uniform token ui:nodegraph:node:expansionState = "open"
-            uniform float2 ui:nodegraph:node:pos = (146, 95)
+            uniform float2 ui:nodegraph:node:pos = (119.37161, -1.7031183)
         }
 
         def OmniGraphNode "isaac_read_imu_node" (
@@ -533,7 +508,7 @@ def Xform "beebot" (
             custom quatd outputs:orientation
             custom float outputs:sensorTime
             uniform token ui:nodegraph:node:expansionState = "open"
-            uniform float2 ui:nodegraph:node:pos = (411.91672, 44.058857)
+            uniform float2 ui:nodegraph:node:pos = (439.9466, -2.1904616)
         }
 
         def OmniGraphNode "ros2_publish_imu" (
@@ -566,7 +541,7 @@ def Xform "beebot" (
             token node:type = "isaacsim.ros2.bridge.ROS2PublishImu"
             int node:typeVersion = 1
             uniform token ui:nodegraph:node:expansionState = "open"
-            uniform float2 ui:nodegraph:node:pos = (792.5786, 39.45211)
+            uniform float2 ui:nodegraph:node:pos = (823.4115, -18.009165)
         }
 
         def OmniGraphNode "isaac_create_render_product" (
@@ -608,7 +583,7 @@ def Xform "beebot" (
                 }
             )
             custom token outputs:renderProductPath
-            uniform token ui:nodegraph:node:expansionState = "open"
+            uniform token ui:nodegraph:node:expansionState = "minimized"
             uniform float2 ui:nodegraph:node:pos = (351.0056, 486.18723)
         }
 
@@ -629,6 +604,7 @@ def Xform "beebot" (
             custom uint inputs:frameSkipCount = 3
             custom string inputs:nodeNamespace = "isaac/pole_front_cam"
             custom string inputs:qosProfile = '{"history":"keepLast","depth":5,"reliability":"bestEffort","durability":"volatile","deadline":0.0,"lifespan":0.0,"liveliness":"systemDefault","leaseDuration":0.0}'
+            prepend string inputs:qosProfile.connect = </beebot/ActionGraph/ros2_qos_profile.outputs:qosProfile>
             custom uint64 inputs:queueSize = 5
             custom token inputs:renderProductPath
             prepend token inputs:renderProductPath.connect = </beebot/ActionGraph/isaac_create_render_product.outputs:renderProductPath>
@@ -644,7 +620,7 @@ def Xform "beebot" (
             token node:type = "isaacsim.ros2.bridge.ROS2CameraHelper"
             int node:typeVersion = 4
             uniform token ui:nodegraph:node:expansionState = "minimized"
-            uniform float2 ui:nodegraph:node:pos = (809.1032, 437.4555)
+            uniform float2 ui:nodegraph:node:pos = (681.97815, 454.66382)
         }
 
         def OmniGraphNode "ros2_camera_info_helper" (
@@ -674,8 +650,8 @@ def Xform "beebot" (
             custom bool inputs:useSystemTime
             token node:type = "isaacsim.ros2.bridge.ROS2CameraInfoHelper"
             int node:typeVersion = 1
-            uniform token ui:nodegraph:node:expansionState = "open"
-            uniform float2 ui:nodegraph:node:pos = (808.27936, 582.4286)
+            uniform token ui:nodegraph:node:expansionState = "minimized"
+            uniform float2 ui:nodegraph:node:pos = (773.557, 706.3374)
         }
 
         def OmniGraphNode "ros2_camera_helper_01" (
@@ -695,6 +671,7 @@ def Xform "beebot" (
             custom uint inputs:frameSkipCount = 3
             custom string inputs:nodeNamespace = "isaac/pole_front_cam"
             custom string inputs:qosProfile = '{"history":"keepLast","depth":5,"reliability":"bestEffort","durability":"volatile","deadline":0.0,"lifespan":0.0,"liveliness":"systemDefault","leaseDuration":0.0}'
+            prepend string inputs:qosProfile.connect = </beebot/ActionGraph/ros2_qos_profile.outputs:qosProfile>
             custom uint64 inputs:queueSize = 5
             custom token inputs:renderProductPath
             prepend token inputs:renderProductPath.connect = </beebot/ActionGraph/isaac_create_render_product.outputs:renderProductPath>
@@ -710,81 +687,37 @@ def Xform "beebot" (
             token node:type = "isaacsim.ros2.bridge.ROS2CameraHelper"
             int node:typeVersion = 4
             uniform token ui:nodegraph:node:expansionState = "minimized"
-            uniform float2 ui:nodegraph:node:pos = (1010.03796, 439.13455)
+            uniform float2 ui:nodegraph:node:pos = (886.3396, 458.23233)
         }
 
-        def OmniGraphNode "ros2_publish_point_cloud" (
+        def OmniGraphNode "ros2_qos_profile" (
             prepend apiSchemas = ["NodeGraphNodeAPI"]
         )
         {
-            custom uint inputs:bufferSize
-            custom uint64 inputs:channelIdBufferSize
-            custom uint inputs:channelIdDataType
-            custom uint64 inputs:channelIdPtr
-            custom uint64 inputs:context
-            custom int inputs:cudaDeviceIndex
-            custom point3f[] inputs:data
-            custom uint64 inputs:dataPtr
-            custom uint64 inputs:echoIdBufferSize
-            custom uchar inputs:echoIdDataType
-            custom uint64 inputs:echoIdPtr
-            custom uint64 inputs:emitterIdBufferSize
-            custom uint inputs:emitterIdDataType
-            custom uint64 inputs:emitterIdPtr
-            custom uint inputs:execIn (
-                customData = {
-                    bool isExecution = 1
-                }
+            custom token inputs:createProfile = "Sensor Data" (
+                allowedTokens = ["Default for publishers/subscribers", "Services", "Sensor Data", "System Default", "Custom"]
             )
-            custom string inputs:frameId
-            custom uint64 inputs:hitNormalBufferSize
-            custom float3 inputs:hitNormalDataType
-            custom uint64 inputs:hitNormalPtr
-            custom uint64 inputs:intensityBufferSize
-            custom float inputs:intensityDataType
-            custom uint64 inputs:intensityPtr
-            custom uint64 inputs:materialIdBufferSize
-            custom uint inputs:materialIdDataType
-            custom uint64 inputs:materialIdPtr
-            custom string inputs:nodeNamespace
-            custom uint64 inputs:objectIdBufferSize
-            custom uint[] inputs:objectIdDataType
-            custom uint64 inputs:objectIdPtr
-            custom bool inputs:outputChannelId
-            custom bool inputs:outputEchoId
-            custom bool inputs:outputEmitterId
-            custom bool inputs:outputHitNormal
-            custom bool inputs:outputIntensity
-            custom bool inputs:outputMaterialId
-            custom bool inputs:outputObjectId
-            custom bool inputs:outputRadialVelocityMS
-            custom bool inputs:outputTickId
-            custom bool inputs:outputTickState
-            custom bool inputs:outputTimestamp
-            custom bool inputs:outputVelocity
-            custom string inputs:qosProfile
-            custom uint64 inputs:queueSize
-            custom uint64 inputs:radialVelocityMSBufferSize
-            custom float inputs:radialVelocityMSDataType
-            custom uint64 inputs:radialVelocityMSPtr
-            custom uint64 inputs:tickIdBufferSize
-            custom uint inputs:tickIdDataType
-            custom uint64 inputs:tickIdPtr
-            custom uint64 inputs:tickStateBufferSize
-            custom uchar inputs:tickStateDataType
-            custom uint64 inputs:tickStatePtr
-            custom double inputs:timeStamp
-            custom uint64 inputs:timestampBufferSize
-            custom uint64 inputs:timestampDataType
-            custom uint64 inputs:timestampPtr
-            custom string inputs:topicName
-            custom uint64 inputs:velocityBufferSize
-            custom float3 inputs:velocityDataType
-            custom uint64 inputs:velocityPtr
-            token node:type = "isaacsim.ros2.bridge.ROS2PublishPointCloud"
-            int node:typeVersion = 3
-            uniform token ui:nodegraph:node:expansionState = "open"
-            uniform float2 ui:nodegraph:node:pos = (1300.6588, 581.2956)
+            custom double inputs:deadline
+            custom uint64 inputs:depth = 5
+            custom token inputs:durability (
+                allowedTokens = ["systemDefault", "transientLocal", "volatile", "unknown"]
+            )
+            custom token inputs:history (
+                allowedTokens = ["systemDefault", "keepLast", "keepAll", "unknown"]
+            )
+            custom double inputs:leaseDuration
+            custom double inputs:lifespan
+            custom token inputs:liveliness (
+                allowedTokens = ["systemDefault", "automatic", "manualByTopic", "unknown"]
+            )
+            custom token inputs:reliability = "bestEffort" (
+                allowedTokens = ["systemDefault", "reliable", "bestEffort", "unknown"]
+            )
+            token node:type = "isaacsim.ros2.bridge.ROS2QoSProfile"
+            int node:typeVersion = 1
+            custom string outputs:qosProfile
+            uniform token ui:nodegraph:node:expansionState = "minimized"
+            uniform float2 ui:nodegraph:node:pos = (397.51907, 756.2483)
         }
     }
     variantSet "Physics" = {
@@ -844,7 +777,7 @@ def "Render" (
                 uint omni:rtx:pt:maxSamplesPerLaunch = 2073600
                 uint omni:rtx:pt:mgpu:maxPixelsPerRegionExponent = 12
                 bool omni:rtx:reflections:denoiser:enabled = 0
-                token omni:rtx:rendermode = "RealTimePathTracing"
+                token omni:rtx:rendermode = "MinimalRendering"
                 color3f omni:rtx:rt:ambientLight:color = (0.1, 0.1, 0.1)
                 bool omni:rtx:rt:demoire = 0
                 bool omni:rtx:rt:ecoMode:enabled
@@ -856,7 +789,7 @@ def "Render" (
                 bool omni:rtx:scene:hydra:mdlMaterialWarmup = 1
                 rel orderedVars = </Render/Vars/LdrColor>
                 custom bool overrideClipRange = 0
-                uniform int2 resolution = (1285, 605)
+                uniform int2 resolution = (1285, 481)
             }
 
             def RenderProduct "Replicator" (
@@ -867,6 +800,7 @@ def "Render" (
             {
                 rel camera = </beebot/Geometry/base_footprint/base_link/pole_front_cam_link/pole_front_cam_color_optical_frame/pole_front_cam_rgb>
                 bool omni:rtx:material:db:syncLoads = 1
+                token omni:rtx:rendermode = "MinimalRendering"
                 bool omni:rtx:rt:ecoMode:enabled
                 bool omni:rtx:scene:hydra:materialSyncLoads = 1
                 rel orderedVars = </Render/Vars/LdrColor>
@@ -924,10 +858,10 @@ over "OmniverseKit_Persp" (
     float exposure:time = 0.02
     float focalLength = 18.147562
     float focusDistance = 400
-    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -2.3458325581168293)
-    float3 xformOp:rotateXYZ = (87.25961, -2.1309716e-13, 175.14267)
+    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -1.6579141676623221)
+    float3 xformOp:rotateXYZ = (80.14943, -2.2899992e-13, 142.92476)
     float3 xformOp:scale = (1, 1, 1)
-    double3 xformOp:translate = (0.09227250775806073, 2.1612933888130654, 0.4138293411488354)
+    double3 xformOp:translate = (0.8786268123772392, 1.1298153090134213, 0.5853082588264578)
     uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
 }
 

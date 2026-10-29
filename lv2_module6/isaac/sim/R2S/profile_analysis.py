@@ -30,13 +30,15 @@ from plot_logs import CMD, CUR, ERR, GRID, INK, MEAS, MUTED, style
 HERE = Path(__file__).resolve().parent
 ROOT = HERE / 'logs' / 'profile'
 URDF = HERE.parents[2] / 'urdf' / 'beebot_mesh' / 'urdf.xacro'
-KT = 4.1 / 2.3  # Nm/A, XM430-W350 stall torque / stall current at 12 V — only a rough current -> torque factor
+# Nm/A, measured 2026-10-28: joint2 ramp with a 0.30 kg weight hung 240 mm out (dI_gravity ~0.33 A, range 2.0-2.5).
+# The XM430-W350 datasheet ratio (4.1 Nm / 2.3 A = 1.78) is ~1.25x too low at ~1 A.
+KT = 2.2
 DEG = 180 / math.pi
 LINEAR = {'gripper_left_joint'}
 # Gripper squeeze force per finger from the servo current, by virtual work: F = tau / (d gap / d theta).
 # Firmware table near puck contact (config.h, 2026-10-28): finger 3.5 -> 5.0 mm = servo 0.600 -> 0.4998 rad,
-# gap = 20 + 2 x finger [mm] -> 3.0 mm of gap per 0.1002 rad = 29.9 mm/rad (~59.5 N/A).
-# Inherits the rough KT, so treat it as an estimate (KT may be 0.6-0.8x high).
+# gap = 20 + 2 x finger [mm] -> 3.0 mm of gap per 0.1002 rad = 29.9 mm/rad (~73.5 N/A).
+# KT was measured on joint2, not the gripper servo (same model); linkage friction is ignored.
 GRIP_N_PER_A = KT / (2 * (0.005 - 0.0035) / (0.6 - 0.4998))
 
 

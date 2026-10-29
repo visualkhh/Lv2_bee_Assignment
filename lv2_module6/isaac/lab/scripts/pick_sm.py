@@ -88,7 +88,7 @@ OPEN, CLOSE = 1.0, 0.0  # gripper action x 0.0265 m (JointPositionAction scale)
 if args.open_gap_mm is not None:
     OPEN = (0.0083 + (args.open_gap_mm / 1000 - 0.030) / 2) / 0.0265
 
-# Low joint stiffness (20 Nm/rad, matches the real servo) leaves the arm sagging below its target.
+# Low joint stiffness (0.42 Nm/deg = 24 Nm/rad, matches the real servo with the measured KT 2.2 Nm/A) leaves the arm sagging below its target.
 # A joint-space integral after each ramp shifts the command until the joints sit on target,
 # like a servo I term or a feedforward table on the real arm.
 # ponytail: plain integral with clamp; replace with a gravity feedforward if it oscillates.
