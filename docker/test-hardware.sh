@@ -43,7 +43,7 @@ mkdir -p "$DEBUG_DIR/output/hardware" "$DEBUG_DIR/input/hardware"
 
 set -m
 ros2 launch ros_system ros_system.launch.py mock_hardware:=false \
-  use_cameras:=false use_ekf:=false use_rtabmap:=false use_nav2:=false > /tmp/hardware.log 2>&1 & LAUNCH_PID=$!
+  use_cameras:=false use_ekf:=false use_slam:=false use_nav2:=false > /tmp/hardware.log 2>&1 & LAUNCH_PID=$!
 
 # OpenCR 흉내: 0.05초마다 상태 줄 (바퀴L 0.1rad, joint1 0.5rad, IMU 정지, 모터 온도 °C — joint1 41)
 S_LINE="S,0.1,0,0.2,0,0.5,0,0.1,0,0,0.1,0,0,0.1,0,0,0.1,0,0,0.1,0.01,0,0.05,0,0,0,1,0,0,0,0,0,9.81,30,31,41,33,34,35,36,37"

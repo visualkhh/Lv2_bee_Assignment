@@ -8,23 +8,17 @@
   ros2 launch faker faker.launch.py grasp_scorer:=real      # 하나만 진짜로 (rl_nav_tuner · rl_nav_correction · rl_arm_correction도 같음, 기본 = ml 값)
   지도 map:= (fake_opencr 충돌 판정은 늘 실제 코스 — 월드. 로봇 쪽 지도만 바뀜):
   ros2 launch faker faker.launch.py                         # course (기본): 코스 지도를 외운 상태 (map_server + map→odom 항등)
-  지도 한 벌 = 폴더 하나: /ws/map/<map_name>/ rtabmap.db (위치추정용 정본) · map.pgm · map.yaml (사람이 보는 미리보기)
-  ros2 launch faker faker.launch.py map:=slam               # ① 매핑: 새 폴더 /ws/map/<날짜_시각>/ (map_name:=으로 이름 지정 가능, 있는 이름이면 거부)
-                                                             #    시뮬레이터 수동 조작으로 몰고 다니면 RTAB-Map이 pole_front_cam(컬러+깊이)으로 → rtabmap.db
-                                                             #    다 돌았으면 시뮬레이터 [지도 저장] (/map_saver/save_map → 같은 폴더 map.pgm · map.yaml)
-                                                             #    시뮬레이터 [스캔 시작]·[위치추정으로] → /cmd/map_mode → state_manager가 RTAB-Map 모드 전환
-                                                             #    (재시작 없이) → /state/map_mode 발행
-                                                             #    끝(Ctrl+C)에 RTAB-Map이 DB를 닫음 — /ws/map = 호스트 ros2_ws/map
-  ros2 launch faker faker.launch.py map:=saved              # ② 미션: default 폴더(없으면 가장 최근)의 지도로 시작 (RTAB-Map 위치추정 모드가 rtabmap.db를 한 번 읽어 /map · map→odom)
-  ros2 launch faker faker.launch.py map:=saved map_name:=20261017_223015   #    폴더를 골라서
-                                                             #    map.pgm·yaml은 사람이 보는 미리보기 — 위치추정은 rtabmap.db (카메라 장면 기억)가 있어야 함
+  지도 한 벌 = 폴더 하나: /ws/map/<map_name>/ nvblox.nvblx (위치추정용 정본) · map.pgm · map.yaml (사람이 보는 미리보기)
+  ros2 launch faker faker.launch.py map:=slam               # ① 매핑 · ② map:=saved 위치추정 — SLAM(cuVSLAM + nvblox)은 GPU가 있어야 함:
+  ros2 launch faker faker.launch.py map:=saved              #    테스트베드 컨테이너엔 GPU가 없어 시작할 때 'SLAM에 필요한 것이 없음'으로 멈춤
+                                                             #    (ros_system check_slam). GPU 컨테이너·Jetson에서만 — 인자 처리는 bringup 그대로
 
 실제로 띄우는 📦 (ros_system):
   robot_state_publisher(URDF) · controller_manager + control/BeebotSystemHardware(가상 시리얼 ↔ fake_opencr) + 컨트롤러 · robot_localization EKF
   · 진짜 Nav2 (planner · controller · behavior · bt_navigator · velocity_smoother · collision_monitor)
-map:=course일 때만 — 실기에서 RTAB-Map이 하는 일의 대신 (시뮬레이터 = 코스를 알고 있음):
+map:=course일 때만 — 실기에서 SLAM(cuVSLAM + nvblox)이 하는 일의 대신 (시뮬레이터 = 코스를 알고 있음):
   map_server       코스 지도 /map (maps/twin_closed_maze — course/tools/build_map.py, 원점 = 출발 칸)
-  map→odom 항등    위치 추정 없이 odom 원점 = 출발 칸 (미끄럼으로 odom이 어긋나면 그대로 어긋남 — RTAB-Map 몫)
+  map→odom 항등    위치 추정 없이 odom 원점 = 출발 칸 (미끄럼으로 odom이 어긋나면 그대로 어긋남 — SLAM 몫)
 대역 (도커 이미지에 없는 📦 · GPU·모델이 없는 ML):
   ML 대역 (ml 패키지와 1:1 — 같은 노드 이름·토픽, 하나씩 진짜/대역 선택):
     fake_grasp_scorer       → 노드 grasp_scorer
@@ -98,9 +92,9 @@ def generate_launch_description():
         arg('learning_enabled', 'true', '학습 노드 on/off (ml:=real일 때)'),
         arg('vlm_endpoint', default_vlm_endpoint(),
             '호스트 ai-service 주소 (비면 템플릿 고정) — 기본: host.docker.internal이 풀리면(macOS) 그것, 아니면(리눅스 host망) 127.0.0.1'),
-        arg('map', 'course', 'course = 코스 지도 외움 · slam = RTAB-Map 매핑(rtabmap.db 새로) · saved = 저장한 rtabmap.db로 위치추정'),
-        arg('map_dir', '/ws/map', '지도 폴더 (호스트 ros2_ws/map 바인드) — 지도마다 <map_name>/ rtabmap.db · map.pgm · map.yaml'),
-        arg('map_name', '', '지도 폴더 이름 — slam: 비우면 날짜_시각으로 새로 · saved: 비우면 default (rtabmap.db 없으면 가장 최근 — bringup이 정함)'),
+        arg('map', 'course', 'course = 코스 지도 외움 · slam = SLAM 매핑(nvblox.nvblx 새로) · saved = 저장한 nvblox.nvblx로 위치추정 (slam·saved는 GPU 필요)'),
+        arg('map_dir', '/ws/map', '지도 폴더 (호스트 ros2_ws/map 바인드) — 지도마다 <map_name>/ nvblox.nvblx · map.pgm · map.yaml'),
+        arg('map_name', '', '지도 폴더 이름 — slam: 비우면 날짜_시각으로 새로 · saved: 비우면 default (nvblox.nvblx 없으면 가장 최근 — bringup이 정함)'),
         arg('use_monitor', 'true', 'false = monitor_manager 끔 (호스트 가벼운 실행용 — PASS 판정에서 기록 검사 제외)'),
         arg('mock_hardware', 'false', 'false(기본) = controller_manager가 가상 시리얼(/dev/opencr)로 fake_opencr와 통신 · true = OpenCR 없이 mock (물리 없음)'),
         arg('mock_effort', '0.0', '팔 관절 전류 [A] (mock_hardware:=true일 때만 — fake_opencr면 시뮬레이터 [팔 붙잡기])'),

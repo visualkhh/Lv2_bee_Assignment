@@ -81,7 +81,7 @@ STATE_NAMES = {0: 'RUNNING', 1: 'SUCCEEDED', 2: 'FAILED'}
 LEVEL = {0: ('OK', ''), 1: ('WARN', 'warn'), 2: ('ERROR', 'error'), 3: ('STALE', 'warn')}
 
 FLIP_PITCH = math.radians(60)  # 집을 때와 놓을 때 손 기울기가 이만큼 다르면 퍽 자세가 바뀜 (누움 ↔ 섬)
-MAP_DIR = '/ws/map'  # 지도 폴더 (컨테이너 안 — 호스트 ros2_ws/map). 지도 한 벌 = <이름>/ rtabmap.db · map.pgm · map.yaml
+MAP_DIR = '/ws/map'  # 지도 폴더 (컨테이너 안 — 호스트 ros2_ws/map). 지도 한 벌 = <이름>/ nvblox.nvblx · map.pgm · map.yaml
 NO_BG = '(격자)'
 NO_FLOOR = '(격자)'
 NO_WALL = '(단색)'
@@ -1588,9 +1588,9 @@ class App:
         self.mission_label = tk.Label(missbox, justify=tk.LEFT, anchor=tk.W, font=('Menlo', 9), text='대기', wraplength=SIDE_WRAP)
         self.mission_label.pack(fill=tk.X)
 
-        # 지도 (SLAM) — 컨테이너 faker map:=slam·saved 일 때 RTAB-Map. 요청만 보내고 상태는 state_manager 발행값(/state/map_mode)을 보여 줌
-        #   스캔 시작 / 위치추정으로 → /cmd/map_mode → state_manager가 RTAB-Map 모드 전환 (재시작 없이, DB는 rtabmap.db 그대로)
-        #   지도 저장 → /map_saver/save_map → 지금 지도 폴더(/state/map_name) ros2_ws/map/<이름>/map.pgm · yaml (rtabmap.db는 RTAB-Map이 같은 폴더에 씀)
+        # 지도 (SLAM) — map:=slam·saved 일 때 cuVSLAM + nvblox (GPU 필요). 요청만 보내고 상태는 state_manager 발행값(/state/map_mode)을 보여 줌
+        #   스캔 시작 → 새 지도 폴더로 다시 띄움 (map:=slam) · 위치추정으로 → /cmd/map_mode → state_manager가 map:=saved로 다시 띄움
+        #   지도 저장 → /map_saver/save_map → 지금 지도 폴더(/state/map_name) ros2_ws/map/<이름>/map.pgm · yaml (nvblox.nvblx는 끌 때 nvblox가 같은 폴더에 씀)
         #   지도 한 벌 = 폴더 하나 — 위 스캔 지도 목록에서 폴더를 골라 겹쳐 봄. 새 지도는 컨테이너 map:=slam 이 날짜_시각 폴더를 새로 만듦
         slambox = tk.LabelFrame(mapside, text='지도 (SLAM)')
         slambox.pack(fill=tk.X, pady=(6, 0))
@@ -1821,41 +1821,11 @@ class App:
         self.sent.config(text=f'요청: 지도 모드 {mode} (/cmd/map_mode → state_manager)')
 
     def ask_scan_start(self):
-        """[스캔 시작] — 지금 지도를 어떻게 할지 고름:
-          이어서 스캔      지금 지도(같은 폴더 rtabmap.db)에 덧붙임 — /cmd/map_mode MAPPING (재시작 없음)
-          지우고 처음부터  같은 폴더를 비우고 다시 — 📞 /rtabmap/rtabmap/reset → /cmd/map_mode MAPPING (재시작 없음)
-          새 지도로        지금 지도는 그대로 두고 새 폴더 <날짜_시각>/ — /cmd/restart all map:=slam (ROS 재시작)
+        """[스캔 시작] — 새 지도 폴더 <날짜_시각>/로 ROS를 다시 띄워 스캔 (/cmd/restart all map:=slam).
+        nvblox는 지도를 이어 붙이거나 실행 중에 비울 수 없어 늘 새 폴더 — 지금 지도는 그대로 남음.
         [지도 저장]은 그때 쓰는 지도 폴더(/state/map_name)에 씀"""
         name = (read_msg('state/map_name')[0] or {}).get('data') or '(없음)'
-        mode = (read_msg('state/map_mode')[0] or {}).get('data') or '?'
-        win = tk.Toplevel(self.root)
-        win.title('스캔 시작')
-        win.transient(self.root)
-        tk.Label(win, justify=tk.LEFT, padx=12, pady=8,
-                 text=f'지금 지도: {name} (모드 {mode})\n스캔을 어떻게 시작할까요?').pack(anchor=tk.W)
-
-        def pick(choice):
-            win.destroy()
-            if choice == 'continue':
-                send('/cmd/map_mode', 'std_msgs/msg/String', {'data': 'MAPPING'})
-                self.sent.config(text=f'요청: 지도 {name} 에 이어서 스캔 (/cmd/map_mode MAPPING)')
-            elif choice == 'clear':
-                from tkinter import messagebox
-                if not messagebox.askyesno('지우고 처음부터', f'지도 {name} 의 내용(rtabmap.db)을 비우고 처음부터 스캔합니다.\n'
-                                                            '되돌릴 수 없습니다. 진행할까요?'):
-                    return
-                send_service_request('rtabmap/rtabmap/reset', {})
-                # 비운 뒤 매핑 모드로 (위치추정 중이었으면 바꿈) — 순서 보장 위해 조금 뒤에
-                self.root.after(1500, lambda: send('/cmd/map_mode', 'std_msgs/msg/String', {'data': 'MAPPING'}))
-                self.sent.config(text=f'요청: 지도 {name} 비우고 처음부터 스캔 (/rtabmap/rtabmap/reset → /cmd/map_mode MAPPING)')
-            elif choice == 'new':
-                self.restart_ros('map:=slam', f'지금 지도 {name} 는 그대로 두고, 새 지도 폴더(날짜_시각)로 ROS를 다시 띄워 스캔합니다.')
-        for text, choice in (('이어서 스캔 — 지금 지도에 덧붙임', 'continue'),
-                             ('지우고 처음부터 — 같은 지도 폴더를 비움', 'clear'),
-                             ('새 지도로 — 지금 지도는 그대로, 새 폴더 (ROS 재시작)', 'new'),
-                             ('취소', None)):
-            tk.Button(win, text=text, anchor=tk.W, command=(lambda c=choice: pick(c)) if choice else win.destroy).pack(
-                fill=tk.X, padx=12, pady=2)
+        self.restart_ros('map:=slam', f'지금 지도 {name} 는 그대로 두고, 새 지도 폴더(날짜_시각)로 ROS를 다시 띄워 스캔합니다.')
 
     def save_map(self):
         name, _ = read_msg('state/map_name')  # state_manager 발행 — launch가 정한 RTAB-Map DB 폴더
@@ -2088,8 +2058,8 @@ class App:
         return math.cos(th) * dx + math.sin(th) * dy, -math.sin(th) * dx + math.cos(th) * dy, th
 
     def set_initial_pose(self, x, y, yaw=None):
-        """[초기 위치 지정] → /initialpose (geometry_msgs/PoseWithCovarianceStamped, map) — RTAB-Map이 위치추정 모드일 때만 받음
-        (매핑 중엔 'Initial pose can only be set in localization mode … ignoring it' — librtabmap_core).
+        """[초기 위치 지정] → /initialpose (geometry_msgs/PoseWithCovarianceStamped, map) — 받는 쪽이 있을 때만 (cuVSLAM은 안 받음 —
+        출발 자리에서 켜는 것이 원점. 코스 지도·faker에선 fake_localizer 등이 쓸 수 있음).
         map 좌표는 **고정 기준**으로: 지도는 출발 칸에서 시작해 만드므로 map 원점 = 출발 칸, 방향 0°.
         예전엔 map_to_world(= 로봇이 믿는 자기 위치와 실제 위치를 맞댄 변환)로 바꿔서, 실제 자리를 찍어도 로봇이 믿던 위치가 그대로
         나와 보정이 0이었음 (어긋난 만큼을 스스로 지움). 방향을 안 주면 지금 실제 로봇 방향. 공분산 = 위치 0.05m² · 방향 0.07rad²"""

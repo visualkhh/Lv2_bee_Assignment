@@ -2,7 +2,7 @@
 
 Jetson에서 `start.sh`가 안 뜨거나, 뜨다가 죽거나, 센서가 안 잡힐 때 보는 절차.
 
-- 설치/RTAB-Map/PCL 빌드: [`SETTING.md`](../jetson-orin-nano/SETTING.md)
+- 설치: [`SETTING.md`](../jetson-orin-nano/SETTING.md) · SLAM(cuVSLAM + nvblox) 설치·실기 시험: [`CUVSLAM.md`](../jetson-orin-nano/CUVSLAM.md)
 - 전체 개발·도커 테스트: [`../../lv2_module6/simulator/gazebo`](../../lv2_module6/simulator/gazebo/DEVELOP.md)
 
 ## 1. 먼저 구분할 것
@@ -69,7 +69,7 @@ tail -100 /tmp/gz_dynamic.log
 ### 빌드 로그
 
 ```bash
-cd ~/ros2_rtabmap_ws
+cd ~/isaac_ros_ws   # nvblox 소스 빌드 (CUVSLAM.md 2-1)
 ls -lt log/latest_build/
 tail -100 log/latest_build/<패키지>/stdout_stderr.log
 ```
@@ -149,11 +149,9 @@ echo "ROS_AUTOMATIC_DISCOVERY_RANGE=$ROS_AUTOMATIC_DISCOVERY_RANGE"
 설치된 패키지:
 
 ```bash
-ros2 pkg prefix rtabmap_launch
-ros2 pkg prefix rtabmap_slam
-ros2 pkg prefix rtabmap_sync
-ros2 pkg prefix rtabmap_util
-ros2 pkg prefix pcl_conversions
+python3 -c "import cuvslam; print(cuvslam.get_version())"
+ros2 pkg prefix nvblox_ros
+ros2 pkg executables nvblox_ros | grep nvblox_node
 ```
 
 ## 6. ROS 그래프 확인
@@ -275,76 +273,38 @@ ros2 param get /state_manager map_mode
 ros2 param get /state_manager map_name
 ```
 
-## 8. RTAB-Map / 빌드 에러
+## 8. SLAM (cuVSLAM + nvblox) 에러
 
-자세한 설치는 [`SETTING.md`](../jetson-orin-nano/SETTING.md)의 **RTAB-Map 설치** 참고.
+설치는 [`CUVSLAM.md`](../jetson-orin-nano/CUVSLAM.md) (cuVSLAM 2절 · nvblox 2-1절).
 
-### `package 'rtabmap_launch' not found`
+### 시작하자마자 `SLAM(cuVSLAM + nvblox)에 필요한 것이 없음: …`
 
-```bash
-source ~/ros2_rtabmap_ws/install/setup.bash
-ros2 pkg prefix rtabmap_launch
-```
-
-없으면:
+launch의 `check_slam`이 멈춘 것 — 메시지에 빠진 것이 적혀 있다.
 
 ```bash
-cd ~/ros2_rtabmap_ws
-source /opt/ros/lyrical/setup.bash
-source install/setup.bash
-
-colcon build --symlink-install \
-  --packages-select rtabmap_launch \
-  --parallel-workers 1 \
-  --event-handlers console_direct+
+python3 -c "import cuvslam; print(cuvslam.get_version())"   # cuvslam
+ros2 pkg prefix nvblox_ros                                   # nvblox_ros
+ls ~/isaac_ros_ws/install/setup.bash                         # start.sh가 자동 source (다른 곳이면 SLAM_WS=<경로>)
 ```
 
-`start.sh`는 `~/ros2_rtabmap_ws/install/setup.bash`를 자동으로 source한다.
+- `cuvslam`이 없음 → PyCuVSLAM 소스 빌드 (CUVSLAM.md 2절).
+- `nvblox_ros`가 없음 → Jetson(arm64)은 Lyrical apt 패키지가 없어 `~/isaac_ros_ws` 소스 빌드 또는 Isaac ROS 컨테이너 (CUVSLAM.md 2-1절).
+- SLAM 없이 나머지만 띄우려면 `use_slam:=false`. 테스트베드(GPU 없음)는 `map:=course`만 된다.
 
-### `Failed to find ... rtabmap_viz/package.sh` / `rtabmap_odom/package.sh`
+### `import cuvslam`에서 `Illegal instruction (core dumped)`
 
-`rtabmap_launch`만 `--packages-select`로 빌드해서 생긴다.  
-`--packages-up-to rtabmap_launch`로 의존 패키지까지 빌드한다.
+Orin에 배포 휠(Thor용)을 깐 경우다. 지우고 소스 빌드한다 (CUVSLAM.md 2절).
+
+### `/map`이 안 나옴
 
 ```bash
-cd ~/ros2_rtabmap_ws
-source /opt/ros/lyrical/setup.bash
-source install/setup.bash
-
-colcon build --symlink-install \
-  --packages-up-to rtabmap_launch \
-  --parallel-workers 1 \
-  --event-handlers console_direct+ \
-  --cmake-args -DCMAKE_BUILD_TYPE=Release
+ros2 node list | grep -E "cuvslam|nvblox|depth_gate"
+ros2 topic hz /pole_front_cam/aligned_depth_to_color/image_nvblox
+ros2 topic hz /nvblox_node/static_occupancy_grid
+ros2 topic echo /map --once --field info
 ```
 
-### `libpcl-common1.15` / `libpcl-io1.15` 없음
-
-Jetson Ubuntu 24.04에는 PCL 1.14만 있다.  
-`ros-lyrical-pcl-conversions`를 apt로 설치하지 말고 `SETTING.md`의 소스 빌드를 따른다.
-
-### `message_filters/message_event.h` 없음
-
-`perception_pcl`을 `jazzy` 브랜치로 받은 경우다.
-
-```bash
-cd ~/ros2_rtabmap_ws/src/perception_pcl
-git fetch origin ros2
-git checkout ros2
-git pull
-```
-
-그 뒤 `pcl_conversions`부터 다시 빌드한다.
-
-### `Findpcl_conversions.cmake` / `Findpcl_msgs.cmake` 없음
-
-```bash
-source ~/ros2_rtabmap_ws/install/setup.bash
-ros2 pkg prefix pcl_conversions
-ros2 pkg prefix pcl_msgs
-```
-
-경로가 없으면 해당 패키지를 먼저 빌드/설치한다.
+nvblox_map 로그 `격자 받음 N · /map 냄 N`에서 `격자 받음`이 0(`nvblox 격자 아직 없음`)이면 nvblox_node 쪽 — depth 입력(`image_nvblox`)·TF(map→카메라, cuvslam_slam)·설정 `config/nvblox.yaml`을 본다. `격자 프레임 … ≠ map` 오류면 nvblox `global_frame`. 단계별 확인은 CUVSLAM.md 3-1절.
 
 ## 9. launch 에러 패턴
 
@@ -427,7 +387,7 @@ journalctl -k --since '30 min ago' | tail -60
 
 ```bash
 top -b -n 1 | head -30
-pgrep -af 'ros2|realsense|planner|controller|rtabmap'
+pgrep -af 'ros2|realsense|planner|controller|cuvslam|nvblox'
 ```
 
 ## 11. 디버그 묶음 만들기
@@ -447,9 +407,8 @@ cp -a ~/.ros/log/latest "$D/ros-log" 2>/dev/null || true
   source /opt/ros/lyrical/setup.bash
   echo "ROS_DISTRO=$ROS_DISTRO"
   echo "ROS_DOMAIN_ID=$ROS_DOMAIN_ID"
-  ros2 pkg prefix rtabmap_launch 2>&1
-  ros2 pkg prefix rtabmap_slam 2>&1
-  ros2 pkg prefix pcl_conversions 2>&1
+  python3 -c "import cuvslam; print('cuvslam', cuvslam.get_version())" 2>&1
+  ros2 pkg prefix nvblox_ros 2>&1
 } > "$D/env.txt" 2>&1
 
 ros2 node list > "$D/nodes.txt" 2>&1 || true
@@ -466,6 +425,6 @@ echo "$D"
 1. 실행한 전체 명령
 2. `Ctrl-C`를 눌렀는지 여부
 3. `~/beebot-start.log`의 **맨 처음 ERROR 30~50줄**
-4. `ros2 pkg prefix rtabmap_launch` 결과
+4. `python3 -c "import cuvslam"` · `ros2 pkg prefix nvblox_ros` 결과
 5. `uname -m`, Ubuntu 버전, `ROS_DISTRO`, `ROS_DOMAIN_ID`
 6. `dmesg -T | tail -30`

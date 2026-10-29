@@ -61,7 +61,7 @@ cd docker && docker compose exec -u root lyrical bash -c "chown -R 1000:1000 /de
 | `test-packages [패키지...]` | colcon build + 패키지별 테스트 (`colcon test`). 예) `test-packages plan` |
 | `test-hardware` | controller_manager를 실기 모드(`mock_hardware:=false`)로 가상 시리얼에 붙여 펌웨어 프로토콜 확인 (C 명령 송신 · S 상태 → `/joint_states`) |
 | `test-bringup` | 🛠 노드가 모두 뜨는지 (perception · user_input · vlm_task_planner · coordinator · arm_safety_monitor · manual_control · body_filter · state_manager) |
-| `test-faker [초\|0] [launch 인자]` | 더미로 전체 흐름 → `/task_status` SUCCEEDED면 PASS. `0`이면 띄워 두기 (Ctrl+C 종료, 시뮬레이터 [ROS 재시작] = `/cmd/restart all` → state_manager가 ROS 전부 껐다 `build-ws` 후 같은 인자로 다시 띄움 — 다시 뜬 launch가 끝날 때까지 기다림). 기본은 fake_opencr가 가상 시리얼 반대편 OpenCR 역할 (`mock_hardware:=true`면 OpenCR 없이 mock — 물리 없음), `ml:=real`이면 ML 대역 대신 진짜 ml 노드. 지도 `map:=course`(기본, 코스 지도 외움) · `map:=slam`(RTAB-Map 스캔 → 새 폴더 `ros2_ws/map/<날짜_시각>/rtabmap.db`) · `map:=saved`(저장 지도로 위치추정 — default 폴더, 없으면 가장 최근, `map_name:=<폴더>`로 고름) |
+| `test-faker [초\|0] [launch 인자]` | 더미로 전체 흐름 → `/task_status` SUCCEEDED면 PASS. `0`이면 띄워 두기 (Ctrl+C 종료, 시뮬레이터 [ROS 재시작] = `/cmd/restart all` → state_manager가 ROS 전부 껐다 `build-ws` 후 같은 인자로 다시 띄움 — 다시 뜬 launch가 끝날 때까지 기다림). 기본은 fake_opencr가 가상 시리얼 반대편 OpenCR 역할 (`mock_hardware:=true`면 OpenCR 없이 mock — 물리 없음), `ml:=real`이면 ML 대역 대신 진짜 ml 노드. 지도 `map:=course`(기본, 코스 지도 외움) · `map:=slam`(SLAM 스캔 → 새 폴더 `ros2_ws/map/<날짜_시각>/nvblox.nvblx` — GPU 필요) · `map:=saved`(저장 지도로 위치추정 — default 폴더, 없으면 가장 최근, `map_name:=<폴더>`로 고름) |
 | `ros-kill` | ROS 전부 끄기 + 캐시 정리: launch에 SIGINT → 최대 20초 대기(RTAB-Map DB 닫기) → 안 죽은 것만 SIGKILL → ros2 daemon stop · `/dev/shm/fastdds_*` 삭제 |
 | `ros-restart [launch 인자]` | **진짜 bringup** 다시 띄우기: `ros-kill` → `build-ws` → `ros2 launch bringup bringup.launch.py [인자]` (🛠 노드 + ros_system 📦, Ctrl+C 종료, 로그 `/tmp/bringup.log`). 컨테이너엔 RealSense·OpenCR가 없으니 보통 `use_ros_system:=false` |
 | `ros-faker-restart [launch 인자]` | **테스트베드(faker)** 다시 띄우기: state_manager가 떠 있으면 `/cmd/restart all [인자]` 요청(시뮬레이터 [ROS 재시작]과 같음 — 끄고 `build-ws` 후 같은 인자로), ROS가 막혀 state_manager가 없으면 `ros-kill` 후 `test-faker 0 [인자]` |
@@ -145,7 +145,7 @@ lv2_module6/develop/arm/arm.sh [컨트롤러]              # rqt 팔 슬라이�
 - 로봇 스폰 높이는 0.05 m입니다. 기존 0.3 m는 낙하하며 전복될 수 있어 낮췄습니다 (`gazebo/reset.sh` 기본값도 동일).
 - 컨테이너와 같은 셸 스크립트라 같은 검사 (`test-packages`, `test-bringup`, `test-faker`)가 돕니다. `sh script`로 실행해도 bash로 재실행됩니다.
 - 빌드 산출물 소유자가 본인이라 `chown` 문제 없음. 단 `build/`·`install/`·`../../../log`는 컨테이너와 이름이 같고 CMakeCache에 절대경로가 박히므로 **컨테이너와 호스트에서 동시 빌드 금지** — 한 번에 한 곳에서만.
-- 호스트 apt 목록은 §3 참고 (`ros-lyrical-rtabmap-msgs` 포함). rosdep는 lyrical을 몰라서 그냥 apt.
+- 호스트 apt 목록은 §3 참고. rosdep는 lyrical을 몰라서 그냥 apt.
 - 가상 시리얼(`/dev/opencr`)이 필요한 검사(`test-serial`, `test-hardware`, 펌웨어 업로드)는 컨테이너(entrypoint의 socat 브릿지)에서만 됩니다. 호스트는 mock 모드(`mock_hardware:=true`, 기본값) 위주로 씁니다. push 전 전체 게이트(`test-all`)·CI 정본은 그대로 컨테이너입니다.
 
 ### MoveIt으로 팔 계획·실행
@@ -194,7 +194,7 @@ source install/setup.bash                                   # 빌드 후 새 셸
     ros-lyrical-nav2-velocity-smoother ros-lyrical-nav2-collision-monitor ros-lyrical-nav2-map-server \
     ros-lyrical-moveit-ros-move-group ros-lyrical-moveit-kinematics ros-lyrical-moveit-planners-ompl \
     ros-lyrical-moveit-simple-controller-manager ros-lyrical-moveit-ros-visualization \
-    ros-lyrical-rtabmap-msgs ros-lyrical-rtabmap-ros ros-lyrical-ament-cmake-pytest
+    ros-lyrical-ament-cmake-pytest
   ```
   위 목록 = `../../../docker/Dockerfile`의 apt 목록 (그게 컨테이너 정본 — Dockerfile에 추가하면 여기도 같이 고친다).
   pick_ik (MoveIt IK)는 Lyrical apt에 없어 소스 빌드 (Dockerfile과 같은 커밋 `7c97fe2`). 아래 스크립트가 apt 의존성·빌드·`/opt/ros/lyrical` 복사를 한 번에 합니다:
@@ -358,12 +358,12 @@ SIL 시뮬레이터(`simulator/`)는 더 이상 사용하지 않는다. 지도 �
 
 | 시작 인자 | 뜨는 지도 노드 | `/state/map_mode` | 지도 DB |
 | --- | --- | --- | --- |
-| `map:=course` (테스트베드 기본) | map_server(코스 지도 파일) + 고정 `map→odom`(항등) — **RTAB-Map 없음** | COURSE | 없음 |
-| `map:=slam` | RTAB-Map + map_saver | MAPPING | 새 폴더 `map/<날짜_시각>/rtabmap.db` (빈 DB) |
-| `map:=saved [map_name:=<폴더>]` | RTAB-Map + map_saver (slam과 **같은 노드**) | LOCALIZATION | 저장 폴더의 DB (기본 `default` 폴더, 없으면 가장 최근) |
+| `map:=course` (테스트베드 기본) | map_server(코스 지도 파일) + 고정 `map→odom` — **SLAM 없음** | COURSE | 없음 |
+| `map:=slam` | cuVSLAM + nvblox + map_saver (GPU) | MAPPING | 새 폴더 `map/<날짜_시각>/` — 끌 때 `nvblox.nvblx` 저장 |
+| `map:=saved [map_name:=<폴더>]` | cuVSLAM + nvblox + map_saver (slam과 **같은 노드**) | LOCALIZATION | 저장 폴더의 `nvblox.nvblx` (기본 `default` 폴더, 없으면 가장 최근) |
 
-- **재시작 없이 바뀌는 것** (같은 RTAB-Map 안): 스캔 ↔ 위치추정(`/cmd/map_mode` → `/rtabmap/rtabmap/set_mode_*`) · 지도 갈아끼우기(`/cmd/map_name` → `/rtabmap/rtabmap/load_database` + 위치추정).
-- **재시작이 필요한 것**: 코스 ↔ RTAB-Map — 노드 구성이 다르고(`/map`·`map→odom`을 map_server와 RTAB-Map이 같이 내면 안 됨) launch는 시작 때 노드를 정한다 (`/cmd/restart` → `map:=slam` / `map:=saved [map_name:=…]`).
+- **모드·지도 바꾸기는 다시 띄우기**: cuVSLAM·nvblox는 실행 중 전환이 없다 → 스캔 ↔ 위치추정(`/cmd/map_mode`) · 지도 갈아끼우기(`/cmd/map_name`)를 state_manager가 `/cmd/restart all map:=slam` · `map:=saved map_name:=…`로 바꿔 launch 전체를 다시 띄운다.
+- 코스 ↔ SLAM도 같은 재시작 — 노드 구성이 다르다(`/map`·`map→odom`을 map_server와 SLAM이 같이 내면 안 됨).
 - 상태: `/state/map_mode` · `/state/map_name`(지금 지도 폴더) · `/state/map_list`(가진 지도 폴더) — 전부 state_manager.
 - **재시작** (`/cmd/restart` → state_manager, 실기·테스트베드 같음 — 결과 `/state/restart`):
   `ros2 topic pub --once /cmd/restart std_msgs/msg/String "{data: 'all'}"` (이 launch 전체, 같은 인자) · `"{data: 'all map:=slam'}"` (그 인자만 바꿔) ·
@@ -422,7 +422,7 @@ cd ros2_ws-<RUN ID>
 1. 로봇(SBC)과 PC를 **같은 네트워크 · 같은 `ROS_DOMAIN_ID=88`** 에 둔다. 로봇은 `ROS_AUTOMATIC_DISCOVERY_RANGE`를 LOCALHOST로 두지 않는다 (기본 SUBNET).
 2. PC에서 파일 연동 노드만 띄운다: `monitor_manager` · `input_manager` · `service_action_input` · `service_action_monitor` (`debug_dir` = 시뮬레이터의 `../../debug`).
    카메라 원본 (무압축 영상)은 네트워크가 무거우니 `monitor_manager raw_images:=false`.
-3. 로봇은 `./start.sh` — 버튼은 테스트베드와 같다: [스캔 시작]·[위치추정으로](`/cmd/map_mode`) · 지도 목록(`/cmd/map_name`) · [지도 저장] · 오른쪽 클릭 [여기로 이동](Nav2) · [여기가 로봇 위치](`/initialpose` → RTAB-Map — launch가 `/rtabmap/initialpose`를 `/initialpose`로 리매핑).
+3. 로봇은 `./start.sh` — 버튼은 테스트베드와 같다: [스캔 시작]·[위치추정으로](`/cmd/map_mode`) · 지도 목록(`/cmd/map_name`) · [지도 저장] · 오른쪽 클릭 [여기로 이동](Nav2) · [여기가 로봇 위치](`/initialpose` — cuVSLAM은 받지 않음: 출발 자리에서 켜는 것이 원점).
 
 지도 처리는 **bringup**에 있다 (실기·테스트베드 공통 — faker는 bringup을 그대로 포함하고 대역 인자만 덮어씀):
 ```bash

@@ -11,7 +11,7 @@ namespace {
 
 const char * kServices[] = {"score_grasps", "clear_octomap", "apply_planning_scene",
   "diff_drive_controller/set_odometry", "reset", "fake_opencr/set_parameters",
-  "map_saver/save_map", "rtabmap/rtabmap/reset"};
+  "map_saver/save_map"};
 const char * kActions[] = {"navigate_to_pose", "execute_task_solution", "move_action"};
 
 bool get_double(const rapidjson::Value & v, const char * key, double & out) {
@@ -53,7 +53,6 @@ ServiceActionInput::ServiceActionInput()
   score_cli_ = create_client<ml::srv::ScoreGrasps>("/score_grasps");
   clear_cli_ = create_client<std_srvs::srv::Empty>("/clear_octomap");
   reset_cli_ = create_client<std_srvs::srv::Empty>("/reset");  // EKF 리셋
-  map_reset_cli_ = create_client<std_srvs::srv::Empty>("/rtabmap/rtabmap/reset");  // RTAB-Map 지도 비우기
   scene_cli_ = create_client<moveit_msgs::srv::ApplyPlanningScene>("/apply_planning_scene");
   odom_cli_ = create_client<control_msgs::srv::SetOdometry>("/diff_drive_controller/set_odometry");
   opencr_params_cli_ = create_client<rcl_interfaces::srv::SetParameters>("/fake_opencr/set_parameters");
@@ -260,14 +259,6 @@ void ServiceActionInput::poll_service(const std::string & name) {
       return;
     }
     reset_fut_ = reset_cli_->async_send_request(std::make_shared<std_srvs::srv::Empty::Request>()).future;
-  } else if (name == "rtabmap/rtabmap/reset") {
-    if (!map_reset_cli_->wait_for_service(std::chrono::seconds(0))) {
-      reply("service", name, "response", "{\"request_id\": \"" + escape_json(st.request_id) +
-          "\", \"ok\": false, \"error\": \"server 없음 (RTAB-Map 꺼짐? 코스 지도면 없음)\"}");
-      st.busy = false;
-      return;
-    }
-    map_reset_fut_ = map_reset_cli_->async_send_request(std::make_shared<std_srvs::srv::Empty::Request>()).future;
   } else if (name == "apply_planning_scene") {
     if (!scene_cli_->wait_for_service(std::chrono::seconds(0))) {
       reply("service", name, "response", "{\"request_id\": \"" + escape_json(st.request_id) +
@@ -380,12 +371,6 @@ void ServiceActionInput::check_service(const std::string & name) {
   } else if (name == "reset") {
     if (reset_fut_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
       reset_fut_.get();
-      body = "{\"request_id\": \"" + escape_json(st.request_id) + "\", \"ok\": true, \"data\": {}}";
-      done = true;
-    }
-  } else if (name == "rtabmap/rtabmap/reset") {
-    if (map_reset_fut_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
-      map_reset_fut_.get();
       body = "{\"request_id\": \"" + escape_json(st.request_id) + "\", \"ok\": true, \"data\": {}}";
       done = true;
     }

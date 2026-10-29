@@ -29,9 +29,8 @@
   <!-- 실기 PC에만 설치 (테스트베드 이미지에는 없음 — faker가 대신함) -->
   <exec_depend>realsense2_camera</exec_depend>
   <exec_depend>robot_localization</exec_depend>
-  <exec_depend>rtabmap_slam</exec_depend>
-  <exec_depend>rtabmap_sync</exec_depend>
-  <exec_depend>rtabmap_util</exec_depend>
+  <!-- SLAM: cuVSLAM(PyCuVSLAM, pip)과 nvblox(isaac_ros_nvblox)는 Jetson에 따로 설치 — documents/jetson-orin-nano/CUVSLAM.md
+       (테스트베드엔 GPU가 없어 의존성으로 걸지 않음 — launch가 시작할 때 확인) -->
   <exec_depend>rclpy</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>message_filters</exec_depend>

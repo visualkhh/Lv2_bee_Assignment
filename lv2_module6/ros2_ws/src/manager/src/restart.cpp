@@ -260,7 +260,7 @@ echo "$(date +%T) [state_manager 재시작] 끄기 (SIGINT ${stop[*]})" >> "$log
 for p in "${stop[@]}"; do kill -INT "$p" 2>/dev/null; done
 # 셸 스크립트가 &로 띄운 launch는 SIGINT를 무시한 채 물려받음(test-faker 0 — 실측 SigIgn) → 3초 뒤 SIGTERM.
 # 그런데 SIGTERM을 받은 launch는 자기만 끝나고 노드는 고아로 남김(실측) → 그때 남은 노드에도 직접 SIGINT
-# (노드는 rclcpp·rclpy가 SIGINT를 받아 정상 종료 — RTAB-Map이 rtabmap.db를 닫을 수 있게). 그래도 남으면 wait 끝에 SIGKILL
+# (노드는 rclcpp·rclpy가 SIGINT를 받아 정상 종료 — nvblox가 끌 때 지도를 저장할 수 있게). 그래도 남으면 wait 끝에 SIGKILL
 i=0
 for _ in $(seq "$waits"); do
   i=$((i + 1))

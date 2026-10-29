@@ -141,8 +141,6 @@ private:
   std::shared_future<std_srvs::srv::Empty::Response::SharedPtr> clear_fut_;
   rclcpp::Client<std_srvs::srv::Empty>::SharedPtr reset_cli_;
   std::shared_future<std_srvs::srv::Empty::Response::SharedPtr> reset_fut_;
-  rclcpp::Client<std_srvs::srv::Empty>::SharedPtr map_reset_cli_;  // /rtabmap/rtabmap/reset — 지금 지도를 비우고 처음부터 (시뮬레이터 [스캔 시작] → 지우고 처음부터)
-  std::shared_future<std_srvs::srv::Empty::Response::SharedPtr> map_reset_fut_;
   rclcpp::Client<moveit_msgs::srv::ApplyPlanningScene>::SharedPtr scene_cli_;
   std::shared_future<moveit_msgs::srv::ApplyPlanningScene::Response::SharedPtr> scene_fut_;
   rclcpp::Client<control_msgs::srv::SetOdometry>::SharedPtr odom_cli_;

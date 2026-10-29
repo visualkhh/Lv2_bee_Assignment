@@ -13,7 +13,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 bt_navigator:
   ros__parameters:
-    # 목표 좌표의 기준 프레임. map→odom은 rtabmap(위치추정 모드)이 낸다.
+    # 목표 좌표의 기준 프레임. map→odom은 cuVSLAM(cuvslam_slam)이 낸다.
     global_frame: map
     # 로봇 몸의 기준 프레임. controllers.yaml:37 · ekf.yaml:10 과 같아야 한다 (기본값 base_link 아님).
     robot_base_frame: base_footprint

@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
-"""scan_cam_gate — gripper_cam depth를 팔이 스캔 자세에 멈춰 있을 때만 RTAB-Map에 넘김
+"""scan_cam_gate — nvblox에 줄 depth에서 자기 몸을 빼고, gripper_cam은 팔이 스캔 자세에 멈춰 있을 때만 넘김
 
   gripper_cam은 팔 끝에 달려 움직임. 지도를 만들 땐 팔을 스캔 자세(config/scan_pose.yaml — 왼쪽 뒤를 봄)에 고정해 두 번째 카메라로 쓰고,
-  그 밖(파지 · 수동 조작 · 움직이는 중)엔 depth를 0(측정 없음)으로 채워 넘김 → RTAB-Map이 그 프레임에서 특징점·3D를 못 얻어 지도를 안 망침.
-  프레임을 버리지 않고 비운 depth로 넘기는 이유: RTAB-Map이 두 카메라를 함께 동기화해 받으므로(rgbd_cameras 2) 한쪽이 끊기면 둘 다 멈춤.
-  입력: depth_in (gripper_cam 정렬 depth) · /joint_states · 출력: depth_out (같은 시각·프레임·크기)
-  점구름도 같은 규칙: cloud_in → cloud_out — 스캔 자세면 카메라에서 min_range 안 점(손가락 ~0.1m · 폴대 ~0.17m · 적재함 ~0.3m)을 빼고,
-  아니면 빈 점구름 (같은 시각). pole_front_cam 점구름과 합쳐(point_cloud_aggregator) RTAB-Map 격자·ICP에 들어감. cloud_in이 비면 점구름은 안 다룸
-  nvblox(slam:=cuvslam_nvblox)도 같은 노드를 씀 — nvblox는 depth 영상으로 지도를 만들어서 영상에서 자기 몸을 빼야 함:
-    depth_min_range > 0 → 카메라에서 그 안 픽셀을 0(측정 없음)으로 · gate_by_pose false → 자세와 상관없이 늘 넘김 (pole_front_cam)
+  그 밖(파지 · 수동 조작 · 움직이는 중)엔 depth를 0(측정 없음)으로 채워 넘김 → nvblox가 그 프레임을 지도에 안 넣음.
+  입력: depth_in (정렬 depth) · /joint_states · 출력: depth_out (같은 시각·프레임·크기)
+  depth_min_range > 0 → 카메라에서 그 안 픽셀(손가락 ~0.1m · 폴대 ~0.17m · 적재함 ~0.3m · pole_front_cam에 찍힌 팔)을 0으로
+  gate_by_pose false → 자세와 상관없이 늘 넘김 (pole_front_cam)
+  점구름(cloud_in → cloud_out)도 같은 규칙 — 스캔 자세면 min_range 안 점을 빼고 아니면 빈 점구름. cloud_in이 비면 점구름은 안 다룸
 """
 import numpy as np
 import rclpy

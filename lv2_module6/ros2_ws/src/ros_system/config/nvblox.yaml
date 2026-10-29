@@ -1,4 +1,4 @@
-# nvblox (slam:=cuvslam_nvblox) — depth 2대 + TF(map→카메라) → TSDF → 2D 점유 격자 → nvblox_map이 /map으로
+# nvblox (SLAM 지도) — depth 2대 + TF(map→카메라) → TSDF → 2D 점유 격자 → nvblox_map이 /map으로
 # 기준: Isaac ROS 5.0 nvblox_examples_bringup config/nvblox/nvblox_base.yaml · specializations/nvblox_multi_realsense.yaml
 #   (적힌 것만 덮어씀 — 나머지는 nvblox 기본값). 값을 바꾸면 실기에서 /map · ~/mesh(RViz)로 확인
 nvblox_node:

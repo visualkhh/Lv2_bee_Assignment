@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""nvblox_map — nvblox 2D 점유 격자를 /map으로 (slam:=cuvslam_nvblox) + 저장 지도 불러오기
+"""nvblox_map — nvblox 2D 점유 격자를 /map으로 + 저장 지도 불러오기
 
-  /map은 RTAB-Map 때처럼 latched(reliable + transient_local)여야 Nav2 global_costmap static_layer(map_subscribe_transient_local) ·
+  /map은 latched(reliable + transient_local)여야 Nav2 global_costmap static_layer(map_subscribe_transient_local) ·
   explorer · state_manager · RViz · 시뮬레이터가 그대로 받는다. nvblox ~/static_occupancy_grid는 주기적으로 나오는 보통 토픽이라
   QoS가 안 맞아 직접은 못 받음 → 마지막 격자를 rate_hz로 /map에 다시 냄 (새 격자가 왔을 때만 — static_layer가 매번 다시 그리지 않게)
   load_path가 있으면(map:=saved) 시작할 때 /nvblox_node/load_map으로 불러옴. 저장은 nvblox after_shutdown_map_save_path(끌 때 자동)
@@ -51,7 +51,7 @@ class NvbloxMap(Node):
         self.n_out += 1
 
     def load(self):
-        from nvblox_msgs.srv import FilePath  # nvblox 설치된 곳에서만 (rtabmap 모드엔 이 노드가 안 뜸)
+        from nvblox_msgs.srv import FilePath  # nvblox 설치된 곳에서만 (launch check_slam이 확인)
         cli = self.create_client(FilePath, '/nvblox_node/load_map')
         if not cli.wait_for_service(timeout_sec=60.0):
             self.get_logger().error(f'nvblox load_map 서비스 없음 — {self.load_path} 못 불러옴 (빈 지도로 시작)')

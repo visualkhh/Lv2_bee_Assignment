@@ -4,7 +4,7 @@
 //   다른 토픽(요청 · 하위 노드 응답)을 보고 상태를 정하고, 상태 토픽 /state/<이름> 은 이 노드만 발행한다 (다른 노드는 구독만).
 //   외부 명령은 전부 /cmd/... (보내고 끝 — cmd_vel 관례). 상태 명령 /cmd/operation_mode · /cmd/map_mode · /cmd/e_stop 은 이 노드만 구독 → 결과 /state/<이름> — /state/* 에는 이 노드 말고 아무도 쓰지 않음
 //   (호스트 파일 → 토픽인 faker input_manager도 /state/* 는 거부).
-//   상태를 바꾸는 일(RTAB-Map 모드 전환 등)도 여기서 직접 해서, 발행 값 = 진짜 상태. 건강·오류는 상태가 아니라 diagnostics 몫.
+//   상태를 바꾸는 일(지도 모드 전환 = 다시 띄우기 등)도 여기서 직접 해서, 발행 값 = 진짜 상태. 건강·오류는 상태가 아니라 diagnostics 몫.
 //   새 상태를 늘릴 때도 /state/<이름> (std_msgs, transient_local) 하나씩.
 //   조작 모드
 //     입력: ✉️ /cmd/operation_mode (std_msgs/String "MANUAL" | "AUTO" | "EXPLORE" | "TEACH") — 시뮬레이터 [수동 조작] · [자동 탐사] · bee.py manual
@@ -15,20 +15,17 @@
 //         ✉️ /state/emergency (std_msgs/Bool, transient_local) — /cmd/e_stop 그대로. coordinator는 이것만 본다 (원본 직접 구독 금지)
 //   지도 모드
 //     입력: ✉️ /cmd/map_mode (std_msgs/String "MAPPING" | "LOCALIZATION") — 시뮬레이터 [스캔 시작] · [위치추정으로]
-//           → 📞 /rtabmap/rtabmap/set_mode_mapping · /rtabmap/rtabmap/set_mode_localization (std_srvs/Empty, RTAB-Map 재시작 없이)
-//              (rtabmap_launch: 이름공간 rtabmap + 노드 rtabmap의 ~/ 서비스 → /rtabmap/rtabmap/… — /rtabmap/set_mode_* 에는 서버 없음, 실측)
-//     출력: ✉️ /state/map_mode (std_msgs/String "MAPPING" | "LOCALIZATION" | "COURSE", transient_local) — RTAB-Map 응답이 온 뒤에만 바꿈
-//           COURSE = RTAB-Map 없이 정지 지도(테스트베드 코스 지도) — 바꿀 수 없음
+//           cuVSLAM·nvblox는 실행 중 모드 전환이 없음 → launch 전체를 인자만 바꿔 다시 띄움 (아래 재시작 "all"):
+//             MAPPING → map:=slam (새 지도 폴더) · LOCALIZATION → map:=saved map_name:=<지금 폴더>
+//     출력: ✉️ /state/map_mode (std_msgs/String "MAPPING" | "LOCALIZATION" | "COURSE", transient_local) — 다시 뜬 이 노드가 새 값으로 발행
+//           COURSE = SLAM 없이 정지 지도(테스트베드 코스 지도) — 바꿀 수 없음
 //     파라미터 map_dir: 지도 폴더들이 있는 곳 (테스트베드 /ws/map — faker가 넘김, 비면 /cmd/map_name 거부)
-//     파라미터 slam · map_file (bringup): slam:=cuvslam_nvblox면 지도 목록은 nvblox.nvblx 기준, 실행 중 모드·지도 전환은 거절
-//       (RTAB-Map 서비스가 없음 — 다시 띄울 때 map:=slam · saved로)
-//     시작 값: 파라미터 map_mode (launch가 RTAB-Map을 띄운 모드 그대로 — 실기 LOCALIZATION · faker map:=slam → MAPPING)
-//     출력: ✉️ /state/map_list (std_msgs/String, transient_local) — 가진 지도 폴더 이름들 (줄바꿈 구분, <map_dir>/<이름>/rtabmap.db 있는 것)
+//     시작 값: 파라미터 map_mode (launch가 정한 모드 그대로 — 실기 LOCALIZATION · faker map:=slam → MAPPING)
+//     출력: ✉️ /state/map_list (std_msgs/String, transient_local) — 가진 지도 폴더 이름들 (줄바꿈 구분, <map_dir>/<이름>/nvblox.nvblx 있는 것)
 //           2초마다 확인 · 바뀔 때만 발행 → 시뮬레이터 지도 목록 (실기에 붙여도 로봇에 있는 지도를 보여 줌)
 //     입력: ✉️ /cmd/map_name (std_msgs/String 지도 폴더 이름) — 시뮬레이터 지도 목록에서 고름
-//           → <map_dir>/<이름>/rtabmap.db 있으면 📞 /rtabmap/rtabmap/load_database (clear=false) → set_mode_localization
-//           (고른 지도는 고정해서 쓰는 것 — 위치추정. 두 응답 뒤에만 /state/map_name · /state/map_mode 바꿈)
-//     출력: ✉️ /state/map_name (std_msgs/String, transient_local) — 지금 쓰는 지도 폴더 이름 (파라미터 map_name = launch가 정한 RTAB-Map DB 폴더,
+//           → <map_dir>/<이름>/nvblox.nvblx 있으면 map:=saved map_name:=<이름>으로 다시 띄움 (nvblox_map이 시작할 때 불러옴 — 위치추정)
+//     출력: ✉️ /state/map_name (std_msgs/String, transient_local) — 지금 쓰는 지도 폴더 이름 (파라미터 map_name = launch가 정한 지도 폴더,
 //           빈 값 = 폴더 없음) → 시뮬레이터 [지도 저장]이 같은 폴더에 map.pgm·yaml
 //   재시작 (실기 bringup · 테스트베드 같은 길 — 예전엔 테스트베드 test-faker 0 셸만 받아서 실기엔 받는 쪽이 없었음)
 //     입력: ✉️ /cmd/restart (std_msgs/String)
@@ -55,7 +52,7 @@
 //           → 장치 목록에 없는 새 센서도 여기서 찾아 세부 토픽을 확인할 수 있다.
 //     파라미터 restart_prepare: all 때 다시 띄우기 전에 실행할 셸 명령 (테스트베드 faker = build-ws — 고친 코드 반영, 실기 = 없음)
 //             restart_log: all 때 다시 띄운 launch 출력 파일 · restart_marker: 도는 동안 있는 파일 (테스트베드 test-faker 0이 보고 기다림)
-//             restart_wait_s: 정상 종료를 기다리는 시간 (RTAB-Map이 rtabmap.db를 닫을 시간)
+//             restart_wait_s: 정상 종료를 기다리는 시간 (nvblox가 끌 때 지도를 저장할 시간)
 //             restart_registry: node로 따로 다시 띄운 노드 기록 (launch 자식이 아니라 all이 놓치던 것 — all 때 같이 끄고 비움)
 //   ✉️ /diagnostics
 #include <chrono>
@@ -72,8 +69,6 @@
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "std_msgs/msg/bool.hpp"
 #include "std_msgs/msg/string.hpp"
-#include "rtabmap_msgs/srv/load_database.hpp"
-#include "std_srvs/srv/empty.hpp"
 
 namespace manager {
 
@@ -96,8 +91,7 @@ private:
   bool joints_fresh() const;
   bool recent(const std::string & key) const;
 
-  std::string operation_ = "AUTO", map_mode_, map_name_, map_dir_, map_list_, map_pending_, map_error_, explore_note_;
-  std::string slam_, map_file_;  // 어느 SLAM인지 (rtabmap만 실행 중 지도 모드·지도 전환) · 지도 폴더 안 파일 이름
+  std::string operation_ = "AUTO", map_mode_, map_name_, map_dir_, map_list_, map_error_, explore_note_;
   std::string restart_prepare_, restart_log_, restart_marker_, restart_registry_, restart_note_, restartable_;
   bool restartable_published_ = false;
   // 연결된 장치·토픽 상태 (/state/devices · /state/topics)
@@ -125,8 +119,6 @@ private:
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_state_sub_;
   rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr front_cam_info_sub_, gripper_cam_info_sub_;
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;
-  rclcpp::Client<std_srvs::srv::Empty>::SharedPtr mapping_cli_, localization_cli_;
-  rclcpp::Client<rtabmap_msgs::srv::LoadDatabase>::SharedPtr load_db_cli_;
   diagnostic_updater::Updater diag_{this};
 };
 

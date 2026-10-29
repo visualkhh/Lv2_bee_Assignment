@@ -5,10 +5,10 @@ Jetson Orin Nano 실기 세팅·점검·원격 접속 문서를 모아 둔 폴�
 ## 문서
 
 - [`SETTING.md`](SETTING.md)
-  - Jetson OS/SDK, ROS 2 Lyrical, RealSense, RTAB-Map/PCL 소스 빌드
+  - Jetson OS/SDK, ROS 2 Lyrical, RealSense, SLAM(cuVSLAM + nvblox) 설치 안내 → CUVSLAM.md
   - OpenCR/Dynamixel, CI 배포 패키지, 실행 관련 메모
 - [`CUVSLAM.md`](CUVSLAM.md)
-  - cuVSLAM 소스 빌드(Orin은 배포 휠 불가), `slam:=rtabmap | cuvslam_nvblox` 선택 · `cuvslam_odom:=true` 실행 · nvblox 설치 방법 · 실기 시험 순서, 원격 RViz 주의, 실기 시험 기록
+  - cuVSLAM 소스 빌드(Orin은 배포 휠 불가), SLAM = cuVSLAM(위치) + nvblox(지도) 구성 · nvblox 설치 방법 · 실기 시험 순서, 원격 RViz 주의, 실기 시험 기록
 - [`DOCTOR.md`](DOCTOR.md)
   - 커널/arch, JetPack/L4T, glibc/Python, Jetson 모델 기준값
 - [`remote/README.md`](remote/README.md)

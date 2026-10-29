@@ -51,17 +51,16 @@ flowchart TB
             COST["📦 costmap_2d<br/>local: voxel · global: static + obstacle"]
             LMN["📦 lifecycle_manager_navigation<br/>planner·controller·behavior·bt (map 필요)"]
         end
-        subgraph RT["📦 RTAB-Map (이름공간 /rtabmap)"]
-            SCG["🛠️ scan_cam_gate<br/>스캔 자세일 때만 gripper_cam 통과"]
-            PRS["📦 pole_rgbd_sync<br/>rgbd_sync"]
-            GRS["📦 gripper_rgbd_sync<br/>rgbd_sync"]
-            RXS["📦 rgbdx_sync<br/>카메라 둘 묶음"]
-            PCA["📦 scan_cloud_merge<br/>point_cloud_aggregator"]
-            RTAB["📦 rtabmap<br/>RGB-D SLAM<br/>매핑 · 위치추정 모드"]
+        subgraph RT["SLAM — cuVSLAM(위치) + nvblox(지도) (use_slam · Jetson GPU)"]
+            CVS["🛠️ cuvslam_slam<br/>cuVSLAM 시각 SLAM<br/>map→odom · 루프 클로저"]
+            PDG["🛠️ pole_depth_gate<br/>scan_cam_gate · 0.5 m 안 depth → 0"]
+            SCG["🛠️ gripper_depth_gate<br/>scan_cam_gate · 스캔 자세일 때만 통과"]
+            NVB["📦 nvblox_node<br/>depth ×2 → TSDF → 2D 점유 격자<br/>매핑이면 끌 때 nvblox.nvblx 저장"]
+            NVM["🛠️ nvblox_map<br/>격자 → /map (latched)<br/>위치추정이면 저장 지도 불러옴"]
             MS["📦 map_saver<br/>map_saver_server (bringup)"]
             LMS["📦 lifecycle_manager_map_saver"]
         end
-        EKF["📦 robot_localization<br/>ekf_filter_node<br/>휠 + IMU 융합"]
+        EKF["📦 robot_localization<br/>ekf_filter_node<br/>휠 + IMU + 시각 융합"]
     end
     subgraph S5["⑤ 뒷단 보정"]
         RLN["🛠️ rl_nav_correction"]
@@ -122,28 +121,29 @@ flowchart TB
     SIM -.->|"📁 가상 시리얼 C/S<br/>(fake_opencr — faker 기본)"| HWI
     GC -->|"✉️ /gripper_cam/color ·<br/>aligned_depth_to_color<br/>(sensor_msgs/Image)"| PER
     GC -->|"✉️ /gripper_cam/depth<br/>/color/points<br/>(sensor_msgs/<br/>PointCloud2)<br/>gripper_cam_pointcloud:=true일 때"| GS
-    PC -->|"✉️ /pole_front_cam/color ·<br/>aligned_depth_to_color · camera_info<br/>(sensor_msgs/Image)"| PRS
-    GC -->|"✉️ /gripper_cam/color<br/>· camera_info"| GRS
-    GC -.->|"✉️ /gripper_cam depth · points<br/>(지도 만들 때 스캔 자세만 의미)"| SCG
+    PC -->|"✉️ /pole_front_cam/color ·<br/>aligned_depth_to_color · camera_info<br/>(sensor_msgs/Image)"| CVS
+    PC -->|"✉️ …/aligned_depth_to_color<br/>/image_raw"| PDG
+    PC -->|"✉️ /pole_front_cam/color<br/>· camera_info"| NVB
+    GC -->|"✉️ /gripper_cam/color<br/>· camera_info"| NVB
+    GC -.->|"✉️ /gripper_cam depth<br/>(지도 만들 때 스캔 자세만 의미)"| SCG
     JSB -->|"✉️ /joint_states<br/>스캔 자세인가"| SCG
-    SCG -->|"✉️ …/image_scan<br/>(아니면 0 depth)"| GRS
-    SCG -->|"✉️ …/points_scan<br/>(아니면 빈 점구름)"| PCA
-    PRS -->|"✉️ /rtabmap/rgbd_image0<br/>(rtabmap_msgs/RGBDImage)"| RXS
-    GRS -->|"✉️ /rtabmap/rgbd_image1"| RXS
-    RXS -->|"✉️ /rtabmap/rgbd_images<br/>(rtabmap_msgs/RGBDImages)"| RTAB
-    PCA -->|"✉️ /rtabmap/scan_cloud<br/>(base_footprint)"| RTAB
-    RTAB -->|"✉️ /map"| MS
+    PDG -->|"✉️ /pole_front_cam/…/image_nvblox<br/>(0.5 m 안 → 0)"| NVB
+    SCG -->|"✉️ /gripper_cam/…/image_nvblox<br/>(아니면 0 depth)"| NVB
+    CVS -->|"✉️ /tf map→odom<br/>(카메라 위치)"| NVB
+    NVB -->|"✉️ /nvblox_node/<br/>static_occupancy_grid<br/>(nav_msgs/OccupancyGrid)"| NVM
+    NVM -.->|"📞 /nvblox_node/load_map<br/>(map:=saved일 때 시작하며)"| NVB
+    NVM -->|"✉️ /map"| MS
     LMS -.->|"📞 lifecycle<br/>change_state"| MS
     CLI -.->|"📞 /map_saver/save_map<br/>(nav2_msgs/srv/SaveMap)"| MS
     SIM -.->|"📞 /map_saver/save_map<br/>(지도 저장 버튼)"| MS
-    RTAB -->|"✉️ /map · /tf map→odom<br/>(nav_msgs/<br/>OccupancyGrid ·<br/>tf2_msgs/TFMessage)"| PS
+    NVM -->|"✉️ /map latched<br/>(nav_msgs/<br/>OccupancyGrid)"| PS
+    CVS -->|"✉️ /tf map→odom<br/>(tf2_msgs/TFMessage)"| PS
     DDC -->|"✉️ /odom<br/>(nav_msgs/Odometry)"| EKF
     IMB -->|"✉️ /imu<br/>(sensor_msgs/Imu)"| EKF
-    EKF -->|"✉️ /odometry/filtered<br/>(nav_msgs/Odometry)"| RTAB
+    CVS -->|"✉️ /cuvslam/odom<br/>시각 오도메트리(속도)<br/>(nav_msgs/Odometry)"| EKF
     EKF -->|"✉️ /odometry/filtered ·<br/>/tf odom→base_footprint<br/>(nav_msgs/Odometry ·<br/>tf2_msgs/TFMessage)"| CS
     PC -->|"✉️ /pole_front_cam/depth<br/>/color/points<br/>(sensor_msgs/<br/>PointCloud2)"| BF
     BF -->|"✉️ /pole_front_cam/depth<br/>/color/points_filtered<br/>팔·차체 뺀 점구름<br/>(sensor_msgs/<br/>PointCloud2)"| COST
-    BF -->|"✉️ …/points_filtered<br/>(sensor_msgs/<br/>PointCloud2)"| PCA
     COST ---|"🧩 서버 안 플러그인<br/>(같은 프로세스)"| PS
     COST --- CS
     BT ==>|"🎬 compute_path_to_pose"| PS
@@ -206,7 +206,7 @@ flowchart TB
     RSP -->|"✉️ /robot_description · /tf<br/>몸 모양·관절 위치"| BF
     SPW -.->|"📞 load · configure · activate<br/>(controller_manager_msgs/srv)"| CM
     SPW -.->|"끝나면 기동<br/>(OnProcessExit)"| MG
-    SM -.->|"📞 /rtabmap/rtabmap/set_mode_*<br/>· load_database<br/>(지도 모드·지도 바꾸기)"| RTAB
+    SM -.->|"🔁 launch 전체 다시 띄움<br/>map:=slam · map:=saved map_name:=…<br/>(지도 모드·지도 바꾸기)"| RT
     ASM -.->|"📞 cancel_goal<br/>이상 시에만<br/>(action_msgs/srv/<br/>CancelGoal)"| JTC
     ASM -->|"✉️ /arm_safety_event<br/>(control/<br/>ArmSafetyEvent)"| CO
     CO -->|"✉️ /robot/say · /task/status<br/>(std_msgs/String ·<br/>plan/TaskStatus)"| UI
@@ -222,12 +222,12 @@ flowchart TB
     classDef hw fill:#fff9c4,stroke:#f9a825,color:#1b1b1b;
     classDef safe fill:#ffcdd2,stroke:#c62828,color:#1b1b1b;
     classDef ext fill:#ffffff,stroke:#8A97A0,stroke-dasharray:4 3,color:#475569;
-    class PER,BF,CO,PC,GC,UI,SD,EXP,MG,TM,MC,SM,RSP,SPW,SCG,PRS,GRS,RXS,PCA,LMN,LMB,MS,LMS,DA,CLI std;
+    class PER,BF,CO,PC,GC,UI,SD,EXP,MG,TM,MC,SM,RSP,SPW,CVS,PDG,SCG,NVM,LMN,LMB,MS,LMS,DA,CLI std;
     class ALL ext;
     class AIS,SIM,FC ext;
     class VLM ai;
     class GS,NT,RLA,RLN rl;
-    class BT,PS,CS,BS,RTAB,EKF,COST,JTC,GRC,DDC,JSB,IMB,HWI std;
+    class BT,PS,CS,BS,NVB,EKF,COST,JTC,GRC,DDC,JSB,IMB,HWI std;
     class ASM,VS,CMN safe;
     class PCH,GCH,HW hw;
     style EXT fill:#ffffff,stroke:#8A97A0,stroke-dasharray:4 3
@@ -250,15 +250,15 @@ flowchart TB
 - **신호등 암호 미션은 VLM 없이 규칙으로.** 인지 쪽 signal_decoder(perception 패키지)가 `/tracked_objects`의 신호등 상태를 시간축으로 쌓아 `/mission/signal`을 내면, vlm_task_planner가 퍽 번호 합 조합 → 적재함 → 목적지 → 수납 확인까지 계획한다 (아래 흐름). 일반 명령·장소 바코드 지시(`/mission/qr`)는 호스트 ai-service(VLM 또는 사람이 웹 페이지에서)가 계획한다.
 - **수동 조작은 manual_control → twist_mux.** 수동 모드(/cmd/operation_mode → state_manager)면 coordinator가 진행 중 이동·팔 goal을 취소하고 멈추고(/state/operation_mode), 운영자의 바퀴 명령은 twist_mux에서 자동보다 우선한다. 수동이어도 velocity_smoother·collision_monitor를 지나며, /cmd/e_stop은 twist_mux 잠금으로 모든 바퀴 명령을 막는다.
 - **모든 🛠 노드는 /diagnostics로 자기 상태를 낸다.** diagnostic_updater(OK·WARN·ERROR + 값)를 bringup의 diagnostic_aggregator가 계층별로 묶어 /diagnostics_agg로 — 운영자 CLI·시뮬레이터 상태 패널이 본다 (사람용, 노드는 의존하지 않음).
-- **도식에 bringup이 띄우는 노드가 전부 있다.** ros_system 묶음(robot_state_publisher · controller_manager + spawner 1회 · move_group · twist_mux · RealSense ×2 · ekf_filter_node · RTAB-Map 묶음 scan_cam_gate · pole/gripper_rgbd_sync · rgbdx_sync · scan_cloud_merge · rtabmap · Nav2 서버 6개 + lifecycle 관리자 둘)과 bringup 직접(🛠 노드들 · map_saver + lifecycle_manager_map_saver · diagnostic_aggregator). lifecycle 관리자를 둘로 나눈 이유: 바퀴 명령 체인(base)은 odom만 있으면 뜨게 — 하나로 묶으면 지도가 없을 때 global_costmap 실패로 수동 조작까지 막혔음.
+- **도식에 bringup이 띄우는 노드가 전부 있다.** ros_system 묶음(robot_state_publisher · controller_manager + spawner 1회 · move_group · twist_mux · RealSense ×2 · ekf_filter_node · SLAM 묶음 cuvslam_slam · pole/gripper_depth_gate · nvblox_node · nvblox_map · Nav2 서버 6개 + lifecycle 관리자 둘)과 bringup 직접(🛠 노드들 · map_saver + lifecycle_manager_map_saver · diagnostic_aggregator). lifecycle 관리자를 둘로 나눈 이유: 바퀴 명령 체인(base)은 odom만 있으면 뜨게 — 하나로 묶으면 지도가 없을 때 global_costmap 실패로 수동 조작까지 막혔음.
 - **물리 하드웨어는 노란 영역, 토픽은 내지 않는다.** 장치(육각형)는 신호가 오가는 곳 가까이에 두고 같은 노란 "물리 하드웨어" 영역으로 표시했다 — 센서 쪽(카메라)과 구동 쪽(OpenCR·모터·IMU). RealSense 카메라 2대는 🔌 USB 3로 realsense2_camera 드라이버 노드에 붙고, 토픽은 드라이버 노드가 발행한다. 모터·IMU는 OpenCR → hardware interface(controller_manager) 경로로 같은 원칙을 따른다.
 - **학습 노드도 입력을 보고 판단한다.** rl_nav_tuner는 local costmap(통로 폭·최근접 장애물), `/odometry/filtered`(현재 속도), `/plan`(남은 거리)을 보고 1~2초마다 프리셋 A/B/C를 고른다. rl_nav_correction은 `/cmd_vel_nav`가 올 때마다 `/plan`(경로 오차), `/odom`·`/imu`(실제 움직임), `/speed_limit`(재클리핑 상한)으로 Δ를 계산한다. grasp_scorer는 `/tracked_objects`로 대상 퍽을 찾고 gripper_cam 점구름으로 후보를 매긴다.
 - **rl_arm_correction은 ROS 노드가 아니다.** controller_manager 안에서 JTC 바로 뒤에 체인으로 붙는 컨트롤러 플러그인이다 (컨트롤러 탭 참고).
 - **controller_manager 한 주기(100Hz)는 read → update → write.** move_group의 팔 궤적과 collision_monitor의 `/cmd_vel`은 언제든 도착해 다음 update에서 쓰인다. update에서 `/joint_states`(→ arm_safety_monitor)와 `/odom`·`/imu`(→ EKF, rl_nav_correction)를 발행하고, JTC 목표에 rl_arm_correction의 Δ를 더해 write로 보낸다. arm_safety_monitor의 궤적 취소만 주기와 무관한 비동기 호출이다. 단계별로는 **흐름 따라가기 → "팔 한 주기"**에서 볼 수 있다.
 - **controller_manager는 하나.** 베이스·팔·그리퍼·IMU가 같은 OpenCR에 붙어 있으므로 hardware component 하나에 컨트롤러들을 함께 올린다.
-- **LiDAR가 없으므로 /scan도 없다.** 장애물은 pole_front_cam PointCloud2에서 body_filter(perception)가 팔·차체 점을 뺀 `/pole_front_cam/depth/color/points_filtered`를 Nav2 costmap·collision_monitor·RTAB-Map(scan_cloud_merge)에 넣는다. 원본을 그대로 넣으면 카메라에 찍힌 자기 팔이 장애물로 남았다 (실측).
-- **SLAM·위치추정은 RTAB-Map.** pole_front_cam RGB-D(+ 지도 만들 때 스캔 자세의 gripper_cam — scan_cam_gate) → rgbd_sync ×2 → rgbdx_sync, 몸 뺀 점구름 → scan_cloud_merge, 휠/IMU 오도메트리로 지도를 만들고(매핑 모드), 운영 중에는 같은 DB로 위치만 추정한다(위치추정 모드). slam_toolbox·amcl은 LaserScan이 필요해서 쓰지 않는다 (Nav2·SLAM 섹션의 3-1).
-- **TF 발행자는 딱 둘로 나뉜다.** map→odom은 rtabmap, odom→base_footprint는 robot_localization EKF(바퀴 `/odom` + `/imu` 융합)만 낸다. EKF의 `/odometry/filtered`는 rtabmap의 오도메트리 입력이자 Nav2 controller의 현재 속도 입력이다. diff_drive_controller는 `enable_odom_tf: false`로 TF를 내지 않는다 (베이스·TF 섹션 참고).
+- **LiDAR가 없으므로 /scan도 없다.** 장애물은 pole_front_cam PointCloud2에서 body_filter(perception)가 팔·차체 점을 뺀 `/pole_front_cam/depth/color/points_filtered`를 Nav2 costmap·collision_monitor에 넣는다. nvblox는 점구름이 아니라 depth 영상을 받으므로 depth gate가 영상에서 카메라 0.5 m 안(자기 팔·폴대)을 0으로 바꿔 넘긴다. 원본을 그대로 넣으면 카메라에 찍힌 자기 팔이 장애물로 남았다 (실측).
+- **SLAM·위치추정은 cuVSLAM + nvblox (Jetson GPU).** cuvslam_slam이 pole_front_cam RGB-D로 위치(map→odom, 루프 클로저)를 내고, nvblox_node가 depth 두 대(pole_front_cam 늘 · gripper_cam은 스캔 자세일 때만 — depth gate)로 2D 점유 격자를 만들면 nvblox_map이 `/map`(latched)으로 다시 낸다. 지도 폴더 `<map_dir>/<이름>/nvblox.nvblx` — 매핑(`map:=slam`)이면 끌 때 저장, 위치추정(`map:=saved`)이면 시작할 때 불러온다. 실행 중 모드 전환이 없어 `/cmd/map_mode`·`/cmd/map_name`은 state_manager가 launch 전체를 인자만 바꿔 다시 띄운다. 테스트베드(GPU 없음)는 `map:=course`(map_server + 정지 map→odom)만 된다. slam_toolbox·amcl은 LaserScan이 필요해서 쓰지 않는다 (Nav2·SLAM 섹션의 3-1).
+- **TF 발행자는 딱 둘로 나뉜다.** map→odom은 cuvslam_slam, odom→base_footprint는 robot_localization EKF(바퀴 `/odom` + `/imu` + cuVSLAM 시각 오도메트리 `/cuvslam/odom`(속도만) 융합)만 낸다. EKF의 `/odometry/filtered`는 Nav2 controller의 현재 속도 입력이다. diff_drive_controller는 `enable_odom_tf: false`로 TF를 내지 않는다 (베이스·TF 섹션 참고).
 - **gripper_cam도 RealSense.** 파지 직전 근접 점구름을 grasp_scorer에 주고, 접근 단계의 미세 정렬에 쓴다.
 ---
 
@@ -280,8 +280,8 @@ flowchart TB
    <sub>화살표: vlm_task_planner → coordinator</sub>
 6. **이동 시작** — coordinator가 검증 후 퍽 앞 (3.45, 0.9)을 계산해 🎬 /navigate_to_pose 액션을 보냅니다. 팔은 stow.
    <sub>화살표: coordinator → bt_navigator</sub>
-7. **내가 지도 어디에 있나** — rtabmap이 map→odom, EKF가 odom→base_footprint를 냅니다. 둘을 이으면 Nav2가 지도 기준 로봇 위치를 압니다.
-   <sub>화살표: realsense2_camera → pole_rgbd_sync · pole_rgbd_sync → rgbdx_sync · rgbdx_sync → rtabmap · controller_manager → robot_localization · robot_localization → rtabmap · rtabmap → planner_server · robot_localization → controller_server</sub>
+7. **내가 지도 어디에 있나** — cuvslam_slam이 map→odom, EKF가 odom→base_footprint를 냅니다. 둘을 이으면 Nav2가 지도 기준 로봇 위치를 압니다.
+   <sub>화살표: realsense2_camera → cuvslam_slam · controller_manager → robot_localization · cuvslam_slam → robot_localization · cuvslam_slam → planner_server · nvblox_map → planner_server · robot_localization → controller_server</sub>
 8. **장애물 지도** — body_filter가 팔·차체 점을 뺀 pole_front_cam 점구름이 costmap(local voxel · global obstacle)에 쌓여 장애물를 피하는 경로를 만듭니다.
    <sub>화살표: realsense2_camera → body_filter · body_filter → costmap_2d · costmap_2d → planner_server</sub>
 9. **앞단 판단 보조 — 무엇을 보고 판단하나** — rl_nav_tuner 입력: local costmap(통로 폭 0.73m, 장애물까지 거리), /odometry/filtered(현재 속도), /plan(남은 거리).
@@ -374,10 +374,10 @@ flowchart TB
    <sub>화살표: controller_manager → robot_localization</sub>
 3. **odom→base_footprint** — EKF가 둘을 융합해 연속적인(대신 드리프트 있는) odom→base_footprint TF를 냅니다.
    <sub>화살표: robot_localization → controller_server</sub>
-4. **RTAB-Map 입력** — pole_front_cam 컬러·depth + /odometry/filtered로 지도와 맞춰봅니다.
-   <sub>화살표: pole_front_cam → realsense2_camera · realsense2_camera → pole_rgbd_sync · pole_rgbd_sync → rgbdx_sync · rgbdx_sync → rtabmap · robot_localization → rtabmap</sub>
-5. **map→odom** — rtabmap이 드리프트를 상쇄하는 map→odom을 냅니다. 가끔 점프하지만 odom 쪽은 끊기지 않습니다 (맵핑·위치추정 탭 참고).
-   <sub>화살표: rtabmap → planner_server</sub>
+4. **cuVSLAM 입력** — pole_front_cam 컬러·정렬 depth로 시각 SLAM을 돌리고, 시각 오도메트리(속도) /cuvslam/odom을 EKF에 넣어 바퀴 미끄러짐을 보정합니다.
+   <sub>화살표: pole_front_cam → realsense2_camera · realsense2_camera → cuvslam_slam · cuvslam_slam → robot_localization</sub>
+5. **map→odom** — cuvslam_slam이 드리프트를 상쇄하는 map→odom을 냅니다. 루프 클로저로 가끔 점프하지만 odom 쪽은 끊기지 않습니다. /map은 nvblox 격자를 nvblox_map이 latched로 냅니다 (맵핑·위치추정 탭 참고).
+   <sub>화살표: cuvslam_slam → planner_server · nvblox_node → nvblox_map · nvblox_map → planner_server</sub>
 
 ### 파지 실패 → 재시도 → 재계획 → 다시 집기
 

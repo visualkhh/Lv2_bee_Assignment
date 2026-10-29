@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
-"""cuvslam_slam — cuVSLAM(NVIDIA, GPU) 시각 위치 추정. 쓰는 방식은 launch 인자로 고른다 (ros_system.launch.py)
+"""cuvslam_slam — cuVSLAM(NVIDIA, GPU) 시각 SLAM — 위치 담당 (지도는 nvblox → nvblox_map, ros_system.launch.py slam_nodes)
 
-  slam:=rtabmap cuvslam_odom:=true (권장) — 시각 오도메트리만: /cuvslam/odom(속도) → EKF가 바퀴·IMU와 합침 → RTAB-Map은 그대로
-                                            (지도 · 저장 · 위치추정 · Nav2 · explorer 전부 RTAB-Map 기준 그대로)
-  slam:=cuvslam_nvblox                     — SLAM: 루프 클로저 켜고 TF map→odom · /cuvslam/path (/map 격자는 nvblox → nvblox_map)
-  두 방식 모두 /cuvslam/odom을 냄 (EKF는 이 토픽이 없으면 그냥 바퀴·IMU만 씀)
+  루프 클로저 켜고 TF map→odom · /cuvslam/path + 시각 오도메트리 /cuvslam/odom(속도) → EKF가 바퀴·IMU와 합침
+  publish_map_tf:=false면 시각 오도메트리만 (map→odom을 다른 곳이 낼 때)
 
   입력: pole_front_cam 컬러 + 정렬 depth + camera_info (RGBD 모드 — D435는 IMU가 없어 VIO 불가)
   map = 출발할 때의 base_footprint (RTAB-Map과 같음), x·y·yaw만 (RTAB-Map Reg/Force3DoF와 같음 — 경기장 바닥은 평평)

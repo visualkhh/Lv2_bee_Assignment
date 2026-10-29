@@ -11,4 +11,4 @@ state_manager:
     restart_log: "/tmp/bringup.log"   # all 때 다시 띄운 launch 출력 (테스트베드 faker = /tmp/faker.log)
     restart_marker: "/tmp/beebot_restart.pending"  # 도는 동안 있는 파일 — test-faker 0이 보고 기다림
     restart_registry: "/tmp/beebot_restarted_nodes"  # node로 따로 다시 띄운 노드 기록 — all 때 같이 끄고 비움
-    restart_wait_s: 25.0     # 정상 종료(SIGINT) 기다림 [s] — RTAB-Map이 rtabmap.db를 닫을 시간, 넘으면 SIGKILL
+    restart_wait_s: 25.0     # 정상 종료(SIGINT) 기다림 [s] — nvblox가 지도를 저장할 시간, 넘으면 SIGKILL

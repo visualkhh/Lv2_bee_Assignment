@@ -233,8 +233,8 @@ ros2 topic bw /pole_front_cam/color/image_raw
 
 ## 3. 지도·모드
 
-기본은 `map:=saved`입니다. `ros2_ws/map/<이름>/rtabmap.db`가 없으면
-launch가 죽지 않고 **RTAB-Map 없이** 뜹니다.
+기본은 `map:=saved`입니다. `ros2_ws/map/<이름>/nvblox.nvblx`가 없으면
+launch가 죽지 않고 **SLAM 없이** 뜹니다.
 
 ```bash
 # 새 지도 작성
@@ -437,10 +437,10 @@ serial을 환경변수로 지정하고, 한 대만 쓸 때는 반대쪽 `use_*_c
 ### 지도가 없다는 경고
 
 ```text
-저장한 지도 없음 ... RTAB-Map 없이 시작
+저장한 지도 없음 ... SLAM 없이 시작
 ```
 
-`map:=slam`으로 새로 만들거나, 지도 폴더에 `rtabmap.db`가 있는지 확인합니다.
+`map:=slam`으로 새로 만들거나, 지도 폴더에 `nvblox.nvblx`가 있는지 확인합니다.
 
 ### 네트워크가 터짐
 

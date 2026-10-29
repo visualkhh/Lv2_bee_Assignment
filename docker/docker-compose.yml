@@ -33,7 +33,7 @@ services:
       - ../lv2_module6/ros2_ws/fastdds.xml:/ws/fastdds.xml
       - ../lv2_module6/ros2_ws/model:/ws/model
       - ../lv2_module6/urdf:/ws/urdf
-      # 지도 (faker map:=slam 이 /ws/map/rtabmap.db 에 쓰고 시뮬레이터 [지도 저장](map_saver_server)이 map_<날짜_시각>.pgm·yaml → map:=saved 로 다시 씀) — 컨테이너가 쓰므로 rw
+      # 지도 (faker map:=slam 이 /ws/map/<이름>/nvblox.nvblx 에 쓰고 (GPU 있을 때) 시뮬레이터 [지도 저장](map_saver_server)이 map_<날짜_시각>.pgm·yaml → map:=saved 로 다시 씀) — 컨테이너가 쓰므로 rw
       - ../lv2_module6/ros2_ws/map:/ws/map
       # 빌드 산출물(build·install·log)은 컨테이너 안 — 호스트 참고용 install 복사본은 빌드 뒤 /debug/install (docker/build-ws.sh)
       # OpenCR 펌웨어 스케치 + 컴파일 결과(build/, gitignore) — 컨테이너가 빌드 산출물을 쓰므로 rw

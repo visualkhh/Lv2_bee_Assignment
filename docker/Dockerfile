@@ -110,11 +110,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /tmp/pick_ik_ws
 # (colcon --install-base /opt/ros/lyrical 는 ROS의 setup.bash를 덮어써서 안 씀 — 패키지 폴더만 복사: lib · share · ament_index)
 
-# RTAB-Map — noble arm64에는 rtabmap_ros 메타패키지가 없고 rtabmap 패키지가 노드를 제공한다.
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ros-lyrical-rtabmap-msgs \
-    ros-lyrical-rtabmap \
-    && rm -rf /var/lib/apt/lists/*
+# SLAM(cuVSLAM + nvblox)은 GPU가 필요해 테스트베드 이미지엔 넣지 않음 — faker map:=course가 지도·위치를 대신
+#   (Jetson 설치: documents/jetson-orin-nano/CUVSLAM.md)
 
 # YOLO perception (CPU 추론용) — torch CPU + ultralytics. libGL은 cv2용.
 # 모델 가중치는 ros2_ws/model/yolo/*.pt 로 커밋 (약 6MB) → perception이 share에 설치.

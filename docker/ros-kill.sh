@@ -1,7 +1,7 @@
 #!/bin/bash
 # ROS+Gazebo 스택 전부 죽이기 + 캐시 정리 (컨테이너·호스트 공용): ros-kill
 #   ros2 launch + 노드 + 좀비 spawner · stale 데몬 캐시 · Fast DDS 공유 메모리 잔재
-#   1) launch에 SIGINT → 최대 20초 기다림 (RTAB-Map이 rtabmap.db를 닫을 시간 — 바로 죽이면 지도 끝부분이 덜 저장됨)
+#   1) launch에 SIGINT → 최대 20초 기다림 (nvblox가 끌 때 지도를 저장할 시간 — 바로 죽이면 nvblox.nvblx가 안 남음)
 #   2) 안 죽은 것만 SIGKILL
 #   3) ros2 daemon stop (죽은 launch 그래프 캐시 → 다음 실행에 지난 노드가 보이는 것 방지)
 #   4) /dev/shm/fastdds_* 삭제 (강제 종료된 노드의 공유 메모리 통로가 남으면 보내는 쪽이 막힐 수 있음)

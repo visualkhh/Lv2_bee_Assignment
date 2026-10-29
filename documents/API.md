@@ -52,7 +52,7 @@ diagnostic_msgs/KeyValue[] details      # 클래스별 속성 — puck: posture 
 | `id` | 추적 번호 (1부터 증가) — VLM·coordinator·grasp_scorer가 같은 물체를 이 번호로 가리킴 (`SubGoal.target`) | **기억하는 물체**(`puck*` · `goal_zone` · `station_zone` · `qr_board` · `location` · `barcode`, `remember_min_hits`번 이상 잡힌 것)는 안 보여도 남음 — 그 자리가 잘 보이는데 `miss_count`번 연속 못 찾을 때만 삭제(옮겨짐·집어 감). 그 밖(사람·장애물·신호등)은 어느 카메라에도 **2초** 안 보이면 삭제 → 다시 보이면 **새 번호**. 번호는 재사용 안 함 |
 | `class_name` | YOLO: `puck` · `puck_lying` · `goal_zone` · `station_zone` · `qr_board` · `obstacle` · `person` · `traffic_light` / 표식 디코드: `location`(장소 AprilTag 12~14) · `barcode`(바코드 P2-xx) | YOLO 클래스는 모델의 `names`를 따름 (`puck_red`처럼 색이 붙은 이름은 `puck` + color로 나눔). 다른 클래스끼리는 가까워도 합치지 않음 |
 | `confidence` | 마지막 관측의 YOLO 신뢰도 (0~1, `confidence` 파라미터 이상만) | 평균 아님 |
-| `pose.pose.position` | map 좌표 [m] — 원점 = map 원점(시뮬레이터: 출발 칸 `spawn`), x 앞 · y 왼쪽 · z 위(바닥 ≈ 0). **추적은 odom 기준, 발행 순간의 map ← odom(RTAB-Map 최신 보정)으로 바꿔 냄** — 보정이 바뀌면(맞든 틀리든) 로봇 위치와 함께 옮겨져 로봇과의 상대 위치는 유지. 위치추정 자체가 틀리면 map 좌표는 그만큼 통째로 어긋남 | 박스 중심 방향의 **카메라 쪽 앞면 점** — 실제 중심보다 카메라 쪽으로 물체 반지름쯤 당겨짐 (퍽 2~3cm). z도 앞면 점 높이. 두 카메라가 다른 방향에서 보면 일부 상쇄 |
+| `pose.pose.position` | map 좌표 [m] — 원점 = map 원점(시뮬레이터: 출발 칸 `spawn`), x 앞 · y 왼쪽 · z 위(바닥 ≈ 0). **추적은 odom 기준, 발행 순간의 map ← odom(cuVSLAM 최신 보정)으로 바꿔 냄** — 보정이 바뀌면(맞든 틀리든) 로봇 위치와 함께 옮겨져 로봇과의 상대 위치는 유지. 위치추정 자체가 틀리면 map 좌표는 그만큼 통째로 어긋남 | 박스 중심 방향의 **카메라 쪽 앞면 점** — 실제 중심보다 카메라 쪽으로 물체 반지름쯤 당겨짐 (퍽 2~3cm). z도 앞면 점 높이. 두 카메라가 다른 방향에서 보면 일부 상쇄 |
 | `pose.pose.orientation` | 항상 `(0, 0, 0, 1)` | 방향은 추정하지 않음 |
 | `pose.covariance` | 6×6 행 우선. **위치 3×3 블록**(인덱스 0~2·6~8·12~14) = 융합 위치 불확실성 [m²], 회전 대각(21·28·35) = 1e3(모름) | 관측 잡음만 반영 — 위의 앞면 쏠림(바이어스)은 안 들어감. 관측 σ: depth 축 `depth_sigma0 + depth_sigma_k·z²`, 가로·세로 `pixel_sigma·z/f` |
 | `size` | [m] x = 박스 가로 폭 · y = 박스 세로 높이 (픽셀 × 거리 / 초점거리), z = 클래스 기본값(퍽 0.06 — 발제 30×30×60mm, 누운 퍽 0.03 등). 크기를 못 재면 셋 다 클래스 기본값 | **map 축 크기가 아님** (카메라 영상 기준). 관측마다 칼만 이득 비율로 갱신 |
@@ -224,18 +224,16 @@ string message
 
 | 이름 | 타입 | 보내는 쪽 → 받는 쪽 | 주기 · QoS |
 | --- | --- | --- | --- |
-| `/pole_front_cam/color/image_raw` | sensor_msgs/Image (rgb8) | realsense2_camera (pole_front_cam) → perception, rtabmap | 30Hz · best_effort |
-| `/pole_front_cam/color/camera_info` | sensor_msgs/CameraInfo | realsense2_camera (pole_front_cam) → perception, rtabmap | 내부 파라미터 |
+| `/pole_front_cam/color/image_raw` | sensor_msgs/Image (rgb8) | realsense2_camera (pole_front_cam) → perception, cuvslam_slam, nvblox_node | 30Hz · best_effort |
+| `/pole_front_cam/color/camera_info` | sensor_msgs/CameraInfo | realsense2_camera (pole_front_cam) → perception, cuvslam_slam, nvblox_node | 내부 파라미터 |
 | `/pole_front_cam/depth/camera_info` | sensor_msgs/CameraInfo | realsense2_camera (pole_front_cam) → (예비) | 정렬 depth와 동일 해상도·프레임 |
-| `/pole_front_cam/aligned_depth_to_color/image_raw` | sensor_msgs/Image (16UC1, mm) | realsense2_camera (pole_front_cam) → perception, rtabmap | 컬러와 1:1 정렬 |
+| `/pole_front_cam/aligned_depth_to_color/image_raw` | sensor_msgs/Image (16UC1, mm) | realsense2_camera (pole_front_cam) → perception, cuvslam_slam, pole_depth_gate | 컬러와 1:1 정렬 |
 | `/pole_front_cam/depth/color/points` | sensor_msgs/PointCloud2 | realsense2_camera (pole_front_cam) → body_filter, move_group | 10~15Hz 다운샘플 권장 |
 | `/pole_front_cam/depth/color/points_filtered` | sensor_msgs/PointCloud2 | body_filter → costmap_2d, collision_monitor | 자기 몸(URDF collision + padding) 점을 뺀 것 |
 | `/gripper_cam/color/image_raw` | sensor_msgs/Image (rgb8) | realsense2_camera (gripper_cam) → perception | 15Hz · best_effort |
-| `/gripper_cam/aligned_depth_to_color/image_raw` | sensor_msgs/Image (16UC1, mm) | realsense2_camera (gripper_cam) → perception | pick 단계 위주 |
-| `/gripper_cam/aligned_depth_to_color/image_scan` | sensor_msgs/Image (16UC1, mm) | scan_cam_gate → rtabmap_sync(gripper) | gripper_cam depth — 팔이 스캔 자세(`scan_pose.yaml`)에 멈춰 있을 때만 그대로, 아니면 0 (지도 만들 때 두 번째 카메라) |
-| `/gripper_cam/depth/color/points_scan` | sensor_msgs/PointCloud2 | scan_cam_gate → point_cloud_aggregator | gripper_cam 점구름 — 스캔 자세일 때만(카메라 0.5m 안 = 자기 몸은 뺌), 아니면 빈 점구름 |
-| `/rtabmap/scan_cloud` | sensor_msgs/PointCloud2 (base_footprint) | point_cloud_aggregator → rtabmap | 몸 뺀 pole_front_cam 점구름 + 위 gripper_cam 점구름 — RTAB-Map 격자(`/map`)·ICP |
-| `/rtabmap/rgbd_image0` · `/rtabmap/rgbd_image1` · `/rtabmap/rgbd_images` | rtabmap_msgs/RGBDImage · RGBDImages | rgbd_sync ×2 → rgbdx_sync → rtabmap | pole_front_cam · gripper_cam(게이트 거친 depth)을 묶어 RTAB-Map에 |
+| `/gripper_cam/aligned_depth_to_color/image_raw` | sensor_msgs/Image (16UC1, mm) | realsense2_camera (gripper_cam) → perception, gripper_depth_gate | pick 단계 위주 |
+| `/pole_front_cam/aligned_depth_to_color/image_nvblox` | sensor_msgs/Image (16UC1, mm) | pole_depth_gate (scan_cam_gate) → nvblox_node | pole_front_cam 정렬 depth에서 카메라 0.5m 안(자기 팔·폴대) 픽셀을 0(측정 없음)으로 |
+| `/gripper_cam/aligned_depth_to_color/image_nvblox` | sensor_msgs/Image (16UC1, mm) | gripper_depth_gate (scan_cam_gate) → nvblox_node | gripper_cam 정렬 depth — 팔이 스캔 자세(`scan_pose.yaml`)에 멈춰 있을 때만(0.5m 안은 0), 아니면 전부 0 (지도 만들 때 두 번째 카메라) |
 | `/gripper_cam/depth/color/points` | sensor_msgs/PointCloud2 | realsense2_camera (gripper_cam) → grasp_scorer | 근접 파지용 |
 | `/tracked_objects` | perception/TrackedObjectArray | perception → vlm_task_planner, coordinator, grasp_scorer | 10Hz · reliable — 두 카메라 융합 결과 ([필드 뜻](#api-msg-trackedobject)) |
 | `/perception/pole_front_cam/detections` · `/perception/gripper_cam/detections` | perception/TrackedObjectArray | perception → (시뮬레이터·디버그) | 추론마다(카메라당 ≤4Hz) · reliable — 융합 전 카메라별 검출, `id` = 붙은 트랙 |
@@ -260,14 +258,17 @@ string message
 
 | 이름 | 타입 | 보내는 쪽 → 받는 쪽 | 주기 · QoS |
 | --- | --- | --- | --- |
-| `/map` | nav_msgs/OccupancyGrid | rtabmap → planner_server (global_costmap static layer) | 갱신 시 · transient_local |
+| `/map` | nav_msgs/OccupancyGrid | nvblox_map → planner_server (global_costmap static layer) | 새 격자가 오면 최대 1Hz · reliable + transient_local (테스트베드 `map:=course`는 map_server) |
+| `/nvblox_node/static_occupancy_grid` | nav_msgs/OccupancyGrid (map) | nvblox_node → nvblox_map | nvblox 2D 점유 격자 · 보통 토픽(latched 아님) — 주기는 실기에서 확인 |
+| `/cuvslam/odom` | nav_msgs/Odometry | cuvslam_slam → ekf (`odom1`, vx·vy만) | 카메라 프레임마다 — 시각 오도메트리(속도) |
+| `/cuvslam/path` | nav_msgs/Path | cuvslam_slam → RViz | cuVSLAM 궤적 (표시용) |
 | `/plan` | nav_msgs/Path | planner_server → rl_nav_correction, rl_nav_tuner, RViz | 계획마다 |
 | `/cmd_vel_nav` | geometry_msgs/TwistStamped | controller_server, behavior_server → rl_nav_correction | 20Hz |
 | `/local_costmap/costmap` | nav_msgs/OccupancyGrid | controller_server → rl_nav_tuner, RViz | 통로 폭·최근접 장애물 계산용 |
 | `/local_costmap/costmap_raw` | nav2_msgs/Costmap | controller_server → behavior_server | 충돌 검사 |
 | `/global_costmap/costmap` | nav_msgs/OccupancyGrid | planner_server → RViz | 표시용 |
-| `/odometry/filtered` | nav_msgs/Odometry | ekf → rtabmap, bt_navigator, controller_server, rl_nav_tuner | 50Hz |
-| `/tf` (map→odom) | tf2_msgs/TFMessage | rtabmap → 전체 | 위치 찾을 때만 (없으면 coordinator가 대기) |
+| `/odometry/filtered` | nav_msgs/Odometry | ekf → bt_navigator, controller_server, rl_nav_tuner | 50Hz |
+| `/tf` (map→odom) | tf2_msgs/TFMessage | cuvslam_slam → 전체 | 위치 찾을 때만 (없으면 coordinator가 대기) |
 | `/tf` (odom→base_footprint) | tf2_msgs/TFMessage | ekf → 전체 | 연속 |
 | `/collision_monitor_state` | nav2_msgs/CollisionMonitorState | collision_monitor → RViz | 걸린 다각형 표시 |
 
@@ -285,7 +286,7 @@ string message
 | `/cmd_vel` | geometry_msgs/TwistStamped | collision_monitor → diff_drive_controller | 20Hz |
 | `/odom` | nav_msgs/Odometry | diff_drive_controller → ekf, rl_nav_correction | 50Hz |
 | `/imu` | sensor_msgs/Imu | imu_sensor_broadcaster → ekf, rl_nav_correction | 100Hz · best_effort |
-| `/odometry/filtered` | nav_msgs/Odometry | ekf → rtabmap, bt_navigator, controller_server, rl_nav_tuner | 50Hz |
+| `/odometry/filtered` | nav_msgs/Odometry | ekf → bt_navigator, controller_server, rl_nav_tuner | 50Hz |
 
 - diff_drive_controller 토픽은 기본 `/diff_drive_controller/cmd_vel`·`/odom` — launch에서 `/cmd_vel`·`/odom`으로 리매핑.
 - odom TF는 ekf만 (`diff_drive_controller enable_odom_tf: false`, ekf `publish_tf: true`).
@@ -303,14 +304,14 @@ string message
 | `/state/devices/<이름>` | std_msgs/String (transient_local) | state_manager → 시뮬레이터 · 누구나 | 장치별 상세 — `종류\|active · disconnected · error\|세부 토픽·관절` (예: `camera\|disconnected\|/pole_front_cam/...`) · 장치마다 동적 토픽. `wheels`·`arm`·`gripper`는 그 관절 DYNAMIXEL에 Hardware Error가 있으면 `error` + 세부 끝에 `joint2:과부하` (원본은 `/motor_status`, 재부팅 `/cmd/manual/reboot_motors`) |
 | `/state/topics` | std_msgs/String (transient_local) | state_manager → 시뮬레이터 · 누구나 | 전체 ROS 그래프 — `토픽\|타입\|publisher 수` 줄들. `/state/devices`에 없는 새 센서도 여기서 찾음 |
 | `/explore/result` | std_msgs/String | explorer → state_manager | 탐사 끝: `DONE …`(프론티어 없음) · `FAILED …` → state_manager가 AUTO로 되돌림 |
-| `/state/map_list` | std_msgs/String (transient_local) | state_manager → 시뮬레이터 · 누구나 | 가진 지도 폴더 이름들 (줄바꿈 구분, `<map_dir>/<이름>/rtabmap.db` 있는 것) — 바뀔 때만 |
+| `/state/map_list` | std_msgs/String (transient_local) | state_manager → 시뮬레이터 · 누구나 | 가진 지도 폴더 이름들 (줄바꿈 구분, `<map_dir>/<이름>/nvblox.nvblx` 있는 것) — 2초마다 확인 · 바뀔 때만 |
 | `/cmd/restart` | std_msgs/String | 시뮬레이터 [ROS 재시작] · `ros-faker-restart` · 운영자(`ros2 topic pub --once`) → state_manager | **`all [이름:=값 …]`** = 이 launch 전체를 정상 종료 → 같은 명령줄로 다시 (인자를 주면 그 인자만 바꿈, `map:=`을 바꾸면 `map_name:=` 버림 · 테스트베드는 그 사이 `build-ws`) · **`node <이름>`** = 그 노드 프로세스만 같은 명령줄·환경(파라미터 파일·리매핑 그대로)으로 다시 (Nav2 수명주기 노드는 다시 활성화 필요). 실기 bringup · 테스트베드 같은 길. 같은 요청이 두 번 오지 않게 하는 건 보내는 쪽 — 테스트베드 input_manager는 읽은 파일을 지움. 도는 중엔 새 요청 거절 |
 | `/state/restartable` | std_msgs/String (transient_local) | state_manager → 시뮬레이터 진단 칸 · 누구나 | `node`로 재시작할 수 있는 노드 `"이름 pid"` 줄들 (이 launch 아래 ROS 노드 프로세스 — 컨트롤러·costmap 하위·내부 노드는 프로세스가 아니라 없음). 2초마다 확인 · 바뀔 때만 |
 | `/state/restart` | std_msgs/String (transient_local) | state_manager → 시뮬레이터 상태판 · 누구나 | 마지막 재시작 요청 결과 — `all: 재시작 중 …` · `node perception: 재시작 (pid …)` · `거절: …` · 새로 뜨면 `시작 (pid …)` |
-| `/cmd/map_name` | std_msgs/String | 시뮬레이터 지도 목록 · 운영자 → state_manager | 지도 폴더 이름 — `<map_dir>/<이름>/rtabmap.db`를 RTAB-Map `/rtabmap/rtabmap/load_database`로 열고 위치추정 모드로 (결과 `/state/map_name` · `/state/map_mode`) |
-| `/cmd/map_mode` | std_msgs/String | 시뮬레이터 · 운영자 → state_manager | MAPPING(스캔) · LOCALIZATION(위치추정) — RTAB-Map 모드 전환 요청 |
-| `/state/map_mode` | std_msgs/String (transient_local) | state_manager → 시뮬레이터 · 누구나 | MAPPING · LOCALIZATION · COURSE(정지 지도, 바꿀 수 없음) — RTAB-Map 응답 뒤에만 바뀜 |
-| `/state/map_name` | std_msgs/String (transient_local) | state_manager → 시뮬레이터 · 누구나 | 지금 쓰는 지도 폴더 이름 (`<map_dir>/<이름>/` rtabmap.db · map.pgm · map.yaml, 빈 값 = 폴더 없음) — 시뮬레이터 [지도 저장]이 같은 폴더에 씀 |
+| `/cmd/map_name` | std_msgs/String | 시뮬레이터 지도 목록 · 운영자 → state_manager | 지도 폴더 이름 — `<map_dir>/<이름>/nvblox.nvblx`가 있으면 launch 전체를 `map:=saved map_name:=<이름>`으로 다시 띄움 (`/cmd/restart all`과 같은 길 · nvblox_map이 시작할 때 불러옴 — 위치추정, 결과는 다시 뜬 state_manager의 `/state/map_name` · `/state/map_mode`) |
+| `/cmd/map_mode` | std_msgs/String | 시뮬레이터 · 운영자 → state_manager | MAPPING(스캔) · LOCALIZATION(위치추정) — cuVSLAM·nvblox는 실행 중 전환이 없어 launch 전체를 다시 띄움: MAPPING → `map:=slam`(새 지도 폴더) · LOCALIZATION → `map:=saved map_name:=<지금 폴더>` |
+| `/state/map_mode` | std_msgs/String (transient_local) | state_manager → 시뮬레이터 · 누구나 | MAPPING · LOCALIZATION · COURSE(정지 지도, 바꿀 수 없음) — 다시 뜬 state_manager가 새 값으로 발행 |
+| `/state/map_name` | std_msgs/String (transient_local) | state_manager → 시뮬레이터 · 누구나 | 지금 쓰는 지도 폴더 이름 (`<map_dir>/<이름>/` nvblox.nvblx · map.pgm · map.yaml, 빈 값 = 폴더 없음) — 시뮬레이터 [지도 저장]이 같은 폴더에 씀 |
 
 - `/state/devices`는 **이름 목록만** 낸다. 장치별 `active/disconnected`와 세부 토픽은 `/state/devices/<이름>`에서 본다.
   - `active`: 카메라 `camera_info`, 로봇 `/joint_states`, IMU `/imu`가 **최근 1초 안에 실제로 왔는지**
@@ -370,8 +371,8 @@ string message
 | `/apply_planning_scene` | moveit_msgs/srv/ApplyPlanningScene | coordinator → move_group | pick 전 퍽·장애물 등록 |
 | `/clear_octomap` | std_srvs/srv/Empty | coordinator → move_group | pick 직전 octomap 초기화 |
 | `/controller_server/set_parameters` | rcl_interfaces/srv/SetParameters | rl_nav_tuner → controller_server | FollowPath.max_vel_theta 등 (실행 중 반영되는 것만) |
-| `/rtabmap/rtabmap/set_mode_mapping` · `/rtabmap/rtabmap/set_mode_localization` | std_srvs/srv/Empty | state_manager → rtabmap | `/cmd/map_mode`에 따라 매핑 ↔ 위치추정 전환 |
-| `/rtabmap/rtabmap/load_database` | rtabmap_msgs/srv/LoadDatabase | state_manager → rtabmap | 저장 지도(`<map_dir>/<이름>/rtabmap.db`) 불러오기 |
+| `/nvblox_node/load_map` | nvblox_msgs/srv/FilePath | nvblox_map → nvblox_node | 위치추정(`map:=saved`)일 때 시작하며 한 번 — 저장 지도 `<map_dir>/<이름>/nvblox.nvblx` 불러오기 |
+| `/nvblox_node/save_map` | nvblox_msgs/srv/FilePath | (부르는 노드 없음) → nvblox_node | 저장은 매핑(`map:=slam`)일 때 nvblox가 끌 때 자동(`after_shutdown_map_save_path`) — 수동 저장용으로만 있음 |
 | `/arm_controller/follow_joint_trajectory/_action/cancel_goal` | action_msgs/srv/CancelGoal | arm_safety_monitor → arm_controller | 빈 goal_id = 전체 취소 → JTC 현재 자세 유지 |
 | `/controller_manager/load_controller` 등 | controller_manager_msgs/srv/* | spawner → controller_manager | load · configure · switch · list (기동 시) |
 | `*/change_state` | lifecycle_msgs/srv/ChangeState | lifecycle_manager → Nav2 서버들 | configure → activate |
@@ -387,7 +388,7 @@ string message
 
 | 변환 | 발행자 | 성격 |
 | --- | --- | --- |
-| map → odom | rtabmap | 가끔 점프 (루프 클로저·재위치 추정) |
+| map → odom | cuvslam_slam (cuVSLAM) | 가끔 점프 (루프 클로저) |
 | odom → base_footprint | robot_localization ekf | 연속, 드리프트 있음 |
 | base_footprint → base_link → 센서·팔 | robot_state_publisher (URDF) | 고정 또는 /joint_states로 변함 |
 | *_link → *_optical_frame | robot_state_publisher | 고정 (z 앞 · x 오른쪽 · y 아래) |

@@ -608,7 +608,7 @@ class Bus:
         if not map_dir.is_dir():
             return []
         return sorted(p.name for p in map_dir.iterdir()
-                      if p.is_dir() and (p / 'rtabmap.db').is_file())
+                      if p.is_dir() and (p / 'nvblox.nvblx').is_file())
 
     def cmd_map(self, args) -> int:
         map_dir = self.default_map_dir(args.map_dir)
