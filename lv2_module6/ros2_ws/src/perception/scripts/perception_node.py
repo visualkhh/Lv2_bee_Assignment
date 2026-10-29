@@ -22,10 +22,11 @@
     사람·장애물·신호등은 TRACK_TIMEOUT_S 안 보이면 지움. 지금 보이는지는 받는 쪽이 last_seen으로 구분.
   모델 파일이 없으면 빈 목록을 내보낸다 (진단 WARN) — test-bringup 기동 검사용.
   표식 (documents/mission/README.md · 발제 「AprilTag와 바코드 실제 배포 표식」): AprilTag tag36h11
-    퍽 윗면 16mm — R1~R4 = 0~3 · G1~G4 = 4~7 · B1~B4 = 8~11 → 그 퍽 트랙의 details tag (한 번 읽으면 기억, 색도 태그 기준)
+    퍽 윗면 16mm — 퍽 ID 0~11 → 그 퍽 트랙의 details tag (한 번 읽으면 기억). ID는 색을 정하지 않음 → 색은 HSV로 본 것만
       (16mm는 pole_front_cam으로는 안 읽힘 — gripper_cam이 위에서 내려다봐야 함: coordinator inspect)
+    퍽 모양 (Y 그룹 = 한 모양): gripper_cam이 위에서 내려다볼 때만 색 윤곽의 원형도로 cylinder · cuboid → details shape
     장소 48mm — L1~L3 = 12~14 → class location 물체 (details tag, 안 보여도 기억)
-    바코드(줄무늬, P2-01 등) = 장소에 붙은 작업 지시 문자열 → class barcode 물체 (details content, 위치 = 붙은 곳) + /mission/qr
+    바코드(Code 128, P2-01 등) = 작업 지시 문자열 → class barcode 물체 (details content, 위치 = 붙은 곳) + /mission/barcode
   신호등 상태: red · yellow · green · off · all(두 색 이상 동시에 켜짐 — 신호등 미션 단계 구분 신호)
 """
 import os
@@ -133,13 +134,17 @@ def seg_dist(p, a, b):
     return float(np.linalg.norm(p - (a + t * ab)))
 
 
-def is_self(cls, p, body, body_radius, body_height, self_radius):
-    """map 점 p가 로봇 자기 몸인가 — body = (차체 원점, [팔 체인 링크 원점…]) (map).
-    차체: 원점에서 수평 body_radius 안 · 높이 body_height 아래 (적재함·폴·차체). 팔: 이웃 링크를 잇는 선분에서 self_radius 안.
-    퍽은 마지막 선분(gripper_link→손끝, 손가락 사이)을 빼고 본다 — 집으려고 손끝 바로 아래 둔 퍽을 지우지 않게"""
-    base, chain = body
-    # 바닥(5cm 아래)은 차체로 보지 않음 — 범퍼 바로 앞 퍽이 차체 반경 안에 걸려 지워지지 않게
-    if np.hypot(p[0] - base[0], p[1] - base[1]) < body_radius and base[2] + BODY_MIN_Z < p[2] < base[2] + body_height:
+def is_self(cls, p, body, footprint, body_height, self_radius):
+    """map 점 p가 로봇 자기 몸인가 — body = (차체 회전 3×3, 차체 원점, [팔 체인 링크 원점…]) (map).
+    차체: 차체 기준 외곽 직사각형 footprint = (앞 x, 뒤 x, 좌우 반폭) 안 · 높이 body_height 아래 (적재함·폴·차체).
+      (예전 반경 0.2 원은 앞이 실제 범퍼 0.069보다 13 cm 커서, 박스 앞 1.6 cm까지 붙으면 박스 위 퍽을 자기 몸으로 버렸음)
+    팔: 이웃 링크를 잇는 선분에서 self_radius 안. 퍽은 마지막 선분(gripper_link→손끝, 손가락 사이)을 빼고 본다
+    — 집으려고 손끝 바로 아래 둔 퍽을 지우지 않게"""
+    rot, base, chain = body
+    lx, ly, _ = rot.T @ (np.asarray(p, float) - base)  # 차체 기준
+    front, rear, side = footprint
+    # 바닥(5cm 아래)은 차체로 보지 않음 — 범퍼 바로 앞 바닥 퍽이 지워지지 않게
+    if rear < lx < front and abs(ly) < side and base[2] + BODY_MIN_Z < p[2] < base[2] + body_height:
         return True
     segs = list(zip(chain[:-1], chain[1:]))
     if cls in PUCK_CLASSES:
@@ -169,6 +174,16 @@ def box_has_arm(box, arm_px, min_hits):
     u, v, r = arm_px[:, 0], arm_px[:, 1], arm_px[:, 2]
     inside = (u + r >= x0) & (u - r <= x1) & (v + r >= y0) & (v - r <= y1)
     return int(inside.sum()) >= min_hits
+
+
+def plane_depth(uv, rot, trans, cam, plane_z):
+    """픽셀 uv의 카메라 광선이 추적 좌표 z = plane_z 평면과 만나는 점의 광학 깊이 [m] (만나지 않으면 0) —
+    rot·trans = 카메라 → 추적 좌표, cam = fx·fy·cx·cy. 광선 방향의 광학 z를 1로 두므로 교점까지 t가 곧 깊이"""
+    d = rot @ np.array([(uv[0] - cam["cx"]) / cam["fx"], (uv[1] - cam["cy"]) / cam["fy"], 1.0])
+    if d[2] >= -1e-6:
+        return 0.0
+    t = (plane_z - trans[2]) / d[2]
+    return float(t) if t > 0.05 else 0.0
 
 
 def stamp_s(stamp):
@@ -403,9 +418,27 @@ def tag_in_box(tags, box, ids):
     return None
 
 
-def tag_color(tid, tag_colors):
-    """퍽 태그 번호 → 색 (tag_colors = {색: [번호…]}) · 모르면 ''"""
-    return next((c for c, ids in tag_colors.items() if tid in ids), "")
+def classify_shape(mask, cyl_min=0.86, cub_max=0.82, min_area=200):
+    """퍽 색 마스크(위에서 본, uint8 0/255) → 'cylinder' | 'cuboid' | '' (모름 — 추정 금지).
+    위에서 보면 원기둥 = 원, 직육면체 = 정사각형 → 가장 바깥 윤곽의 원형도 4πA/P² (원 1.0 · 정사각형 0.785).
+    윗면 태그 라벨(흰색)은 안쪽 구멍이라 바깥 윤곽만 보면 무시됨. 너무 작거나 애매하면 ''"""
+    cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    if not cnts:
+        return ""
+    c = max(cnts, key=cv2.contourArea)
+    area, peri = cv2.contourArea(c), cv2.arcLength(c, True)
+    if area < min_area or peri == 0:
+        return ""
+    circ = 4 * np.pi * area / peri ** 2
+    return "cylinder" if circ > cyl_min else "cuboid" if circ < cub_max else ""
+
+
+def color_mask(roi, color, hue_tol):
+    """roi 안에서 그 색(HUES)인 화소 마스크 (uint8 0/255) — 채도·밝기 하한은 puck_color와 같음"""
+    hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+    h = hsv[..., 0].astype(int)
+    d = np.min([np.minimum(abs(h - x), 180 - abs(h - x)) for x in HUES[color]], axis=0)
+    return (((d <= hue_tol) & (hsv[..., 1] > 80) & (hsv[..., 2] > 50)) * 255).astype(np.uint8)
 
 
 def to_msg(tid, tr):
@@ -432,6 +465,8 @@ def to_msg(tid, tr):
     details = []
     if o.class_name in ("puck", "puck_lying") and tr.get("posture"):  # 퍽 자세 (color와 별도)
         details.append(KeyValue(key="posture", value=tr["posture"]))
+    if o.class_name in ("puck", "puck_lying") and tr.get("shape"):  # 퍽 모양 — 위에서 본 적이 있을 때만
+        details.append(KeyValue(key="shape", value=tr["shape"]))
     elif o.class_name == "traffic_light" and o.color:  # 신호등 상태 (color에도 같이 있음)
         details.append(KeyValue(key="state", value=o.color))
     if tr.get("tag") is not None:  # AprilTag 번호 — 퍽 0~11 · 장소 12~14
@@ -466,7 +501,8 @@ class PerceptionNode(Node):
         self.declare_parameter("self_links", ["shoulder_link", "upper_arm_link", "forearm_link", "wrist_link",
                                               "gripper_link", "end_effector_link"])
         self.declare_parameter("self_radius", 0.06)
-        self.declare_parameter("body_radius", 0.2)
+        # 차체 외곽 (base_footprint: URDF base 상자 앞 +0.069 · 뒤 −0.233 · 바퀴 바깥 ±0.153) + 여유 1 cm
+        self.declare_parameter("body_footprint", [0.08, -0.245, 0.165])  # [앞 x, 뒤 x, 좌우 반폭] [m]
         self.declare_parameter("body_height", 0.6)
         self.declare_parameter("self_arm_hits", 3)  # 퍽이 아닌 검출 박스 안에 팔 투영점이 이만큼 있으면 자기 팔 (0 = 안 봄)
         # 기억하는 물체(REMEMBER_PREFIXES) 지우기 기준 — expected_visible
@@ -494,13 +530,22 @@ class PerceptionNode(Node):
         self.declare_parameter("edge_px", 5)                # 박스가 화면 가장자리 이 안에 닿으면 잘린 퍽 — 크기 하한·자세 안 봄
         self.declare_parameter("near_px", 70)               # 깊이 없는데 박스 짧은 변이 이 이상이면 너무 가까운 퍽 (3cm 퍽 70px ≈ 25cm)
         self.declare_parameter("depth_min_valid", 0.5)      # 박스 가운데 깊이 화소가 이 비율보다 적으면 깊이 없음
-        # 표식 (발제 배포 표식) — 퍽 윗면 AprilTag 번호 → 색, 장소 태그 번호
-        self.declare_parameter("puck_tags_red", [0, 1, 2, 3])
-        self.declare_parameter("puck_tags_green", [4, 5, 6, 7])
-        self.declare_parameter("puck_tags_blue", [8, 9, 10, 11])
+        # 표식 (발제 배포 표식) — 퍽 윗면 AprilTag 번호(퍽 ID, 색과 무관), 장소 태그 번호
+        self.declare_parameter("puck_tags", list(range(12)))
         self.declare_parameter("location_tags", [12, 13, 14])
-        self.tag_colors = {c: [int(v) for v in self.get_parameter(f"puck_tags_{c}").value] for c in ("red", "green", "blue")}
-        self.puck_tag_ids = {t for ids in self.tag_colors.values() for t in ids}
+        # 모양 판정 (classify_shape) — 위에서 내려다볼 때만: gripper_cam 광축이 아래(−z)와 이루는 cos가 이 이상
+        self.declare_parameter("shape_view_cos", 0.9)
+        # 깊이 없는 퍽(카메라에서 약 17 cm 안 — D435 최소 거리)의 위치: 내려다볼 때 카메라 광선과 퍽 윗면 높이 평면의 교점.
+        #   주사위 미션은 모든 퍽 바닥 Z=70 → 윗면 0.13. gripper_cam을 퍽 위 8 cm에 두면 깊이가 0이라 위치를 못 구해 tag를 붙일 트랙이 없었음
+        #   0이면 끔 (예전처럼 깊이 없으면 갱신 안 함)
+        self.declare_parameter("puck_plane_z", 0.0)  # 제안 — 인지 담당 검토 전 끔
+        self.declare_parameter("shape_cylinder_min", 0.86)  # 원형도가 이보다 크면 원기둥
+        self.declare_parameter("shape_cuboid_max", 0.82)    # 이보다 작으면 직육면체 (사이는 모름)
+        self.puck_tag_ids = {int(v) for v in self.get_parameter("puck_tags").value}
+        self.shape_view_cos = float(self.get_parameter("shape_view_cos").value)
+        self.puck_plane_z = float(self.get_parameter("puck_plane_z").value)
+        self.shape_cyl = float(self.get_parameter("shape_cylinder_min").value)
+        self.shape_cub = float(self.get_parameter("shape_cuboid_max").value)
         self.location_tags = {int(v) for v in self.get_parameter("location_tags").value}
         self.tag_det = tag_detector()
         self.barcode = barcode_detector()
@@ -521,7 +566,7 @@ class PerceptionNode(Node):
         self.self_links = [str(v) for v in self.get_parameter("self_links").value]
         self.self_radius = float(self.get_parameter("self_radius").value)
         self.self_arm_hits = int(self.get_parameter("self_arm_hits").value)
-        self.body_radius = float(self.get_parameter("body_radius").value)
+        self.body_footprint = tuple(float(v) for v in self.get_parameter("body_footprint").value)
         self.body_height = float(self.get_parameter("body_height").value)
         self.match_dist = float(self.get_parameter("match_dist").value)
         self.pixel_sigma = float(self.get_parameter("pixel_sigma").value)
@@ -570,12 +615,12 @@ class PerceptionNode(Node):
         self.synced = {}       # cam → 동기화된 컬러·depth 쌍 수
         self.tf_fallback = 0   # 영상 시각 TF가 없어 최신 TF로 대신한 횟수
         self.self_dropped = 0  # 자기 몸(팔·차체)이라 버린 검출 수
-        # QR 문제 (documents/mission/README.md §3-1): A 지역 QR 판을 읽어 /mission/qr 로 — 모델 없이도 동작
+        # 바코드·QR 작업 지시 → /mission/barcode (Code 128 P2-01~04, documents/mission/README.md §3) — 모델 없이도 동작
         self.qr = cv2.QRCodeDetector()
         self.qr_text = ""
         self.qr_seen = 0.0   # 마지막으로 QR을 읽은 시각 — QR_GAP_S 넘게 안 보였다 다시 보이면 같은 내용도 재발행 (다음 미션 지역)
         self.qr_pub = self.create_publisher(
-            String, "/mission/qr",
+            String, "/mission/barcode",
             QoSProfile(depth=1, reliability=QoSReliabilityPolicy.RELIABLE,
                        durability=QoSDurabilityPolicy.TRANSIENT_LOCAL, history=QoSHistoryPolicy.KEEP_LAST))
 
@@ -661,7 +706,7 @@ class PerceptionNode(Node):
         body = self.robot_body(now_stamp) if self.self_filter and len(res.boxes) else None
         # 영상에서 팔 판정: 박스 일부만 팔이면 depth 중앙값이 팔 뒤 바닥·벽까지라 3D 판정(is_self)을 빠져나갔음
         # (실측: 스캔 자세 팔을 obstacle 0.5~0.7로 잡고 위치는 팔 뒤 바닥 (0.42, 0.20, −0.03)) → 팔을 화면에 투영해 박스 안에 있으면 버림
-        arm_px = (arm_pixels(body[1], rot, trans, s["fx"], s["fy"], s["cx"], s["cy"])
+        arm_px = (arm_pixels(body[2], rot, trans, s["fx"], s["fy"], s["cx"], s["cy"])
                   if body is not None and self.self_arm_hits > 0 else np.zeros((0, 2)))
         dets = []
         qr_boxes = []
@@ -687,15 +732,19 @@ class PerceptionNode(Node):
                 wcm = (x1 - x0) * zm / s["fx"] * 100 if zm > 0 else -1.0
                 hcm = (y1 - y0) * zm / s["fy"] * 100 if zm > 0 else -1.0
                 ok, _, posture = self.judge_puck(wcm, hcm, color, clipped, model_color, near)
+                if ok and zm <= 0 and self.puck_plane_z > 0 and -rot[2, 2] >= self.shape_view_cos:
+                    zm = plane_depth(((x0 + x1) / 2.0, (y0 + y1) / 2.0), rot, trans, s, self.puck_plane_z)
                 if not ok or zm <= 0:
                     # 퍽 아님 → 버림 · 퍽인데 깊이 없음(너무 가까움) → 위치를 몰라 이번엔 갱신 안 함 = 트랙은 마지막 위치 유지
                     # (그 자리는 깊이가 없어 expected_visible이 '못 봄'으로 세지 않음 → 기억도 안 지워짐)
                     continue
                 if posture == "lying":
                     cls = "puck_lying"  # 발행 이름은 설계대로 puck / puck_lying
-                tag = tag_in_box(tags, (x0, y0, x1, y1), self.puck_tag_ids)
-                if tag is not None:
-                    color = tag_color(tag, self.tag_colors) or color  # 윗면 태그가 색보다 확실 (R·G·B 번호대)
+                tag = tag_in_box(tags, (x0, y0, x1, y1), self.puck_tag_ids)  # 퍽 ID — 색은 HSV 그대로 (ID ≠ 색)
+                shape = ""
+                if cam == "gripper_cam" and -rot[2, 2] >= self.shape_view_cos and not clipped:  # 위에서 내려다봄
+                    shape = classify_shape(color_mask(s["bgr"][y0:y1, x0:x1], color, self.hue_tol),
+                                           self.shape_cyl, self.shape_cub)
             else:
                 region = depth_m[y0:y1, x0:x1]
                 valid = region[(region > 0.05) & (region < 6.0)]
@@ -711,7 +760,7 @@ class PerceptionNode(Node):
                 qr_boxes.append((x0, y0, x1, y1))
             z_map = rot @ np.array([px, py, zm]) + trans
             arm_in_box = cls not in PUCK_CLASSES and box_has_arm((x0, y0, x1, y1), arm_px, self.self_arm_hits)  # 퍽은 그리퍼 밑에서 집으므로 뺌
-            if body is not None and (arm_in_box or is_self(cls, z_map, body, self.body_radius, self.body_height, self.self_radius)):
+            if body is not None and (arm_in_box or is_self(cls, z_map, body, self.body_footprint, self.body_height, self.self_radius)):
                 with self.lock:
                     self.self_dropped += 1
                 continue
@@ -727,6 +776,7 @@ class PerceptionNode(Node):
                 "color": color,
                 "posture": posture,  # 퍽: standing / lying / ''(모름 — 합칠 때 아는 자세를 덮지 않음) · 그 외 ''
                 "tag": tag,          # 퍽 윗면 AprilTag 번호 (못 읽으면 None — 합칠 때 아는 번호를 덮지 않음)
+                "shape": shape if cls in PUCK_CLASSES else "",  # cylinder · cuboid · ''(모름 — 아는 모양을 덮지 않음)
             })
         for tid_tag, (u, v), box in tags:  # 장소 태그 (L1~L3) — YOLO가 아니라 태그 자체가 물체
             if tid_tag not in self.location_tags:
@@ -836,6 +886,8 @@ class PerceptionNode(Node):
                 tr["posture"] = d["posture"]
             if d.get("tag") is not None:  # 태그 번호는 한 번 읽으면 기억 (멀어지면 못 읽어도 덮지 않음)
                 tr["tag"] = d["tag"]
+            if d.get("shape"):  # 모양도 위에서 한 번 보면 기억
+                tr["shape"] = d["shape"]
             if d.get("content"):
                 tr["content"] = d["content"]
         for i, d in enumerate(dets):
@@ -845,7 +897,8 @@ class PerceptionNode(Node):
                 "class_name": kind(d["class_name"]), "posture": d.get("posture", ""),
                 "p": d["z"], "P": d["R"], "t": t, "size": d["size"],
                 "conf": d["conf"], "last_seen": stamp, "seen": {cam: t}, "miss": 0, "hits": 1,
-                "camera": cam, "px": d["px"], "color": d["color"], "tag": d.get("tag"), "content": d.get("content", "")}
+                "camera": cam, "px": d["px"], "color": d["color"], "tag": d.get("tag"), "content": d.get("content", ""),
+                "shape": d.get("shape", "")}
             used_d[i] = self.next_id
             self.next_id += 1
         return [used_d[i] for i in range(len(dets))]
@@ -870,12 +923,12 @@ class PerceptionNode(Node):
                     del self.tracks[tid]
 
     def robot_body(self, stamp):
-        """그 시각 로봇 몸 (차체 원점, [팔 체인 링크 원점…]) — map 기준. 차체 TF가 없으면 None (필터 안 함)"""
+        """그 시각 로봇 몸 (차체 회전, 차체 원점, [팔 체인 링크 원점…]) — 추적 좌표 기준. 차체 TF가 없으면 None (필터 안 함)"""
         base = self.lookup_tf(self.base_frame, stamp, quiet=True)
         if base is None:
             return None
         chain = [t[1] for t in (self.lookup_tf(link, stamp, quiet=True) for link in self.self_links) if t is not None]
-        return base[1], chain
+        return base[0], base[1], chain
 
     def to_map(self, tr):
         """추적 좌표(odom) 트랙·검출 dict → map 기준 사본 (위치·공분산 회전) — 지금의 map ← odom (RTAB-Map 보정 최신값)"""
@@ -950,7 +1003,7 @@ class PerceptionNode(Node):
             return
         self.read_barcodes()
 
-    # ---------- 바코드 (2Hz) — 장소에 붙은 작업 지시 문자열 (발제 P2-01 …). 물체(barcode, 위치 = 붙은 곳)로 기억 + /mission/qr
+    # ---------- 바코드 (2Hz) — 작업 지시 문자열 (발제 P2-01 …). 물체(barcode, 위치 = 붙은 곳)로 기억 + /mission/barcode
     def read_barcodes(self):
         if self.barcode is None:
             return

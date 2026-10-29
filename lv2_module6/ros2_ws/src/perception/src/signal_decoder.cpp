@@ -2,100 +2,101 @@
 #include "perception/signal_decoder.hpp"
 
 #include <algorithm>
+#include <cmath>
 
 namespace perception {
 
 namespace {
-bool is_color(const std::string & s) { return s == "red" || s == "yellow" || s == "green"; }
-char letter(const std::string & c) { return c == "red" ? 'R' : c == "yellow" ? 'Y' : c == "green" ? 'G' : '?'; }
-std::string text(const std::vector<std::string> & seg) {
-  std::string t;
-  for (const auto & c : seg) t += std::string(t.empty() ? "" : " ") + letter(c);
-  return t;
-}
+const std::map<std::string, std::string> LETTER{{"red", "R"}, {"yellow", "Y"}, {"green", "G"}};
+const char * STATE_NAME[] = {"WAITING", "OBSERVING", "DONE", "ERROR"};
 }  // namespace
 
-SignalDecoder::SignalDecoder(SignalParams p) : p_(std::move(p)) {}
+SignalDecoder::SignalDecoder(SignalParams p) : p_(p) { out_.state = MissionSignal::WAITING; }
 
-bool SignalDecoder::feed(double t, const std::string & state, MissionSignal & out) {
+bool SignalDecoder::feed(double t, const std::string & state) {
+  if (out_.state == MissionSignal::DONE || out_.state == MissionSignal::ERROR) return false;
   const std::string s = state.empty() ? "off" : state;
-  if (s != cur_) {
-    end_run(t);
-    cur_ = s;
-    since_ = t;
-    marked_ = false;
+  // 지난 샘플의 상태가 지금까지 이어졌다고 보고 시간을 더함 (샘플이 끊기면 0.5초까지만)
+  if (on_ && last_state_ != "off") dur_[last_state_] += std::clamp(t - last_t_, 0.0, 0.5);
+  bool changed = false;
+  if (s != "off") {
+    if (!on_) {
+      on_ = true;
+      on_since_ = t;
+      dur_.clear();
+    }
+  } else {
+    if (last_state_ != "off") off_since_ = t;
+    if (on_ && t - off_since_ >= p_.min_off_s) changed = close_blink();
+    if (!on_ && static_cast<int>(out_.sequence.size()) == p_.total && out_.state == MissionSignal::OBSERVING &&
+        t - off_since_ >= p_.end_off_s) {
+      out_.state = MissionSignal::DONE;
+      changed = true;
+    }
   }
-  if (marked_) return false;
-  // 단계 끝: 세 색 동시(all)가 separator_s · 꺼짐이 gap_s 넘게 이어짐 (구간마다 한 번)
-  if ((cur_ == "all" && t - since_ >= p_.separator_s) || (cur_ == "off" && t - since_ >= p_.gap_s)) {
-    marked_ = true;
-    return boundary(out);
-  }
-  return false;
+  last_state_ = s;
+  last_t_ = t;
+  return changed;
 }
 
-void SignalDecoder::end_run(double t) {
-  if (is_color(cur_) && t - since_ >= p_.min_on_s) seg_.push_back(cur_);  // 한 번 깜빡임
-}
-
-bool SignalDecoder::boundary(MissionSignal & out) {
-  if (seg_.empty()) return false;
-  segs_.push_back(seg_);
-  seg_.clear();
-  if (segs_.size() > 3) segs_.erase(segs_.begin());
-  if (segs_.size() < 3 || !decode(out)) return false;
-  same_ = out.raw == last_raw_ ? same_ + 1 : 1;
-  last_raw_ = out.raw;
-  return same_ >= p_.confirm;
-}
-
-bool SignalDecoder::decode(MissionSignal & out) const {
-  const auto & s1 = segs_[0], & s2 = segs_[1], & s3 = segs_[2];
-  // 1단계 한 색만 · 3단계 노랑만 1~3번 — 아니면 지금 셋은 한 바퀴가 아님 (반복 신호의 중간부터 봄)
-  if (std::any_of(s1.begin(), s1.end(), [&](const std::string & c) { return c != s1[0]; })) return false;
-  if (std::any_of(s3.begin(), s3.end(), [](const std::string & c) { return c != "yellow"; })) return false;
-  if (s3.size() > p_.dest_tags.size()) return false;
-  out.color = s1[0];
-  out.count = static_cast<int32_t>(s1.size());
-  out.sum = 0;
-  for (const auto & c : s2) {
-    const auto it = p_.scores.find(c);
-    out.sum += it != p_.scores.end() ? it->second : 0;
+bool SignalDecoder::close_blink() {
+  on_ = false;
+  std::vector<std::pair<double, std::string>> d;
+  for (const auto & [k, v] : dur_) d.push_back({v, k});
+  std::sort(d.rbegin(), d.rend());
+  if (d.empty() || d[0].first < p_.min_on_s) return false;  // 잡음
+  if (!LETTER.count(d[0].second) || (d.size() > 1 && d[1].first >= p_.min_on_s)) {
+    fail("unknown_color");  // all(여러 색) · 한 점멸 안에 두 색 — 추정하지 않음
+    return true;
   }
-  out.dest_tag = p_.dest_tags[s3.size() - 1];
-  out.raw = text(s1) + " | " + text(s2) + " | " + text(s3);
+  const std::string c = LETTER.at(d[0].second);
+  out_.sequence.push_back(c);
+  out_.onsets.push_back(rclcpp::Time(static_cast<int64_t>(on_since_ * 1e9)));
+  (c == "R" ? out_.count_r : c == "Y" ? out_.count_y : out_.count_g)++;
+  out_.state = MissionSignal::OBSERVING;
+  if (static_cast<int>(out_.sequence.size()) > p_.total) fail("too_many");
   return true;
 }
 
+void SignalDecoder::fail(const std::string & why) {
+  out_.state = MissionSignal::ERROR;
+  out_.error = why;
+}
+
 std::string SignalDecoder::progress() const {
-  std::string t;
-  for (const auto & s : segs_) t += text(s) + " | ";
-  return t + text(seg_) + (is_color(cur_) ? " (" + std::string(1, letter(cur_)) + ")" : "");
+  std::string t = STATE_NAME[out_.state];
+  t += " [";
+  for (const auto & c : out_.sequence) t += c;
+  t += "]";
+  if (on_) t += " (켜짐)";
+  if (!out_.error.empty()) t += " " + out_.error;
+  return t;
 }
 
 SignalDecoderNode::SignalDecoderNode()
 : rclcpp::Node("signal_decoder") {
-  SignalParams p;
-  p.min_on_s = declare_parameter<double>("min_on_s", p.min_on_s);
-  p.separator_s = declare_parameter<double>("separator_s", p.separator_s);
-  p.gap_s = declare_parameter<double>("gap_s", p.gap_s);
-  for (auto & [c, v] : p.scores) v = static_cast<int>(declare_parameter<int64_t>("score_" + c, v));
-  const auto dest = declare_parameter<std::vector<int64_t>>("dest_tags", {12, 13, 14});
-  p.dest_tags.assign(dest.begin(), dest.end());
-  p.confirm = static_cast<int>(declare_parameter<int64_t>("confirm", p.confirm));
-  dec_ = SignalDecoder(p);
+  params_.min_on_s = declare_parameter<double>("min_on_s", params_.min_on_s);
+  params_.min_off_s = declare_parameter<double>("min_off_s", params_.min_off_s);
+  params_.end_off_s = declare_parameter<double>("end_off_s", params_.end_off_s);
+  params_.total = static_cast<int>(declare_parameter<int64_t>("total", params_.total));
+  dec_ = SignalDecoder(params_);
   pub_ = create_publisher<MissionSignal>("/mission/signal", rclcpp::QoS(1).reliable().transient_local());
   sub_ = create_subscription<perception::msg::TrackedObjectArray>("/tracked_objects", rclcpp::QoS(5).reliable(),
     [this](perception::msg::TrackedObjectArray::ConstSharedPtr m) { on_objects(*m); });
+  reset_sub_ = create_subscription<std_msgs::msg::Empty>("/mission/signal/reset", rclcpp::QoS(1).reliable(),
+    [this](std_msgs::msg::Empty::ConstSharedPtr) {
+      dec_ = SignalDecoder(params_);
+      RCLCPP_WARN(get_logger(), "신호 처음부터 다시 셈");
+      publish();
+    });
+  publish();  // WAITING — 늦게 붙은 구독자도 지금 상태를 알게 (transient_local)
   diag_.setHardwareID("beebot");
   diag_.add("상태", [this](diagnostic_updater::DiagnosticStatusWrapper & s) {
-    s.summary(diagnostic_msgs::msg::DiagnosticStatus::OK, have_ ? "읽음: " + last_.raw : "신호 읽는 중");
+    using diagnostic_msgs::msg::DiagnosticStatus;
+    const auto & r = dec_.result();
+    s.summary(r.state == MissionSignal::ERROR ? DiagnosticStatus::ERROR : DiagnosticStatus::OK, dec_.progress());
     s.add("신호등", state_);
-    s.add("지금까지", dec_.progress());
-    if (have_) {
-      s.add("목표", last_.color + " " + std::to_string(last_.count) + "개 · 합 " + std::to_string(last_.sum) +
-                    " · 목적지 태그 " + std::to_string(last_.dest_tag));
-    }
+    s.add("R·Y·G", std::to_string(r.count_r) + "·" + std::to_string(r.count_y) + "·" + std::to_string(r.count_g));
   });
 }
 
@@ -108,14 +109,21 @@ void SignalDecoderNode::on_objects(const perception::msg::TrackedObjectArray & m
     if (!best || rclcpp::Time(o.last_seen) > rclcpp::Time(best->last_seen)) best = &o;
   }
   state_ = best && (now_t - rclcpp::Time(best->last_seen, now_t.get_clock_type())).seconds() < 0.6 ? best->color : "";
-  MissionSignal out;
-  if (!dec_.feed(now_t.seconds(), state_, out)) return;
-  if (have_ && out.raw == last_.raw) return;  // 반복 신호 — 같은 답은 한 번만
-  last_ = out;
-  have_ = true;
+  if (!dec_.feed(now_t.seconds(), state_)) return;
+  publish();
+  const auto & r = dec_.result();
+  if (r.state == MissionSignal::DONE)
+    RCLCPP_WARN(get_logger(), "신호 끝 %s — R%d Y%d G%d", dec_.progress().c_str(), r.count_r, r.count_y, r.count_g);
+  else if (r.state == MissionSignal::ERROR)
+    RCLCPP_ERROR(get_logger(), "신호 관측 실패: %s", dec_.progress().c_str());
+  else
+    RCLCPP_INFO(get_logger(), "점멸 %zu: %s", r.sequence.size(), r.sequence.back().c_str());
+}
+
+void SignalDecoderNode::publish() {
+  MissionSignal out = dec_.result();
+  out.header.stamp = now();
   pub_->publish(out);
-  RCLCPP_WARN(get_logger(), "신호 읽음 [%s] → %s 퍽 %d개 · 번호 합 %d · 목적지 태그 %d",
-    out.raw.c_str(), out.color.c_str(), out.count, out.sum, out.dest_tag);
 }
 
 }  // namespace perception

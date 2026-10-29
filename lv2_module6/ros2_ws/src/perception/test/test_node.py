@@ -33,7 +33,7 @@ def test_empty_without_model():
         # 파라미터 선언 확인 (test-bringup yaml 검사와 동일 항목)
         for p in ("rate_hz", "model_path", "confidence", "imgsz", "device", "sync_slop", "match_dist",
                   "pixel_sigma", "depth_sigma0", "depth_sigma_k", "process_noise", "process_noise_dynamic",
-                  "self_filter", "base_frame", "self_links", "self_radius", "body_radius", "body_height", "track_frame",
+                  "self_filter", "base_frame", "self_links", "self_radius", "body_footprint", "body_height", "track_frame",
                   "self_arm_hits", "miss_count", "miss_max_range", "miss_edge_px", "miss_occlusion_m",
                   "puck_colors", "hue_tol", "check_model_color", "size_long_min_cm", "size_long_max_cm",
                   "size_short_min_cm", "square_long_cm", "square_ratio", "stand_ratio", "edge_px", "near_px",
@@ -49,7 +49,7 @@ def test_empty_without_model():
 
 
 def test_mission_qr():
-    """QR 판이 보이는 영상을 넣으면 /mission/qr 로 문제 코드를 낸다 (documents/mission/README.md)."""
+    """QR 판이 보이는 영상을 넣으면 /mission/barcode 로 작업 지시 문자열을 낸다 (documents/mission/README.md)."""
     import cv2
     import numpy as np
     from sensor_msgs.msg import Image
@@ -81,7 +81,7 @@ def test_mission_qr():
         t.transform.rotation.w = 1.0
         tfb.sendTransform(t)
         got = []
-        node.create_subscription(String, "/mission/qr", lambda m: got.append(m.data),
+        node.create_subscription(String, "/mission/barcode", lambda m: got.append(m.data),
                                  node.qr_pub.qos_profile)
         node.on_frame("pole_front_cam", msg, depth_msg)  # 동기화된 컬러·depth 쌍
         end = node.get_clock().now() + rclpy.duration.Duration(seconds=4)
@@ -211,8 +211,8 @@ def test_self_filter():
     base = np.array([2.35, 0.0, 0.0])
     chain = [np.array(v) for v in ([2.40, 0.0, 0.19], [2.42, -0.02, 0.32], [2.52, -0.04, 0.33], [2.58, -0.05, 0.31],
                                    [2.65, -0.04, 0.29], [2.75, -0.05, 0.26])]  # shoulder … end_effector (실측 자세)
-    body = (base, chain)
-    args = (0.2, 0.6, 0.06)
+    body = (np.eye(3), base, chain)
+    args = ((0.08, -0.245, 0.165), 0.6, 0.06)
     assert is_self("obstacle", np.array([2.62, -0.03, 0.31]), body, *args)      # 그리퍼를 장애물로
     assert is_self("obstacle", np.array([2.30, 0.05, 0.25]), body, *args)       # 차체·적재함 위
     assert not is_self("puck", np.array([2.72, -0.05, 0.22]), body, *args)      # 손가락 사이 아래 퍽 — 남김
@@ -220,6 +220,20 @@ def test_self_filter():
     assert not is_self("puck", np.array([2.75, 0.30, 0.02]), body, *args)       # 옆 바닥 퍽
     assert not is_self("puck", np.array([2.54, 0.0, 0.02]), body, *args)        # 범퍼 바로 앞 바닥 퍽 (차체 반경 안이지만 바닥)
     assert not is_self("obstacle", np.array([3.20, 0.0, 0.10]), body, *args)    # 앞 장애물
+    assert not is_self("puck", np.array([2.50, 0.06, 0.13]), body, *args)       # 박스(앞 1.6 cm) 위 퍽 — 예전 원(0.2)이면 버렸음
+    yaw90 = np.array([[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])     # 차체가 +y를 볼 때는 외곽도 같이 돎
+    assert is_self("obstacle", np.array([2.35, -0.20, 0.25]), (yaw90, base, chain), *args)  # 뒤쪽 적재함 위
+
+
+def test_plane_depth():
+    """깊이 없는 퍽: 아래를 보는 카메라의 화면 가운데 광선이 z = 0.13 평면과 만나는 깊이"""
+    import numpy as np
+    from perception_node import plane_depth
+
+    cam = {"fx": 500.0, "fy": 500.0, "cx": 320.0, "cy": 240.0}
+    down = np.array([[1.0, 0.0, 0.0], [0.0, -1.0, 0.0], [0.0, 0.0, -1.0]])  # 광학 z → 추적 −z
+    assert abs(plane_depth((320, 240), down, np.array([0.5, 0.0, 0.24]), cam, 0.13) - 0.11) < 1e-9
+    assert plane_depth((320, 240), np.eye(3), np.array([0.5, 0.0, 0.24]), cam, 0.13) == 0.0  # 위를 보면 안 만남
 
 
 
@@ -508,11 +522,11 @@ def test_resolve_model_path(tmp_path):
 
 # ---------- 표식 (발제 배포 표식: 퍽 AprilTag 0~11 · 장소 12~14 · 바코드) · 신호등 단계 구분
 def test_tags_and_markers():
-    """AprilTag 36h11 디코드 → 퍽 박스 안 번호 · 번호 → 색 / 신호등 두 색 이상 켜짐 = all / 태그 다른 퍽·장소는 다른 물체 · 번호 기억"""
+    """AprilTag 36h11 디코드 → 퍽 박스 안 번호 / 신호등 두 색 이상 켜짐 = all / 태그 다른 퍽·장소는 다른 물체 · 번호 기억"""
     import cv2
     import numpy as np
     from builtin_interfaces.msg import Time
-    from perception_node import classify_color, detect_tags, tag_color, tag_detector, tag_in_box, to_msg
+    from perception_node import classify_color, detect_tags, tag_detector, tag_in_box, to_msg
 
     dic = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_APRILTAG_36h11)
     img = np.full((240, 320, 3), 255, np.uint8)
@@ -522,8 +536,6 @@ def test_tags_and_markers():
     assert sorted(t[0] for t in tags) == [2, 13]
     assert tag_in_box(tags, (30, 30, 110, 110), set(range(12))) == 2
     assert tag_in_box(tags, (170, 30, 270, 130), set(range(12))) is None  # 장소 태그는 퍽 번호 아님
-    colors = {"red": [0, 1, 2, 3], "green": [4, 5, 6, 7], "blue": [8, 9, 10, 11]}
-    assert tag_color(2, colors) == "red" and tag_color(9, colors) == "blue" and tag_color(13, colors) == ""
 
     roi = np.full((40, 14, 3), (40, 40, 40), np.uint8)
     roi[2:10, 4:10] = (40, 40, 220)    # 빨강
@@ -542,8 +554,33 @@ def test_tags_and_markers():
         assert b[0] in a and node.tracks[b[0]]["tag"] is not None  # 멀어서 못 읽은 관측이 아는 번호를 덮지 않음
         msg = to_msg(a[0], node.to_map(node.tracks[a[0]]))
         assert ("tag", "1") in [(kv.key, kv.value) for kv in msg.details]
+        assert msg.color == "red"  # 색은 HSV 관측 그대로 (태그 번호로 덮지 않음)
+        node.fuse("gripper_cam", Time(sec=2), [{**_det((1.0, 0.0, 0.03), color="red"), "tag": 1, "shape": "cuboid"}])
+        node.fuse("pole_front_cam", Time(sec=3), [{**_det((1.0, 0.0, 0.03), color="red"), "tag": None, "shape": ""}])
+        msg = to_msg(a[0], node.to_map(node.tracks[a[0]]))
+        assert ("shape", "cuboid") in [(kv.key, kv.value) for kv in msg.details]  # 옆에서 본 관측이 모양을 덮지 않음
     finally:
         rclpy.shutdown()
+
+
+def test_classify_shape():
+    """위에서 본 퍽 색 마스크 → 원 = cylinder · 정사각형 = cuboid (윗면 흰 태그 라벨 구멍이 있어도) · 작으면 모름"""
+    import cv2
+    import numpy as np
+    from perception_node import classify_shape, color_mask
+
+    img = np.zeros((120, 120, 3), np.uint8)
+    cv2.circle(img, (60, 60), 40, (40, 40, 220), -1)
+    cv2.rectangle(img, (48, 48), (72, 72), (255, 255, 255), -1)  # 윗면 태그 라벨
+    assert classify_shape(color_mask(img, "red", 10)) == "cylinder"
+    img[:] = 0
+    cv2.rectangle(img, (20, 20), (100, 100), (60, 180, 60), -1)
+    cv2.rectangle(img, (48, 48), (72, 72), (255, 255, 255), -1)
+    assert classify_shape(color_mask(img, "green", 10)) == "cuboid"
+    assert classify_shape(color_mask(img, "red", 10)) == ""  # 그 색이 없음
+    small = np.zeros((20, 20), np.uint8)
+    cv2.circle(small, (10, 10), 5, 255, -1)
+    assert classify_shape(small) == ""
 
 
 def test_barcode_code128():

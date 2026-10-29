@@ -339,195 +339,9 @@ bool parse_goals(const std::string & body, std::vector<SubGoal> & goals, std::st
 
 }  // namespace
 
-std::vector<SubGoal> carry_goals(const std::vector<std::string> & pucks, const std::string & dest) {
-  // 퍽마다 [다가가기 → 집기 → 적재함에 싣기] → 목적지로 → 실은 수만큼 [적재함에서 꺼내기 → 목적지에 내려놓기]
-  // (같은 곳에 여러 번 place하면 coordinator가 place_spacing으로 비켜 놓음)
-  std::vector<SubGoal> g;
-  auto add = [&g](const std::string & skill, const std::string & target, const std::string & rel, float off) {
-    SubGoal s;
-    s.step = static_cast<uint32_t>(g.size() + 1);
-    s.skill = skill;
-    s.target = target;
-    s.relation = rel;
-    s.offset_m = off;
-    g.push_back(s);
-  };
-  for (const auto & p : pucks) {
-    add("navigate", p, "front", 0.20f);
-    add("pick", p, "", 0.0f);
-    add("place", "tray", "", 0.0f);
-  }
-  add("navigate", dest, "front", 0.20f);
-  for (size_t i = 0; i < pucks.size(); ++i) {
-    add("pick", "tray", "", 0.0f);
-    add("place", dest, "on", 0.0f);
-  }
-  return g;
-}
-
-std::vector<size_t> pick_combo(const std::vector<int> & tags, const std::vector<double> & cost, int count, int sum) {
-  // 후보는 많아야 12개(퍽 전부) — 모든 부분집합을 본다
-  const size_t n = std::min<size_t>(tags.size(), 20);
-  std::vector<size_t> best;
-  double best_cost = 0.0;
-  for (uint32_t m = 0; m < (1u << n); ++m) {
-    if (__builtin_popcount(m) != count) continue;
-    int s = 0;
-    double c = 0.0;
-    std::vector<size_t> pick;
-    for (size_t i = 0; i < n; ++i) {
-      if (!(m & (1u << i))) continue;
-      s += tags[i];
-      c += i < cost.size() ? cost[i] : 0.0;
-      pick.push_back(i);
-    }
-    if (s == sum && (best.empty() || c < best_cost)) {
-      best = pick;
-      best_cost = c;
-    }
-  }
-  return best;
-}
-
 std::string detail(const perception::msg::TrackedObject & o, const std::string & key) {
   for (const auto & kv : o.details) if (kv.key == key) return kv.value;
   return "";
-}
-
-SignalPlan signal_plan(const TrackedObjectArray & objs, const perception::msg::MissionSignal & sig, double rx, double ry,
-  const std::set<uint32_t> & inspected, int capacity) {
-  SignalPlan r;
-  auto dist = [&](const perception::msg::TrackedObject & o) {
-    return std::hypot(o.pose.pose.position.x - rx, o.pose.pose.position.y - ry);
-  };
-  std::string dest;
-  std::vector<const perception::msg::TrackedObject *> known, unknown;
-  for (const auto & o : objs.objects) {
-    const std::string tag = detail(o, "tag");
-    if (o.class_name == "location" && tag == std::to_string(sig.dest_tag)) dest = std::to_string(o.id);
-    if (o.class_name != "puck" && o.class_name != "puck_lying") continue;
-    if (!tag.empty()) {
-      if (o.color == sig.color) known.push_back(&o);  // 태그가 있으면 perception이 색도 태그 번호대로 맞춤
-    } else if (!inspected.count(o.id) && (o.color == sig.color || o.color.empty() || o.color == "unknown")) {
-      unknown.push_back(&o);
-    }
-  }
-  if (sig.count < 1 || sig.count > capacity) {
-    r.kind = "fail";
-    r.why = std::to_string(sig.count) + "개는 적재함(" + std::to_string(capacity) + "칸)에 못 실음";
-    return r;
-  }
-  std::vector<int> tags;
-  std::vector<double> cost;
-  for (const auto * o : known) {
-    tags.push_back(std::stoi(detail(*o, "tag")));
-    cost.push_back(dist(*o));
-  }
-  const auto combo = pick_combo(tags, cost, sig.count, sig.sum);
-  if (!combo.empty()) {
-    if (dest.empty()) {
-      r.kind = "wait";
-      r.why = "목적지 태그 " + std::to_string(sig.dest_tag) + " 아직 못 봄";
-      return r;
-    }
-    std::vector<std::string> pucks;
-    std::string list;
-    for (size_t i : combo) {
-      pucks.push_back(std::to_string(known[i]->id));
-      list += (list.empty() ? "" : "+") + std::to_string(tags[i]);
-    }
-    r.kind = "carry";
-    r.goals = carry_goals(pucks, dest);
-    for (size_t i : combo) r.carry_tags.push_back(tags[i]);
-    r.why = sig.color + " " + list + " = " + std::to_string(sig.sum) + " → 태그 " + std::to_string(sig.dest_tag);
-    return r;
-  }
-  if (!unknown.empty()) {  // 번호를 모르는 퍽부터 본다 — 가까운 순
-    std::sort(unknown.begin(), unknown.end(), [&](auto * a, auto * b) { return dist(*a) < dist(*b); });
-    r.kind = "inspect";
-    for (const auto * o : unknown) {
-      SubGoal g;
-      g.step = static_cast<uint32_t>(r.goals.size() + 1);
-      g.skill = "inspect";
-      g.target = std::to_string(o->id);
-      r.goals.push_back(g);
-      r.inspect_ids.push_back(o->id);
-    }
-    r.why = "번호 모르는 퍽 " + std::to_string(unknown.size()) + "개 보기";
-    return r;
-  }
-  std::string seen;
-  for (int t : tags) seen += (seen.empty() ? "" : ",") + std::to_string(t);
-  r.kind = "fail";
-  r.why = sig.color + " 번호 [" + seen + "] 중 " + std::to_string(sig.count) + "개로 합 " + std::to_string(sig.sum) + " 못 만듦";
-  return r;
-}
-
-VerifyPlan verify_plan(const TrackedObjectArray & objs, int dest_tag, const std::vector<int> & tags, double radius,
-  bool looked) {
-  VerifyPlan r;
-  const perception::msg::TrackedObject * dest = nullptr;
-  for (const auto & o : objs.objects)
-    if (o.class_name == "location" && detail(o, "tag") == std::to_string(dest_tag)) dest = &o;
-  if (!dest) {
-    r.kind = "wait";
-    r.why = "목적지 태그 " + std::to_string(dest_tag) + " 안 보임";
-    return r;
-  }
-  auto near = [&](const perception::msg::TrackedObject & o) {
-    return std::hypot(o.pose.pose.position.x - dest->pose.pose.position.x,
-                      o.pose.pose.position.y - dest->pose.pose.position.y) <= radius;
-  };
-  auto is_puck = [](const perception::msg::TrackedObject & o) {
-    return o.class_name == "puck" || o.class_name == "puck_lying";
-  };
-  const std::string dest_id = std::to_string(dest->id);
-  if (!looked) {  // 목적지로 가서 근처 퍽 중 번호 모르는 것만 위에서 봄 (번호 아는 건 위치만 갱신되면 됨)
-    r.kind = "look";
-    SubGoal nav;
-    nav.step = 1;
-    nav.skill = "navigate";
-    nav.target = dest_id;
-    nav.relation = "front";
-    nav.offset_m = 0.20f;
-    r.goals.push_back(nav);
-    for (const auto & o : objs.objects) {
-      if (!is_puck(o) || !near(o) || !detail(o, "tag").empty()) continue;
-      SubGoal g;
-      g.step = static_cast<uint32_t>(r.goals.size() + 1);
-      g.skill = "inspect";
-      g.target = std::to_string(o.id);
-      r.goals.push_back(g);
-    }
-    r.why = "목적지 " + std::to_string(dest_tag) + " 보러 감";
-    return r;
-  }
-  std::vector<std::string> found;  // 빠진 번호를 다른 곳에서 본 퍽
-  std::string list;
-  for (int t : tags) {
-    const std::string tag = std::to_string(t);
-    const perception::msg::TrackedObject * at_dest = nullptr, * elsewhere = nullptr;
-    for (const auto & o : objs.objects) {
-      if (!is_puck(o) || detail(o, "tag") != tag) continue;
-      (near(o) ? at_dest : elsewhere) = &o;
-    }
-    if (at_dest) continue;
-    r.missing.push_back(t);
-    list += (list.empty() ? "" : ",") + tag;
-    if (elsewhere) found.push_back(std::to_string(elsewhere->id));
-  }
-  if (r.missing.empty()) {
-    r.kind = "ok";
-    r.why = "목적지 " + std::to_string(dest_tag) + "에 " + std::to_string(tags.size()) + "개 다 있음";
-  } else if (found.size() == r.missing.size()) {
-    r.kind = "recarry";
-    r.goals = carry_goals(found, dest_id);
-    r.why = "번호 [" + list + "] 다른 곳에 있음 → 다시 옮김";
-  } else {
-    r.kind = "missing";
-    r.why = "번호 [" + list + "] 목적지 " + std::to_string(dest_tag) + "에 없음";
-  }
-  return r;
 }
 
 VlmTaskPlanner::VlmTaskPlanner()
@@ -535,18 +349,11 @@ VlmTaskPlanner::VlmTaskPlanner()
   max_replans_ = declare_parameter<int>("max_replans", 1);
   vlm_endpoint_ = declare_parameter<std::string>("vlm_endpoint", "");
   vlm_timeout_s_ = declare_parameter<double>("vlm_timeout_s", 120.0);
-  tray_capacity_ = declare_parameter<int>("tray_capacity", 4);
-  verify_period_s_ = declare_parameter<double>("verify_period_s", 60.0);
-  verify_radius_m_ = declare_parameter<double>("verify_radius_m", 0.20);
   tf_buffer_ = std::make_unique<tf2_ros::Buffer>(get_clock());
   tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
   goals_pub_ = create_publisher<SubGoalArray>("/task/sub_goals", rclcpp::QoS(10).reliable().transient_local());
   cmd_sub_ = create_subscription<std_msgs::msg::String>("/cmd/user_command", rclcpp::QoS(10).reliable(),
     [this](std_msgs::msg::String::ConstSharedPtr m) { on_command("명령", m->data); });
-  // 장소에 붙은 바코드(작업 지시 문자열, 발제 P2-01 …) · QR — perception이 읽음. 명령과 똑같이 계획 (VLM이 해석)
-  // 템플릿(VLM 없음): 가까운 퍽 1개를 장소(location)로
-  qr_sub_ = create_subscription<std_msgs::msg::String>("/mission/qr", rclcpp::QoS(1).reliable().transient_local(),
-    [this](std_msgs::msg::String::ConstSharedPtr m) { on_command("QR 문제", m->data); });
   objects_sub_ = create_subscription<TrackedObjectArray>("/tracked_objects", rclcpp::QoS(5).reliable(),
     [this](TrackedObjectArray::ConstSharedPtr m) {
       std::string sig;
@@ -561,26 +368,8 @@ VlmTaskPlanner::VlmTaskPlanner()
       // 물체 집합이 바뀔 때만 재시도 — 같은 목록(빈 목록 포함)으로 매번 VLM을 때리면 초당 요청 폭주
       if (pending_ && changed) make_plan();  // 물체 목록보다 명령이 먼저 왔으면 지금 계획
     });
-  signal_sub_ = create_subscription<perception::msg::MissionSignal>("/mission/signal", rclcpp::QoS(1).reliable().transient_local(),
-    [this](perception::msg::MissionSignal::ConstSharedPtr m) {
-      RCLCPP_INFO(get_logger(), "신호등 미션: %s %d개 · 합 %d · 목적지 태그 %d", m->color.c_str(), m->count, m->sum, m->dest_tag);
-      replans_ = 0;
-      {
-        std::lock_guard<std::mutex> lock(mutex_);
-        signal_ = *m;
-        replan_ = ReplanInfo{};
-      }
-      signal_active_ = true;
-      inspected_.clear();
-      stored_dest_ = -1;  // 새 미션 — 이전 수납 확인 대상은 버림
-      verify_note_ = "없음";
-      pending_ = true;
-      make_plan();
-    });
   mode_sub_ = create_subscription<std_msgs::msg::String>("/state/operation_mode",
     rclcpp::QoS(1).reliable().transient_local(), [this](std_msgs::msg::String::ConstSharedPtr m) { mode_ = m->data; });
-  if (verify_period_s_ > 0.0)
-    verify_timer_ = create_wall_timer(std::chrono::duration<double>(verify_period_s_), [this]() { verify_tick(); });
   status_sub_ = create_subscription<TaskStatus>("/task/status", rclcpp::QoS(10).reliable().transient_local(),
     [this](TaskStatus::ConstSharedPtr m) { on_status(*m); });
   const auto sensor_qos = rclcpp::SensorDataQoS().keep_last(1);  // VLM은 최신 장면만 필요
@@ -604,36 +393,13 @@ VlmTaskPlanner::VlmTaskPlanner()
     s.add("보이는 물체", objects_ ? objects_->objects.size() : 0);
     s.add("vlm", vlm_endpoint_.empty() ? std::string("template") : vlm_endpoint_);
     s.add("vlm 비행", vlm_busy_.load() ? "예" : "아니오");
-    s.add("신호등 미션", signal_active_ ? signal_note_ : "없음");
-    s.add("수납 확인", verify_note_);
   });
 }
 
 void VlmTaskPlanner::on_status(const TaskStatus & s) {
   if (s.state == TaskStatus::RUNNING || s.plan_id != plan_id_.load()) return;
   done_plan_ = s.plan_id;
-  if (s.state == TaskStatus::SUCCEEDED) {
-    if (plan_kind_ == "inspect" && signal_active_) {  // 번호를 봤으니 다시 판단 (조합이 생겼으면 옮기기)
-      pending_ = true;
-      make_plan();
-    } else if (plan_kind_ == "carry" && signal_active_) {  // 옮기기 끝 → 수납 확인 대상으로 두고 바로 한 번 확인
-      signal_active_ = false;
-      signal_note_ = "끝";
-      stored_dest_ = signal_.dest_tag;
-      stored_tags_ = carry_tags_;
-      make_verify_plan(false);
-    } else if (plan_kind_ == "verify") {
-      make_verify_plan(true);
-    } else if (plan_kind_ == "recarry") {
-      make_verify_plan(false);
-    }
-    return;
-  }
-  if (plan_kind_ == "verify" || plan_kind_ == "recarry") {  // 확인 계획은 재계획 없이 다음 주기에 다시
-    verify_note_ = "확인 실패(" + s.reason + ") — 다음 주기에 다시";
-    RCLCPP_WARN(get_logger(), "수납 확인 계획 실패: %s", s.reason.c_str());
-    return;
-  }
+  if (s.state == TaskStatus::SUCCEEDED) return;
   if (s.reason.rfind("manual", 0) == 0) return;  // 수동 개입으로 멈춘 것 — 사람이 다시 명령할 때까지
   if (s.reason.rfind("explore", 0) == 0) return;  // 자동 탐사(EXPLORE)로 멈춘 것 — 탐사 끝나고 사람이 다시 명령할 때까지
   if (s.reason.rfind("cancelled", 0) == 0) return;  // 명시적 정지 (sim 정지 버튼) — 재계획 없음
@@ -655,10 +421,6 @@ std::string VlmTaskPlanner::find_in(const TrackedObjectArray & objs, const std::
 }
 
 void VlmTaskPlanner::make_plan() {
-  if (signal_active_) {  // 신호등 암호 미션은 규칙으로
-    make_signal_plan();
-    return;
-  }
   TrackedObjectArray::ConstSharedPtr objs;
   {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -688,8 +450,6 @@ void VlmTaskPlanner::make_plan() {
 void VlmTaskPlanner::on_command(const char * source, const std::string & text) {
   RCLCPP_INFO(get_logger(), "%s: \"%s\"", source, text.c_str());
   replans_ = 0;
-  stored_dest_ = -1;  // 새 명령이 퍽을 옮길 수 있음 — 이전 수납 확인 대상은 버림
-  verify_note_ = "없음";
   {
     std::lock_guard<std::mutex> lock(mutex_);
     cmd_ = text;
@@ -706,7 +466,6 @@ void VlmTaskPlanner::make_template(const TrackedObjectArray & objs, const std::s
   const auto puck = find_in(objs, "puck"), dest = find_in(objs, "location");
   if (puck.empty() || dest.empty()) return;  // 물체 사라짐 — 보류 유지
   pending_ = false;
-  plan_kind_ = "template";
   SubGoalArray plan;
   plan.header.stamp = now();
   plan.plan_id = plan_id_.fetch_add(1) + 1;
@@ -716,72 +475,6 @@ void VlmTaskPlanner::make_template(const TrackedObjectArray & objs, const std::s
   plan.goals.push_back(goal(4, "place", dest, "on", 0.0f));
   goals_pub_->publish(plan);
   RCLCPP_INFO(get_logger(), "/sub_goals plan=%u (%zu steps) [template]", plan.plan_id, plan.goals.size());
-}
-
-void VlmTaskPlanner::publish_plan(std::vector<SubGoal> goals, const char * how) {
-  SubGoalArray plan;
-  plan.header.stamp = now();
-  plan.plan_id = plan_id_.fetch_add(1) + 1;
-  plan.goals = std::move(goals);
-  goals_pub_->publish(plan);
-  RCLCPP_INFO(get_logger(), "/sub_goals plan=%u (%zu steps) [%s]", plan.plan_id, plan.goals.size(), how);
-}
-
-void VlmTaskPlanner::make_signal_plan() {
-  TrackedObjectArray::ConstSharedPtr objs;
-  perception::msg::MissionSignal sig;
-  {
-    std::lock_guard<std::mutex> lock(mutex_);
-    objs = objects_;
-    sig = signal_;
-  }
-  if (!objs) return;  // 물체 목록이 오면 다시 (pending_)
-  const RobotPose robot = robot_pose();
-  const auto r = signal_plan(*objs, sig, robot.x, robot.y, inspected_, tray_capacity_);
-  signal_note_ = r.kind + " — " + r.why;
-  if (r.kind == "wait") {  // 목적지 태그를 볼 때까지 (물체 목록이 바뀌면 다시)
-    RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000, "신호등 미션 보류: %s", r.why.c_str());
-    return;
-  }
-  pending_ = false;
-  RCLCPP_INFO(get_logger(), "신호등 미션 %s: %s", r.kind.c_str(), r.why.c_str());
-  if (r.kind == "fail") {
-    signal_active_ = false;
-    plan_kind_ = "say";
-    publish_plan({goal(1, "say", "신호등 미션: " + r.why, "", 0.0f)}, "signal");
-    return;
-  }
-  inspected_.insert(r.inspect_ids.begin(), r.inspect_ids.end());
-  carry_tags_ = r.carry_tags;
-  plan_kind_ = r.kind;
-  publish_plan(r.goals, "signal");
-}
-
-void VlmTaskPlanner::verify_tick() {
-  // 하던 계획이 없고(끝났고) AUTO일 때만 — 수동·탐사 중이거나 다른 계획 중이면 다음 주기에
-  if (stored_dest_ < 0 || mode_ != "AUTO" || signal_active_ || pending_ || done_plan_.load() != plan_id_.load()) return;
-  make_verify_plan(false);
-}
-
-void VlmTaskPlanner::make_verify_plan(bool looked) {
-  if (stored_dest_ < 0) return;
-  TrackedObjectArray::ConstSharedPtr objs;
-  {
-    std::lock_guard<std::mutex> lock(mutex_);
-    objs = objects_;
-  }
-  if (!objs) return;
-  const auto r = verify_plan(*objs, stored_dest_, stored_tags_, verify_radius_m_, looked);
-  verify_note_ = r.kind + " — " + r.why;
-  RCLCPP_INFO(get_logger(), "수납 확인 %s: %s", r.kind.c_str(), r.why.c_str());
-  if (r.kind == "wait" || r.kind == "ok") return;
-  if (r.kind == "missing") {
-    plan_kind_ = "say";
-    publish_plan({goal(1, "say", "수납 확인: " + r.why, "", 0.0f)}, "verify");
-    return;
-  }
-  plan_kind_ = r.kind == "look" ? "verify" : "recarry";
-  publish_plan(r.goals, "verify");
 }
 
 void VlmTaskPlanner::try_vlm_async() {

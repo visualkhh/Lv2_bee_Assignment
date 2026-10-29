@@ -7,11 +7,6 @@ vlm_task_planner:
     max_replans: 1           # 명령 하나당 재계획 횟수 (coordinator의 max_step_failures와 짝)
     vlm_endpoint: ""         # 비면 템플릿 고정(기본·CI). 호스트 ai-service면 "http://127.0.0.1:8000" (컨테이너 host망이라 localhost가 호스트)
     vlm_timeout_s: 120.0    # [s] VLM 대기 — 넘기면 템플릿 폴백. ai-service backend human(사람이 웹에서 계획)이면 그쪽 timeout_s(600) 이상으로
-    tray_capacity: 4         # MOVE_TO_B 템플릿이 한 번에 싣는 퍽 수 (coordinator tray_slots 칸 수와 같게)
-    # 수납 확인 — 신호등 미션 옮기기가 끝나면 바로, 그 뒤 이 주기마다 목적지로 가서 옮긴 번호가 그대로 있는지 봄
-    #   (AUTO · 하던 계획이 끝났을 때만). 다른 곳에 있으면 다시 옮기고, 안 보이면 say. 새 명령·신호가 오면 그만
-    verify_period_s: 60.0    # [s] 0이면 주기 확인 끔 (옮긴 직후 한 번은 함)
-    verify_radius_m: 0.20    # [m] 목적지 장소 태그에서 이 안이면 "거기 있음" (place_spacing 0.08 × 퍼짐 + 여유)
 coordinator:
   ros__parameters:
     # 시작 자세 — bringup 직후 한 번 팔을 이 자세로 (MoveIt 없이 JTC 토픽, 3초 궤적).
