@@ -7,8 +7,8 @@
                 double radius = 5
             }
             dictionary Perspective = {
-                double3 position = (0.7415802337888127, -0.26685558916930713, 0.6307924223158996)
-                double3 target = (0.05090711248509894, 0.18188495943929323, 0.14688693794415486)
+                double3 position = (-1.8609239761363081, -3.552728326621407, 0.7469819308991473)
+                double3 target = (-1.976087976888178, -1.9321686687690425, 0.05912545336346431)
             }
             dictionary Right = {
                 double3 position = (0, -5, 0)
@@ -16,7 +16,7 @@
             }
             dictionary Top = {
                 double3 position = (0, 0, 5)
-                double radius = 5
+                double radius = 10.532421875
             }
             string boundCamera = "/OmniverseKit_Persp"
         }
@@ -44,9 +44,9 @@ def Xform "World"
         prepend payload = @./beebot/beebot.usda@
     )
     {
-        quatf xformOp:orient = (-0.08497763, 0, 0, 0.99638283)
+        quatf xformOp:orient = (0.08497763, 0, 0, -0.99638283)
         float3 xformOp:scale = (1, 1, 1)
-        double3 xformOp:translate = (0.8844677209854126, 0.05711330100893974, 0.000001370847371617856)
+        double3 xformOp:translate = (-2.1491937606855354, -2.352441781888314, 0.0000013708473711737668)
         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
 
         over "Geometry"
@@ -372,7 +372,7 @@ def Xform "World"
             token inputs:texture:format = "latlong"
             token omni:rtx:domeLight:mode = "sphere"
             custom int omni:rtx:usdluxVersion = 2505
-            quatd xformOp:orient = (0.4999999999999999, 0.5, -0.5000000000000001, -0.5)
+            quatd xformOp:orient = (-0.674379723206628, -0.6743797232066278, 0.2126311099715938, 0.21263110997159382)
             double3 xformOp:scale = (1, 1, 1)
             double3 xformOp:translate = (0, 0, 0)
             uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
@@ -480,57 +480,42 @@ def Xform "World"
         }
     }
 
-    def "puck_box_red_1" (
-        prepend payload = @./puck/box/puck_box_red_1.usda@
+    def "sign" (
+        prepend payload = @./sign/sign.usda@
     )
     {
         float3 xformOp:rotateXYZ = (0, 0, 0)
         float3 xformOp:scale = (1, 1, 1)
-        double3 xformOp:translate = (0.24634825615679037, 0.5580159403185814, 0.39808489544599657)
-        float3 xformOp:translate:pivot = (0, 0, 0)
+        double3 xformOp:translate = (-2.611635884753067, -2.314750165208043, 9.221745402854253e-7)
         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
     }
 
-    def "puck_box_green_0" (
-        prepend payload = @./puck/box/puck_box_green_0.usda@
-    )
-    {
-        float3 xformOp:rotateXYZ = (30, 0, 0)
-        float3 xformOp:scale = (1, 1, 1)
-        double3 xformOp:translate = (-0.10378082096869003, 0.17474361832054117, 0.12405483713523174)
-        float3 xformOp:translate:pivot = (0, 0, 0)
-        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
-    }
-
-    def "puck_cyl_red_3" (
-        prepend payload = @./puck/cyl/puck_cyl_red_3.usda@
+    def "shelf_L2" (
+        prepend payload = @./shelf/shelf_L2.usda@
     )
     {
         float3 xformOp:rotateXYZ = (0, 0, 0)
         float3 xformOp:scale = (1, 1, 1)
-        double3 xformOp:translate = (-0.11878062622332708, 0.10461359530332885, 0.1193477024304277)
         float3 xformOp:translate:pivot = (0, 0, 0)
         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
     }
 
-    def "puck_cyl_green_2" (
-        prepend payload = @./puck/cyl/puck_cyl_green_2.usda@
-    )
-    {
-        float3 xformOp:rotateXYZ = (279.9684, 0, 0)
-        float3 xformOp:scale = (1, 1, 1)
-        double3 xformOp:translate = (-0.06476003564945587, 0.20170665760639342, 0.11534675765858979)
-        float3 xformOp:translate:pivot = (0, 0, 0)
-        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
-    }
-
-    def "shelf" (
-        prepend payload = @./shelf/shelf.usda@
+    def "shelf_L3" (
+        prepend payload = @./shelf/shelf_L3.usda@
     )
     {
         float3 xformOp:rotateXYZ = (0, 0, 0)
         float3 xformOp:scale = (1, 1, 1)
-        double3 xformOp:translate = (-0.16999135061722098, 0.18163122655637345, -5.551115123125824e-16)
+        float3 xformOp:translate:pivot = (0, 0, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+    }
+
+    def "shelf_L1" (
+        prepend payload = @./shelf/shelf_L1.usda@
+    )
+    {
+        float3 xformOp:rotateXYZ = (0, 0, 0)
+        float3 xformOp:scale = (1, 1, 1)
         float3 xformOp:translate:pivot = (0, 0, 0)
         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
     }
@@ -560,7 +545,7 @@ def "Render" (
                 token omni:rtx:background:source:type = "domeLight"
                 bool omni:rtx:debug:view:pixelDebug:enableFixedTextPos = 1
                 token omni:rtx:directLighting:sampledLighting:denoisingTechnique = "None"
-                bool omni:rtx:dlss:frameGeneration = 0
+                bool omni:rtx:dlss:frameGeneration
                 bool omni:rtx:indirectDiffuse:denoiser:enabled = 0
                 bool omni:rtx:material:db:syncLoads = 1
                 token omni:rtx:post:dlss:execMode = "performance"
@@ -584,7 +569,19 @@ def "Render" (
                 bool omni:rtx:scene:useViewLightingMode
                 rel orderedVars = </Render/Vars/LdrColor>
                 custom bool overrideClipRange = 0
-                uniform int2 resolution = (949, 577)
+                uniform int2 resolution = (1280, 720)
+            }
+
+            def RenderProduct "Replicator" (
+                prepend apiSchemas = ["OmniRtxSettingsCommonAdvancedAPI_1", "OmniRtxSettingsRtAdvancedAPI_1", "OmniRtxSettingsPtAdvancedAPI_1", "OmniRtxSettingsParticleFieldAPI_1", "OmniRtxPostColorGradingAPI_1", "OmniRtxPostChromaticAberrationAPI_1", "OmniRtxPostBloomPhysicalAPI_1", "OmniRtxPostMatteObjectAPI_1", "OmniRtxPostCompositingAPI_1", "OmniRtxPostDofAPI_1", "OmniRtxPostMotionBlurAPI_1", "OmniRtxPostTvNoiseAPI_1", "OmniRtxPostTonemapIrayReinhardAPI_1", "OmniRtxPostDebugSettingsAPI_1", "OmniRtxDebugSettingsAPI_1"]
+                hide_in_stage_window = true
+                no_delete = true
+            )
+            {
+                rel camera = </World/beebot/Geometry/base_footprint/base_link/pole_front_cam_link/pole_front_cam_color_optical_frame/pole_front_cam_rgb>
+                rel orderedVars = </Render/Vars/LdrColor>
+                custom bool overrideClipRange = 0
+                uniform int2 resolution = (640, 360)
             }
         }
     }
@@ -594,7 +591,10 @@ def "Render" (
         no_delete = true
     )
     {
-        rel products = </Render/OmniverseKit/HydraTextures/omni_kit_widget_viewport_ViewportTexture_0>
+        rel products = [
+            </Render/OmniverseKit/HydraTextures/omni_kit_widget_viewport_ViewportTexture_0>,
+            </Render/OmniverseKit/HydraTextures/Replicator>,
+        ]
     }
 
     def "Vars" (
@@ -634,10 +634,10 @@ over "OmniverseKit_Persp" (
     float exposure:time = 0.02
     float focalLength = 18.147562
     float focusDistance = 400
-    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -0.9552810886131969)
-    float3 xformOp:rotateXYZ = (59.565155, -8.7783307e-13, 56.98762)
+    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -1.7642627030619746)
+    float3 xformOp:rotateXYZ = (67.052765, -1.1207479e-12, 4.064853)
     float3 xformOp:scale = (1, 1, 1)
-    double3 xformOp:translate = (0.7415802337888127, -0.26685558916930713, 0.6307924223158996)
+    double3 xformOp:translate = (-1.8609239761363081, -3.552728326621407, 0.7469819308991473)
     uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
 }
 
@@ -698,6 +698,7 @@ over "OmniverseKit_Right" (
 }
 
 over "OmniverseKit_Top" (
+    prepend apiSchemas = ["OmniRtxCameraAutoExposureAPI_1", "OmniRtxCameraExposureAPI_1"]
     customData = {
         dictionary omni = {
             dictionary kit = {
@@ -712,10 +713,13 @@ over "OmniverseKit_Top" (
 )
 {
     float2 clippingRange = (1, 10000000)
-    float horizontalAperture = 50
+    float exposure:fStop = 5
+    float exposure:responsivity = 1.1026709
+    float exposure:time = 0.02
+    float horizontalAperture = 105.32422
     custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -5)
     token projection = "orthographic"
-    float verticalAperture = 50
+    float verticalAperture = 105.32422
     float3 xformOp:rotateXYZ = (-1.2722219e-14, -7.016709e-15, -90)
     float3 xformOp:scale = (1, 1, 1)
     double3 xformOp:translate = (0, 0, 5)
