@@ -8,7 +8,7 @@
 //   → SubGoalArray 발행. 실패·타임아웃·검증 실패면 템플릿으로 폴백.
 //   컨테이너는 network_mode: host라 127.0.0.1이 호스트다. endpoint가 비면(기본·CI) 템플릿만.
 // 재계획은 명령 하나당 max_replans(기본 1)회 — coordinator의 "같은 단계 2회 연속 실패면 정지"와 짝.
-// 주사위 미션(신호·바코드·주사위 배치)은 이 노드가 아니라 미션 진행 노드(mission_manager — 계획 쪽)가 규칙으로 처리한다.
+// 주사위 미션(신호·바코드·주사위 배치)은 이 노드가 아니라 mission_manager가 규칙으로 처리한다.
 #include <atomic>
 #include <cstdint>
 #include <map>

@@ -12,7 +12,7 @@ analyzers:
     plan:
       type: diagnostic_aggregator/GenericAnalyzer
       path: 계획·임무
-      startswith: [ 'user_input', 'vlm_task_planner', 'coordinator', 'explorer' ]
+      startswith: [ 'user_input', 'vlm_task_planner', 'coordinator', 'explorer', 'mission_manager' ]
     ml:
       type: diagnostic_aggregator/GenericAnalyzer
       path: 학습

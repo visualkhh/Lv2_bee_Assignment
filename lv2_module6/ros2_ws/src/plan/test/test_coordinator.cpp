@@ -116,6 +116,14 @@ TEST(Tray, SlotsAndSpread) {
 }
 
 
+TEST(Coordinator, ParseNumbers) {  // 좌표 대상 — navigate "x,y[,yaw]" · place/inspect "x,y,z"
+  EXPECT_EQ(parse_numbers("1.5,-2"), (std::vector<double>{1.5, -2.0}));
+  EXPECT_EQ(parse_numbers("1,2,3.25"), (std::vector<double>{1.0, 2.0, 3.25}));
+  EXPECT_TRUE(parse_numbers("12").empty());     // 물체 id
+  EXPECT_TRUE(parse_numbers("tray").empty());
+  EXPECT_TRUE(parse_numbers("1,2x").empty());
+  EXPECT_TRUE(parse_numbers("1,,2").empty());
+}
 
 TEST(Coordinator, ApproachPose) {
   // 로봇 (0,0) · 물체 (0.6, 0) → 물체 앞 0.24 = (0.36, 0), 물체를 바라봄 (yaw 0)

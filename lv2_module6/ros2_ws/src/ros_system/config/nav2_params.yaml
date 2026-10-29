@@ -360,9 +360,11 @@ collision_monitor:
     # approach: 지금 속도로 계속 가면 time_before_collision 안에 몸(반경 0.18 + 2cm)이 점에 닿는 경우에만 그 속도를 줄여 멈춤.
     #   멀어지는 방향(후진·회전)은 그대로 통과 → 벽에 붙어도 빠져나온다.
     #   (예전 stop 원 0.22m는 방향과 무관하게 전부 정지 → 벽에 4cm 붙으면 후진도 못 해 갇혔음 — 실측)
+    # 로봇 외곽 직사각형 (base_footprint: 앞 +0.069 · 뒤 −0.233 · 좌우 ±0.153 바퀴 포함) + 여유 — 원(0.20)이면 앞이 실제보다 13 cm 커서
+    #   박스 앞(1.6 cm까지 붙어 팔로 3×3 칸 — isaac/lab/scripts/dice_reach.py)으로 못 갔음. 앞 여유는 6 mm (approach_gap 0.085보다 작게)
     Approach:
-      type: "circle"
-      radius: 0.20
+      type: "polygon"
+      points: "[[0.075, 0.165], [0.075, -0.165], [-0.245, -0.165], [-0.245, 0.165]]"
       action_type: "approach"
       time_before_collision: 1.0
       simulation_time_step: 0.1

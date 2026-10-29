@@ -16,7 +16,7 @@
 
 🛠 노드 (패키지 · 담당):
   perception: perception, body_filter, signal_decoder(신호등 암호 → /mission/signal) (전승혜)
-  plan:       user_input(외부 텍스트 입력), vlm_task_planner, coordinator (권형중)
+  plan:       user_input(외부 텍스트 입력), vlm_task_planner, coordinator, mission_manager(주사위 미션 순서) (권형중)
   ml:         grasp_scorer, rl_nav_tuner, rl_nav_correction (송정혁)
               rl_arm_correction은 노드가 아니라 컨트롤러 플러그인(ml/RlArmCorrection) — ros_system의 controller_manager가 올린다
   control:    arm_safety_monitor, manual_control (김현하)
@@ -125,6 +125,8 @@ def generate_launch_description():
                               description='false면 학습 노드가 Δ=0 · 기본 프리셋 (노드는 그대로 뜸)'),
         DeclareLaunchArgument('vlm_endpoint', default_value='',
                               description='호스트 ai-service 주소 (비면 템플릿 고정, 예: http://127.0.0.1:8000)'),
+        DeclareLaunchArgument('start_pose', default_value='',
+                              description='mission_manager 출발 자세 arena [x, y, yaw] YAML (비면 plan.yaml start_pose_arena)'),
         DeclareLaunchArgument('command', default_value='',
                               description='user_input이 시작 후 한 번 보낼 텍스트 명령'),
         DeclareLaunchArgument('restart_prepare', default_value='',
@@ -167,6 +169,10 @@ def generate_launch_description():
              parameters=[PathJoinSubstitution([FindPackageShare('plan'), 'config', 'plan.yaml']),
                          PathJoinSubstitution([FindPackageShare('ros_system'), 'config', 'scan_pose.yaml'])]),
         node('plan', 'explorer'),
+        # 주사위 미션 — /cmd/mission start로 시작. 출발 자세만 launch 인자로 덮어씀 (시뮬레이터는 +X를 보고 켬)
+        node('plan', 'mission_manager', condition=IfCondition(PythonExpression(["'", LaunchConfiguration('start_pose'), "' == ''"]))),
+        node('plan', 'mission_manager', {'start_pose_arena': ParameterValue(LaunchConfiguration('start_pose'), value_type=None)},
+             condition=IfCondition(PythonExpression(["'", LaunchConfiguration('start_pose'), "' != ''"]))),
         *[node('ml', n, learning, condition=IfCondition(LaunchConfiguration(f'use_{n}'))) for n in ML_NODES],
         node('control', 'arm_safety_monitor'),
         node('control', 'manual_control'),
