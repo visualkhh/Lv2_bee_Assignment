@@ -7,8 +7,8 @@
                 double radius = 5
             }
             dictionary Perspective = {
-                double3 position = (-0.5746046145321866, -4.191710090010674, 1.257804174713824)
-                double3 target = (-1.0483014667910564, -2.5662276887805096, 0.3753250692128426)
+                double3 position = (-0.3321603676609302, -3.8599483016406757, 0.9119804949270236)
+                double3 target = (-0.7224208174515804, -2.2306889574595674, -0.003749752974889442)
             }
             dictionary Right = {
                 double3 position = (0, -5, 0)
@@ -18,7 +18,7 @@
                 double3 position = (0, 0, 5)
                 double radius = 10.532421875
             }
-            string boundCamera = "/World/beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link/gripper_cam_link/gripper_cam_color_optical_frame/gripper_cam_rgb"
+            string boundCamera = "/OmniverseKit_Persp"
         }
         dictionary omni_layer = {
             string authoring_layer = "./scene_sim.usda"
@@ -918,7 +918,7 @@ def "Render" (
                 no_delete = true
             )
             {
-                rel camera = </World/beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link/gripper_cam_link/gripper_cam_color_optical_frame/gripper_cam_rgb>
+                rel camera = </OmniverseKit_Persp>
                 token omni:rtx:ambientOcclusion:denoiserMode = "none"
                 token omni:rtx:background:source:texture:textureMode = "repeatMirrored"
                 token omni:rtx:background:source:type = "domeLight"
@@ -948,7 +948,7 @@ def "Render" (
                 bool omni:rtx:scene:useViewLightingMode
                 rel orderedVars = </Render/Vars/LdrColor>
                 custom bool overrideClipRange = 0
-                uniform int2 resolution = (1285, 654)
+                uniform int2 resolution = (1280, 720)
             }
 
             def RenderProduct "Replicator" (
@@ -1037,9 +1037,9 @@ over "OmniverseKit_Persp" (
     float focalLength = 18.147562
     float focusDistance = 400
     custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -1.9092802613012985)
-    float3 xformOp:rotateXYZ = (62.47051, -9.780206e-13, 16.247139)
+    float3 xformOp:rotateXYZ = (61.33937, -1.0098261e-12, 13.4704)
     float3 xformOp:scale = (1, 1, 1)
-    double3 xformOp:translate = (-0.5746046145321866, -4.191710090010674, 1.257804174713824)
+    double3 xformOp:translate = (-0.3321603676609302, -3.8599483016406757, 0.9119804949270236)
     uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
 }
 

@@ -28,14 +28,8 @@ over "maze"
 
     over "wall_edge"
     {
-        double3 xformOp:translate = (0.00665, -0.01249, 0)
-        uniform token[] xformOpOrder = ["xformOp:translate"]
-
         over "collision"
         {
-            double3 xformOp:translate = (-0.00665, 0.01249, 0)
-            uniform token[] xformOpOrder = ["xformOp:translate"]
-
             over "geo_84" (
                 prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
             )
@@ -890,9 +884,6 @@ over "maze"
 
         over "PLA"
         {
-            double3 xformOp:translate = (-0.00665, 0.01249, 0)
-            uniform token[] xformOpOrder = ["xformOp:translate"]
-
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
@@ -903,9 +894,6 @@ over "maze"
 
         over "wall"
         {
-            double3 xformOp:translate = (-0.00665, 0.01249, 0)
-            uniform token[] xformOpOrder = ["xformOp:translate"]
-
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
@@ -916,9 +904,6 @@ over "maze"
 
         over "profile"
         {
-            double3 xformOp:translate = (-0.00665, 0.01249, 0)
-            uniform token[] xformOpOrder = ["xformOp:translate"]
-
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
@@ -929,9 +914,6 @@ over "maze"
 
         over "steel"
         {
-            double3 xformOp:translate = (-0.00665, 0.01249, 0)
-            uniform token[] xformOpOrder = ["xformOp:translate"]
-
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
@@ -943,14 +925,8 @@ over "maze"
 
     over "wall_e0"
     {
-        double3 xformOp:translate = (1.1853, -0.41069, 0)
-        uniform token[] xformOpOrder = ["xformOp:translate"]
-
         over "collision"
         {
-            double3 xformOp:translate = (-1.1853, 0.41069, 0)
-            uniform token[] xformOpOrder = ["xformOp:translate"]
-
             over "geo_5" (
                 prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
             )
@@ -1015,9 +991,6 @@ over "maze"
 
         over "PLA"
         {
-            double3 xformOp:translate = (-1.1853, 0.41069, 0)
-            uniform token[] xformOpOrder = ["xformOp:translate"]
-
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
@@ -1028,9 +1001,6 @@ over "maze"
 
         over "wall"
         {
-            double3 xformOp:translate = (-1.1853, 0.41069, 0)
-            uniform token[] xformOpOrder = ["xformOp:translate"]
-
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
@@ -1041,9 +1011,6 @@ over "maze"
 
         over "profile"
         {
-            double3 xformOp:translate = (-1.1853, 0.41069, 0)
-            uniform token[] xformOpOrder = ["xformOp:translate"]
-
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
@@ -1051,18 +1018,22 @@ over "maze"
                 rel material:binding = </maze/Looks/profile>
             }
         }
+
+        over "steel"
+        {
+            over "geo" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </maze/Looks/steel>
+            }
+        }
     }
 
     over "wall_d0"
     {
-        double3 xformOp:translate = (-0.79206, -1.56622, 0)
-        uniform token[] xformOpOrder = ["xformOp:translate"]
-
         over "collision"
         {
-            double3 xformOp:translate = (0.79206, 1.56622, 0)
-            uniform token[] xformOpOrder = ["xformOp:translate"]
-
             over "geo_6" (
                 prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
             )
@@ -1137,9 +1108,6 @@ over "maze"
 
         over "PLA"
         {
-            double3 xformOp:translate = (0.79206, 1.56622, 0)
-            uniform token[] xformOpOrder = ["xformOp:translate"]
-
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
@@ -1150,9 +1118,6 @@ over "maze"
 
         over "wall"
         {
-            double3 xformOp:translate = (0.79206, 1.56622, 0)
-            uniform token[] xformOpOrder = ["xformOp:translate"]
-
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
@@ -1163,28 +1128,29 @@ over "maze"
 
         over "profile"
         {
-            double3 xformOp:translate = (0.79206, 1.56622, 0)
-            uniform token[] xformOpOrder = ["xformOp:translate"]
-
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
             {
                 rel material:binding = </maze/Looks/profile>
+            }
+        }
+
+        over "steel"
+        {
+            over "geo" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </maze/Looks/steel>
             }
         }
     }
 
     over "wall_c0"
     {
-        double3 xformOp:translate = (1.12984, -1.93611, 0)
-        uniform token[] xformOpOrder = ["xformOp:translate"]
-
         over "collision"
         {
-            double3 xformOp:translate = (-1.12984, 1.93611, 0)
-            uniform token[] xformOpOrder = ["xformOp:translate"]
-
             over "geo_3" (
                 prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
             )
@@ -1229,9 +1195,6 @@ over "maze"
 
         over "PLA"
         {
-            double3 xformOp:translate = (-1.12984, 1.93611, 0)
-            uniform token[] xformOpOrder = ["xformOp:translate"]
-
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
@@ -1242,9 +1205,6 @@ over "maze"
 
         over "wall"
         {
-            double3 xformOp:translate = (-1.12984, 1.93611, 0)
-            uniform token[] xformOpOrder = ["xformOp:translate"]
-
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
@@ -1255,28 +1215,29 @@ over "maze"
 
         over "profile"
         {
-            double3 xformOp:translate = (-1.12984, 1.93611, 0)
-            uniform token[] xformOpOrder = ["xformOp:translate"]
-
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
             {
                 rel material:binding = </maze/Looks/profile>
+            }
+        }
+
+        over "steel"
+        {
+            over "geo" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </maze/Looks/steel>
             }
         }
     }
 
     over "wall_b2"
     {
-        double3 xformOp:translate = (1.51737, 1.12126, 0)
-        uniform token[] xformOpOrder = ["xformOp:translate"]
-
         over "collision"
         {
-            double3 xformOp:translate = (-1.51737, -1.12126, 0)
-            uniform token[] xformOpOrder = ["xformOp:translate"]
-
             over "geo_2" (
                 prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
             )
@@ -1311,9 +1272,6 @@ over "maze"
 
         over "PLA"
         {
-            double3 xformOp:translate = (-1.51737, -1.12126, 0)
-            uniform token[] xformOpOrder = ["xformOp:translate"]
-
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
@@ -1324,9 +1282,6 @@ over "maze"
 
         over "wall"
         {
-            double3 xformOp:translate = (-1.51737, -1.12126, 0)
-            uniform token[] xformOpOrder = ["xformOp:translate"]
-
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
@@ -1337,28 +1292,29 @@ over "maze"
 
         over "profile"
         {
-            double3 xformOp:translate = (-1.51737, -1.12126, 0)
-            uniform token[] xformOpOrder = ["xformOp:translate"]
-
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
             {
                 rel material:binding = </maze/Looks/profile>
+            }
+        }
+
+        over "steel"
+        {
+            over "geo" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </maze/Looks/steel>
             }
         }
     }
 
     over "wall_b1"
     {
-        double3 xformOp:translate = (1.15718, 2.20736, 0)
-        uniform token[] xformOpOrder = ["xformOp:translate"]
-
         over "collision"
         {
-            double3 xformOp:translate = (-1.15718, -2.20736, 0)
-            uniform token[] xformOpOrder = ["xformOp:translate"]
-
             over "geo_2" (
                 prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
             )
@@ -1393,9 +1349,6 @@ over "maze"
 
         over "PLA"
         {
-            double3 xformOp:translate = (-1.15718, -2.20736, 0)
-            uniform token[] xformOpOrder = ["xformOp:translate"]
-
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
@@ -1406,9 +1359,6 @@ over "maze"
 
         over "wall"
         {
-            double3 xformOp:translate = (-1.15718, -2.20736, 0)
-            uniform token[] xformOpOrder = ["xformOp:translate"]
-
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
@@ -1419,28 +1369,29 @@ over "maze"
 
         over "profile"
         {
-            double3 xformOp:translate = (-1.15718, -2.20736, 0)
-            uniform token[] xformOpOrder = ["xformOp:translate"]
-
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
             {
                 rel material:binding = </maze/Looks/profile>
+            }
+        }
+
+        over "steel"
+        {
+            over "geo" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </maze/Looks/steel>
             }
         }
     }
 
     over "wall_b0"
     {
-        double3 xformOp:translate = (-1.10207, 2.09695, 0)
-        uniform token[] xformOpOrder = ["xformOp:translate"]
-
         over "collision"
         {
-            double3 xformOp:translate = (1.10207, -2.09695, 0)
-            uniform token[] xformOpOrder = ["xformOp:translate"]
-
             over "geo_2" (
                 prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
             )
@@ -1475,9 +1426,6 @@ over "maze"
 
         over "PLA"
         {
-            double3 xformOp:translate = (1.10207, -2.09695, 0)
-            uniform token[] xformOpOrder = ["xformOp:translate"]
-
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
@@ -1488,9 +1436,6 @@ over "maze"
 
         over "wall"
         {
-            double3 xformOp:translate = (1.10207, -2.09695, 0)
-            uniform token[] xformOpOrder = ["xformOp:translate"]
-
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
@@ -1501,28 +1446,29 @@ over "maze"
 
         over "profile"
         {
-            double3 xformOp:translate = (1.10207, -2.09695, 0)
-            uniform token[] xformOpOrder = ["xformOp:translate"]
-
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
             {
                 rel material:binding = </maze/Looks/profile>
+            }
+        }
+
+        over "steel"
+        {
+            over "geo" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </maze/Looks/steel>
             }
         }
     }
 
     over "wall_a1"
     {
-        double3 xformOp:translate = (-1.54096, 0.72762, 0)
-        uniform token[] xformOpOrder = ["xformOp:translate"]
-
         over "collision"
         {
-            double3 xformOp:translate = (1.54096, -0.72762, 0)
-            uniform token[] xformOpOrder = ["xformOp:translate"]
-
             over "geo_3" (
                 prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
             )
@@ -1567,9 +1513,6 @@ over "maze"
 
         over "PLA"
         {
-            double3 xformOp:translate = (1.54096, -0.72762, 0)
-            uniform token[] xformOpOrder = ["xformOp:translate"]
-
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
@@ -1580,9 +1523,6 @@ over "maze"
 
         over "wall"
         {
-            double3 xformOp:translate = (1.54096, -0.72762, 0)
-            uniform token[] xformOpOrder = ["xformOp:translate"]
-
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
@@ -1593,28 +1533,29 @@ over "maze"
 
         over "profile"
         {
-            double3 xformOp:translate = (1.54096, -0.72762, 0)
-            uniform token[] xformOpOrder = ["xformOp:translate"]
-
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
             {
                 rel material:binding = </maze/Looks/profile>
+            }
+        }
+
+        over "steel"
+        {
+            over "geo" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </maze/Looks/steel>
             }
         }
     }
 
     over "wall_a0"
     {
-        double3 xformOp:translate = (0.01665, 2.18047, 0)
-        uniform token[] xformOpOrder = ["xformOp:translate"]
-
         over "collision"
         {
-            double3 xformOp:translate = (-0.01665, -2.18047, 0)
-            uniform token[] xformOpOrder = ["xformOp:translate"]
-
             over "geo_3" (
                 prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
             )
@@ -1659,9 +1600,6 @@ over "maze"
 
         over "PLA"
         {
-            double3 xformOp:translate = (-0.01665, -2.18047, 0)
-            uniform token[] xformOpOrder = ["xformOp:translate"]
-
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
@@ -1672,9 +1610,6 @@ over "maze"
 
         over "wall"
         {
-            double3 xformOp:translate = (-0.01665, -2.18047, 0)
-            uniform token[] xformOpOrder = ["xformOp:translate"]
-
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
@@ -1685,14 +1620,21 @@ over "maze"
 
         over "profile"
         {
-            double3 xformOp:translate = (-0.01665, -2.18047, 0)
-            uniform token[] xformOpOrder = ["xformOp:translate"]
-
             over "geo" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
             )
             {
                 rel material:binding = </maze/Looks/profile>
+            }
+        }
+
+        over "steel"
+        {
+            over "geo" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </maze/Looks/steel>
             }
         }
     }
@@ -1714,19 +1656,103 @@ over "maze"
             )
             {
                 uniform token info:id = "ND_standard_surface_surfaceshader"
-                float inputs:base
-                color3f inputs:base_color = (0, 0, 0.5)
+                float inputs:base (
+                    customData = {
+                        dictionary HoudiniPreviewTags = {
+                            double default_value = 1
+                            string ogl_diff_intensity = "1"
+                        }
+                    }
+                )
+                color3f inputs:base_color = (0, 0, 0.5) (
+                    customData = {
+                        dictionary HoudiniPreviewTags = {
+                            double3 default_value = (0.8, 0.8, 0.8)
+                            string ogl_diff = "1"
+                        }
+                    }
+                )
                 color3f inputs:base_color.connect = </maze/Looks/PLA/mtlxpower1.outputs:out>
-                float inputs:coat
-                float inputs:coat_roughness
-                float inputs:emission
-                color3f inputs:emission_color
-                float inputs:metalness
-                float inputs:specular
-                color3f inputs:specular_color
-                float inputs:specular_IOR
-                float inputs:specular_roughness
-                float inputs:transmission
+                float inputs:coat (
+                    customData = {
+                        dictionary HoudiniPreviewTags = {
+                            double default_value = 0
+                            string ogl_coat_intensity = "1"
+                        }
+                    }
+                )
+                float inputs:coat_roughness (
+                    customData = {
+                        dictionary HoudiniPreviewTags = {
+                            double default_value = 0.1
+                            string ogl_coat_rough = "1"
+                        }
+                    }
+                )
+                float inputs:emission (
+                    customData = {
+                        dictionary HoudiniPreviewTags = {
+                            double default_value = 0
+                            string ogl_emit_intensity = "1"
+                        }
+                    }
+                )
+                color3f inputs:emission_color (
+                    customData = {
+                        dictionary HoudiniPreviewTags = {
+                            double3 default_value = (1, 1, 1)
+                            string ogl_emit = "1"
+                        }
+                    }
+                )
+                float inputs:metalness (
+                    customData = {
+                        dictionary HoudiniPreviewTags = {
+                            double default_value = 0
+                            string ogl_metallic = "1"
+                        }
+                    }
+                )
+                float inputs:specular (
+                    customData = {
+                        dictionary HoudiniPreviewTags = {
+                            double default_value = 1
+                            string ogl_spec_intensity = "1"
+                        }
+                    }
+                )
+                color3f inputs:specular_color (
+                    customData = {
+                        dictionary HoudiniPreviewTags = {
+                            double3 default_value = (1, 1, 1)
+                            string ogl_spec = "1"
+                        }
+                    }
+                )
+                float inputs:specular_IOR (
+                    customData = {
+                        dictionary HoudiniPreviewTags = {
+                            double default_value = 1.5
+                            string ogl_ior = "1"
+                        }
+                    }
+                )
+                float inputs:specular_roughness (
+                    customData = {
+                        dictionary HoudiniPreviewTags = {
+                            double default_value = 0.2
+                            string ogl_rough = "1"
+                        }
+                    }
+                )
+                float inputs:transmission (
+                    customData = {
+                        dictionary HoudiniPreviewTags = {
+                            double default_value = 0
+                            string ogl_transparency = "1"
+                        }
+                    }
+                )
                 rel material:binding = </maze/Looks/PLA>
                 token outputs:out
                 uniform float2 ui:nodegraph:node:pos = (-9.73701, 9.42316)
@@ -1757,6 +1783,9 @@ over "maze"
 
             def Shader "mtlxstandard_preview" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
+                customData = {
+                    bool HoudiniIsAutoCreatedShader = 1
+                }
             )
             {
                 uniform token info:id = "UsdPreviewSurface"
@@ -1784,18 +1813,102 @@ over "maze"
             )
             {
                 uniform token info:id = "ND_standard_surface_surfaceshader"
-                float inputs:base
-                color3f inputs:base_color = (0.0611, 0.0807, 0.163)
-                float inputs:coat
-                float inputs:coat_roughness
-                float inputs:emission
-                color3f inputs:emission_color
-                float inputs:metalness
-                float inputs:specular
-                color3f inputs:specular_color
-                float inputs:specular_IOR
-                float inputs:specular_roughness = 0.02
-                float inputs:transmission
+                float inputs:base (
+                    customData = {
+                        dictionary HoudiniPreviewTags = {
+                            double default_value = 1
+                            string ogl_diff_intensity = "1"
+                        }
+                    }
+                )
+                color3f inputs:base_color = (0.0611, 0.0807, 0.163) (
+                    customData = {
+                        dictionary HoudiniPreviewTags = {
+                            double3 default_value = (0.8, 0.8, 0.8)
+                            string ogl_diff = "1"
+                        }
+                    }
+                )
+                float inputs:coat (
+                    customData = {
+                        dictionary HoudiniPreviewTags = {
+                            double default_value = 0
+                            string ogl_coat_intensity = "1"
+                        }
+                    }
+                )
+                float inputs:coat_roughness (
+                    customData = {
+                        dictionary HoudiniPreviewTags = {
+                            double default_value = 0.1
+                            string ogl_coat_rough = "1"
+                        }
+                    }
+                )
+                float inputs:emission (
+                    customData = {
+                        dictionary HoudiniPreviewTags = {
+                            double default_value = 0
+                            string ogl_emit_intensity = "1"
+                        }
+                    }
+                )
+                color3f inputs:emission_color (
+                    customData = {
+                        dictionary HoudiniPreviewTags = {
+                            double3 default_value = (1, 1, 1)
+                            string ogl_emit = "1"
+                        }
+                    }
+                )
+                float inputs:metalness (
+                    customData = {
+                        dictionary HoudiniPreviewTags = {
+                            double default_value = 0
+                            string ogl_metallic = "1"
+                        }
+                    }
+                )
+                float inputs:specular (
+                    customData = {
+                        dictionary HoudiniPreviewTags = {
+                            double default_value = 1
+                            string ogl_spec_intensity = "1"
+                        }
+                    }
+                )
+                color3f inputs:specular_color (
+                    customData = {
+                        dictionary HoudiniPreviewTags = {
+                            double3 default_value = (1, 1, 1)
+                            string ogl_spec = "1"
+                        }
+                    }
+                )
+                float inputs:specular_IOR (
+                    customData = {
+                        dictionary HoudiniPreviewTags = {
+                            double default_value = 1.5
+                            string ogl_ior = "1"
+                        }
+                    }
+                )
+                float inputs:specular_roughness = 0.02 (
+                    customData = {
+                        dictionary HoudiniPreviewTags = {
+                            double default_value = 0.2
+                            string ogl_rough = "1"
+                        }
+                    }
+                )
+                float inputs:transmission (
+                    customData = {
+                        dictionary HoudiniPreviewTags = {
+                            double default_value = 0
+                            string ogl_transparency = "1"
+                        }
+                    }
+                )
                 token outputs:out
                 uniform float2 ui:nodegraph:node:pos = (-0.2883, 0.0376)
             }
@@ -1809,7 +1922,11 @@ over "maze"
                 uniform float2 ui:nodegraph:node:pos = (-0.2883, -2.4334)
             }
 
-            def Shader "mtlxstandard_preview"
+            def Shader "mtlxstandard_preview" (
+                customData = {
+                    bool HoudiniIsAutoCreatedShader = 1
+                }
+            )
             {
                 uniform token info:id = "UsdPreviewSurface"
                 float inputs:clearcoatRoughness = 0.1
@@ -1835,18 +1952,102 @@ over "maze"
             )
             {
                 uniform token info:id = "ND_standard_surface_surfaceshader"
-                float inputs:base
-                color3f inputs:base_color = (0.6667, 0.6667, 0.6667)
-                float inputs:coat
-                float inputs:coat_roughness
-                float inputs:emission
-                color3f inputs:emission_color
-                float inputs:metalness = 0.847
-                float inputs:specular
-                color3f inputs:specular_color
-                float inputs:specular_IOR
-                float inputs:specular_roughness
-                float inputs:transmission
+                float inputs:base (
+                    customData = {
+                        dictionary HoudiniPreviewTags = {
+                            double default_value = 1
+                            string ogl_diff_intensity = "1"
+                        }
+                    }
+                )
+                color3f inputs:base_color = (0.6667, 0.6667, 0.6667) (
+                    customData = {
+                        dictionary HoudiniPreviewTags = {
+                            double3 default_value = (0.8, 0.8, 0.8)
+                            string ogl_diff = "1"
+                        }
+                    }
+                )
+                float inputs:coat (
+                    customData = {
+                        dictionary HoudiniPreviewTags = {
+                            double default_value = 0
+                            string ogl_coat_intensity = "1"
+                        }
+                    }
+                )
+                float inputs:coat_roughness (
+                    customData = {
+                        dictionary HoudiniPreviewTags = {
+                            double default_value = 0.1
+                            string ogl_coat_rough = "1"
+                        }
+                    }
+                )
+                float inputs:emission (
+                    customData = {
+                        dictionary HoudiniPreviewTags = {
+                            double default_value = 0
+                            string ogl_emit_intensity = "1"
+                        }
+                    }
+                )
+                color3f inputs:emission_color (
+                    customData = {
+                        dictionary HoudiniPreviewTags = {
+                            double3 default_value = (1, 1, 1)
+                            string ogl_emit = "1"
+                        }
+                    }
+                )
+                float inputs:metalness = 0.847 (
+                    customData = {
+                        dictionary HoudiniPreviewTags = {
+                            double default_value = 0
+                            string ogl_metallic = "1"
+                        }
+                    }
+                )
+                float inputs:specular (
+                    customData = {
+                        dictionary HoudiniPreviewTags = {
+                            double default_value = 1
+                            string ogl_spec_intensity = "1"
+                        }
+                    }
+                )
+                color3f inputs:specular_color (
+                    customData = {
+                        dictionary HoudiniPreviewTags = {
+                            double3 default_value = (1, 1, 1)
+                            string ogl_spec = "1"
+                        }
+                    }
+                )
+                float inputs:specular_IOR (
+                    customData = {
+                        dictionary HoudiniPreviewTags = {
+                            double default_value = 1.5
+                            string ogl_ior = "1"
+                        }
+                    }
+                )
+                float inputs:specular_roughness (
+                    customData = {
+                        dictionary HoudiniPreviewTags = {
+                            double default_value = 0.2
+                            string ogl_rough = "1"
+                        }
+                    }
+                )
+                float inputs:transmission (
+                    customData = {
+                        dictionary HoudiniPreviewTags = {
+                            double default_value = 0
+                            string ogl_transparency = "1"
+                        }
+                    }
+                )
                 token outputs:out
                 uniform float2 ui:nodegraph:node:pos = (-0.2883, 0.0376)
             }
@@ -1860,7 +2061,11 @@ over "maze"
                 uniform float2 ui:nodegraph:node:pos = (-0.2883, -2.4334)
             }
 
-            def Shader "mtlxstandard_preview"
+            def Shader "mtlxstandard_preview" (
+                customData = {
+                    bool HoudiniIsAutoCreatedShader = 1
+                }
+            )
             {
                 uniform token info:id = "UsdPreviewSurface"
                 float inputs:clearcoatRoughness = 0.1
@@ -1887,18 +2092,102 @@ over "maze"
             )
             {
                 uniform token info:id = "ND_standard_surface_surfaceshader"
-                float inputs:base
-                color3f inputs:base_color = (1, 1, 1)
-                float inputs:coat
-                float inputs:coat_roughness
-                float inputs:emission
-                color3f inputs:emission_color
-                float inputs:metalness = 0.9
-                float inputs:specular
-                color3f inputs:specular_color
-                float inputs:specular_IOR
-                float inputs:specular_roughness
-                float inputs:transmission
+                float inputs:base (
+                    customData = {
+                        dictionary HoudiniPreviewTags = {
+                            double default_value = 1
+                            string ogl_diff_intensity = "1"
+                        }
+                    }
+                )
+                color3f inputs:base_color = (1, 1, 1) (
+                    customData = {
+                        dictionary HoudiniPreviewTags = {
+                            double3 default_value = (0.8, 0.8, 0.8)
+                            string ogl_diff = "1"
+                        }
+                    }
+                )
+                float inputs:coat (
+                    customData = {
+                        dictionary HoudiniPreviewTags = {
+                            double default_value = 0
+                            string ogl_coat_intensity = "1"
+                        }
+                    }
+                )
+                float inputs:coat_roughness (
+                    customData = {
+                        dictionary HoudiniPreviewTags = {
+                            double default_value = 0.1
+                            string ogl_coat_rough = "1"
+                        }
+                    }
+                )
+                float inputs:emission (
+                    customData = {
+                        dictionary HoudiniPreviewTags = {
+                            double default_value = 0
+                            string ogl_emit_intensity = "1"
+                        }
+                    }
+                )
+                color3f inputs:emission_color (
+                    customData = {
+                        dictionary HoudiniPreviewTags = {
+                            double3 default_value = (1, 1, 1)
+                            string ogl_emit = "1"
+                        }
+                    }
+                )
+                float inputs:metalness = 0.9 (
+                    customData = {
+                        dictionary HoudiniPreviewTags = {
+                            double default_value = 0
+                            string ogl_metallic = "1"
+                        }
+                    }
+                )
+                float inputs:specular (
+                    customData = {
+                        dictionary HoudiniPreviewTags = {
+                            double default_value = 1
+                            string ogl_spec_intensity = "1"
+                        }
+                    }
+                )
+                color3f inputs:specular_color (
+                    customData = {
+                        dictionary HoudiniPreviewTags = {
+                            double3 default_value = (1, 1, 1)
+                            string ogl_spec = "1"
+                        }
+                    }
+                )
+                float inputs:specular_IOR (
+                    customData = {
+                        dictionary HoudiniPreviewTags = {
+                            double default_value = 1.5
+                            string ogl_ior = "1"
+                        }
+                    }
+                )
+                float inputs:specular_roughness (
+                    customData = {
+                        dictionary HoudiniPreviewTags = {
+                            double default_value = 0.2
+                            string ogl_rough = "1"
+                        }
+                    }
+                )
+                float inputs:transmission (
+                    customData = {
+                        dictionary HoudiniPreviewTags = {
+                            double default_value = 0
+                            string ogl_transparency = "1"
+                        }
+                    }
+                )
                 token outputs:out
                 uniform float2 ui:nodegraph:node:pos = (-0.2883, 0.0376)
             }
@@ -1912,7 +2201,11 @@ over "maze"
                 uniform float2 ui:nodegraph:node:pos = (-0.2883, -2.4334)
             }
 
-            def Shader "mtlxstandard_preview"
+            def Shader "mtlxstandard_preview" (
+                customData = {
+                    bool HoudiniIsAutoCreatedShader = 1
+                }
+            )
             {
                 uniform token info:id = "UsdPreviewSurface"
                 float inputs:clearcoatRoughness = 0.1
