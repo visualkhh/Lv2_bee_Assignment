@@ -38,6 +38,10 @@ coordinator:
     tray_grasp_z: 0.17       # [m] 꺼내기 — 손끝 파지 높이 (적재함 바닥 0.15 + 퍽 60mm의 아래쪽 1/3)
     tray_approach_m: 0.05    # [m] 꺼내기 접근·들어올리기 (0.10이면 0.27로 닿지 않음)
     place_spacing: 0.08      # [m] 같은 곳(B 지역 판)에 여러 개 내려놓을 때 비키는 간격 (MISSION: 퍽 사이 0.08 이상)
+    # place_pip "x,y,z" (주사위 칸, z = 퍽 바닥): 손끝을 z + place_release_dz로 내려 벌림 (퍽 60mm 가운데쯤 쥠 — 실측으로 맞출 것)
+    place_release_dz: 0.04
+    # arm_pose carry — 운반 자세 [joint1..5] (initial_pose와 같은 관절 순서). 정해지면 여기에 적음 (없으면 arm_pose carry 실패)
+    # carry_pose: [1.571, 0.0, 0.0, 0.0, 0.0]
     # 팔이 닿게 다가가기 — pick · place <물체 id> 때 대상이 로봇 중심에서 reach_m 넘으면 먼저 approach_m 앞까지 navigate (단계마다 한 번)
     #   바닥 퍽은 팔 회전축(차체 중심 앞 0.05)에서 수평 약 0.08~0.26 — 차체 중심 기준 약 0.13~0.31 (simulator 팔 범위 지도)
     reach_m: 0.30
