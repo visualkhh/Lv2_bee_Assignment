@@ -205,6 +205,13 @@ def main():
             look((ex, ey, ez), (ex + fwd[0], ey + fwd[1], ez + fwd[2]), (0, 0, 1))
             return "pole"
 
+        def project(pk):
+            """Pixel of the puck's body center in the dataset camera (far away if behind it)."""
+            c = UsdGeom.Xformable(pk["prim"]).ComputeLocalToWorldTransform(Usd.TimeCode.Default()).Transform(
+                Gf.Vec3d(0, 0, PUCK_L / 2))
+            c = cam_op.Get().GetInverse().Transform(c)  # USD camera: -Z forward, +Y up
+            return (W / 2 + FX * c[0] / -c[2], H / 2 + FY * c[1] / c[2]) if c[2] < 0 else (1e9, 1e9)
+
         def capture():
             rep.orchestrator.step(rt_subframes=a.subframes, delta_time=0.0)  # timeline (physics) stays put
             pixels = np.asarray(rgb.get_data())[:, :, :3]
@@ -221,14 +228,22 @@ def main():
                 if min(row["x_max"], W) - max(row["x_min"], 0) < 3 or min(row["y_max"], H) - max(row["y_min"], 0) < 3:
                     continue
                 cls = NAMES.index("puck_%s_%s%s" % (pk["color"], pk["shape"], "_lying" if pk["lying"] else ""))
-                r = obb_row(cls, sids == sid_of.get(pk["name"], -1))
+                mask = sids == sid_of.get(pk["name"], -1)
+                r = obb_row(cls, mask)
                 if r:
+                    ys, xs = np.nonzero(mask)
+                    # label must belong to the puck whose ground truth projects onto the mask (a heavily
+                    # cropped/occluded mask can still sit nearer a neighbor, so only the rate is checked)
+                    near = min(pucks, key=lambda q: math.dist(project(q), (xs.mean(), ys.mean())))
+                    stats["checked"] += 1
+                    stats["mismatch"] += near is not pk
                     rows.append(r)
             return pixels, rows
 
         def matrix(m):
             return [list(m.GetRow(i)) for i in range(4)]
 
+        stats = {"checked": 0, "mismatch": 0}
         for _ in range(20):
             app.update()
         manifest = {"scene": os.path.abspath(SCENE), "classes": NAMES, "resolution": [W, H],
@@ -242,9 +257,10 @@ def main():
                 negative = i % 12 == 11
                 noisy = i % 5 >= 3  # clean : noisy = 3 : 2
                 placed = scatter(rng)
-                for pk in pucks:
-                    img = UsdGeom.Imageable(pk["prim"])
-                    img.MakeInvisible() if negative else img.MakeVisible()
+                if negative:  # sink the pucks out of view; toggling visibility scrambles replicator's semantic ids
+                    for pk in pucks:
+                        t = pk["prim"].GetAttribute("xformOp:translate")
+                        t.Set(t.Get() - Gf.Vec3d(0, 0, 100))
                 dome.GetAttribute("inputs:intensity").Set(dome_base * rng.uniform(.3, 1.8))
                 for _ in range(8):  # walls/posts often hide the target: re-pose until a puck is labeled
                     view = pose_camera(rng, rng.choice(placed))
@@ -268,8 +284,10 @@ def main():
                 manifest["samples"].append(dict(split=split, index=i, seed=seed, view=view, negative=negative,
                                                 noise=noise, labels=len(rows), cam_to_world=matrix(cam_m),
                                                 pucks=[] if negative else gt))
-                print("RENDER %s %d/%d %s %s labels=%d" % (split, i + 1, count, view,
-                                                            "noisy" if noisy else "clean", len(rows)), flush=True)
+                print("RENDER %s %d/%d %s %s labels=%d mismatch=%d/%d" % (split, i + 1, count, view, "noisy" if noisy
+                                                                          else "clean", len(rows), stats["mismatch"], stats["checked"]), flush=True)
+                if stats["checked"] >= 50 and stats["mismatch"] > .03 * stats["checked"]:
+                    raise RuntimeError("labels landing on the wrong puck: semantic ids out of sync (%s)" % stats)
 
         (out / "manifest.json").write_text(json.dumps(manifest, indent=1))
         (out / "dataset.yaml").write_text(yaml.safe_dump(dict(path=str(out), train="images/train", val="images/val",
