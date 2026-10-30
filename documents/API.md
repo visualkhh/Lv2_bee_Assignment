@@ -38,7 +38,7 @@ string[] cameras                        # 본 카메라 전부 (pole_front_cam |
                                         #   → 물체 삭제 정책: 퍽·location·barcode는 miss_count번 연속 미검출 시 삭제 / 사람·장애물·신호등은 TRACK_TIMEOUT_S(2초) 후 삭제
 int32[2] px                             # 마지막 카메라(cameras 끝) 영상 속 박스 중심 픽셀 [u, v] — VLM 이미지 마킹용
 string color                            # 퍽: red | orange | yellow | green | blue | purple | white | black | unknown (윗면 태그를 읽었으면 태그 번호대 색) · 신호등 상태: red | yellow | green | off | all(두 색 이상 동시) · 그 외 빈 값 (박스 가운데 HSV)
-diagnostic_msgs/KeyValue[] details      # 클래스별 속성 — puck: posture · tag(윗면 AprilTag 0~11) / location: tag(12~14) / barcode: content(작업 지시) / traffic_light: state · 그 외 빈 배열
+diagnostic_msgs/KeyValue[] details      # 클래스별 속성 — puck: posture · shape(box | cyl — 모양을 배운 OBB 모델만) · yaw(누운 퍽 축 방향 deg 0~180, map 기준 — OBB 모델만, 끝면만 보이면 없음) · tag(윗면 AprilTag 0~11) / location: tag(12~14) / barcode: content(작업 지시) / traffic_light: state · 그 외 빈 배열
 ```
 
 표식 (발제 「AprilTag와 바코드 실제 배포 표식」, tag36h11 — OpenCV aruco로 읽음): 퍽 윗면 16mm R1~R4 = 0~3 · G1~G4 = 4~7 · B1~B4 = 8~11 → 그 퍽의 `tag`(한 번 읽으면 기억 · gripper_cam이 위에서 봐야 읽힘 — coordinator `inspect`) ·

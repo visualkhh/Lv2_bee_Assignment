@@ -18,6 +18,8 @@
     퍽 계열(puck · puck_lying)은 한 종류로 합치고 자세는 따로 둔다 — 두 카메라가 자세를 다르게 봐도 id 하나.
   퍽 판단 (judge_puck): YOLO가 퍽이라 해도 깊이 50% 규칙 · 색(puck_colors ± hue_tol) · 실제 크기(cm)로 다시 보고, 자세도 크기로
     (YOLO 이름의 자세는 실물에서 틀렸음). 모델이 색별로 배워도(puck_red) 나갈 때는 설계 이름 puck / puck_lying + color (split_class).
+  OBB 모델 (Isaac Sim 합성 데이터 puck_<색>_<모양>[_lying], isaac/sim/scripts/gen_yolo_dataset.py): res.obb를 res.boxes 대신 읽고
+    details shape(box · cyl) · 누운 퍽 yaw(OBB 장축 양끝 시선 → 퍽 중심 높이 평면 교점, lying_yaw)를 더 냄. 자세는 trust_model_posture면 모델 이름으로.
   기억 (팀 확인 10/22): 퍽·목표 구역·QR 판은 안 보여도 목록에 남김 (같은 id). 그 자리가 잘 보이는데 miss_count번 연속 못 찾으면 지움.
     사람·장애물·신호등은 TRACK_TIMEOUT_S 안 보이면 지움. 지금 보이는지는 받는 쪽이 last_seen으로 구분.
   모델 파일이 없으면 빈 목록을 내보낸다 (진단 WARN) — test-bringup 기동 검사용.
@@ -100,6 +102,8 @@ def same_object(tr, d):
         return False
     if tr["class_name"] != "puck":
         return True
+    if tr.get("shape") and d.get("shape") and tr["shape"] != d["shape"]:  # 모양을 아는 모델이면 모양도 같아야
+        return False
     a, b = tr.get("color", ""), d.get("color", "")
     return a in NO_COLOR or b in NO_COLOR or a == b
 
@@ -285,6 +289,45 @@ def split_class(name):
     return name, ""
 
 
+PUCK_SHAPES = ("box", "cyl")  # 사각기둥 · 원기둥 — 모양을 배운 모델(puck_red_box · puck_red_cyl_lying)만 이름에 있음
+
+
+def model_shape_posture(name):
+    """퍽 클래스 이름 → (모양, 자세) — 모양을 배운 모델(OBB 합성 데이터: puck_<색>_<모양>[_lying])만 둘 다 앎.
+    puck_red_box → ('box', 'standing') · puck_red_cyl_lying → ('cyl', 'lying') · puck_red · puck_lying → ('', '')"""
+    tokens = name.split("_")
+    shape = next((t for t in tokens if t in PUCK_SHAPES), "")
+    if not shape:
+        return "", ""
+    return shape, "lying" if tokens[-1] == "lying" else "standing"
+
+
+def lying_yaw(corners, fx, fy, cx, cy, rot, trans, z_plane, min_aspect=1.3):
+    """누운 퍽의 OBB 꼭짓점 4개 [px] → 퍽 축 방향 yaw [deg, 0~180) (추적 좌표 기준) · 모르면 None.
+    OBB 장축 양끝(짧은 변 가운데) 두 픽셀에서 시선을 쏴 퍽 중심 높이 z_plane 평면과 만나는 두 점의 방향.
+    퍽 양끝은 똑같이 생겨 180° 단위만 의미 있음. 장축÷단축 < min_aspect면 끝면이 카메라를 향한 것 → 축을 못 믿어 None.
+    rot·trans = 카메라 광학 → 추적 좌표 (lookup_tf)"""
+    c = np.asarray(corners, float).reshape(4, 2)
+    e0, e1 = np.linalg.norm(c[1] - c[0]), np.linalg.norm(c[2] - c[1])
+    if min(e0, e1) <= 0 or max(e0, e1) / min(e0, e1) < min_aspect:
+        return None
+    ends = [(c[1] + c[2]) / 2, (c[3] + c[0]) / 2] if e0 >= e1 else [(c[0] + c[1]) / 2, (c[2] + c[3]) / 2]
+    pts = []
+    for u, v in ends:
+        d = rot @ np.array([(u - cx) / fx, (v - cy) / fy, 1.0])
+        if abs(d[2]) < 1e-6 or (z_plane - trans[2]) / d[2] <= 0:
+            return None  # 시선이 평면과 나란하거나 카메라 뒤에서 만남
+        pts.append(trans + d * (z_plane - trans[2]) / d[2])
+    dx, dy = pts[1][:2] - pts[0][:2]
+    return float(np.degrees(np.arctan2(dy, dx)) % 180.0)
+
+
+def rotate_yaw(yaw, rot):
+    """yaw [deg, 0~180) 를 회전 rot(3×3)으로 다른 좌표계로 — 수평 축 방향만 돌림"""
+    a = rot @ np.array([np.cos(np.radians(yaw)), np.sin(np.radians(yaw)), 0.0])
+    return float(np.degrees(np.arctan2(a[1], a[0])) % 180.0)
+
+
 def box_depth_m(depth_m, box, min_valid):
     """퍽 박스 가운데 1/3 영역의 깊이 중앙값 [m] — 가장자리 배경이 섞이지 않게. 0(측정 실패) 제외
     측정된 화소가 영역의 min_valid(비율)보다 적으면 0.0 (= 깊이 없음):
@@ -432,6 +475,10 @@ def to_msg(tid, tr):
     details = []
     if o.class_name in ("puck", "puck_lying") and tr.get("posture"):  # 퍽 자세 (color와 별도)
         details.append(KeyValue(key="posture", value=tr["posture"]))
+    if o.class_name in ("puck", "puck_lying") and tr.get("shape"):  # 퍽 모양 box · cyl (모양을 배운 모델만)
+        details.append(KeyValue(key="shape", value=tr["shape"]))
+    if o.class_name == "puck_lying" and tr.get("yaw") is not None:  # 누운 퍽 축 방향 [deg, 0~180) map 기준
+        details.append(KeyValue(key="yaw", value="%.1f" % tr["yaw"]))
     elif o.class_name == "traffic_light" and o.color:  # 신호등 상태 (color에도 같이 있음)
         details.append(KeyValue(key="state", value=o.color))
     if tr.get("tag") is not None:  # AprilTag 번호 — 퍽 0~11 · 장소 12~14
@@ -494,6 +541,9 @@ class PerceptionNode(Node):
         self.declare_parameter("edge_px", 5)                # 박스가 화면 가장자리 이 안에 닿으면 잘린 퍽 — 크기 하한·자세 안 봄
         self.declare_parameter("near_px", 70)               # 깊이 없는데 박스 짧은 변이 이 이상이면 너무 가까운 퍽 (3cm 퍽 70px ≈ 25cm)
         self.declare_parameter("depth_min_valid", 0.5)      # 박스 가운데 깊이 화소가 이 비율보다 적으면 깊이 없음
+        # 모양·자세를 배운 OBB 모델(합성 데이터 puck_<색>_<모양>[_lying])일 때 — 자세를 크기 대신 모델 이름으로 · 누운 퍽 yaw
+        self.declare_parameter("trust_model_posture", False)  # True면 모델 이름의 자세를 씀 (팀 모델은 실물에서 틀렸음 → 기본 False)
+        self.declare_parameter("yaw_min_aspect", 1.3)       # OBB 장축÷단축이 이보다 작으면 끝면이 보이는 것 — yaw 안 냄
         # 표식 (발제 배포 표식) — 퍽 윗면 AprilTag 번호 → 색, 장소 태그 번호
         self.declare_parameter("puck_tags_red", [0, 1, 2, 3])
         self.declare_parameter("puck_tags_green", [4, 5, 6, 7])
@@ -516,6 +566,8 @@ class PerceptionNode(Node):
         self.edge_px = int(self.get_parameter("edge_px").value)
         self.near_px = int(self.get_parameter("near_px").value)
         self.depth_min_valid = float(self.get_parameter("depth_min_valid").value)
+        self.trust_model_posture = bool(self.get_parameter("trust_model_posture").value)
+        self.yaw_min_aspect = float(self.get_parameter("yaw_min_aspect").value)
         self.self_filter = bool(self.get_parameter("self_filter").value)
         self.base_frame = str(self.get_parameter("base_frame").value)
         self.self_links = [str(v) for v in self.get_parameter("self_links").value]
@@ -650,22 +702,24 @@ class PerceptionNode(Node):
         depth_m = s["depth_mm"].astype(np.float32) / 1000.0
         now_stamp = s["stamp"]
         tf = self.lookup_tf(s["frame_id"], now_stamp)
+        obb = getattr(res, "obb", None)  # OBB 모델은 res.obb (xyxy·cls·conf는 같고 회전 꼭짓점 xyxyxyxy가 더 있음) · 보통 모델은 res.boxes
+        boxes_in = obb if obb is not None else res.boxes
         if tf is None:  # 위치는 못 구해도 QR 판 박스는 남김 — QR은 위치 없이 읽힘 (TF·지도가 아직 없을 때도)
-            boxes = [tuple(max(0, int(v)) for v in b.xyxy[0].tolist()) for b in res.boxes
+            boxes = [tuple(max(0, int(v)) for v in b.xyxy[0].tolist()) for b in boxes_in
                      if self.names.get(int(b.cls[0])) == "qr_board"]
             with self.lock:
                 self.frames[cam]["qr_boxes"] = boxes
             return
         rot, trans = tf
         tags = detect_tags(self.tag_det, s["bgr"])
-        body = self.robot_body(now_stamp) if self.self_filter and len(res.boxes) else None
+        body = self.robot_body(now_stamp) if self.self_filter and len(boxes_in) else None
         # 영상에서 팔 판정: 박스 일부만 팔이면 depth 중앙값이 팔 뒤 바닥·벽까지라 3D 판정(is_self)을 빠져나갔음
         # (실측: 스캔 자세 팔을 obstacle 0.5~0.7로 잡고 위치는 팔 뒤 바닥 (0.42, 0.20, −0.03)) → 팔을 화면에 투영해 박스 안에 있으면 버림
         arm_px = (arm_pixels(body[1], rot, trans, s["fx"], s["fy"], s["cx"], s["cy"])
                   if body is not None and self.self_arm_hits > 0 else np.zeros((0, 2)))
         dets = []
         qr_boxes = []
-        for b in res.boxes:
+        for b in boxes_in:
             tag = None
             name = self.names.get(int(b.cls[0]))
             if name is None:
@@ -677,6 +731,7 @@ class PerceptionNode(Node):
             if x1 <= x0 or y1 <= y0:
                 continue
             posture = ""
+            shape, yaw = "", None
             if cls == "puck":
                 # 퍽 판단 — 깊이 50% 규칙 · 색 · 크기·자세 · 잘림·근접 (YOLO 이름의 자세는 안 믿음 — 실물에서 틀렸음)
                 zm = box_depth_m(depth_m, (x0, y0, x1, y1), self.depth_min_valid)
@@ -687,6 +742,9 @@ class PerceptionNode(Node):
                 wcm = (x1 - x0) * zm / s["fx"] * 100 if zm > 0 else -1.0
                 hcm = (y1 - y0) * zm / s["fy"] * 100 if zm > 0 else -1.0
                 ok, _, posture = self.judge_puck(wcm, hcm, color, clipped, model_color, near)
+                shape, m_posture = model_shape_posture(name)
+                if self.trust_model_posture and m_posture:
+                    posture = m_posture  # 크기는 퍽인지 거르는 데만 · 자세는 모델 (OBB 박스는 돌아가 있어 가로÷세로로는 못 봄)
                 if not ok or zm <= 0:
                     # 퍽 아님 → 버림 · 퍽인데 깊이 없음(너무 가까움) → 위치를 몰라 이번엔 갱신 안 함 = 트랙은 마지막 위치 유지
                     # (그 자리는 깊이가 없어 expected_visible이 '못 봄'으로 세지 않음 → 기억도 안 지워짐)
@@ -710,6 +768,9 @@ class PerceptionNode(Node):
             if cls == "qr_board":
                 qr_boxes.append((x0, y0, x1, y1))
             z_map = rot @ np.array([px, py, zm]) + trans
+            if cls == "puck_lying" and hasattr(b, "xyxyxyxy"):
+                yaw = lying_yaw(b.xyxyxyxy[0].tolist(), s["fx"], s["fy"], s["cx"], s["cy"], rot, trans, z_map[2],
+                                self.yaw_min_aspect)
             arm_in_box = cls not in PUCK_CLASSES and box_has_arm((x0, y0, x1, y1), arm_px, self.self_arm_hits)  # 퍽은 그리퍼 밑에서 집으므로 뺌
             if body is not None and (arm_in_box or is_self(cls, z_map, body, self.body_radius, self.body_height, self.self_radius)):
                 with self.lock:
@@ -727,6 +788,8 @@ class PerceptionNode(Node):
                 "color": color,
                 "posture": posture,  # 퍽: standing / lying / ''(모름 — 합칠 때 아는 자세를 덮지 않음) · 그 외 ''
                 "tag": tag,          # 퍽 윗면 AprilTag 번호 (못 읽으면 None — 합칠 때 아는 번호를 덮지 않음)
+                "shape": shape,      # 퍽 모양 box · cyl ('' = 모름 — 모양을 배운 모델만)
+                "yaw": yaw,          # 누운 퍽 축 방향 [deg, 0~180) 추적 좌표 (None = 모름)
             })
         for tid_tag, (u, v), box in tags:  # 장소 태그 (L1~L3) — YOLO가 아니라 태그 자체가 물체
             if tid_tag not in self.location_tags:
@@ -836,6 +899,12 @@ class PerceptionNode(Node):
                 tr["posture"] = d["posture"]
             if d.get("tag") is not None:  # 태그 번호는 한 번 읽으면 기억 (멀어지면 못 읽어도 덮지 않음)
                 tr["tag"] = d["tag"]
+            if d.get("shape"):
+                tr["shape"] = d["shape"]
+            if d.get("yaw") is not None:  # 마지막으로 잰 축 방향 (끝면만 보인 관측은 덮지 않음)
+                tr["yaw"] = d["yaw"]
+            elif d.get("posture") == "standing":
+                tr["yaw"] = None  # 다시 세워졌으면 옛 축 방향은 버림
             if d.get("content"):
                 tr["content"] = d["content"]
         for i, d in enumerate(dets):
@@ -845,7 +914,8 @@ class PerceptionNode(Node):
                 "class_name": kind(d["class_name"]), "posture": d.get("posture", ""),
                 "p": d["z"], "P": d["R"], "t": t, "size": d["size"],
                 "conf": d["conf"], "last_seen": stamp, "seen": {cam: t}, "miss": 0, "hits": 1,
-                "camera": cam, "px": d["px"], "color": d["color"], "tag": d.get("tag"), "content": d.get("content", "")}
+                "camera": cam, "px": d["px"], "color": d["color"], "tag": d.get("tag"), "content": d.get("content", ""),
+                "shape": d.get("shape", ""), "yaw": d.get("yaw")}
             used_d[i] = self.next_id
             self.next_id += 1
         return [used_d[i] for i in range(len(dets))]
@@ -888,7 +958,10 @@ class PerceptionNode(Node):
                 self.get_logger().warning(f"map ← {self.track_frame} TF 없음 — 그대로 발행: {e}", throttle_duration_sec=5.0)
                 return tr
         rot, trans = self._out_tf
-        return {**tr, "p": rot @ np.asarray(tr["p"]) + trans, "P": rot @ np.asarray(tr["P"]) @ rot.T}
+        out = {**tr, "p": rot @ np.asarray(tr["p"]) + trans, "P": rot @ np.asarray(tr["P"]) @ rot.T}
+        if tr.get("yaw") is not None:
+            out["yaw"] = rotate_yaw(tr["yaw"], rot)
+        return out
 
     def lookup_tf(self, frame_id, stamp, quiet=False):
         """track_frame(odom) ← 카메라 TF를 영상 시각으로 (팔이 움직이는 중에도 찍힌 순간의 자세). 그 시각이 버퍼에 없으면 최신으로 대신.

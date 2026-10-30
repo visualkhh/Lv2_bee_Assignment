@@ -492,6 +492,104 @@ def test_puck_judge_pipeline():
         rclpy.shutdown()
 
 
+class _Obb(_Boxes):
+    """ultralytics OBB 결과 박스 흉내 — _Boxes + 회전 꼭짓점 b.xyxyxyxy[0].tolist()"""
+
+    def __init__(self, c, corners):
+        xs, ys = [p[0] for p in corners], [p[1] for p in corners]
+        super().__init__(c, (min(xs), min(ys), max(xs), max(ys)))
+        self.xyxyxyxy = self._Xyxy(corners)
+
+
+def test_model_shape_posture():
+    """모양을 배운 모델 이름만 (모양, 자세) — 팀 모델·색별 모델은 모름"""
+    from perception_node import model_shape_posture, split_class
+    assert model_shape_posture("puck_red_box") == ("box", "standing")
+    assert model_shape_posture("puck_green_cyl_lying") == ("cyl", "lying")
+    assert model_shape_posture("puck_red") == ("", "")
+    assert model_shape_posture("puck_lying") == ("", "")
+    assert split_class("puck_green_cyl_lying") == ("puck", "green")  # 색 파싱은 그대로
+
+
+def test_lying_yaw():
+    """OBB 장축 → 평면 교점 yaw: 아래를 보는 카메라(0.5m 위) · 비스듬한 카메라 · 끝면(정사각형) · 180° 대칭"""
+    import numpy as np
+    from perception_node import lying_yaw, rotate_yaw
+    fx = fy = 600.0
+    cx, cy = 320.0, 240.0
+
+    def corners_of(rot, trans, center, yaw_deg, length=0.06, width=0.03):
+        a = np.radians(yaw_deg)
+        ax, side = np.array([np.cos(a), np.sin(a), 0]), np.array([-np.sin(a), np.cos(a), 0])
+        out = []
+        for s1, s2 in ((1, 1), (-1, 1), (-1, -1), (1, -1)):
+            p = rot.T @ (center + s1 * ax * length / 2 + s2 * side * width / 2 - trans)
+            out.append([fx * p[0] / p[2] + cx, fy * p[1] / p[2] + cy])
+        return out
+
+    down = np.diag([1.0, -1.0, -1.0])  # 광학 z → 아래 (-Z)
+    trans = np.array([0.0, 0.0, 0.5])
+    c = np.array([0.02, -0.01, 0.0])
+    for yaw in (0, 30, 95, 170):
+        got = lying_yaw(corners_of(down, trans, c, yaw), fx, fy, cx, cy, down, trans, 0.0)
+        assert abs((got - yaw + 90) % 180 - 90) < 0.5, (yaw, got)
+    pitch = np.radians(60)  # 앞(+x)을 60° 아래로 보는 카메라 — 원근으로 영상 각도는 찌그러져도 평면 교점은 맞아야
+    oblique = np.array([[0, -np.sin(pitch), np.cos(pitch)], [-1, 0, 0], [0, -np.cos(pitch), -np.sin(pitch)]])
+    c = np.array([0.4, 0.05, 0.0])
+    for yaw in (10, 45, 120):
+        got = lying_yaw(corners_of(oblique, trans, c, yaw), fx, fy, cx, cy, oblique, trans, 0.0)
+        assert abs((got - yaw + 90) % 180 - 90) < 0.5, (yaw, got)
+    square = corners_of(down, trans, np.zeros(3), 0, 0.03, 0.03)
+    assert lying_yaw(square, fx, fy, cx, cy, down, trans, 0.0) is None  # 끝면 — 축 모름
+    rz90 = np.array([[0, -1, 0], [1, 0, 0], [0, 0, 1.0]])
+    assert abs(rotate_yaw(170.0, rz90) - 80.0) < 1e-6  # 170+90 = 260 → 80 (180° 대칭)
+
+
+def test_obb_model_pipeline():
+    """OBB 모델 결과(res.obb) → 모양·자세(모델 이름)·yaw가 details에 · 모양이 다른 퍽은 한 트랙으로 안 합침"""
+    import numpy as np
+    from builtin_interfaces.msg import Time
+    from geometry_msgs.msg import TransformStamped
+
+    os.environ.setdefault("ROS_DOMAIN_ID", "101")
+    rclpy.init()
+    try:
+        node = PerceptionNode()
+        node.names = {0: "puck_red_box", 1: "puck_red_cyl", 5: "puck_red_cyl_lying"}
+        node.self_filter = False
+        node.trust_model_posture = True
+        t = TransformStamped()
+        t.header.frame_id, t.child_frame_id = "odom", "gripper_cam_color_optical_frame"
+        t.transform.rotation.x, t.transform.rotation.w = 1.0, 0.0  # x축 180°: 광학 z → odom -z (위에서 내려다봄), 0.5m 위
+        t.transform.translation.z = 0.5
+        node.tf.set_transform_static(t, "test")
+        img = np.full((480, 640, 3), 128, np.uint8)
+        dep = np.full((480, 640), 3000, np.uint16)
+        img[200:236, 260:332] = (40, 40, 220)  # 빨간 누운 퍽 72×36px (0.5m: 6×3cm), 영상 가로 방향
+        dep[200:236, 260:332] = 500
+        img[300:336, 400:436] = (40, 40, 220)  # 빨간 서있는 퍽 윗면 36×36px (3×3cm)
+        dep[300:336, 400:436] = 500
+        s = {"bgr": img, "depth_mm": dep, "stamp": Time(sec=1), "frame_id": "gripper_cam_color_optical_frame",
+             "fx": 600.0, "fy": 600.0, "cx": 320.0, "cy": 240.0}
+        lying = _Obb(5, [[332, 236], [260, 236], [260, 200], [332, 200]])
+        stand = _Obb(0, [[436, 336], [400, 336], [400, 300], [436, 300]])
+        node.frames["gripper_cam"] = {}
+        node.update_tracks("gripper_cam", s, type("Res", (), {"boxes": None, "obb": [lying, stand]})())
+        from perception_node import to_msg
+        msgs = sorted((to_msg(i, tr) for i, tr in node.tracks.items()), key=lambda m: m.class_name)
+        got = [(m.class_name, {kv.key: kv.value for kv in m.details}) for m in msgs]
+        assert got[0] == ("puck", {"posture": "standing", "shape": "box"}), got
+        name, det = got[1]
+        assert name == "puck_lying" and det["shape"] == "cyl" and det["posture"] == "lying", got
+        assert min(float(det["yaw"]), 180 - float(det["yaw"])) < 1.0, det  # 영상 가로 → 광학 x = odom x (yaw 0)
+        tr = next(tr for tr in node.tracks.values() if tr.get("posture") == "lying")
+        d = {"class_name": "puck", "color": "red", "shape": "box"}
+        from perception_node import same_object
+        assert not same_object(tr, d)  # 같은 자리라도 모양이 다르면 다른 퍽
+    finally:
+        rclpy.shutdown()
+
+
 def test_resolve_model_path(tmp_path):
     """model_path — 비면 model.pt · 파일 이름만이면 설치 폴더(share/perception/model)에서 · 경로면 그대로"""
     from perception_node import resolve_model_path

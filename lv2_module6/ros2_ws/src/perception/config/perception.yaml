@@ -44,6 +44,8 @@ perception:
     edge_px: 5              # 박스가 화면 가장자리 이 안에 닿으면 잘린 퍽 — 크기 하한·자세 안 봄 [px]
     near_px: 70             # 깊이 없는데 박스 짧은 변이 이 이상이면 너무 가까운 퍽 — 위치 갱신 없이 마지막 위치 유지 [px]
     depth_min_valid: 0.5    # 박스 가운데 깊이 화소가 이 비율보다 적으면 깊이 없음 (배경 몇 화소로 엉뚱한 거리 안 냄)
+    trust_model_posture: false  # 모델 이름의 자세(puck_red_box_lying — 합성 OBB 모델)를 크기 판정 대신 씀 (팀 모델은 실물에서 틀려 false)
+    yaw_min_aspect: 1.3     # 누운 퍽 OBB 장축÷단축이 이보다 작으면(끝면이 보임) details yaw 안 냄
 signal_decoder:              # 신호등 암호 미션 (documents/mission/README.md) — /tracked_objects 신호등 상태 → 깜빡임 3단계 → /mission/signal (→ plan)
   ros__parameters:           #   단계 구분·점수 등은 MISSION §6 미정 — 제안값 (공지 나오면 여기만 바꿈)
     min_on_s: 0.15           # [s] 이보다 짧은 켜짐은 잡음
