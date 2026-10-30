@@ -1,0 +1,1928 @@
+#usda 1.0
+(
+    defaultPrim = "maze"
+    endTimeCode = 1
+    framesPerSecond = 24
+    metersPerUnit = 1
+    startTimeCode = 1
+    subLayers = [
+        @./geo.usd@
+    ]
+    timeCodesPerSecond = 24
+    upAxis = "Z"
+)
+
+over "maze"
+{
+    def Scope "PhysicsMaterials"
+    {
+        def Material "PLA" (
+            prepend apiSchemas = ["PhysicsMaterialAPI"]
+        )
+        {
+            float physics:dynamicFriction = 0.3
+            float physics:restitution = 0.4
+            float physics:staticFriction = 0.35
+        }
+    }
+
+    over "wall_edge"
+    {
+        double3 xformOp:translate = (0.00665, -0.01249, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+
+        over "collision"
+        {
+            double3 xformOp:translate = (-0.00665, 0.01249, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
+            over "geo_84" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_83" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_82" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_81" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_80" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_79" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_78" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_77" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_76" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_75" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_74" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_73" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_72" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_71" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_70" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_69" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_68" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_67" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_66" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_65" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_64" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_63" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_62" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_61" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_60" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_59" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_58" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_57" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_56" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_55" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_54" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_53" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_52" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_51" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_50" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_49" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_48" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_47" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_46" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_45" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_44" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_43" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_42" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_41" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_40" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_39" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_38" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_37" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_36" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_35" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_34" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_33" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_32" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_31" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_30" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_29" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_28" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_27" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_26" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_25" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_24" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_23" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_22" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_21" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_20" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_19" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_18" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_17" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_16" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_15" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_14" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_13" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_12" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_11" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_10" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_9" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_8" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_7" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_6" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_5" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_4" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_3" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_2" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_1" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_0" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "PhysicsMeshCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token physics:approximation = "none"
+                uniform token purpose = "guide"
+            }
+        }
+
+        over "PLA"
+        {
+            double3 xformOp:translate = (-0.00665, 0.01249, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
+            over "geo" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </maze/Looks/PLA>
+            }
+        }
+
+        over "wall"
+        {
+            double3 xformOp:translate = (-0.00665, 0.01249, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
+            over "geo" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </maze/Looks/wall>
+            }
+        }
+
+        over "profile"
+        {
+            double3 xformOp:translate = (-0.00665, 0.01249, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
+            over "geo" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </maze/Looks/profile>
+            }
+        }
+
+        over "steel"
+        {
+            double3 xformOp:translate = (-0.00665, 0.01249, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
+            over "geo" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </maze/Looks/steel>
+            }
+        }
+    }
+
+    over "wall_e0"
+    {
+        double3 xformOp:translate = (1.1853, -0.41069, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+
+        over "collision"
+        {
+            double3 xformOp:translate = (-1.1853, 0.41069, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
+            over "geo_5" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_4" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_3" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_2" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_1" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_0" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "PhysicsMeshCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token physics:approximation = "none"
+                uniform token purpose = "guide"
+            }
+        }
+
+        over "PLA"
+        {
+            double3 xformOp:translate = (-1.1853, 0.41069, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
+            over "geo" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </maze/Looks/PLA>
+            }
+        }
+
+        over "wall"
+        {
+            double3 xformOp:translate = (-1.1853, 0.41069, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
+            over "geo" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </maze/Looks/wall>
+            }
+        }
+
+        over "profile"
+        {
+            double3 xformOp:translate = (-1.1853, 0.41069, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
+            over "geo" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </maze/Looks/profile>
+            }
+        }
+    }
+
+    over "wall_d0"
+    {
+        double3 xformOp:translate = (-0.79206, -1.56622, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+
+        over "collision"
+        {
+            double3 xformOp:translate = (0.79206, 1.56622, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
+            over "geo_6" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_5" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_4" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_3" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_2" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_1" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_0" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "PhysicsMeshCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token physics:approximation = "none"
+                uniform token purpose = "guide"
+            }
+        }
+
+        over "PLA"
+        {
+            double3 xformOp:translate = (0.79206, 1.56622, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
+            over "geo" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </maze/Looks/PLA>
+            }
+        }
+
+        over "wall"
+        {
+            double3 xformOp:translate = (0.79206, 1.56622, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
+            over "geo" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </maze/Looks/wall>
+            }
+        }
+
+        over "profile"
+        {
+            double3 xformOp:translate = (0.79206, 1.56622, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
+            over "geo" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </maze/Looks/profile>
+            }
+        }
+    }
+
+    over "wall_c0"
+    {
+        double3 xformOp:translate = (1.12984, -1.93611, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+
+        over "collision"
+        {
+            double3 xformOp:translate = (-1.12984, 1.93611, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
+            over "geo_3" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_2" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_1" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_0" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "PhysicsMeshCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token physics:approximation = "none"
+                uniform token purpose = "guide"
+            }
+        }
+
+        over "PLA"
+        {
+            double3 xformOp:translate = (-1.12984, 1.93611, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
+            over "geo" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </maze/Looks/PLA>
+            }
+        }
+
+        over "wall"
+        {
+            double3 xformOp:translate = (-1.12984, 1.93611, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
+            over "geo" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </maze/Looks/wall>
+            }
+        }
+
+        over "profile"
+        {
+            double3 xformOp:translate = (-1.12984, 1.93611, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
+            over "geo" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </maze/Looks/profile>
+            }
+        }
+    }
+
+    over "wall_b2"
+    {
+        double3 xformOp:translate = (1.51737, 1.12126, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+
+        over "collision"
+        {
+            double3 xformOp:translate = (-1.51737, -1.12126, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
+            over "geo_2" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_1" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_0" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "PhysicsMeshCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token physics:approximation = "none"
+                uniform token purpose = "guide"
+            }
+        }
+
+        over "PLA"
+        {
+            double3 xformOp:translate = (-1.51737, -1.12126, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
+            over "geo" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </maze/Looks/PLA>
+            }
+        }
+
+        over "wall"
+        {
+            double3 xformOp:translate = (-1.51737, -1.12126, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
+            over "geo" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </maze/Looks/wall>
+            }
+        }
+
+        over "profile"
+        {
+            double3 xformOp:translate = (-1.51737, -1.12126, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
+            over "geo" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </maze/Looks/profile>
+            }
+        }
+    }
+
+    over "wall_b1"
+    {
+        double3 xformOp:translate = (1.15718, 2.20736, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+
+        over "collision"
+        {
+            double3 xformOp:translate = (-1.15718, -2.20736, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
+            over "geo_2" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_1" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_0" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "PhysicsMeshCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token physics:approximation = "none"
+                uniform token purpose = "guide"
+            }
+        }
+
+        over "PLA"
+        {
+            double3 xformOp:translate = (-1.15718, -2.20736, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
+            over "geo" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </maze/Looks/PLA>
+            }
+        }
+
+        over "wall"
+        {
+            double3 xformOp:translate = (-1.15718, -2.20736, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
+            over "geo" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </maze/Looks/wall>
+            }
+        }
+
+        over "profile"
+        {
+            double3 xformOp:translate = (-1.15718, -2.20736, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
+            over "geo" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </maze/Looks/profile>
+            }
+        }
+    }
+
+    over "wall_b0"
+    {
+        double3 xformOp:translate = (-1.10207, 2.09695, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+
+        over "collision"
+        {
+            double3 xformOp:translate = (1.10207, -2.09695, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
+            over "geo_2" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_1" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_0" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "PhysicsMeshCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token physics:approximation = "none"
+                uniform token purpose = "guide"
+            }
+        }
+
+        over "PLA"
+        {
+            double3 xformOp:translate = (1.10207, -2.09695, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
+            over "geo" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </maze/Looks/PLA>
+            }
+        }
+
+        over "wall"
+        {
+            double3 xformOp:translate = (1.10207, -2.09695, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
+            over "geo" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </maze/Looks/wall>
+            }
+        }
+
+        over "profile"
+        {
+            double3 xformOp:translate = (1.10207, -2.09695, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
+            over "geo" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </maze/Looks/profile>
+            }
+        }
+    }
+
+    over "wall_a1"
+    {
+        double3 xformOp:translate = (-1.54096, 0.72762, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+
+        over "collision"
+        {
+            double3 xformOp:translate = (1.54096, -0.72762, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
+            over "geo_3" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_2" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_1" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_0" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "PhysicsMeshCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token physics:approximation = "none"
+                uniform token purpose = "guide"
+            }
+        }
+
+        over "PLA"
+        {
+            double3 xformOp:translate = (1.54096, -0.72762, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
+            over "geo" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </maze/Looks/PLA>
+            }
+        }
+
+        over "wall"
+        {
+            double3 xformOp:translate = (1.54096, -0.72762, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
+            over "geo" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </maze/Looks/wall>
+            }
+        }
+
+        over "profile"
+        {
+            double3 xformOp:translate = (1.54096, -0.72762, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
+            over "geo" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </maze/Looks/profile>
+            }
+        }
+    }
+
+    over "wall_a0"
+    {
+        double3 xformOp:translate = (0.01665, 2.18047, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+
+        over "collision"
+        {
+            double3 xformOp:translate = (-0.01665, -2.18047, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
+            over "geo_3" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_2" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_1" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token purpose = "guide"
+            }
+
+            over "geo_0" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "PhysicsMeshCollisionAPI", "MaterialBindingAPI"]
+            )
+            {
+                rel material:binding:physics = </maze/PhysicsMaterials/PLA> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                uniform token physics:approximation = "none"
+                uniform token purpose = "guide"
+            }
+        }
+
+        over "PLA"
+        {
+            double3 xformOp:translate = (-0.01665, -2.18047, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
+            over "geo" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </maze/Looks/PLA>
+            }
+        }
+
+        over "wall"
+        {
+            double3 xformOp:translate = (-0.01665, -2.18047, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
+            over "geo" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </maze/Looks/wall>
+            }
+        }
+
+        over "profile"
+        {
+            double3 xformOp:translate = (-0.01665, -2.18047, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
+            over "geo" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </maze/Looks/profile>
+            }
+        }
+    }
+
+    def Scope "Looks"
+    {
+        def Material "PLA" (
+            prepend apiSchemas = ["MaterialXConfigAPI"]
+            prepend inherits = </__class_mtl__/PLA>
+        )
+        {
+            string config:mtlx:version = "1.39"
+            token outputs:mtlx:displacement.connect = </maze/Looks/PLA/mtlxdisplacement.outputs:out>
+            token outputs:mtlx:surface.connect = </maze/Looks/PLA/mtlxstandard_surface.outputs:out>
+            token outputs:surface.connect = </maze/Looks/PLA/mtlxstandard_preview.outputs:surface>
+
+            def Shader "mtlxstandard_surface" (
+                prepend apiSchemas = ["NodeGraphNodeAPI", "MaterialBindingAPI"]
+            )
+            {
+                uniform token info:id = "ND_standard_surface_surfaceshader"
+                float inputs:base
+                color3f inputs:base_color = (0, 0, 0.5)
+                color3f inputs:base_color.connect = </maze/Looks/PLA/mtlxpower1.outputs:out>
+                float inputs:coat
+                float inputs:coat_roughness
+                float inputs:emission
+                color3f inputs:emission_color
+                float inputs:metalness
+                float inputs:specular
+                color3f inputs:specular_color
+                float inputs:specular_IOR
+                float inputs:specular_roughness
+                float inputs:transmission
+                rel material:binding = </maze/Looks/PLA>
+                token outputs:out
+                uniform float2 ui:nodegraph:node:pos = (-9.73701, 9.42316)
+            }
+
+            def Shader "mtlxpower1" (
+                prepend apiSchemas = ["NodeGraphNodeAPI", "MaterialBindingAPI"]
+            )
+            {
+                uniform token info:id = "ND_power_color3"
+                color3f inputs:in1 = (0.0353, 0.1608, 0.5373)
+                color3f inputs:in1.connect = None
+                color3f inputs:in2 = (2.2, 2.2, 2.2)
+                rel material:binding = </maze/Looks/PLA>
+                color3f outputs:out
+                uniform float2 ui:nodegraph:node:pos = (-12.3929, 8.25816)
+            }
+
+            def Shader "mtlxdisplacement" (
+                prepend apiSchemas = ["NodeGraphNodeAPI", "MaterialBindingAPI"]
+            )
+            {
+                uniform token info:id = "ND_displacement_float"
+                rel material:binding = </maze/Looks/PLA>
+                token outputs:out
+                uniform float2 ui:nodegraph:node:pos = (-9.73701, 5.13069)
+            }
+
+            def Shader "mtlxstandard_preview" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                float inputs:clearcoatRoughness = 0.1
+                color3f inputs:diffuseColor = (0, 0, 0.5)
+                float inputs:roughness = 0.2
+                color3f inputs:specularColor = (1, 1, 1)
+                rel material:binding = </maze/Looks/PLA>
+                token outputs:surface
+            }
+        }
+
+        def Material "wall" (
+            prepend apiSchemas = ["MaterialXConfigAPI"]
+            prepend inherits = </__class_mtl__/wall>
+        )
+        {
+            string config:mtlx:version = "1.39"
+            token outputs:mtlx:displacement.connect = </maze/Looks/wall/mtlxdisplacement.outputs:out>
+            token outputs:mtlx:surface.connect = </maze/Looks/wall/mtlxstandard_surface.outputs:out>
+            token outputs:surface.connect = </maze/Looks/wall/mtlxstandard_preview.outputs:surface>
+
+            def Shader "mtlxstandard_surface" (
+                prepend apiSchemas = ["NodeGraphNodeAPI"]
+            )
+            {
+                uniform token info:id = "ND_standard_surface_surfaceshader"
+                float inputs:base
+                color3f inputs:base_color = (0.0611, 0.0807, 0.163)
+                float inputs:coat
+                float inputs:coat_roughness
+                float inputs:emission
+                color3f inputs:emission_color
+                float inputs:metalness
+                float inputs:specular
+                color3f inputs:specular_color
+                float inputs:specular_IOR
+                float inputs:specular_roughness = 0.02
+                float inputs:transmission
+                token outputs:out
+                uniform float2 ui:nodegraph:node:pos = (-0.2883, 0.0376)
+            }
+
+            def Shader "mtlxdisplacement" (
+                prepend apiSchemas = ["NodeGraphNodeAPI"]
+            )
+            {
+                uniform token info:id = "ND_displacement_float"
+                token outputs:out
+                uniform float2 ui:nodegraph:node:pos = (-0.2883, -2.4334)
+            }
+
+            def Shader "mtlxstandard_preview"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                float inputs:clearcoatRoughness = 0.1
+                color3f inputs:diffuseColor = (0.0611, 0.0807, 0.163)
+                float inputs:roughness = 0.02
+                color3f inputs:specularColor = (1, 1, 1)
+                token outputs:surface
+            }
+        }
+
+        def Material "profile" (
+            prepend apiSchemas = ["MaterialXConfigAPI"]
+            prepend inherits = </__class_mtl__/profile>
+        )
+        {
+            string config:mtlx:version = "1.39"
+            token outputs:mtlx:displacement.connect = </maze/Looks/profile/mtlxdisplacement.outputs:out>
+            token outputs:mtlx:surface.connect = </maze/Looks/profile/mtlxstandard_surface.outputs:out>
+            token outputs:surface.connect = </maze/Looks/profile/mtlxstandard_preview.outputs:surface>
+
+            def Shader "mtlxstandard_surface" (
+                prepend apiSchemas = ["NodeGraphNodeAPI"]
+            )
+            {
+                uniform token info:id = "ND_standard_surface_surfaceshader"
+                float inputs:base
+                color3f inputs:base_color = (0.6667, 0.6667, 0.6667)
+                float inputs:coat
+                float inputs:coat_roughness
+                float inputs:emission
+                color3f inputs:emission_color
+                float inputs:metalness = 0.847
+                float inputs:specular
+                color3f inputs:specular_color
+                float inputs:specular_IOR
+                float inputs:specular_roughness
+                float inputs:transmission
+                token outputs:out
+                uniform float2 ui:nodegraph:node:pos = (-0.2883, 0.0376)
+            }
+
+            def Shader "mtlxdisplacement" (
+                prepend apiSchemas = ["NodeGraphNodeAPI"]
+            )
+            {
+                uniform token info:id = "ND_displacement_float"
+                token outputs:out
+                uniform float2 ui:nodegraph:node:pos = (-0.2883, -2.4334)
+            }
+
+            def Shader "mtlxstandard_preview"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                float inputs:clearcoatRoughness = 0.1
+                color3f inputs:diffuseColor = (0.6667, 0.6667, 0.6667)
+                float inputs:metallic = 0.847
+                float inputs:roughness = 0.2
+                color3f inputs:specularColor = (1, 1, 1)
+                token outputs:surface
+            }
+        }
+
+        def Material "steel" (
+            prepend apiSchemas = ["MaterialXConfigAPI"]
+            prepend inherits = </__class_mtl__/steel>
+        )
+        {
+            string config:mtlx:version = "1.39"
+            token outputs:mtlx:displacement.connect = </maze/Looks/steel/mtlxdisplacement.outputs:out>
+            token outputs:mtlx:surface.connect = </maze/Looks/steel/mtlxstandard_surface.outputs:out>
+            token outputs:surface.connect = </maze/Looks/steel/mtlxstandard_preview.outputs:surface>
+
+            def Shader "mtlxstandard_surface" (
+                prepend apiSchemas = ["NodeGraphNodeAPI"]
+            )
+            {
+                uniform token info:id = "ND_standard_surface_surfaceshader"
+                float inputs:base
+                color3f inputs:base_color = (1, 1, 1)
+                float inputs:coat
+                float inputs:coat_roughness
+                float inputs:emission
+                color3f inputs:emission_color
+                float inputs:metalness = 0.9
+                float inputs:specular
+                color3f inputs:specular_color
+                float inputs:specular_IOR
+                float inputs:specular_roughness
+                float inputs:transmission
+                token outputs:out
+                uniform float2 ui:nodegraph:node:pos = (-0.2883, 0.0376)
+            }
+
+            def Shader "mtlxdisplacement" (
+                prepend apiSchemas = ["NodeGraphNodeAPI"]
+            )
+            {
+                uniform token info:id = "ND_displacement_float"
+                token outputs:out
+                uniform float2 ui:nodegraph:node:pos = (-0.2883, -2.4334)
+            }
+
+            def Shader "mtlxstandard_preview"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                float inputs:clearcoatRoughness = 0.1
+                color3f inputs:diffuseColor = (1, 1, 1)
+                float inputs:metallic = 0.9
+                float inputs:roughness = 0.2
+                color3f inputs:specularColor = (1, 1, 1)
+                token outputs:surface
+            }
+        }
+    }
+}
+

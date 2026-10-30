@@ -1,0 +1,1095 @@
+#usda 1.0
+(
+    customLayerData = {
+        dictionary cameraSettings = {
+            dictionary Front = {
+                double3 position = (5, 0, 0)
+                double radius = 5
+            }
+            dictionary Perspective = {
+                double3 position = (0.22556438083845123, 0.7063819511284161, 0.5394274733315824)
+                double3 target = (0.14409339280118558, -0.11017818614253672, 0.15697474443613096)
+            }
+            dictionary Right = {
+                double3 position = (0.03988901330187963, -5, 0.1922440657510208)
+                double radius = 1.0361764907836915
+            }
+            dictionary Top = {
+                double3 position = (0.06884767717888385, 0.09082034010831479, 5)
+                double radius = 1.88232479095459
+            }
+            string boundCamera = "/OmniverseKit_Persp"
+        }
+        string creator = "URDF USD Converter v0.3.2"
+        dictionary omni_layer = {
+            string authoring_layer = "./beebot.usda"
+        }
+        dictionary renderSettings = {
+            double "rtx:directLighting:sampledLighting:maxRayUnexposedIntensity" = 6399.9990234375
+            double "rtx:indirectDiffuse:maxRayUnexposedIntensity" = 6399.9990234375
+            double "rtx:pathtracing:fireflyFilter:maxPerEmissiveUnexposedIntensity" = 3199.99951171875
+            double "rtx:pathtracing:fireflyFilter:maxUnexposedIntensityPerSample" = 3199.99951171875
+            double "rtx:pathtracing:fireflyFilter:maxUnexposedIntensityPerSampleDiffuse" = 3199.99951171875
+            double "rtx:raytracing:inscattering:maxRTSampleUnexposedIntensity" = 204799.96875
+            token "rtx:rendermode" = "MinimalRendering"
+            double "rtx:rtpt:fireflyFilter:maxPerEmissiveUnexposedIntensity" = 3199.99951171875
+            double "rtx:rtpt:fireflyFilter:maxUnexposedIntensityPerSample" = 3199.99951171875
+            double "rtx:rtpt:fireflyFilter:maxUnexposedIntensityPerSampleDiffuse" = 3199.99951171875
+            double "rtx:translucency:maxRayUnexposedIntensity" = 19199.998046875
+        }
+    }
+    defaultPrim = "beebot"
+    endTimeCode = 1000000
+    kilogramsPerUnit = 1
+    metersPerUnit = 1
+    startTimeCode = 0
+    upAxis = "Z"
+)
+
+def Xform "beebot" (
+    prepend references = @./payloads/base.usda@
+    append variantSets = "Physics"
+)
+{
+    over "Geometry"
+    {
+        over "base_footprint"
+        {
+            over "base_link"
+            {
+                string isaac:nameOverride (
+                    displayName = "Name Override"
+                )
+                rel physics:simulationOwner
+
+                over "wheel_left_link"
+                {
+                    rel physics:simulationOwner
+
+                    over "cylinder"
+                    {
+                        float3[] extent = [(-0.033, -0.033, -0.0075), (0.033, 0.033, 0.0075)]
+                        double height = 0.015
+                        rel physics:simulationOwner
+                    }
+                }
+
+                over "wheel_right_link"
+                {
+                    string isaac:nameOverride (
+                        displayName = "Name Override"
+                    )
+                    rel physics:simulationOwner
+
+                    over "cylinder"
+                    {
+                        float3[] extent = [(-0.033, -0.033, -0.0075), (0.033, 0.033, 0.0075)]
+                        double height = 0.015
+                        rel physics:simulationOwner
+                    }
+                }
+
+                over "pole_front_cam_link"
+                {
+                    string isaac:nameOverride (
+                        displayName = "Name Override"
+                    )
+                    rel physics:simulationOwner
+
+                    over "pole_front_cam_color_optical_frame"
+                    {
+                        string isaac:Description (
+                            displayName = "Reference Description"
+                        )
+                        uniform token isaac:forwardAxis (
+                            displayName = "Forward Axis"
+                        )
+
+                        def Camera "pole_front_cam_rgb" (
+                            prepend apiSchemas = ["OmniRtxCameraAutoExposureAPI_1", "OmniRtxCameraExposureAPI_1"]
+                        )
+                        {
+                            float2 clippingRange = (0.01, 20)
+                            float exposure:fStop = 5
+                            float exposure:responsivity = 1.1026709
+                            float exposure:time = 0.02
+                            float focalLength = 15.2449
+                            float focusDistance = 400
+                            float horizontalAperture = 15.855
+                            bool omni:kit:cameraLock = 1
+                            float verticalAperture = 11.891
+                            quatd xformOp:orient = (6.123233995736766e-17, 1, 0, 0)
+                            double3 xformOp:scale = (1, 1, 1)
+                            double3 xformOp:translate = (0, 0, 0)
+                            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+                        }
+                    }
+
+                    over "box"
+                    {
+                        rel physics:simulationOwner
+                    }
+                }
+
+                over "arm_base_link"
+                {
+                    string isaac:nameOverride (
+                        displayName = "Name Override"
+                    )
+                    rel physics:simulationOwner
+
+                    over "shoulder_link"
+                    {
+                        string isaac:nameOverride (
+                            displayName = "Name Override"
+                        )
+                        rel physics:simulationOwner
+
+                        over "upper_arm_link"
+                        {
+                            string isaac:nameOverride (
+                                displayName = "Name Override"
+                            )
+                            rel physics:simulationOwner
+
+                            over "forearm_link"
+                            {
+                                string isaac:nameOverride (
+                                    displayName = "Name Override"
+                                )
+                                rel physics:simulationOwner
+
+                                over "wrist_link"
+                                {
+                                    string isaac:nameOverride (
+                                        displayName = "Name Override"
+                                    )
+                                    rel physics:simulationOwner
+
+                                    over "gripper_link"
+                                    {
+                                        string isaac:nameOverride (
+                                            displayName = "Name Override"
+                                        )
+                                        rel physics:simulationOwner
+
+                                        over "finger_left_link"
+                                        {
+                                            string isaac:nameOverride (
+                                                displayName = "Name Override"
+                                            )
+                                            rel physics:simulationOwner
+                                        }
+
+                                        over "finger_right_link"
+                                        {
+                                            string isaac:nameOverride (
+                                                displayName = "Name Override"
+                                            )
+                                            rel physics:simulationOwner
+
+                                            over "finger_right_link_collision" (
+                                                instanceable = false
+                                            )
+                                            {
+                                                over "finger_right_link_visual" (
+                                                    prepend apiSchemas = ["PhysxConvexDecompositionCollisionAPI"]
+                                                )
+                                                {
+                                                }
+                                            }
+                                        }
+
+                                        over "gripper_cam_link"
+                                        {
+                                            string isaac:nameOverride (
+                                                displayName = "Name Override"
+                                            )
+                                            rel physics:simulationOwner
+
+                                            over "gripper_cam_color_optical_frame"
+                                            {
+                                                string isaac:Description (
+                                                    displayName = "Reference Description"
+                                                )
+                                                uniform token isaac:forwardAxis (
+                                                    displayName = "Forward Axis"
+                                                )
+
+                                                def Camera "gripper_cam_rgb" (
+                                                    prepend apiSchemas = ["OmniRtxCameraAutoExposureAPI_1", "OmniRtxCameraExposureAPI_1"]
+                                                )
+                                                {
+                                                    float2 clippingRange = (0.01, 20)
+                                                    float exposure:fStop = 5
+                                                    float exposure:responsivity = 1.1026709
+                                                    float exposure:time = 0.02
+                                                    float focalLength = 15.2449
+                                                    float focusDistance = 400
+                                                    float horizontalAperture = 15.855
+                                                    bool omni:kit:cameraLock = 1
+                                                    float verticalAperture = 11.891
+                                                    quatd xformOp:orient = (6.123233995736766e-17, 1, 0, 0)
+                                                    double3 xformOp:scale = (1, 1, 1)
+                                                    double3 xformOp:translate = (0, 0, 0)
+                                                    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+                                                }
+                                            }
+
+                                            over "box"
+                                            {
+                                                rel physics:simulationOwner
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                over "box"
+                {
+                    rel physics:simulationOwner
+                }
+
+                over "box_1"
+                {
+                    rel physics:simulationOwner
+                }
+
+                over "box_2"
+                {
+                    rel physics:simulationOwner
+                }
+
+                over "box_3"
+                {
+                    rel physics:simulationOwner
+                }
+
+                over "box_4"
+                {
+                    rel physics:simulationOwner
+                }
+
+                over "sphere"
+                {
+                    rel physics:simulationOwner
+                }
+
+                over "sphere_1"
+                {
+                    rel physics:simulationOwner
+                }
+
+                over "imu_link"
+                {
+                    string isaac:Description (
+                        displayName = "Reference Description"
+                    )
+                    uniform token isaac:forwardAxis (
+                        displayName = "Forward Axis"
+                    )
+
+                    def IsaacImuSensor "Imu_Sensor"
+                    {
+                        int angularVelocityFilterWidth = 1
+                        bool enabled = 1
+                        int linearAccelerationFilterWidth = 1
+                        int orientationFilterWidth = 1
+                        token visibility = "invisible"
+                        quatd xformOp:orient = (1, 0, 0, 0)
+                        double3 xformOp:scale = (1, 1, 1)
+                        double3 xformOp:translate = (0, 0, 0)
+                        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+                    }
+                }
+            }
+        }
+    }
+
+    over "Physics"
+    {
+        over "wheel_left_joint"
+        {
+            float physics:lowerLimit = -inf
+            float physics:upperLimit = inf
+            float state:angular:physics:position = 0
+            float state:angular:physics:velocity = 0
+        }
+
+        over "wheel_right_joint"
+        {
+            float physics:lowerLimit = -inf
+            float physics:upperLimit = inf
+            float state:angular:physics:position = 0
+            float state:angular:physics:velocity = 0
+        }
+
+        over "joint1"
+        {
+            float drive:angular:physics:targetPosition = 0
+            bool[] isaac:actuator (
+                displayName = "Actuator"
+            )
+            string isaac:NameOverride (
+                displayName = "Joint Name Override"
+            )
+            token[] isaac:physics:DofOffsetOpOrder (
+                displayName = "Dof Offset Op Order"
+            )
+            float physics:lowerLimit = -179.99985
+            float physics:upperLimit = 179.99985
+            float state:angular:physics:position = 0
+            float state:angular:physics:velocity = 0
+        }
+
+        over "joint2"
+        {
+            float drive:angular:physics:targetPosition = -110
+            bool[] isaac:actuator (
+                displayName = "Actuator"
+            )
+            string isaac:NameOverride (
+                displayName = "Joint Name Override"
+            )
+            token[] isaac:physics:DofOffsetOpOrder (
+                displayName = "Dof Offset Op Order"
+            )
+            float physics:lowerLimit = -109.99999
+            float physics:upperLimit = 109.99999
+            float state:angular:physics:position = 0
+            float state:angular:physics:velocity = 0
+        }
+
+        over "joint3"
+        {
+            float drive:angular:physics:targetPosition = 78.5
+            bool[] isaac:actuator (
+                displayName = "Actuator"
+            )
+            string isaac:NameOverride (
+                displayName = "Joint Name Override"
+            )
+            token[] isaac:physics:DofOffsetOpOrder (
+                displayName = "Dof Offset Op Order"
+            )
+            float physics:lowerLimit = -89.999985
+            float physics:upperLimit = 79.99998
+            float state:angular:physics:position = 0
+            float state:angular:physics:velocity = 0
+        }
+
+        over "joint4"
+        {
+            float drive:angular:physics:targetPosition = 34.100002
+            bool[] isaac:actuator (
+                displayName = "Actuator"
+            )
+            string isaac:NameOverride (
+                displayName = "Joint Name Override"
+            )
+            token[] isaac:physics:DofOffsetOpOrder (
+                displayName = "Dof Offset Op Order"
+            )
+            float physics:lowerLimit = -97.402824
+            float physics:upperLimit = 112.87269
+            float state:angular:physics:position = 0
+            float state:angular:physics:velocity = 0
+        }
+
+        over "joint5"
+        {
+            float drive:angular:physics:targetPosition = 0
+            bool[] isaac:actuator (
+                displayName = "Actuator"
+            )
+            string isaac:NameOverride (
+                displayName = "Joint Name Override"
+            )
+            token[] isaac:physics:DofOffsetOpOrder (
+                displayName = "Dof Offset Op Order"
+            )
+            float physics:lowerLimit = -180.00002
+            float physics:upperLimit = 180.00002
+            float state:angular:physics:position = 0
+            float state:angular:physics:velocity = 0
+        }
+
+        over "gripper_left_joint"
+        {
+            float drive:linear:physics:targetPosition = 0.011000001
+            bool[] isaac:actuator (
+                displayName = "Actuator"
+            )
+            string isaac:NameOverride (
+                displayName = "Joint Name Override"
+            )
+            token[] isaac:physics:DofOffsetOpOrder (
+                displayName = "Dof Offset Op Order"
+            )
+            float physics:lowerLimit = 0
+            float physics:upperLimit = 0.0265
+            float state:linear:physics:position = 0
+            float state:linear:physics:velocity = 0
+        }
+
+        over "gripper_right_joint"
+        {
+            float physics:lowerLimit = 0
+            float physics:upperLimit = 0.0265
+            float state:linear:physics:position = 0
+            float state:linear:physics:velocity = 0
+        }
+
+        over "base_joint"
+        {
+            bool[] isaac:actuator (
+                displayName = "Actuator"
+            )
+            string isaac:NameOverride (
+                displayName = "Joint Name Override"
+            )
+            token[] isaac:physics:DofOffsetOpOrder (
+                displayName = "Dof Offset Op Order"
+            )
+        }
+
+        over "gripper_cam_joint"
+        {
+            bool[] isaac:actuator (
+                displayName = "Actuator"
+            )
+            string isaac:NameOverride (
+                displayName = "Joint Name Override"
+            )
+            token[] isaac:physics:DofOffsetOpOrder (
+                displayName = "Dof Offset Op Order"
+            )
+        }
+    }
+
+    def OmniGraph "ActionGraph"
+    {
+        token evaluationMode = "Automatic"
+        token evaluator:type = "execution"
+        token fabricCacheBacking = "Shared"
+        int2 fileFormatVersion = (1, 9)
+        token pipelineStage = "pipelineStageSimulation"
+
+        def OmniGraphNode "on_playback_tick" (
+            prepend apiSchemas = ["NodeGraphNodeAPI"]
+        )
+        {
+            token node:type = "omni.graph.action.OnPlaybackTick"
+            int node:typeVersion = 2
+            custom double outputs:deltaSeconds
+            custom double outputs:frame
+            custom uint outputs:tick (
+                customData = {
+                    bool isExecution = 1
+                }
+            )
+            custom double outputs:time
+            uniform token ui:nodegraph:node:expansionState = "open"
+            uniform float2 ui:nodegraph:node:pos = (119.37161, -1.7031183)
+        }
+
+        def OmniGraphNode "isaac_read_simulation_time" (
+            prepend apiSchemas = ["NodeGraphNodeAPI"]
+        )
+        {
+            token node:type = "isaacsim.core.nodes.IsaacReadSimulationTime"
+            int node:typeVersion = 1
+            custom bool inputs:resetOnStop = true
+            custom double outputs:simulationTime
+            uniform token ui:nodegraph:node:expansionState = "minimized"
+            uniform float2 ui:nodegraph:node:pos = (119.37161, 200)
+        }
+
+        def OmniGraphNode "ros2_publish_clock" (
+            prepend apiSchemas = ["NodeGraphNodeAPI"]
+        )
+        {
+            token node:type = "isaacsim.ros2.bridge.ROS2PublishClock"
+            int node:typeVersion = 1
+            custom uint inputs:execIn (
+                customData = {
+                    bool isExecution = 1
+                }
+            )
+            prepend uint inputs:execIn.connect = </beebot/ActionGraph/on_playback_tick.outputs:tick>
+            custom string inputs:topicName = "clock"
+            custom double inputs:timeStamp
+            prepend double inputs:timeStamp.connect = </beebot/ActionGraph/isaac_read_simulation_time.outputs:simulationTime>
+            uniform token ui:nodegraph:node:expansionState = "minimized"
+            uniform float2 ui:nodegraph:node:pos = (400, 200)
+        }
+
+        def OmniGraphNode "isaac_create_render_product" (
+            prepend apiSchemas = ["NodeGraphNodeAPI"]
+        )
+        {
+            custom rel inputs:cameraPrim = </beebot/Geometry/base_footprint/base_link/pole_front_cam_link/pole_front_cam_color_optical_frame/pole_front_cam_rgb> (
+                customData = {
+                    dictionary omni = {
+                        dictionary graph = {
+                            string relType = "target"
+                        }
+                    }
+                }
+            )
+            custom bool inputs:enabled
+            custom uint inputs:execIn (
+                customData = {
+                    bool isExecution = 1
+                }
+            )
+            prepend uint inputs:execIn.connect = </beebot/ActionGraph/on_playback_tick.outputs:tick>
+            custom uint inputs:height = 480
+            custom rel inputs:renderProductPrim (
+                customData = {
+                    dictionary omni = {
+                        dictionary graph = {
+                            string relType = "target"
+                        }
+                    }
+                }
+            )
+            custom uint inputs:width = 640
+            token node:type = "isaacsim.core.nodes.IsaacCreateRenderProduct"
+            int node:typeVersion = 3
+            custom uint outputs:execOut (
+                customData = {
+                    bool isExecution = 1
+                }
+            )
+            custom token outputs:renderProductPath
+            uniform token ui:nodegraph:node:expansionState = "minimized"
+            uniform float2 ui:nodegraph:node:pos = (351.0056, 486.18723)
+        }
+
+        def OmniGraphNode "ros2_camera_helper" (
+            prepend apiSchemas = ["NodeGraphNodeAPI"]
+        )
+        {
+            custom uint64 inputs:context
+            custom bool inputs:enabled
+            custom bool inputs:enableSemanticLabels
+            custom uint inputs:execIn (
+                customData = {
+                    bool isExecution = 1
+                }
+            )
+            prepend uint inputs:execIn.connect = </beebot/ActionGraph/isaac_create_render_product.outputs:execOut>
+            custom string inputs:frameId = "pole_front_cam_color_optical_frame"
+            custom uint inputs:frameSkipCount = 3
+            custom string inputs:nodeNamespace = "pole_front_cam"
+            custom string inputs:qosProfile = '{"history":"keepLast","depth":5,"reliability":"bestEffort","durability":"volatile","deadline":0.0,"lifespan":0.0,"liveliness":"systemDefault","leaseDuration":0.0}'
+            prepend string inputs:qosProfile.connect = </beebot/ActionGraph/ros2_qos_profile.outputs:qosProfile>
+            custom uint64 inputs:queueSize = 5
+            custom token inputs:renderProductPath
+            prepend token inputs:renderProductPath.connect = </beebot/ActionGraph/isaac_create_render_product.outputs:renderProductPath>
+            custom bool inputs:resetSimulationTimeOnStop
+            custom string inputs:semanticLabelsTopicName
+            custom string inputs:srtxCompressionType
+            custom float2 inputs:stereoOffset
+            custom string inputs:topicName = "color/image_raw"
+            custom token inputs:type (
+                allowedTokens = ["rgb", "rgb_h264", "rgb_hevc", "depth", "depth_pcl", "instance_segmentation", "semantic_segmentation", "bbox_2d_tight", "bbox_2d_loose", "bbox_3d"]
+            )
+            custom bool inputs:useSystemTime
+            token node:type = "isaacsim.ros2.bridge.ROS2CameraHelper"
+            int node:typeVersion = 4
+            uniform token ui:nodegraph:node:expansionState = "minimized"
+            uniform float2 ui:nodegraph:node:pos = (681.97815, 454.66382)
+        }
+
+        def OmniGraphNode "ros2_camera_info_helper" (
+            prepend apiSchemas = ["NodeGraphNodeAPI"]
+        )
+        {
+            custom uint64 inputs:context
+            custom bool inputs:enabled
+            custom uint inputs:execIn (
+                customData = {
+                    bool isExecution = 1
+                }
+            )
+            prepend uint inputs:execIn.connect = </beebot/ActionGraph/isaac_create_render_product.outputs:execOut>
+            custom string inputs:frameId = "pole_front_cam_color_optical_frame"
+            custom string inputs:frameIdRight
+            custom uint inputs:frameSkipCount = 3
+            custom string inputs:nodeNamespace = "pole_front_cam"
+            custom string inputs:qosProfile = '{"history":"keepLast","depth":5,"reliability":"bestEffort","durability":"volatile","deadline":0.0,"lifespan":0.0,"liveliness":"systemDefault","leaseDuration":0.0}'
+            custom uint64 inputs:queueSize
+            custom token inputs:renderProductPath
+            prepend token inputs:renderProductPath.connect = </beebot/ActionGraph/isaac_create_render_product.outputs:renderProductPath>
+            custom token inputs:renderProductPathRight
+            custom bool inputs:resetSimulationTimeOnStop
+            custom string inputs:topicName = "color/camera_info_isaac"
+            custom string inputs:topicNameRight
+            custom bool inputs:useSystemTime
+            token node:type = "isaacsim.ros2.bridge.ROS2CameraInfoHelper"
+            int node:typeVersion = 1
+            uniform token ui:nodegraph:node:expansionState = "minimized"
+            uniform float2 ui:nodegraph:node:pos = (773.557, 706.3374)
+        }
+
+        def OmniGraphNode "ros2_camera_helper_01" (
+            prepend apiSchemas = ["NodeGraphNodeAPI"]
+        )
+        {
+            custom uint64 inputs:context
+            custom bool inputs:enabled
+            custom bool inputs:enableSemanticLabels
+            custom uint inputs:execIn (
+                customData = {
+                    bool isExecution = 1
+                }
+            )
+            prepend uint inputs:execIn.connect = </beebot/ActionGraph/isaac_create_render_product.outputs:execOut>
+            custom string inputs:frameId = "pole_front_cam_color_optical_frame"
+            custom uint inputs:frameSkipCount = 3
+            custom string inputs:nodeNamespace = "pole_front_cam"
+            custom string inputs:qosProfile = '{"history":"keepLast","depth":5,"reliability":"bestEffort","durability":"volatile","deadline":0.0,"lifespan":0.0,"liveliness":"systemDefault","leaseDuration":0.0}'
+            prepend string inputs:qosProfile.connect = </beebot/ActionGraph/ros2_qos_profile.outputs:qosProfile>
+            custom uint64 inputs:queueSize = 5
+            custom token inputs:renderProductPath
+            prepend token inputs:renderProductPath.connect = </beebot/ActionGraph/isaac_create_render_product.outputs:renderProductPath>
+            custom bool inputs:resetSimulationTimeOnStop
+            custom string inputs:semanticLabelsTopicName
+            custom string inputs:srtxCompressionType
+            custom float2 inputs:stereoOffset
+            custom string inputs:topicName = "aligned_depth_to_color/image_isaac"
+            custom token inputs:type = "depth" (
+                allowedTokens = ["rgb", "rgb_h264", "rgb_hevc", "depth", "depth_pcl", "instance_segmentation", "semantic_segmentation", "bbox_2d_tight", "bbox_2d_loose", "bbox_3d"]
+            )
+            custom bool inputs:useSystemTime
+            token node:type = "isaacsim.ros2.bridge.ROS2CameraHelper"
+            int node:typeVersion = 4
+            uniform token ui:nodegraph:node:expansionState = "minimized"
+            uniform float2 ui:nodegraph:node:pos = (886.3396, 458.23233)
+        }
+
+        def OmniGraphNode "gripper_create_render_product" (
+            prepend apiSchemas = ["NodeGraphNodeAPI"]
+        )
+        {
+            custom rel inputs:cameraPrim = </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link/gripper_cam_link/gripper_cam_color_optical_frame/gripper_cam_rgb> (
+                customData = {
+                    dictionary omni = {
+                        dictionary graph = {
+                            string relType = "target"
+                        }
+                    }
+                }
+            )
+            custom bool inputs:enabled
+            custom uint inputs:execIn (
+                customData = {
+                    bool isExecution = 1
+                }
+            )
+            prepend uint inputs:execIn.connect = </beebot/ActionGraph/on_playback_tick.outputs:tick>
+            custom uint inputs:height = 480
+            custom rel inputs:renderProductPrim (
+                customData = {
+                    dictionary omni = {
+                        dictionary graph = {
+                            string relType = "target"
+                        }
+                    }
+                }
+            )
+            custom uint inputs:width = 640
+            token node:type = "isaacsim.core.nodes.IsaacCreateRenderProduct"
+            int node:typeVersion = 3
+            custom uint outputs:execOut (
+                customData = {
+                    bool isExecution = 1
+                }
+            )
+            custom token outputs:renderProductPath
+            uniform token ui:nodegraph:node:expansionState = "minimized"
+            uniform float2 ui:nodegraph:node:pos = (351.0056, 986.1872)
+        }
+
+        def OmniGraphNode "gripper_camera_helper" (
+            prepend apiSchemas = ["NodeGraphNodeAPI"]
+        )
+        {
+            custom uint64 inputs:context
+            custom bool inputs:enabled
+            custom bool inputs:enableSemanticLabels
+            custom uint inputs:execIn (
+                customData = {
+                    bool isExecution = 1
+                }
+            )
+            prepend uint inputs:execIn.connect = </beebot/ActionGraph/gripper_create_render_product.outputs:execOut>
+            custom string inputs:frameId = "gripper_cam_color_optical_frame"
+            custom uint inputs:frameSkipCount = 3
+            custom string inputs:nodeNamespace = "gripper_cam"
+            custom string inputs:qosProfile = '{"history":"keepLast","depth":5,"reliability":"bestEffort","durability":"volatile","deadline":0.0,"lifespan":0.0,"liveliness":"systemDefault","leaseDuration":0.0}'
+            prepend string inputs:qosProfile.connect = </beebot/ActionGraph/ros2_qos_profile.outputs:qosProfile>
+            custom uint64 inputs:queueSize = 5
+            custom token inputs:renderProductPath
+            prepend token inputs:renderProductPath.connect = </beebot/ActionGraph/gripper_create_render_product.outputs:renderProductPath>
+            custom bool inputs:resetSimulationTimeOnStop
+            custom string inputs:semanticLabelsTopicName
+            custom string inputs:srtxCompressionType
+            custom float2 inputs:stereoOffset
+            custom string inputs:topicName = "color/image_raw"
+            custom token inputs:type (
+                allowedTokens = ["rgb", "rgb_h264", "rgb_hevc", "depth", "depth_pcl", "instance_segmentation", "semantic_segmentation", "bbox_2d_tight", "bbox_2d_loose", "bbox_3d"]
+            )
+            custom bool inputs:useSystemTime
+            token node:type = "isaacsim.ros2.bridge.ROS2CameraHelper"
+            int node:typeVersion = 4
+            uniform token ui:nodegraph:node:expansionState = "minimized"
+            uniform float2 ui:nodegraph:node:pos = (681.97815, 954.6638)
+        }
+
+        def OmniGraphNode "gripper_camera_info_helper" (
+            prepend apiSchemas = ["NodeGraphNodeAPI"]
+        )
+        {
+            custom uint64 inputs:context
+            custom bool inputs:enabled
+            custom uint inputs:execIn (
+                customData = {
+                    bool isExecution = 1
+                }
+            )
+            prepend uint inputs:execIn.connect = </beebot/ActionGraph/gripper_create_render_product.outputs:execOut>
+            custom string inputs:frameId = "gripper_cam_color_optical_frame"
+            custom string inputs:frameIdRight
+            custom uint inputs:frameSkipCount = 3
+            custom string inputs:nodeNamespace = "gripper_cam"
+            custom string inputs:qosProfile = '{"history":"keepLast","depth":5,"reliability":"bestEffort","durability":"volatile","deadline":0.0,"lifespan":0.0,"liveliness":"systemDefault","leaseDuration":0.0}'
+            custom uint64 inputs:queueSize
+            custom token inputs:renderProductPath
+            prepend token inputs:renderProductPath.connect = </beebot/ActionGraph/gripper_create_render_product.outputs:renderProductPath>
+            custom token inputs:renderProductPathRight
+            custom bool inputs:resetSimulationTimeOnStop
+            custom string inputs:topicName = "color/camera_info_isaac"
+            custom string inputs:topicNameRight
+            custom bool inputs:useSystemTime
+            token node:type = "isaacsim.ros2.bridge.ROS2CameraInfoHelper"
+            int node:typeVersion = 1
+            uniform token ui:nodegraph:node:expansionState = "minimized"
+            uniform float2 ui:nodegraph:node:pos = (773.557, 1206.3374)
+        }
+
+        def OmniGraphNode "gripper_camera_helper_depth" (
+            prepend apiSchemas = ["NodeGraphNodeAPI"]
+        )
+        {
+            custom uint64 inputs:context
+            custom bool inputs:enabled
+            custom bool inputs:enableSemanticLabels
+            custom uint inputs:execIn (
+                customData = {
+                    bool isExecution = 1
+                }
+            )
+            prepend uint inputs:execIn.connect = </beebot/ActionGraph/gripper_create_render_product.outputs:execOut>
+            custom string inputs:frameId = "gripper_cam_color_optical_frame"
+            custom uint inputs:frameSkipCount = 3
+            custom string inputs:nodeNamespace = "gripper_cam"
+            custom string inputs:qosProfile = '{"history":"keepLast","depth":5,"reliability":"bestEffort","durability":"volatile","deadline":0.0,"lifespan":0.0,"liveliness":"systemDefault","leaseDuration":0.0}'
+            prepend string inputs:qosProfile.connect = </beebot/ActionGraph/ros2_qos_profile.outputs:qosProfile>
+            custom uint64 inputs:queueSize = 5
+            custom token inputs:renderProductPath
+            prepend token inputs:renderProductPath.connect = </beebot/ActionGraph/gripper_create_render_product.outputs:renderProductPath>
+            custom bool inputs:resetSimulationTimeOnStop
+            custom string inputs:semanticLabelsTopicName
+            custom string inputs:srtxCompressionType
+            custom float2 inputs:stereoOffset
+            custom string inputs:topicName = "aligned_depth_to_color/image_isaac"
+            custom token inputs:type = "depth" (
+                allowedTokens = ["rgb", "rgb_h264", "rgb_hevc", "depth", "depth_pcl", "instance_segmentation", "semantic_segmentation", "bbox_2d_tight", "bbox_2d_loose", "bbox_3d"]
+            )
+            custom bool inputs:useSystemTime
+            token node:type = "isaacsim.ros2.bridge.ROS2CameraHelper"
+            int node:typeVersion = 4
+            uniform token ui:nodegraph:node:expansionState = "minimized"
+            uniform float2 ui:nodegraph:node:pos = (886.3396, 958.2323)
+        }
+
+        def OmniGraphNode "ros2_qos_profile" (
+            prepend apiSchemas = ["NodeGraphNodeAPI"]
+        )
+        {
+            custom token inputs:createProfile = "Sensor Data" (
+                allowedTokens = ["Default for publishers/subscribers", "Services", "Sensor Data", "System Default", "Custom"]
+            )
+            custom double inputs:deadline
+            custom uint64 inputs:depth = 5
+            custom token inputs:durability (
+                allowedTokens = ["systemDefault", "transientLocal", "volatile", "unknown"]
+            )
+            custom token inputs:history (
+                allowedTokens = ["systemDefault", "keepLast", "keepAll", "unknown"]
+            )
+            custom double inputs:leaseDuration
+            custom double inputs:lifespan
+            custom token inputs:liveliness (
+                allowedTokens = ["systemDefault", "automatic", "manualByTopic", "unknown"]
+            )
+            custom token inputs:reliability = "bestEffort" (
+                allowedTokens = ["systemDefault", "reliable", "bestEffort", "unknown"]
+            )
+            token node:type = "isaacsim.ros2.bridge.ROS2QoSProfile"
+            int node:typeVersion = 1
+            custom string outputs:qosProfile
+            uniform token ui:nodegraph:node:expansionState = "minimized"
+            uniform float2 ui:nodegraph:node:pos = (397.51907, 756.2483)
+        }
+    }
+    variantSet "Physics" = {
+        "mujoco" (
+            prepend payload = @./payloads/Physics/mujoco.usda@
+        ) {
+
+        }
+        "none" {
+
+        }
+        "physics" (
+            prepend payload = @./payloads/Physics/physics.usda@
+        ) {
+
+        }
+        "physx" (
+            prepend payload = @./payloads/Physics/physx.usda@
+        ) {
+
+        }
+    }
+}
+
+def "Render" (
+    hide_in_stage_window = true
+    no_delete = true
+)
+{
+    def "OmniverseKit"
+    {
+        def "HydraTextures" (
+            hide_in_stage_window = true
+            no_delete = true
+        )
+        {
+            def RenderProduct "omni_kit_widget_viewport_ViewportTexture_0" (
+                prepend apiSchemas = ["OmniRtxSettingsCommonAdvancedAPI_1", "OmniRtxSettingsRtAdvancedAPI_1", "OmniRtxSettingsPtAdvancedAPI_1", "OmniRtxSettingsParticleFieldAPI_1", "OmniRtxPostColorGradingAPI_1", "OmniRtxPostChromaticAberrationAPI_1", "OmniRtxPostBloomPhysicalAPI_1", "OmniRtxPostMatteObjectAPI_1", "OmniRtxPostCompositingAPI_1", "OmniRtxPostDofAPI_1", "OmniRtxPostMotionBlurAPI_1", "OmniRtxPostTvNoiseAPI_1", "OmniRtxPostTonemapIrayReinhardAPI_1", "OmniRtxPostDebugSettingsAPI_1", "OmniRtxDebugSettingsAPI_1"]
+                hide_in_stage_window = true
+                no_delete = true
+            )
+            {
+                rel camera = </OmniverseKit_Persp>
+                token omni:rtx:ambientOcclusion:denoiserMode = "none"
+                token omni:rtx:background:source:texture:textureMode = "repeatMirrored"
+                token omni:rtx:background:source:type = "domeLight"
+                bool omni:rtx:debug:view:pixelDebug:enableFixedTextPos = 1
+                token omni:rtx:directLighting:sampledLighting:denoisingTechnique = "None"
+                bool omni:rtx:dlss:frameGeneration = 0
+                bool omni:rtx:indirectDiffuse:denoiser:enabled = 0
+                bool omni:rtx:material:db:syncLoads = 1
+                token omni:rtx:post:dlss:execMode = "performance"
+                bool omni:rtx:post:registeredCompositing:invertColorCorrection = 1
+                bool omni:rtx:post:registeredCompositing:invertToneMap = 1
+                bool omni:rtx:pt:adaptiveSampling:filterError = 0
+                uint omni:rtx:pt:adaptiveSampling:fixedSppIterations = 2
+                float omni:rtx:pt:fireflyFilter:maxPerEmissiveUnexposedIntensity = 3199.9995
+                float omni:rtx:pt:fireflyFilter:maxUnexposedIntensityPerSample = 3199.9995
+                float omni:rtx:pt:fireflyFilter:maxUnexposedIntensityPerSampleDiffuse = 3199.9995
+                uint omni:rtx:pt:maxSamplesPerLaunch = 2073600
+                uint omni:rtx:pt:mgpu:maxPixelsPerRegionExponent = 12
+                bool omni:rtx:reflections:denoiser:enabled = 0
+                token omni:rtx:rendermode = "MinimalRendering"
+                color3f omni:rtx:rt:ambientLight:color = (0.1, 0.1, 0.1)
+                bool omni:rtx:rt:demoire = 0
+                float omni:rtx:rt:directLighting:maxRayUnexposedIntensity = 6399.999
+                bool omni:rtx:rt:ecoMode:enabled
+                float omni:rtx:rt:indirectdiffuse:maxRayUnexposedIntensity = 6399.999
+                float omni:rtx:rt:inscattering:maxRTSampleUnexposedIntensity = 204799.97
+                bool omni:rtx:rt:lightcache:spatialCache:dontResolveConflicts = 1
+                float omni:rtx:rt:refractions:maxRayUnexposedIntensity = 19199.998
+                int omni:rtx:rt:sss:samples = 1
+                float omni:rtx:rtpt:fireflyFilter:maxPerEmissiveUnexposedIntensity = 3199.9995
+                float omni:rtx:rtpt:fireflyFilter:maxUnexposedIntensityPerSample = 3199.9995
+                float omni:rtx:rtpt:fireflyFilter:maxUnexposedIntensityPerSampleDiffuse = 3199.9995
+                uint omni:rtx:rtpt:maxVolumeBounces = 15
+                float omni:rtx:rtpt:modulatingRoughnessThreshold = 0.08
+                bool omni:rtx:scene:hydra:materialSyncLoads = 1
+                bool omni:rtx:scene:hydra:mdlMaterialWarmup = 1
+                rel orderedVars = </Render/Vars/LdrColor>
+                custom bool overrideClipRange = 0
+                uniform int2 resolution = (1285, 654)
+            }
+
+            def RenderProduct "Replicator" (
+                prepend apiSchemas = ["OmniRtxSettingsCommonAdvancedAPI_1", "OmniRtxSettingsRtAdvancedAPI_1", "OmniRtxSettingsPtAdvancedAPI_1", "OmniRtxSettingsParticleFieldAPI_1", "OmniRtxPostColorGradingAPI_1", "OmniRtxPostChromaticAberrationAPI_1", "OmniRtxPostBloomPhysicalAPI_1", "OmniRtxPostMatteObjectAPI_1", "OmniRtxPostCompositingAPI_1", "OmniRtxPostDofAPI_1", "OmniRtxPostMotionBlurAPI_1", "OmniRtxPostTvNoiseAPI_1", "OmniRtxPostTonemapIrayReinhardAPI_1", "OmniRtxPostDebugSettingsAPI_1", "OmniRtxDebugSettingsAPI_1"]
+                hide_in_stage_window = true
+                no_delete = true
+            )
+            {
+                rel camera = </beebot/Geometry/base_footprint/base_link/pole_front_cam_link/pole_front_cam_color_optical_frame/pole_front_cam_rgb>
+                bool omni:rtx:material:db:syncLoads = 1
+                token omni:rtx:rendermode = "MinimalRendering"
+                bool omni:rtx:rt:ecoMode:enabled
+                bool omni:rtx:scene:hydra:materialSyncLoads = 1
+                rel orderedVars = </Render/Vars/LdrColor>
+                custom bool overrideClipRange = 0
+                uniform int2 resolution = (640, 360)
+            }
+        }
+    }
+
+    def RenderSettings "OmniverseGlobalRenderSettings" (
+        prepend apiSchemas = ["OmniRtxSettingsGlobalRtAdvancedAPI_1", "OmniRtxSettingsGlobalPtAdvancedAPI_1"]
+        no_delete = true
+    )
+    {
+        rel products = [
+            </Render/OmniverseKit/HydraTextures/omni_kit_widget_viewport_ViewportTexture_0>,
+            </Render/OmniverseKit/HydraTextures/Replicator>,
+        ]
+    }
+
+    def "Vars" (
+        hide_in_stage_window = true
+        no_delete = true
+    )
+    {
+        def RenderVar "LdrColor" (
+            hide_in_stage_window = true
+            no_delete = true
+        )
+        {
+            uniform string sourceName = "LdrColor"
+            uniform token sourceType = "raw"
+        }
+    }
+}
+
+over "OmniverseKit_Persp" (
+    prepend apiSchemas = ["OmniRtxCameraAutoExposureAPI_1", "OmniRtxCameraExposureAPI_1"]
+    customData = {
+        dictionary omni = {
+            dictionary kit = {
+                bool hide_in_stage_window = 1
+                bool no_delete = 1
+            }
+        }
+    }
+    hide_in_stage_window = true
+    kind = "component"
+    no_delete = true
+)
+{
+    float2 clippingRange = (0.01, 10000000)
+    float exposure:fStop = 5
+    float exposure:responsivity = 1.1026709
+    float exposure:time = 0.02
+    float focalLength = 18.147562
+    float focusDistance = 400
+    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -0.9053607399878251)
+    float3 xformOp:rotateXYZ = (65.01182, -2.854548e-13, 174.30226)
+    float3 xformOp:scale = (1, 1, 1)
+    double3 xformOp:translate = (0.22556438083845123, 0.7063819511284161, 0.5394274733315824)
+    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
+}
+
+over "OmniverseKit_Right" (
+    prepend apiSchemas = ["OmniRtxCameraAutoExposureAPI_1", "OmniRtxCameraExposureAPI_1"]
+    customData = {
+        dictionary omni = {
+            dictionary kit = {
+                bool hide_in_stage_window = 1
+                bool no_delete = 1
+            }
+        }
+    }
+    hide_in_stage_window = true
+    kind = "component"
+    no_delete = true
+)
+{
+    float2 clippingRange = (1, 10000000)
+    float exposure:fStop = 5
+    float exposure:responsivity = 1.1026709
+    float exposure:time = 0.02
+    float horizontalAperture = 10.361765
+    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -5)
+    token projection = "orthographic"
+    float verticalAperture = 10.361765
+    float3 xformOp:rotateXYZ = (90, -5.1684015e-15, 1.2722219e-14)
+    float3 xformOp:scale = (1, 1, 1)
+    double3 xformOp:translate = (0.03988901330187963, -5, 0.1922440657510208)
+    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
+}
+
+over "OmniverseKit_Front" (
+    customData = {
+        dictionary omni = {
+            dictionary kit = {
+                bool hide_in_stage_window = 1
+                bool no_delete = 1
+            }
+        }
+    }
+    hide_in_stage_window = true
+    kind = "component"
+    no_delete = true
+)
+{
+    float2 clippingRange = (1, 10000000)
+    float horizontalAperture = 50
+    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -5)
+    token projection = "orthographic"
+    float verticalAperture = 50
+    float3 xformOp:rotateXYZ = (90, -1.2722219e-14, 90)
+    float3 xformOp:scale = (1, 1, 1)
+    double3 xformOp:translate = (5, 0, 0)
+    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
+}
+
+over "OmniverseKit_Top" (
+    prepend apiSchemas = ["OmniRtxCameraAutoExposureAPI_1", "OmniRtxCameraExposureAPI_1"]
+    customData = {
+        dictionary omni = {
+            dictionary kit = {
+                bool hide_in_stage_window = 1
+                bool no_delete = 1
+            }
+        }
+    }
+    hide_in_stage_window = true
+    kind = "component"
+    no_delete = true
+)
+{
+    float2 clippingRange = (1, 10000000)
+    float exposure:fStop = 5
+    float exposure:responsivity = 1.1026709
+    float exposure:time = 0.02
+    float horizontalAperture = 18.823248
+    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -5)
+    token projection = "orthographic"
+    float verticalAperture = 18.823248
+    float3 xformOp:rotateXYZ = (-1.2722219e-14, -7.016709e-15, -90)
+    float3 xformOp:scale = (1, 1, 1)
+    double3 xformOp:translate = (0.06884767717888385, 0.09082034010831479, 5)
+    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
+}
+
+def PhysicsScene "PhysicsScene" (
+    prepend apiSchemas = ["NewtonSceneAPI", "PhysxSceneAPI"]
+)
+{
+}
+
