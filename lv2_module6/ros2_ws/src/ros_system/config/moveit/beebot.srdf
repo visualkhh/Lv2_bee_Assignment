@@ -19,6 +19,14 @@
     <joint name="joint4" value="0" />
     <joint name="joint5" value="0" />
   </group_state>
+  <!-- 접은 자세 = Isaac Sim beebot.usda 의 drive target (joint2는 하한 -1.9199에서 살짝 안쪽) -->
+  <group_state name="stow" group="arm">
+    <joint name="joint1" value="0" />
+    <joint name="joint2" value="-1.91" />
+    <joint name="joint3" value="1.3701" />
+    <joint name="joint4" value="0.5952" />
+    <joint name="joint5" value="0" />
+  </group_state>
 
   <!-- 인접 링크는 항상 닿아 있어 충돌 검사 제외 (팔 안쪽 11쌍 + 아래 차체 쪽) -->
   <disable_collisions link1="arm_base_link" link2="shoulder_link" reason="Adjacent" />
@@ -44,6 +52,17 @@
   <disable_collisions link1="wheel_left_link" link2="wheel_right_link" reason="Never" />
   <disable_collisions link1="wheel_left_link" link2="pole_front_cam_link" reason="Never" />
   <disable_collisions link1="wheel_right_link" link2="pole_front_cam_link" reason="Never" />
+  <!-- Setup Assistant 충돌 샘플링의 Never 쌍 중 실물에서 닿지 않음을 확인한 것만 (2026-10-30).
+       forearm↔gripper·finger·gripper_cam, forearm·shoulder·upper_arm↔pole_front_cam 은 샘플링이 Never라 했지만 실물에서 닿아 검사한다 -->
+  <disable_collisions link1="finger_left_link" link2="finger_right_link" reason="Never" />
+  <disable_collisions link1="finger_left_link" link2="wrist_link" reason="Never" />
+  <disable_collisions link1="finger_right_link" link2="wrist_link" reason="Never" />
+  <disable_collisions link1="gripper_cam_link" link2="wrist_link" reason="Never" />
+  <disable_collisions link1="shoulder_link" link2="wheel_left_link" reason="Never" />
+  <disable_collisions link1="shoulder_link" link2="wheel_right_link" reason="Never" />
+  <disable_collisions link1="upper_arm_link" link2="wheel_left_link" reason="Never" />
+  <disable_collisions link1="upper_arm_link" link2="wheel_right_link" reason="Never" />
+  <disable_collisions link1="arm_base_link" link2="upper_arm_link" reason="Never" />
   <!-- base_link 충돌에는 바구니(적재함)·기둥이 있다 (feature/isaac-setup storage_collision) — 팔 링크와 base_link는 검사한다 -->
   <!-- TODO: 실기 치수 확정 후 MoveIt Setup Assistant 충돌 샘플링으로 다시 생성 (Never 쌍 자동 산출) -->
 </robot>
