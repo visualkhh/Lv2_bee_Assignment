@@ -6,8 +6,8 @@ so these names keep check_model_color working. Labels are Ultralytics OBB rows
 (class x1 y1 x2 y2 x3 y3 x4 y4, normalized): the min-area rectangle of the visible puck mask, so for a
 lying puck its long side follows the puck axis in the image (0-180 deg, the two ends look the same).
 
-Each frame: the 12 scene pucks are scattered on the start boxes and L1-L3 tops (P_LYING of them lying,
-any yaw), each gets a random red/green body color (keeps classes balanced; the tag id stays the prim's),
+Each frame: the 12 scene pucks are crowded onto 3-5 of the start boxes and L1-L3 tops (2-4 per top, so
+mixed colors and shapes share a view; P_LYING of them lying, any yaw), each gets a random red/green body color (keeps classes balanced; the tag id stays the prim's),
 dome light is scaled, and one camera with the D435i intrinsics of beebot.usda (640x480) is posed like
 either the pole front cam (z 0.446 m, pitched about 18 deg down, 0.45-3 m away) or the gripper cam
 (0.10-0.40 m above a puck, up to 30 deg off vertical). The robot is hidden, so gripper fingers never
@@ -155,12 +155,13 @@ def main():
 
         def scatter(rng):
             placed = []  # (x, y, z): body center for spacing, top surface height for camera targets
+            used = rng.sample(tops, rng.randint(3, 5))  # crowd the tops so mixed pucks share a view
             for pk in pucks:
                 lying = rng.random() < P_LYING
                 yaw = rng.uniform(0, 360)
                 margin = PUCK_L / 2 + PUCK_R if lying else PUCK_R * 2  # body must stay on the top
-                for _ in range(100):
-                    x0, x1, y0, y1, z = rng.choice(tops)
+                for n in range(160):  # crowded tops full -> spill over to any top
+                    x0, x1, y0, y1, z = rng.choice(used if n < 100 else tops)
                     cx, cy = rng.uniform(x0 + margin, x1 - margin), rng.uniform(y0 + margin, y1 - margin)
                     if all(math.hypot(cx - px, cy - py) > .07 for px, py, _ in placed):
                         break
