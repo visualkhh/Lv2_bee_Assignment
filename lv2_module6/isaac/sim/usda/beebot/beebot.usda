@@ -7,8 +7,8 @@
                 double radius = 5
             }
             dictionary Perspective = {
-                double3 position = (0.22556438083845123, 0.7063819511284161, 0.5394274733315824)
-                double3 target = (0.14409339280118558, -0.11017818614253672, 0.15697474443613096)
+                double3 position = (-0.4228456131446429, 0.883141728549858, 0.5961978570884345)
+                double3 target = (-0.2898036504703386, 0.6819884154406471, 0.4999867887313242)
             }
             dictionary Right = {
                 double3 position = (0.03988901330187963, -5, 0.1922440657510208)
@@ -31,7 +31,6 @@
             double "rtx:pathtracing:fireflyFilter:maxUnexposedIntensityPerSample" = 3199.99951171875
             double "rtx:pathtracing:fireflyFilter:maxUnexposedIntensityPerSampleDiffuse" = 3199.99951171875
             double "rtx:raytracing:inscattering:maxRTSampleUnexposedIntensity" = 204799.96875
-            token "rtx:rendermode" = "MinimalRendering"
             double "rtx:rtpt:fireflyFilter:maxPerEmissiveUnexposedIntensity" = 3199.99951171875
             double "rtx:rtpt:fireflyFilter:maxUnexposedIntensityPerSample" = 3199.99951171875
             double "rtx:rtpt:fireflyFilter:maxUnexposedIntensityPerSampleDiffuse" = 3199.99951171875
@@ -43,6 +42,9 @@
     kilogramsPerUnit = 1
     metersPerUnit = 1
     startTimeCode = 0
+    subLayers = [
+        @./payloads/materials.usda@
+    ]
     upAxis = "Z"
 )
 
@@ -61,6 +63,12 @@ def Xform "beebot" (
                     displayName = "Name Override"
                 )
                 rel physics:simulationOwner
+
+                over "base_link" (
+                    instanceable = false
+                )
+                {
+                }
 
                 over "wheel_left_link"
                 {
@@ -305,6 +313,10 @@ def Xform "beebot" (
                         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
                     }
                 }
+
+                over "battery_link"
+                {
+                }
             }
         }
     }
@@ -496,37 +508,6 @@ def Xform "beebot" (
             uniform float2 ui:nodegraph:node:pos = (119.37161, -1.7031183)
         }
 
-        def OmniGraphNode "isaac_read_simulation_time" (
-            prepend apiSchemas = ["NodeGraphNodeAPI"]
-        )
-        {
-            token node:type = "isaacsim.core.nodes.IsaacReadSimulationTime"
-            int node:typeVersion = 1
-            custom bool inputs:resetOnStop = true
-            custom double outputs:simulationTime
-            uniform token ui:nodegraph:node:expansionState = "minimized"
-            uniform float2 ui:nodegraph:node:pos = (119.37161, 200)
-        }
-
-        def OmniGraphNode "ros2_publish_clock" (
-            prepend apiSchemas = ["NodeGraphNodeAPI"]
-        )
-        {
-            token node:type = "isaacsim.ros2.bridge.ROS2PublishClock"
-            int node:typeVersion = 1
-            custom uint inputs:execIn (
-                customData = {
-                    bool isExecution = 1
-                }
-            )
-            prepend uint inputs:execIn.connect = </beebot/ActionGraph/on_playback_tick.outputs:tick>
-            custom string inputs:topicName = "clock"
-            custom double inputs:timeStamp
-            prepend double inputs:timeStamp.connect = </beebot/ActionGraph/isaac_read_simulation_time.outputs:simulationTime>
-            uniform token ui:nodegraph:node:expansionState = "minimized"
-            uniform float2 ui:nodegraph:node:pos = (400, 200)
-        }
-
         def OmniGraphNode "isaac_create_render_product" (
             prepend apiSchemas = ["NodeGraphNodeAPI"]
         )
@@ -628,7 +609,7 @@ def Xform "beebot" (
             prepend token inputs:renderProductPath.connect = </beebot/ActionGraph/isaac_create_render_product.outputs:renderProductPath>
             custom token inputs:renderProductPathRight
             custom bool inputs:resetSimulationTimeOnStop
-            custom string inputs:topicName = "color/camera_info_isaac"
+            custom string inputs:topicName = "color/camera_info"
             custom string inputs:topicNameRight
             custom bool inputs:useSystemTime
             token node:type = "isaacsim.ros2.bridge.ROS2CameraInfoHelper"
@@ -662,7 +643,7 @@ def Xform "beebot" (
             custom string inputs:semanticLabelsTopicName
             custom string inputs:srtxCompressionType
             custom float2 inputs:stereoOffset
-            custom string inputs:topicName = "aligned_depth_to_color/image_isaac"
+            custom string inputs:topicName = "aligned_depth_to_color/image_raw"
             custom token inputs:type = "depth" (
                 allowedTokens = ["rgb", "rgb_h264", "rgb_hevc", "depth", "depth_pcl", "instance_segmentation", "semantic_segmentation", "bbox_2d_tight", "bbox_2d_loose", "bbox_3d"]
             )
@@ -774,7 +755,7 @@ def Xform "beebot" (
             prepend token inputs:renderProductPath.connect = </beebot/ActionGraph/gripper_create_render_product.outputs:renderProductPath>
             custom token inputs:renderProductPathRight
             custom bool inputs:resetSimulationTimeOnStop
-            custom string inputs:topicName = "color/camera_info_isaac"
+            custom string inputs:topicName = "color/camera_info"
             custom string inputs:topicNameRight
             custom bool inputs:useSystemTime
             token node:type = "isaacsim.ros2.bridge.ROS2CameraInfoHelper"
@@ -808,7 +789,7 @@ def Xform "beebot" (
             custom string inputs:semanticLabelsTopicName
             custom string inputs:srtxCompressionType
             custom float2 inputs:stereoOffset
-            custom string inputs:topicName = "aligned_depth_to_color/image_isaac"
+            custom string inputs:topicName = "aligned_depth_to_color/image_raw"
             custom token inputs:type = "depth" (
                 allowedTokens = ["rgb", "rgb_h264", "rgb_hevc", "depth", "depth_pcl", "instance_segmentation", "semantic_segmentation", "bbox_2d_tight", "bbox_2d_loose", "bbox_3d"]
             )
@@ -847,6 +828,61 @@ def Xform "beebot" (
             custom string outputs:qosProfile
             uniform token ui:nodegraph:node:expansionState = "minimized"
             uniform float2 ui:nodegraph:node:pos = (397.51907, 756.2483)
+        }
+    }
+
+    over "Looks"
+    {
+        over "plastic_black"
+        {
+            over "preview"
+            {
+                color3f inputs:diffuseColor = (0.061775424, 0.061775424, 0.061776042)
+                float inputs:metallic = 0.11
+                float inputs:roughness = 0.31
+            }
+        }
+
+        over "aluminum_profile"
+        {
+            over "preview"
+            {
+                color3f inputs:diffuseColor = (0.86485624, 0.86485624, 0.8648649)
+                float inputs:roughness = 0.25
+            }
+        }
+
+        over "aluminum_d435"
+        {
+            over "preview"
+            {
+                color3f inputs:diffuseColor = (0.5716373, 0.57928973, 0.5945946)
+            }
+        }
+
+        over "glass_black"
+        {
+            over "preview"
+            {
+                color3f inputs:diffuseColor = (0.08108028, 0.08108028, 0.08108109)
+            }
+        }
+
+        over "steel_ball"
+        {
+            over "preview"
+            {
+                color3f inputs:diffuseColor = (0.70269567, 0.70269567, 0.7027027)
+                float inputs:roughness = 0.11
+            }
+        }
+
+        over "pla_blue"
+        {
+            over "preview"
+            {
+                color3f inputs:diffuseColor = (0.0497, 0.1193, 0.5639)
+            }
         }
     }
     variantSet "Physics" = {
@@ -909,7 +945,7 @@ def "Render" (
                 uint omni:rtx:pt:maxSamplesPerLaunch = 2073600
                 uint omni:rtx:pt:mgpu:maxPixelsPerRegionExponent = 12
                 bool omni:rtx:reflections:denoiser:enabled = 0
-                token omni:rtx:rendermode = "MinimalRendering"
+                token omni:rtx:rendermode = "RealTimePathTracing"
                 color3f omni:rtx:rt:ambientLight:color = (0.1, 0.1, 0.1)
                 bool omni:rtx:rt:demoire = 0
                 float omni:rtx:rt:directLighting:maxRayUnexposedIntensity = 6399.999
@@ -928,7 +964,7 @@ def "Render" (
                 bool omni:rtx:scene:hydra:mdlMaterialWarmup = 1
                 rel orderedVars = </Render/Vars/LdrColor>
                 custom bool overrideClipRange = 0
-                uniform int2 resolution = (1285, 654)
+                uniform int2 resolution = (1280, 720)
             }
 
             def RenderProduct "Replicator" (
@@ -946,6 +982,32 @@ def "Render" (
                 custom bool overrideClipRange = 0
                 uniform int2 resolution = (640, 360)
             }
+
+            def RenderProduct "Replicator_01" (
+                prepend apiSchemas = ["OmniRtxSettingsCommonAdvancedAPI_1", "OmniRtxSettingsRtAdvancedAPI_1", "OmniRtxSettingsPtAdvancedAPI_1", "OmniRtxSettingsParticleFieldAPI_1", "OmniRtxPostColorGradingAPI_1", "OmniRtxPostChromaticAberrationAPI_1", "OmniRtxPostBloomPhysicalAPI_1", "OmniRtxPostMatteObjectAPI_1", "OmniRtxPostCompositingAPI_1", "OmniRtxPostDofAPI_1", "OmniRtxPostMotionBlurAPI_1", "OmniRtxPostTvNoiseAPI_1", "OmniRtxPostTonemapIrayReinhardAPI_1", "OmniRtxPostDebugSettingsAPI_1", "OmniRtxDebugSettingsAPI_1"]
+                hide_in_stage_window = true
+                no_delete = true
+            )
+            {
+                rel camera = </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link/gripper_cam_link/gripper_cam_color_optical_frame/gripper_cam_rgb>
+                bool omni:rtx:rt:ecoMode:enabled
+                rel orderedVars = </Render/Vars/LdrColor>
+                custom bool overrideClipRange = 0
+                uniform int2 resolution = (640, 480)
+            }
+
+            def RenderProduct "Replicator_02" (
+                prepend apiSchemas = ["OmniRtxSettingsCommonAdvancedAPI_1", "OmniRtxSettingsRtAdvancedAPI_1", "OmniRtxSettingsPtAdvancedAPI_1", "OmniRtxSettingsParticleFieldAPI_1", "OmniRtxPostColorGradingAPI_1", "OmniRtxPostChromaticAberrationAPI_1", "OmniRtxPostBloomPhysicalAPI_1", "OmniRtxPostMatteObjectAPI_1", "OmniRtxPostCompositingAPI_1", "OmniRtxPostDofAPI_1", "OmniRtxPostMotionBlurAPI_1", "OmniRtxPostTvNoiseAPI_1", "OmniRtxPostTonemapIrayReinhardAPI_1", "OmniRtxPostDebugSettingsAPI_1", "OmniRtxDebugSettingsAPI_1"]
+                hide_in_stage_window = true
+                no_delete = true
+            )
+            {
+                rel camera = </beebot/Geometry/base_footprint/base_link/pole_front_cam_link/pole_front_cam_color_optical_frame/pole_front_cam_rgb>
+                bool omni:rtx:rt:ecoMode:enabled
+                rel orderedVars = </Render/Vars/LdrColor>
+                custom bool overrideClipRange = 0
+                uniform int2 resolution = (640, 480)
+            }
         }
     }
 
@@ -957,6 +1019,8 @@ def "Render" (
         rel products = [
             </Render/OmniverseKit/HydraTextures/omni_kit_widget_viewport_ViewportTexture_0>,
             </Render/OmniverseKit/HydraTextures/Replicator>,
+            </Render/OmniverseKit/HydraTextures/Replicator_01>,
+            </Render/OmniverseKit/HydraTextures/Replicator_02>,
         ]
     }
 
@@ -997,10 +1061,10 @@ over "OmniverseKit_Persp" (
     float exposure:time = 0.02
     float focalLength = 18.147562
     float focusDistance = 400
-    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -0.9053607399878251)
-    float3 xformOp:rotateXYZ = (65.01182, -2.854548e-13, 174.30226)
+    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -0.25965243862028264)
+    float3 xformOp:rotateXYZ = (68.251205, -5.820415e-13, -146.51952)
     float3 xformOp:scale = (1, 1, 1)
-    double3 xformOp:translate = (0.22556438083845123, 0.7063819511284161, 0.5394274733315824)
+    double3 xformOp:translate = (-0.4228456131446429, 0.883141728549858, 0.5961978570884345)
     uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
 }
 
