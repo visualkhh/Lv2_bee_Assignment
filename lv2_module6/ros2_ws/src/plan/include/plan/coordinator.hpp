@@ -6,14 +6,22 @@
 //         🎬 /gripper_controller/gripper_cmd, 📞 /score_grasps (grasp_scorer),
 //         📞 /clear_octomap · /apply_planning_scene (move_group), ✉️ /task/status → VLM·UI, ✉️ /robot/say → user_input
 // 규칙 (골격에 들어간 것):
-//   1. VLM 출력 검증 — 허용 동작(navigate·pick·place·inspect·say), 숫자 대상 id가 /tracked_objects에 있는지
+//   1. 계획 검증 — 허용 스킬, 숫자 대상 id가 /tracked_objects에 있는지 (id를 받는 스킬만)
+//   스킬 13개 (주사위 미션 한 바퀴 시나리오 — 계획은 스킬 단위, 학습은 스킬 안 실패 단계만):
+//     관측  read_barcode · observe_signal — 인지(#33) 몫이라 여기선 skill_unavailable
+//           inspect_box <퍽 id> · verify_location "x,y,z"(map, 장소 중심) — 손끝을 그 위 inspect_height_m로, gripper_cam이 내려다봄
+//     이동  navigate · dock · undock — dock/undock은 approach(#36)와 합칠 때 연결, 지금은 skill_unavailable
+//     팔    arm_pose scan|initial|carry (carry = carry_pose 파라미터, 비면 실패)
+//           pick_box <퍽 id> (= pick) · load_slot [칸] · unload_slot [칸] · place_pip "x,y,z"(map, 퍽 바닥 z)
+//           nudge — 학습 정책(R6) 몫이라 지금은 skill_unavailable
+//     예전 이름(VLM 일반 명령): pick · place · inspect · say — 그대로 받음 (pick·place "tray" = unload_slot·load_slot)
 //   inspect <퍽 id> (신호등 암호 미션 — 퍽 윗면 16mm AprilTag는 gripper_cam이 위에서 봐야 읽힘): 멀면 다가가고 손끝을 퍽 윗면 위
 //     inspect_height_m로 (손가락 아래) → inspect_wait_s 기다림 → 다음 단계. 읽었는지(details tag)는 planner가 /tracked_objects로 본다
 //   4. 파지 재시도는 coordinator 몫 — grasp_scorer 후보를 점수순으로 최대 max_grasp_tries(2)개, 다 실패하면 FAILED
 //   5. 같은 단계 2회 연속 실패면 /robot/say로 알리고 정지
-//   적재함 (MISSION ③ MOVE_TO_B — 퍽을 실어 운반): target "tray"
-//     place tray = 다음 빈 칸에 싣기 · pick tray = 마지막에 실은 것부터 꺼내기 (칸 = tray_slots, base_footprint 기준 — MoveIt 실측으로
-//     손끝 아래 방향이 닿는 곳). 몇 개 실렸는지 tray_count로 센다 (노드가 다시 뜨면 0). 꽉 차면 tray_full · 비면 tray_empty로 실패
+//   적재함 (칸 = tray_slots, base_footprint 기준 — MoveIt 실측으로 손끝 아래 방향이 닿는 곳): 칸마다 찼는지 기억 (노드가 다시 뜨면 빔)
+//     load_slot = 칸 번호 없으면 첫 빈 칸에 싣기 · unload_slot = 없으면 마지막 찬 칸에서 꺼내기 · 숫자면 그 칸
+//     꽉 참 tray_full · 빔 tray_empty · 칸 번호 틀림 tray_slot_bad · 그 칸이 이미 참/빔 tray_slot_taken으로 실패
 //   팔이 닿게 다가가기: pick · place <물체 id> 차례에 대상이 로봇(base_footprint, TF)에서 reach_m 넘게 떨어져 있으면
 //     먼저 그 물체를 바라보며 approach_m 떨어진 자리로 navigate한 뒤 그 단계를 실행 (단계마다 한 번 — VLM이 navigate를 빼먹어도).
 //     navigate <물체 id>도 같은 접근 자세 — 로봇이 있는 쪽에서 물체를 바라봄 (예전: 늘 물체의 −x 쪽 · yaw 0)
@@ -62,6 +70,13 @@ namespace plan {
 
 // 적재함 칸 — tray_slots 파라미터 [x0, y0, x1, y1, …] (base_footprint) → 칸 목록 (홀수 개면 마지막 값 버림)
 std::vector<std::pair<double, double>> tray_slots(const std::vector<double> & flat);
+
+// 적재함 칸 고르기 — target ""·"tray"·"next"면 싣기는 첫 빈 칸, 꺼내기는 마지막 찬 칸 · 숫자면 그 칸
+//   −1 = 고를 칸 없음(꽉 참·빔) · −2 = 칸 번호 틀림 · −3 = 그 칸이 이미 참(싣기)·빔(꺼내기)
+int choose_slot(const std::vector<bool> & full, const std::string & target, bool load);
+
+// "x,y,z" → 숫자 셋 (공백 허용). 모양이 다르면 false
+bool parse_xyz(const std::string & s, double & x, double & y, double & z);
 // 물체를 바라보며 standoff 떨어진 로봇 자세 (map) — 로봇이 있는 쪽에서. 로봇이 물체와 거의 같은 자리면 물체의 −x 쪽
 geometry_msgs::msg::Pose approach_pose(double ox, double oy, double rx, double ry, double standoff);
 // 같은 곳에 n번째(0부터)로 내려놓을 때 중심에서 비킬 (dx, dy) — 가운데 · 좌 · 우 · 앞 · 뒤 · 대각선 순, spacing 간격
@@ -130,8 +145,18 @@ private:
   // ---------- 🎬 move_group: 위로 이동 → 벌리기
   void execute_place(const geometry_msgs::msg::PoseStamped & target, std::function<void(bool)> done, double approach = 0.10);
 
-  // ---------- inspect: 퍽 위에서 gripper_cam으로 내려다보기 (윗면 태그 읽기)
+  // ---------- inspect · inspect_box · verify_location: 퍽(id)이나 점("x,y,z") 위에서 gripper_cam으로 내려다보기
   void inspect(const SubGoal & g);
+
+  // ---------- load_slot · unload_slot: 적재함 칸에 싣기 · 칸에서 꺼내기 (choose_slot)
+  void tray_load(const SubGoal & g);
+  void tray_unload(const SubGoal & g);
+
+  // ---------- place_pip "x,y,z": 주사위 칸(map)에 퍽 바닥이 z가 되게 — 손끝 z + place_release_dz에서 벌림
+  void place_pip(const SubGoal & g);
+
+  // ---------- arm_pose scan|initial|carry: 관절 자세로 (MoveIt 관절 목표)
+  void arm_pose(const SubGoal & g);
 
   // ---------- 적재함: 칸 위치 (base_footprint) 손끝 목표
   geometry_msgs::msg::PoseStamped tray_pose(size_t slot, double z) const;
@@ -200,7 +225,9 @@ private:
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
   std::vector<std::pair<double, double>> tray_slots_;
   double tray_release_z_, tray_grasp_z_, tray_approach_m_, place_spacing_;
-  int tray_count_ = 0;                 // 적재함에 실린 퍽 수 (칸 0부터 차례로)
+  std::vector<bool> tray_full_;        // 칸마다 퍽이 있는지 (tray_slots_ 순서)
+  double place_release_dz_;            // place_pip — 퍽 바닥 위 이 높이(손끝)에서 벌림
+  std::vector<double> carry_pose_;     // arm_pose carry — initial_pose와 같은 관절 순서 (비면 carry 실패)
   std::map<std::string, int> placed_;  // 계획 안에서 물체(구역) id별로 내려놓은 수 — 겹치지 않게 비킴
   std::string mode_ = "AUTO";
   bool estop_ = false;

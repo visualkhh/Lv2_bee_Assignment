@@ -5,6 +5,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <sstream>
 
 #include "shape_msgs/msg/solid_primitive.hpp"
 
@@ -14,6 +15,30 @@ std::vector<std::pair<double, double>> tray_slots(const std::vector<double> & fl
   std::vector<std::pair<double, double>> out;
   for (size_t i = 0; i + 1 < flat.size(); i += 2) out.push_back({flat[i], flat[i + 1]});
   return out;
+}
+
+int choose_slot(const std::vector<bool> & full, const std::string & target, bool load) {
+  const int n = static_cast<int>(full.size());
+  if (target.empty() || target == "tray" || target == "next") {
+    if (load) {
+      for (int i = 0; i < n; ++i) if (!full[i]) return i;
+    } else {
+      for (int i = n - 1; i >= 0; --i) if (full[i]) return i;
+    }
+    return -1;
+  }
+  if (target.find_first_not_of("0123456789") != std::string::npos || target.size() > 3) return -2;
+  const int i = std::stoi(target);
+  if (i >= n) return -2;
+  return full[i] == load ? -3 : i;
+}
+
+bool parse_xyz(const std::string & s, double & x, double & y, double & z) {
+  std::istringstream in(s);
+  char c1 = 0, c2 = 0;
+  if (!(in >> x >> c1 >> y >> c2 >> z) || c1 != ',' || c2 != ',') return false;
+  in >> std::ws;
+  return in.eof();
 }
 
 geometry_msgs::msg::Pose approach_pose(double ox, double oy, double rx, double ry, double standoff) {
@@ -43,6 +68,9 @@ Coordinator::Coordinator()
   arm_plan_tries_ = declare_parameter<int>("arm_plan_tries", 3);
   tray_slots_ = tray_slots(declare_parameter<std::vector<double>>(
     "tray_slots", {-0.135, 0.05, -0.135, -0.05, -0.095, 0.05, -0.095, -0.05}));
+  tray_full_.assign(tray_slots_.size(), false);
+  place_release_dz_ = declare_parameter<double>("place_release_dz", 0.04);
+  carry_pose_ = declare_parameter<std::vector<double>>("carry_pose", std::vector<double>{});
   tray_release_z_ = declare_parameter<double>("tray_release_z", 0.22);
   tray_grasp_z_ = declare_parameter<double>("tray_grasp_z", 0.17);
   tray_approach_m_ = declare_parameter<double>("tray_approach_m", 0.05);
@@ -146,7 +174,8 @@ Coordinator::Coordinator()
     s.add("단계", step_text());
     s.add("실행 중", running_);
     s.add("연속 실패", failures_.size());
-    s.add("적재함", std::to_string(tray_count_) + "/" + std::to_string(tray_slots_.size()));
+    s.add("적재함", std::to_string(std::count(tray_full_.begin(), tray_full_.end(), true)) + "/" +
+          std::to_string(tray_slots_.size()));
   });
 }
 
@@ -230,11 +259,18 @@ void Coordinator::on_plan(const SubGoalArray & plan) {
 }
 
 bool Coordinator::validate(const SubGoalArray & plan, std::string & why) const {
-  static const std::set<std::string> allowed = {"navigate", "pick", "place", "inspect", "say"};
+  static const std::set<std::string> allowed = {
+    "read_barcode", "observe_signal", "inspect_box", "verify_location", "navigate", "dock", "undock",  // 스킬 13개
+    "arm_pose", "pick_box", "load_slot", "unload_slot", "place_pip", "nudge",
+    "pick", "place", "inspect", "say"};  // 예전 이름 (VLM 일반 명령)
+  static const std::set<std::string> by_id = {"navigate", "pick", "pick_box", "place", "inspect", "inspect_box"};
   if (plan.goals.empty()) { why = "empty"; return false; }
   for (const auto & g : plan.goals) {
     if (!allowed.count(g.skill)) { why = "skill " + g.skill; return false; }
-    if (is_id(g.target) && !find(std::stoul(g.target))) { why = "target " + g.target + " not tracked"; return false; }
+    if (by_id.count(g.skill) && is_id(g.target) && !find(std::stoul(g.target))) {
+      why = "target " + g.target + " not tracked";
+      return false;
+    }
   }
   return true;
 }
@@ -261,21 +297,17 @@ void Coordinator::run_step() {
   const auto & g = plan_.goals[idx_];
   status(g.step, TaskStatus::RUNNING, "");
   RCLCPP_INFO(get_logger(), "step %u: %s %s", g.step, g.skill.c_str(), g.target.c_str());
-  if (g.skill == "navigate") navigate(g);
-  else if (g.skill == "pick") pick(g);
-  else if (g.skill == "inspect") inspect(g);
-  else if (g.skill == "place") {
+  const auto & s = g.skill;
+  if (s == "navigate") navigate(g);
+  else if (s == "unload_slot" || (s == "pick" && g.target == "tray")) tray_unload(g);
+  else if (s == "pick" || s == "pick_box") pick(g);
+  else if (s == "load_slot" || (s == "place" && g.target == "tray")) tray_load(g);
+  else if (s == "place_pip") place_pip(g);
+  else if (s == "inspect" || s == "inspect_box" || s == "verify_location") inspect(g);
+  else if (s == "arm_pose") arm_pose(g);
+  else if (s == "place") {
     if (!ready_or_retry(motion_plan_->service_is_ready() && exec_->action_server_is_ready() &&
         gripper_->action_server_is_ready(), "arm_unavailable")) return;
-    if (g.target == "tray") {  // 적재함 다음 칸에 싣기 — 칸 위 tray_release_z에서 벌림
-      if (tray_count_ >= static_cast<int>(tray_slots_.size())) { fail("tray_full"); return; }
-      execute_place(tray_pose(tray_count_, tray_release_z_), [this](bool ok) {
-        if (!ok) { fail("tray_place_failed"); return; }
-        ++tray_count_;
-        next();
-      }, 0.0);
-      return;
-    }
     if (!is_id(g.target) || !find(std::stoul(g.target))) { fail("place_no_target"); return; }
     if (approach_if_far(g)) return;  // 내려놓을 곳이 팔 밖이면 먼저 다가감
     geometry_msgs::msg::PoseStamped target;
@@ -290,7 +322,13 @@ void Coordinator::run_step() {
       ++placed_[id];
       next();
     });
-  } else { say(g.target); next(); }
+  } else if (s == "say") {
+    say(g.target);
+    next();
+  } else {
+    // dock·undock (approach, #36과 합칠 때) · read_barcode·observe_signal (인지 #33) · nudge (학습 정책 R6) — 아직 실행 못 함
+    fail("skill_unavailable:" + s);
+  }
 }
 
 bool Coordinator::ready_or_retry(bool ready, const std::string & reason) {
@@ -584,18 +622,72 @@ void Coordinator::send_nav(const geometry_msgs::msg::Pose & pose, std::function<
   nav_->async_send_goal(goal, opt);
 }
 
+// 적재함 칸 결과 → 실패 이유
+static std::string slot_error(int code, bool load) {
+  if (code == -1) return load ? "tray_full" : "tray_empty";
+  return code == -2 ? "tray_slot_bad" : "tray_slot_taken";
+}
+
+void Coordinator::tray_load(const SubGoal & g) {
+  if (!ready_or_retry(motion_plan_->service_is_ready() && exec_->action_server_is_ready() &&
+      gripper_->action_server_is_ready(), "arm_unavailable")) return;
+  const int slot = choose_slot(tray_full_, g.target, true);
+  if (slot < 0) { fail(slot_error(slot, true)); return; }
+  execute_place(tray_pose(slot, tray_release_z_), [this, slot](bool ok) {  // 칸 위 tray_release_z에서 벌림
+    if (!ok) { fail("tray_place_failed"); return; }
+    tray_full_[slot] = true;
+    next();
+  }, 0.0);
+}
+
+void Coordinator::tray_unload(const SubGoal & g) {
+  if (!ready_or_retry(motion_plan_->service_is_ready() && exec_->action_server_is_ready() &&
+      gripper_->action_server_is_ready(), "pick_unavailable")) return;
+  const int slot = choose_slot(tray_full_, g.target, false);
+  if (slot < 0) { fail(slot_error(slot, false)); return; }
+  execute_pick(tray_pose(slot, tray_grasp_z_), [this, slot](bool ok) {  // 칸 위치를 알아서 grasp_scorer 없이
+    if (!ok) { fail("tray_pick_failed"); return; }
+    tray_full_[slot] = false;
+    next();
+  }, tray_approach_m_);
+}
+
+void Coordinator::place_pip(const SubGoal & g) {
+  // 부르는 쪽이 먼저 장소 앞에 붙어 있어야 함 (dock) — 점이라 approach_if_far를 쓰지 않음
+  double x, y, z;
+  if (!parse_xyz(g.target, x, y, z)) { fail("place_pip_bad_target"); return; }
+  if (!ready_or_retry(motion_plan_->service_is_ready() && exec_->action_server_is_ready() &&
+      gripper_->action_server_is_ready(), "arm_unavailable")) return;
+  geometry_msgs::msg::PoseStamped target;
+  target.header.frame_id = "map";
+  target.header.stamp = now();
+  target.pose.position.x = x;
+  target.pose.position.y = y;
+  target.pose.position.z = z + place_release_dz_;
+  target.pose.orientation.w = 1.0;  // 방향은 move_arm이 위→아래로 정함
+  execute_place(target, [this](bool ok) {
+    if (!ok) { fail("place_pip_failed"); return; }
+    next();
+  }, 0.0);
+}
+
+void Coordinator::arm_pose(const SubGoal & g) {
+  std::map<std::string, double> target;
+  const auto add = [&target](const std::vector<std::string> & joints, const std::vector<double> & pose) {
+    for (size_t i = 0; i < joints.size() && i < pose.size(); ++i) target[joints[i]] = pose[i];
+  };
+  if (g.target == "scan") add(scan_joints_, scan_pose_);
+  else if (g.target == "initial") add(initial_joints_, initial_pose_);
+  else if (g.target == "carry") add(initial_joints_, carry_pose_);
+  if (target.empty()) { fail("arm_pose_unknown:" + g.target); return; }
+  if (!ready_or_retry(motion_plan_->service_is_ready() && exec_->action_server_is_ready(), "arm_unavailable")) return;
+  move_joints(target, [this](bool ok) {
+    if (!ok) { fail("arm_pose_failed"); return; }
+    next();
+  });
+}
+
 void Coordinator::pick(const SubGoal & g) {
-  if (g.target == "tray") {  // 적재함에서 마지막에 실은 것부터 꺼내기 — 칸 위치를 알아서 grasp_scorer 없이
-    if (!ready_or_retry(motion_plan_->service_is_ready() && exec_->action_server_is_ready() &&
-        gripper_->action_server_is_ready(), "pick_unavailable")) return;
-    if (tray_count_ <= 0) { fail("tray_empty"); return; }
-    execute_pick(tray_pose(tray_count_ - 1, tray_grasp_z_), [this](bool ok) {
-      if (!ok) { fail("tray_pick_failed"); return; }
-      --tray_count_;
-      next();
-    }, tray_approach_m_);
-    return;
-  }
   if (!ready_or_retry(clear_octomap_->service_is_ready() && apply_scene_->service_is_ready() &&
       score_->service_is_ready() && motion_plan_->service_is_ready() &&
       exec_->action_server_is_ready() && gripper_->action_server_is_ready(), "pick_unavailable")) return;
@@ -620,21 +712,31 @@ void Coordinator::pick(const SubGoal & g) {
 
 void Coordinator::inspect(const SubGoal & g) {
   if (!ready_or_retry(motion_plan_->service_is_ready() && exec_->action_server_is_ready(), "arm_unavailable")) return;
-  if (!is_id(g.target) || !find(std::stoul(g.target))) { fail("inspect_no_target"); return; }
-  if (approach_if_far(g)) return;  // 팔 밖이면 먼저 다가감
-  const auto * o = find(std::stoul(g.target));
   geometry_msgs::msg::PoseStamped above;
   above.header.frame_id = "map";
   above.header.stamp = now();
-  above.pose = o->pose.pose;
-  above.pose.position.z += o->size.z / 2 + inspect_height_m_;  // 윗면 위 — 손가락 아래라 gripper_cam이 윗면을 봄
+  double x, y, z;
+  if (is_id(g.target) && find(std::stoul(g.target))) {
+    if (approach_if_far(g)) return;  // 팔 밖이면 먼저 다가감
+    const auto * o = find(std::stoul(g.target));
+    above.pose = o->pose.pose;
+    above.pose.position.z += o->size.z / 2 + inspect_height_m_;  // 윗면 위 — 손가락 아래라 gripper_cam이 윗면을 봄
+  } else if (parse_xyz(g.target, x, y, z)) {  // verify_location — 장소 중심 위에서 3×3 칸을 내려다봄 (먼저 dock)
+    above.pose.position.x = x;
+    above.pose.position.y = y;
+    above.pose.position.z = z + inspect_height_m_;
+    above.pose.orientation.w = 1.0;
+  } else {
+    fail("inspect_no_target");
+    return;
+  }
   const uint64_t gen = gen_;
   move_arm(above, [this, gen, id = g.target](bool ok) {
     if (!ok) { fail("inspect_failed"); return; }
     inspect_timer_ = create_wall_timer(std::chrono::duration<double>(inspect_wait_s_), [this, gen, id]() {
       inspect_timer_->cancel();
       if (gen != gen_) return;  // 그새 취소됨
-      const auto * obj = find(std::stoul(id));
+      const auto * obj = is_id(id) ? find(std::stoul(id)) : nullptr;
       const bool read = obj && std::any_of(obj->details.begin(), obj->details.end(),
         [](const diagnostic_msgs::msg::KeyValue & kv) { return kv.key == "tag"; });
       RCLCPP_INFO(get_logger(), "inspect %s: 태그 %s", id.c_str(), read ? "읽음" : "못 읽음");

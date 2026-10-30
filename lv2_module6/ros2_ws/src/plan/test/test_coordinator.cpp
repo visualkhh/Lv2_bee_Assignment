@@ -1,4 +1,4 @@
-// plan 기본 테스트: coordinator는 허용 동작(navigate·pick·place·say)이 아닌 계획을 거부하고 FAILED를 보낸다 (규칙 1)
+// plan 기본 테스트: coordinator는 허용 스킬이 아닌 계획을 거부하고 FAILED를 보낸다 (규칙 1)
 #include <cmath>
 #include <gtest/gtest.h>
 
@@ -63,6 +63,59 @@ TEST_F(RosTest, RejectsUnknownSkill) {
   EXPECT_EQ(got->plan_id, 7u);
   EXPECT_EQ(got->state, TaskStatus::FAILED);
   EXPECT_EQ(got->reason.rfind("invalid_plan", 0), 0u) << got->reason;
+}
+
+// 스킬 13개는 검증을 통과하고, 아직 실행 못 하는 스킬(dock 등)은 이유를 붙여 바로 FAILED
+TEST_F(RosTest, UnavailableSkillFailsWithReason) {
+  auto node = std::make_shared<Coordinator>();
+  auto probe = std::make_shared<rclcpp::Node>("probe_skill");
+  const auto latched = rclcpp::QoS(10).reliable().transient_local();
+  auto objects_pub = probe->create_publisher<TrackedObjectArray>("/tracked_objects", rclcpp::QoS(5).reliable());
+  auto goals_pub = probe->create_publisher<SubGoalArray>("/task/sub_goals", latched);
+  TaskStatus::SharedPtr got;
+  auto sub = probe->create_subscription<TaskStatus>("/task/status", latched,
+    [&](TaskStatus::SharedPtr m) { got = m; });
+  rclcpp::executors::SingleThreadedExecutor exec;
+  exec.add_node(node);
+  exec.add_node(probe);
+
+  SubGoalArray plan;
+  plan.plan_id = 9;
+  SubGoal g;
+  g.step = 1;
+  g.skill = "dock";
+  g.target = "3.67,0.95,0.0";
+  plan.goals.push_back(g);
+  goals_pub->publish(plan);
+  ASSERT_TRUE(spin_until(exec,
+    [&]() { objects_pub->publish(TrackedObjectArray()); },
+    [&]() { return got != nullptr && got->state == TaskStatus::FAILED; }));
+  EXPECT_EQ(got->plan_id, 9u);
+  EXPECT_EQ(got->reason, "skill_unavailable:dock");
+}
+
+TEST(Skills, ChooseSlot) {
+  std::vector<bool> full = {true, false, true, false};
+  EXPECT_EQ(choose_slot(full, "", true), 1);       // 싣기 = 첫 빈 칸
+  EXPECT_EQ(choose_slot(full, "tray", false), 2);  // 꺼내기 = 마지막 찬 칸
+  EXPECT_EQ(choose_slot(full, "3", true), 3);
+  EXPECT_EQ(choose_slot(full, "0", true), -3);     // 이미 참
+  EXPECT_EQ(choose_slot(full, "1", false), -3);    // 이미 빔
+  EXPECT_EQ(choose_slot(full, "4", true), -2);     // 칸 번호 밖
+  EXPECT_EQ(choose_slot(full, "x", true), -2);
+  EXPECT_EQ(choose_slot({true, true}, "", true), -1);   // 꽉 참
+  EXPECT_EQ(choose_slot({false, false}, "", false), -1);  // 빔
+}
+
+TEST(Skills, ParseXyz) {
+  double x, y, z;
+  ASSERT_TRUE(parse_xyz("3.67, 0.95,0.07", x, y, z));
+  EXPECT_DOUBLE_EQ(x, 3.67);
+  EXPECT_DOUBLE_EQ(y, 0.95);
+  EXPECT_DOUBLE_EQ(z, 0.07);
+  EXPECT_FALSE(parse_xyz("3.67,0.95", x, y, z));
+  EXPECT_FALSE(parse_xyz("3.67,0.95,0.07,1", x, y, z));
+  EXPECT_FALSE(parse_xyz("a,b,c", x, y, z));
 }
 
 // 수동 모드로 바뀌면 진행 중 작업을 멈추고 FAILED(manual_override)를 보낸다
