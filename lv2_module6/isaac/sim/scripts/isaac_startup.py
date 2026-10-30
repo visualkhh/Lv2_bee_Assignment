@@ -9,7 +9,7 @@ import os
 
 import omni.kit.app
 import omni.usd
-from pxr import Usd
+from pxr import PhysxSchema, Usd
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCENE = os.path.join(HERE, "..", "usda", "scene_sim.usda")
@@ -25,6 +25,12 @@ async def _setup():
     # Pick physx in the session layer: never saved into the file.
     with Usd.EditContext(stage, stage.GetSessionLayer()):
         stage.GetPrimAtPath("/World/beebot").GetVariantSet("Physics").SetVariantSelection("physx")
+        # CPU PhysX: one robot + a few pucks is too small for GPU dynamics, whose per-step GPU<->CPU sync
+        # (opencr_bridge reads joints via the numpy tensor API every step) cost more than the solve.
+        # Measured 2026-10-30: 26 -> 39 fps, sim speed 0.43x -> 0.65x real time.
+        scene = PhysxSchema.PhysxSceneAPI.Apply(stage.GetPrimAtPath("/PhysicsScene"))
+        scene.CreateEnableGPUDynamicsAttr().Set(False)
+        scene.CreateBroadphaseTypeAttr().Set("MBP")
     bridge = os.path.join(HERE, "opencr_bridge.py")  # creates the pty now; it attaches to the robot on the first physics step
     exec(compile(open(bridge).read(), bridge, "exec"), {"__name__": "__main__", "__file__": bridge})
 

@@ -347,7 +347,7 @@ def Xform "beebot" (
 
         over "joint2"
         {
-            float drive:angular:physics:targetPosition = -110
+            float drive:angular:physics:targetPosition = -109.435
             bool[] isaac:actuator (
                 displayName = "Actuator"
             )
@@ -359,7 +359,7 @@ def Xform "beebot" (
             )
             float physics:lowerLimit = -109.99999
             float physics:upperLimit = 109.99999
-            float state:angular:physics:position = 0
+            float state:angular:physics:position = -109.435
             float state:angular:physics:velocity = 0
         }
 
@@ -377,7 +377,7 @@ def Xform "beebot" (
             )
             float physics:lowerLimit = -89.999985
             float physics:upperLimit = 79.99998
-            float state:angular:physics:position = 0
+            float state:angular:physics:position = 78.5
             float state:angular:physics:velocity = 0
         }
 
@@ -395,7 +395,7 @@ def Xform "beebot" (
             )
             float physics:lowerLimit = -97.402824
             float physics:upperLimit = 112.87269
-            float state:angular:physics:position = 0
+            float state:angular:physics:position = 34.100002
             float state:angular:physics:velocity = 0
         }
 

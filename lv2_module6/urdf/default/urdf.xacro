@@ -693,10 +693,10 @@
     </plugin>
     <!-- JointPositionController는 플러그인 1개 = 관절 1개만 제어한다.
          한 플러그인에 joint_name을 여러 개 넣으면 첫 개만 잡혀서 나머지 팔이 중력에 접힌다. -->
-    <xacro:macro name="gz_jpc" params="joint effort:=4.1">
+    <xacro:macro name="gz_jpc" params="joint effort:=4.1 initial:=0">
       <plugin filename="libgz-sim-joint-position-controller-system.so" name="gz::sim::systems::JointPositionController">
         <joint_name>${joint}</joint_name>
-        <initial_position>0</initial_position>
+        <initial_position>${initial}</initial_position>
         <p_gain>50</p_gain>
         <i_gain>5</i_gain>
         <d_gain>1</d_gain>
@@ -706,10 +706,11 @@
         <cmd_min>-${effort}</cmd_min>
       </plugin>
     </xacro:macro>
+    <!-- 시작 자세 = SRDF stow (plan.yaml initial_pose와 같음, URDF 한계 안) -->
     <xacro:gz_jpc joint="joint1"/>
-    <xacro:gz_jpc joint="joint2"/>
-    <xacro:gz_jpc joint="joint3"/>
-    <xacro:gz_jpc joint="joint4"/>
+    <xacro:gz_jpc joint="joint2" initial="-1.91"/>
+    <xacro:gz_jpc joint="joint3" initial="1.3701"/>
+    <xacro:gz_jpc joint="joint4" initial="0.5952"/>
     <xacro:gz_jpc joint="joint5"/>
     <xacro:gz_jpc joint="gripper_left_joint" effort="20"/>
     <xacro:gz_jpc joint="gripper_right_joint" effort="20"/>

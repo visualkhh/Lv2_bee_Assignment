@@ -354,6 +354,9 @@ void StateManager::publish_topics() {
   const auto topics = get_topic_names_and_types();
   std::ostringstream out;
   for (const auto & [topic, types] : topics) {
+    // 숨김 토픽(이름 조각이 '_'로 시작) 제외 — nvblox(cuda_buffer)의 '…/_buf/010f…'는 숫자로 시작하는 조각이라
+    // count_publishers가 InvalidTopicNameError를 던져 state_manager가 죽었음 (Isaac 2026-10-30)
+    if (topic.find("/_") != std::string::npos) continue;
     out << topic << '|';
     for (size_t i = 0; i < types.size(); ++i) out << (i ? "," : "") << types[i];
     out << '|' << count_publishers(topic) << '\n';

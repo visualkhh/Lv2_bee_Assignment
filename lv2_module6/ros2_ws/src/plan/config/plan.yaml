@@ -21,7 +21,9 @@ coordinator:
     #   실행 중 끄기: ros2 param set /coordinator initial_pose_enabled false (가는 중이면 그 자리에서 멈춤)
     initial_pose_enabled: true
     initial_pose_joints: [joint1, joint2, joint3, joint4, joint5]
-    initial_pose: [-0.0215, -2.0019, 1.1152, 0.8682, 0.0936]
+    # = MoveIt SRDF 'stow' = Isaac beebot.usda 접은 자세. joint2는 URDF 하한(-1.919862) 안쪽으로 -1.91
+    #   (예전 TEACH 값 [-0.0215, -2.0019, 1.1152, 0.8682, 0.0936]은 joint2가 하한 밖이라 controller_manager가 잘라 도달 판정 실패)
+    initial_pose: [0.0, -1.91, 1.3701, 0.5952, 0.0]
     initial_pose_tolerance: 0.05   # [rad] 이 안이면 이미 그 자세 (이동 생략)
     initial_pose_move_s: 3.0       # [s] 궤적 시간 — 너무 짧으면 급정지·흔들림
     initial_pose_retries: 1        # 못 가면 다시 보낼 횟수 — 넘으면 지금 자세로 멈추고 ERROR (걸린 채 계속 밀면 과부하)

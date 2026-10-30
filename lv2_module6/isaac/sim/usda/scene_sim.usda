@@ -232,7 +232,7 @@ def Xform "World"
 
             over "joint2"
             {
-                float drive:angular:physics:targetPosition = -110
+                float drive:angular:physics:targetPosition = -109.435
                 bool[] isaac:actuator (
                     displayName = "Actuator"
                 )
@@ -244,13 +244,13 @@ def Xform "World"
                 )
                 float physics:lowerLimit = -110
                 float physics:upperLimit = 109.99999
-                float state:angular:physics:position = -110
+                float state:angular:physics:position = -109.435
                 float state:angular:physics:velocity = 0
             }
 
             over "joint3"
             {
-                float drive:angular:physics:targetPosition = 80
+                float drive:angular:physics:targetPosition = 78.5
                 bool[] isaac:actuator (
                     displayName = "Actuator"
                 )
@@ -262,13 +262,13 @@ def Xform "World"
                 )
                 float physics:lowerLimit = -89.999985
                 float physics:upperLimit = 80
-                float state:angular:physics:position = 80
+                float state:angular:physics:position = 78.5
                 float state:angular:physics:velocity = 0
             }
 
             over "joint4"
             {
-                float drive:angular:physics:targetPosition = 30
+                float drive:angular:physics:targetPosition = 34.100002
                 bool[] isaac:actuator (
                     displayName = "Actuator"
                 )
@@ -280,7 +280,7 @@ def Xform "World"
                 )
                 float physics:lowerLimit = -97.402824
                 float physics:upperLimit = 112.87269
-                float state:angular:physics:position = 30
+                float state:angular:physics:position = 34.100002
                 float state:angular:physics:velocity = 0
             }
 
