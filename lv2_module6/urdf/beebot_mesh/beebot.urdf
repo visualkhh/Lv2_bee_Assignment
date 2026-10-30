@@ -39,6 +39,79 @@
         <mesh filename="meshes/base_link.stl" scale="0.001 0.001 0.001"/>
       </geometry>
     </visual>
+    <!-- storage_support x 12: outer 44.5, hole 34, 35 mm high, top 8 mm chamfered to 42 -->
+    <visual name="storage_support_0">
+      <origin rpy="0 0 0" xyz="-0.169840 -0.097500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </visual>
+    <visual name="storage_support_1">
+      <origin rpy="0 0 0" xyz="-0.169840 -0.032500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </visual>
+    <visual name="storage_support_2">
+      <origin rpy="0 0 0" xyz="-0.169840 0.032500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </visual>
+    <visual name="storage_support_3">
+      <origin rpy="0 0 0" xyz="-0.169840 0.097500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </visual>
+    <visual name="storage_support_4">
+      <origin rpy="0 0 0" xyz="-0.104840 -0.097500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </visual>
+    <visual name="storage_support_5">
+      <origin rpy="0 0 0" xyz="-0.104840 -0.032500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </visual>
+    <visual name="storage_support_6">
+      <origin rpy="0 0 0" xyz="-0.104840 0.032500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </visual>
+    <visual name="storage_support_7">
+      <origin rpy="0 0 0" xyz="-0.104840 0.097500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </visual>
+    <visual name="storage_support_8">
+      <origin rpy="0 0 0" xyz="-0.039840 -0.097500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </visual>
+    <visual name="storage_support_9">
+      <origin rpy="0 0 0" xyz="-0.039840 -0.032500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </visual>
+    <visual name="storage_support_10">
+      <origin rpy="0 0 0" xyz="-0.039840 0.032500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </visual>
+    <visual name="storage_support_11">
+      <origin rpy="0 0 0" xyz="-0.039840 0.097500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </visual>
     <collision>
       <origin rpy="0.000000 0.000000 0.000000" xyz="-0.081850 0.000000 0.045500"/>
       <geometry>
@@ -133,6 +206,294 @@
       <origin rpy="1.570796 0.000000 0.000000" xyz="-0.064000 0.000000 -0.000500"/>
       <geometry>
         <mesh filename="meshes/storage_collision/storage_8.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <collision name="storage_support_0_0">
+      <origin rpy="0 0 0" xyz="-0.169840 -0.097500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support_wall_0.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <collision name="storage_support_0_1">
+      <origin rpy="0 0 0" xyz="-0.169840 -0.097500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support_wall_1.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <collision name="storage_support_0_2">
+      <origin rpy="0 0 0" xyz="-0.169840 -0.097500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support_wall_2.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <collision name="storage_support_0_3">
+      <origin rpy="0 0 0" xyz="-0.169840 -0.097500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support_wall_3.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <collision name="storage_support_1_0">
+      <origin rpy="0 0 0" xyz="-0.169840 -0.032500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support_wall_0.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <collision name="storage_support_1_1">
+      <origin rpy="0 0 0" xyz="-0.169840 -0.032500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support_wall_1.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <collision name="storage_support_1_2">
+      <origin rpy="0 0 0" xyz="-0.169840 -0.032500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support_wall_2.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <collision name="storage_support_1_3">
+      <origin rpy="0 0 0" xyz="-0.169840 -0.032500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support_wall_3.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <collision name="storage_support_2_0">
+      <origin rpy="0 0 0" xyz="-0.169840 0.032500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support_wall_0.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <collision name="storage_support_2_1">
+      <origin rpy="0 0 0" xyz="-0.169840 0.032500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support_wall_1.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <collision name="storage_support_2_2">
+      <origin rpy="0 0 0" xyz="-0.169840 0.032500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support_wall_2.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <collision name="storage_support_2_3">
+      <origin rpy="0 0 0" xyz="-0.169840 0.032500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support_wall_3.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <collision name="storage_support_3_0">
+      <origin rpy="0 0 0" xyz="-0.169840 0.097500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support_wall_0.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <collision name="storage_support_3_1">
+      <origin rpy="0 0 0" xyz="-0.169840 0.097500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support_wall_1.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <collision name="storage_support_3_2">
+      <origin rpy="0 0 0" xyz="-0.169840 0.097500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support_wall_2.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <collision name="storage_support_3_3">
+      <origin rpy="0 0 0" xyz="-0.169840 0.097500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support_wall_3.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <collision name="storage_support_4_0">
+      <origin rpy="0 0 0" xyz="-0.104840 -0.097500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support_wall_0.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <collision name="storage_support_4_1">
+      <origin rpy="0 0 0" xyz="-0.104840 -0.097500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support_wall_1.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <collision name="storage_support_4_2">
+      <origin rpy="0 0 0" xyz="-0.104840 -0.097500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support_wall_2.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <collision name="storage_support_4_3">
+      <origin rpy="0 0 0" xyz="-0.104840 -0.097500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support_wall_3.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <collision name="storage_support_5_0">
+      <origin rpy="0 0 0" xyz="-0.104840 -0.032500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support_wall_0.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <collision name="storage_support_5_1">
+      <origin rpy="0 0 0" xyz="-0.104840 -0.032500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support_wall_1.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <collision name="storage_support_5_2">
+      <origin rpy="0 0 0" xyz="-0.104840 -0.032500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support_wall_2.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <collision name="storage_support_5_3">
+      <origin rpy="0 0 0" xyz="-0.104840 -0.032500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support_wall_3.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <collision name="storage_support_6_0">
+      <origin rpy="0 0 0" xyz="-0.104840 0.032500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support_wall_0.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <collision name="storage_support_6_1">
+      <origin rpy="0 0 0" xyz="-0.104840 0.032500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support_wall_1.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <collision name="storage_support_6_2">
+      <origin rpy="0 0 0" xyz="-0.104840 0.032500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support_wall_2.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <collision name="storage_support_6_3">
+      <origin rpy="0 0 0" xyz="-0.104840 0.032500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support_wall_3.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <collision name="storage_support_7_0">
+      <origin rpy="0 0 0" xyz="-0.104840 0.097500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support_wall_0.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <collision name="storage_support_7_1">
+      <origin rpy="0 0 0" xyz="-0.104840 0.097500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support_wall_1.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <collision name="storage_support_7_2">
+      <origin rpy="0 0 0" xyz="-0.104840 0.097500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support_wall_2.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <collision name="storage_support_7_3">
+      <origin rpy="0 0 0" xyz="-0.104840 0.097500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support_wall_3.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <collision name="storage_support_8_0">
+      <origin rpy="0 0 0" xyz="-0.039840 -0.097500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support_wall_0.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <collision name="storage_support_8_1">
+      <origin rpy="0 0 0" xyz="-0.039840 -0.097500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support_wall_1.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <collision name="storage_support_8_2">
+      <origin rpy="0 0 0" xyz="-0.039840 -0.097500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support_wall_2.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <collision name="storage_support_8_3">
+      <origin rpy="0 0 0" xyz="-0.039840 -0.097500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support_wall_3.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <collision name="storage_support_9_0">
+      <origin rpy="0 0 0" xyz="-0.039840 -0.032500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support_wall_0.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <collision name="storage_support_9_1">
+      <origin rpy="0 0 0" xyz="-0.039840 -0.032500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support_wall_1.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <collision name="storage_support_9_2">
+      <origin rpy="0 0 0" xyz="-0.039840 -0.032500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support_wall_2.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <collision name="storage_support_9_3">
+      <origin rpy="0 0 0" xyz="-0.039840 -0.032500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support_wall_3.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <collision name="storage_support_10_0">
+      <origin rpy="0 0 0" xyz="-0.039840 0.032500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support_wall_0.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <collision name="storage_support_10_1">
+      <origin rpy="0 0 0" xyz="-0.039840 0.032500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support_wall_1.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <collision name="storage_support_10_2">
+      <origin rpy="0 0 0" xyz="-0.039840 0.032500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support_wall_2.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <collision name="storage_support_10_3">
+      <origin rpy="0 0 0" xyz="-0.039840 0.032500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support_wall_3.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <collision name="storage_support_11_0">
+      <origin rpy="0 0 0" xyz="-0.039840 0.097500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support_wall_0.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <collision name="storage_support_11_1">
+      <origin rpy="0 0 0" xyz="-0.039840 0.097500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support_wall_1.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <collision name="storage_support_11_2">
+      <origin rpy="0 0 0" xyz="-0.039840 0.097500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support_wall_2.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <collision name="storage_support_11_3">
+      <origin rpy="0 0 0" xyz="-0.039840 0.097500 0.091000"/>
+      <geometry>
+        <mesh filename="meshes/storage_support_wall_3.stl" scale="0.001 0.001 0.001"/>
       </geometry>
     </collision>
   </link>
