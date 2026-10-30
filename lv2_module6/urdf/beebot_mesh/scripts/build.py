@@ -157,8 +157,8 @@ for y in (64.0, -64.0):                                                         
     base_coll += f'    <collision>\n      <origin xyz="{xyz(c)}" rpy="0 0 0"/>\n      <geometry><sphere radius="{ball_r:.6f}"/></geometry>\n    </collision>\n'
 def wheel_coll():
     return (f'    <collision>\n      <origin xyz="0 0 0" rpy="1.570796 0 0"/>\n      <geometry><cylinder radius="{wheel_r:.6f}" length="{wheel_w:.6f}"/></geometry>\n    </collision>\n')
-def cam_coll(ln):
-    lo, hi = local_bb[ln]; return box((lo + hi) / 2, hi - lo)
+def cam_coll(ln):  # D435 몸체만. 손목 카메라 메시에는 브라켓(x < -25 mm)도 있어 그 bbox를 쓰면 손가락까지 덮는다
+    lo, hi = local_bb['camera_rear_link']; return box((lo + hi) / 2, hi - lo)
 def link(ln, coll):
     return f'  <link name="{ln}">\n' + inertial(ln) + visual(ln) + coll + '  </link>\n'
 def joint(name, typ, parent, child, Tp, Tc, axis=None):

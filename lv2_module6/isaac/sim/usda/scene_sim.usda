@@ -244,7 +244,7 @@ def Xform "World"
                 )
                 float physics:lowerLimit = -110
                 float physics:upperLimit = 109.99999
-                float state:angular:physics:position = 0
+                float state:angular:physics:position = -110
                 float state:angular:physics:velocity = 0
             }
 
@@ -262,7 +262,7 @@ def Xform "World"
                 )
                 float physics:lowerLimit = -89.999985
                 float physics:upperLimit = 80
-                float state:angular:physics:position = 0
+                float state:angular:physics:position = 80
                 float state:angular:physics:velocity = 0
             }
 
@@ -280,7 +280,7 @@ def Xform "World"
                 )
                 float physics:lowerLimit = -97.402824
                 float physics:upperLimit = 112.87269
-                float state:angular:physics:position = 0
+                float state:angular:physics:position = 30
                 float state:angular:physics:velocity = 0
             }
 

@@ -53,14 +53,13 @@ class Board:
         os.set_blocking(self.master, False)
         if os.path.lexists(LINK):
             os.remove(LINK)
-        os.symlink(os.ttyname(self.slave), LINK)
         self.rx = b""
         self.view = None
         self.t = 0.0
         self.last_cmd = -1e9
         self.last_err = -1e9
         self.sub = omni.physx.get_physx_interface().subscribe_physics_step_events(self.step)
-        print(f"[opencr_bridge] virtual OpenCR on {LINK} -> {os.ttyname(self.slave)}")
+        print(f"[opencr_bridge] virtual OpenCR ready, {LINK} appears on Play")
 
     def close(self):
         self.sub = None
@@ -79,13 +78,19 @@ class Board:
         stage = omni.usd.get_context().get_stage()
         root = next(p for p in stage.Traverse() if p.HasAPI(UsdPhysics.ArticulationRootAPI) and "beebot" in str(p.GetPath()))
         imu = next(p for p in stage.Traverse() if p.GetName() == "Imu_Sensor")
-        self.sim = omni.physics.tensors.create_simulation_view("numpy")
+        # stage id must be explicit: the default -1 fails in 6.1 ("Failed to get a valid attached USD stage id")
+        self.sim = omni.physics.tensors.create_simulation_view("numpy", omni.usd.get_context().get_stage_id())
         self.view = self.sim.create_articulation_view(str(root.GetPath()))
         names = self.view.shared_metatype.dof_names
         self.idx = {n: names.index(n) for n in WHEELS + ARM + FINGERS}
         self.imu = IMUSensor(str(imu.GetPath()))
         self.wheel_prev = None  # for unwrapping wheel angles (protocol: cumulative rad since boot)
         self.wheel_acc = np.zeros(2)
+        # Link only once S lines can flow: BeebotSystemHardware.on_activate needs S within 3 s,
+        # so isaac_sim.sh waits for this link before starting ros2_control.
+        if not os.path.lexists(LINK):
+            os.symlink(os.ttyname(self.slave), LINK)
+            print(f"[opencr_bridge] virtual OpenCR on {LINK} -> {os.ttyname(self.slave)}")
         print(f"[opencr_bridge] attached {root.GetPath()} ({len(names)} dofs), IMU {imu.GetPath()}")
 
     def step(self, dt):

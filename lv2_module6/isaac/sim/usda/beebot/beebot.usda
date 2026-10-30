@@ -496,6 +496,37 @@ def Xform "beebot" (
             uniform float2 ui:nodegraph:node:pos = (119.37161, -1.7031183)
         }
 
+        def OmniGraphNode "isaac_read_simulation_time" (
+            prepend apiSchemas = ["NodeGraphNodeAPI"]
+        )
+        {
+            token node:type = "isaacsim.core.nodes.IsaacReadSimulationTime"
+            int node:typeVersion = 1
+            custom bool inputs:resetOnStop = true
+            custom double outputs:simulationTime
+            uniform token ui:nodegraph:node:expansionState = "minimized"
+            uniform float2 ui:nodegraph:node:pos = (119.37161, 200)
+        }
+
+        def OmniGraphNode "ros2_publish_clock" (
+            prepend apiSchemas = ["NodeGraphNodeAPI"]
+        )
+        {
+            token node:type = "isaacsim.ros2.bridge.ROS2PublishClock"
+            int node:typeVersion = 1
+            custom uint inputs:execIn (
+                customData = {
+                    bool isExecution = 1
+                }
+            )
+            prepend uint inputs:execIn.connect = </beebot/ActionGraph/on_playback_tick.outputs:tick>
+            custom string inputs:topicName = "clock"
+            custom double inputs:timeStamp
+            prepend double inputs:timeStamp.connect = </beebot/ActionGraph/isaac_read_simulation_time.outputs:simulationTime>
+            uniform token ui:nodegraph:node:expansionState = "minimized"
+            uniform float2 ui:nodegraph:node:pos = (400, 200)
+        }
+
         def OmniGraphNode "isaac_create_render_product" (
             prepend apiSchemas = ["NodeGraphNodeAPI"]
         )
@@ -597,7 +628,7 @@ def Xform "beebot" (
             prepend token inputs:renderProductPath.connect = </beebot/ActionGraph/isaac_create_render_product.outputs:renderProductPath>
             custom token inputs:renderProductPathRight
             custom bool inputs:resetSimulationTimeOnStop
-            custom string inputs:topicName = "color/camera_info"
+            custom string inputs:topicName = "color/camera_info_isaac"
             custom string inputs:topicNameRight
             custom bool inputs:useSystemTime
             token node:type = "isaacsim.ros2.bridge.ROS2CameraInfoHelper"
@@ -631,7 +662,7 @@ def Xform "beebot" (
             custom string inputs:semanticLabelsTopicName
             custom string inputs:srtxCompressionType
             custom float2 inputs:stereoOffset
-            custom string inputs:topicName = "aligned_depth_to_color/image_raw"
+            custom string inputs:topicName = "aligned_depth_to_color/image_isaac"
             custom token inputs:type = "depth" (
                 allowedTokens = ["rgb", "rgb_h264", "rgb_hevc", "depth", "depth_pcl", "instance_segmentation", "semantic_segmentation", "bbox_2d_tight", "bbox_2d_loose", "bbox_3d"]
             )
@@ -743,7 +774,7 @@ def Xform "beebot" (
             prepend token inputs:renderProductPath.connect = </beebot/ActionGraph/gripper_create_render_product.outputs:renderProductPath>
             custom token inputs:renderProductPathRight
             custom bool inputs:resetSimulationTimeOnStop
-            custom string inputs:topicName = "color/camera_info"
+            custom string inputs:topicName = "color/camera_info_isaac"
             custom string inputs:topicNameRight
             custom bool inputs:useSystemTime
             token node:type = "isaacsim.ros2.bridge.ROS2CameraInfoHelper"
@@ -777,7 +808,7 @@ def Xform "beebot" (
             custom string inputs:semanticLabelsTopicName
             custom string inputs:srtxCompressionType
             custom float2 inputs:stereoOffset
-            custom string inputs:topicName = "aligned_depth_to_color/image_raw"
+            custom string inputs:topicName = "aligned_depth_to_color/image_isaac"
             custom token inputs:type = "depth" (
                 allowedTokens = ["rgb", "rgb_h264", "rgb_hevc", "depth", "depth_pcl", "instance_segmentation", "semantic_segmentation", "bbox_2d_tight", "bbox_2d_loose", "bbox_3d"]
             )
