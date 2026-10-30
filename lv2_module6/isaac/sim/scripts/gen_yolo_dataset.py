@@ -1,7 +1,8 @@
-"""Render a YOLO-OBB puck dataset from scene_sim.usda (headless, Isaac Sim Python only).
+"""Render a YOLO-OBB puck + box dataset from scene_sim.usda (headless, Isaac Sim Python only).
 
 Classes = color x shape x posture: puck_red_box, puck_red_cyl, puck_green_box, puck_green_cyl and the
-same four with a _lying suffix. perception_node splits the name on "_" and reads the hue token (index 1),
+same four with a _lying suffix, plus "box": the 20.7 cm cardboard boxes (start 1-6 and places L1-L3 look
+the same apart from the L1-L3 top tag, so one class; which box it is comes from the map / the tag). perception_node splits the name on "_" and reads the hue token (index 1),
 so these names keep check_model_color working. Labels are Ultralytics OBB rows
 (class x1 y1 x2 y2 x3 y3 x4 y4, normalized): the min-area rectangle of the visible puck mask, so for a
 lying puck its long side follows the puck axis in the image (0-180 deg, the two ends look the same).
@@ -14,7 +15,7 @@ either the pole front cam (z 0.446 m, pitched about 18 deg down, 0.45-3 m away) 
 appear in the frame. Every 12th frame has no pucks (negative sample). Clean : noisy frames = 3 : 2;
 noisy frames get exposure / white-balance / blur / sensor-noise / JPEG artifacts in image space.
 
-manifest.json keeps per frame the camera pose (world, USD camera axes) and K, and per puck its tag id,
+manifest.json keeps the boxes (name, center, yaw), per frame the camera pose (world, USD camera axes) and K, and per puck its tag id,
 color, shape, lying flag, world position and world axis (bottom -> top), for checking the lying
 direction / tag PnP against ground truth later.
 
@@ -33,7 +34,7 @@ from pathlib import Path
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCENE = os.path.join(HERE, "..", "usda", "scene_sim.usda")
 BASE = ["puck_red_box", "puck_red_cyl", "puck_green_box", "puck_green_cyl"]
-NAMES = BASE + [n + "_lying" for n in BASE]
+NAMES = BASE + [n + "_lying" for n in BASE] + ["box"]
 COLORS = {"red": (0.6157, 0.1333, 0.2078), "green": (0, 0.6824, 0.2588)}  # puck_*_red_1 / *_green_0 .usda
 W, H = 640, 480
 FOCAL, H_AP, V_AP = 15.2449, 15.855, 11.891  # beebot.usda gripper_cam_rgb / pole_front_cam_rgb
@@ -126,6 +127,15 @@ def main():
         if len(pucks) != 12:
             raise RuntimeError("Expected 12 pucks, found %d" % len(pucks))
         by_name = {pk["name"]: pk for pk in pucks}
+        boxes = []  # start 1-6 + L1-L3, labeled with their prim name like the pucks
+        for path in SURFACES:
+            prim = stage.GetPrimAtPath(path)
+            UsdSemantics.LabelsAPI.Apply(prim, "class").CreateLabelsAttr([prim.GetName().lower()])  # replicator lowercases labels
+            m = UsdGeom.Xformable(prim).ComputeLocalToWorldTransform(Usd.TimeCode.Default())
+            x = m.TransformDir(Gf.Vec3d(1, 0, 0))
+            boxes.append(dict(name=prim.GetName(), center=list(m.ExtractTranslation()),
+                              yaw=math.degrees(math.atan2(x[1], x[0])) % 90))  # square box: 90 deg symmetric
+        box_names = {b["name"].lower() for b in boxes}
 
         # Surface tops from world bounds (all axis-aligned squares)
         bbc = UsdGeom.BBoxCache(Usd.TimeCode.Default(), ["default", "render"])
@@ -220,12 +230,19 @@ def main():
             sid_of = {lab.get("class", ""): int(k) for k, lab in sdata["info"]["idToLabels"].items()}
             data = bbox.get_data()
             ids = data["info"]["idToLabels"]
-            rows = []
+            rows, n_puck = [], 0
             for row in data["data"]:
-                pk = by_name.get(ids.get(str(int(row["semanticId"])), {}).get("class", ""))
-                if pk is None or float(row["occlusionRatio"]) > MAX_OCCLUSION:
+                label = ids.get(str(int(row["semanticId"])), {}).get("class", "")
+                pk = by_name.get(label)
+                # occlusionRatio reads -1 (not computed) in replicator 1.13, so in practice only the 12 px mask rule drops slivers
+                if (pk is None and label not in box_names) or float(row["occlusionRatio"]) > MAX_OCCLUSION:
                     continue
                 if min(row["x_max"], W) - max(row["x_min"], 0) < 3 or min(row["y_max"], H) - max(row["y_min"], 0) < 3:
+                    continue
+                if pk is None:  # box
+                    r = obb_row(NAMES.index("box"), sids == sid_of.get(label, -1))
+                    if r:
+                        rows.append(r)
                     continue
                 cls = NAMES.index("puck_%s_%s%s" % (pk["color"], pk["shape"], "_lying" if pk["lying"] else ""))
                 mask = sids == sid_of.get(pk["name"], -1)
@@ -238,7 +255,8 @@ def main():
                     stats["checked"] += 1
                     stats["mismatch"] += near is not pk
                     rows.append(r)
-            return pixels, rows
+                    n_puck += 1
+            return pixels, rows, n_puck
 
         def matrix(m):
             return [list(m.GetRow(i)) for i in range(4)]
@@ -246,7 +264,7 @@ def main():
         stats = {"checked": 0, "mismatch": 0}
         for _ in range(20):
             app.update()
-        manifest = {"scene": os.path.abspath(SCENE), "classes": NAMES, "resolution": [W, H],
+        manifest = {"scene": os.path.abspath(SCENE), "classes": NAMES, "resolution": [W, H], "boxes": boxes,
                     "K": [[FX, 0, W / 2], [0, FY, H / 2], [0, 0, 1]], "samples": []}
         for split, count, base in [("train", a.train, 100000), ("val", a.val, 300000), ("test", a.test, 500000)]:
             (out / "images" / split).mkdir(parents=True)
@@ -264,8 +282,8 @@ def main():
                 dome.GetAttribute("inputs:intensity").Set(dome_base * rng.uniform(.3, 1.8))
                 for _ in range(8):  # walls/posts often hide the target: re-pose until a puck is labeled
                     view = pose_camera(rng, rng.choice(placed))
-                    pixels, rows = capture()
-                    if rows or negative:
+                    pixels, rows, n_puck = capture()
+                    if n_puck or negative:
                         break
                 noise = None
                 if noisy:
