@@ -322,6 +322,15 @@ def lying_yaw(corners, fx, fy, cx, cy, rot, trans, z_plane, min_aspect=1.3):
     return float(np.degrees(np.arctan2(dy, dx)) % 180.0)
 
 
+def box_long_px(b, xyxy):
+    """검출 박스의 긴 변 [px] — OBB면 회전 박스 변, 아니면 축 정렬 박스 변"""
+    if hasattr(b, "xyxyxyxy"):
+        c = np.asarray(b.xyxyxyxy[0].tolist(), float).reshape(4, 2)
+        return float(max(np.linalg.norm(c[1] - c[0]), np.linalg.norm(c[2] - c[1])))
+    x0, y0, x1, y1 = xyxy
+    return float(max(x1 - x0, y1 - y0))
+
+
 def rotate_yaw(yaw, rot):
     """yaw [deg, 0~180) 를 회전 rot(3×3)으로 다른 좌표계로 — 수평 축 방향만 돌림"""
     a = rot @ np.array([np.cos(np.radians(yaw)), np.sin(np.radians(yaw)), 0.0])
@@ -544,6 +553,7 @@ class PerceptionNode(Node):
         # 모양·자세를 배운 OBB 모델(합성 데이터 puck_<색>_<모양>[_lying])일 때 — 자세를 크기 대신 모델 이름으로 · 누운 퍽 yaw
         self.declare_parameter("trust_model_posture", False)  # True면 모델 이름의 자세를 씀 (팀 모델은 실물에서 틀렸음 → 기본 False)
         self.declare_parameter("yaw_min_aspect", 1.3)       # OBB 장축÷단축이 이보다 작으면 끝면이 보이는 것 — yaw 안 냄
+        self.declare_parameter("fine_min_px", 30)           # 퍽 박스 긴 변이 이보다 작으면(멂) 모양·자세는 버리고 색만 — 합성 test 20·25·30 중 최선
         # 표식 (발제 배포 표식) — 퍽 윗면 AprilTag 번호 → 색, 장소 태그 번호
         self.declare_parameter("puck_tags_red", [0, 1, 2, 3])
         self.declare_parameter("puck_tags_green", [4, 5, 6, 7])
@@ -568,6 +578,7 @@ class PerceptionNode(Node):
         self.depth_min_valid = float(self.get_parameter("depth_min_valid").value)
         self.trust_model_posture = bool(self.get_parameter("trust_model_posture").value)
         self.yaw_min_aspect = float(self.get_parameter("yaw_min_aspect").value)
+        self.fine_min_px = float(self.get_parameter("fine_min_px").value)
         self.self_filter = bool(self.get_parameter("self_filter").value)
         self.base_frame = str(self.get_parameter("base_frame").value)
         self.self_links = [str(v) for v in self.get_parameter("self_links").value]
@@ -743,6 +754,11 @@ class PerceptionNode(Node):
                 hcm = (y1 - y0) * zm / s["fy"] * 100 if zm > 0 else -1.0
                 ok, _, posture = self.judge_puck(wcm, hcm, color, clipped, model_color, near)
                 shape, m_posture = model_shape_posture(name)
+                if box_long_px(b, (x0, y0, x1, y1)) < self.fine_min_px:
+                    # 멀어서 작게 보임 — 각진지 둥근지·누웠는지 픽셀로 못 가림 → 색과 위치만 (트랙은 가까이서 본 모양·자세를 기억)
+                    shape = m_posture = ""
+                    if self.trust_model_posture:
+                        posture = ""
                 if self.trust_model_posture and m_posture:
                     posture = m_posture  # 크기는 퍽인지 거르는 데만 · 자세는 모델 (OBB 박스는 돌아가 있어 가로÷세로로는 못 봄)
                 if not ok or zm <= 0:

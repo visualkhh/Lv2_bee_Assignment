@@ -583,6 +583,16 @@ def test_obb_model_pipeline():
         assert name == "puck_lying" and det["shape"] == "cyl" and det["posture"] == "lying", got
         assert min(float(det["yaw"]), 180 - float(det["yaw"])) < 1.0, det  # 영상 가로 → 광학 x = odom x (yaw 0)
         tr = next(tr for tr in node.tracks.values() if tr.get("posture") == "lying")
+        # 먼 퍽 (2m, 20×10px < fine_min_px): 모델이 누운 원기둥이라 해도 모양·자세·yaw 없이 색만
+        img2 = np.full((480, 640, 3), 128, np.uint8)
+        dep2 = np.full((480, 640), 3000, np.uint16)
+        img2[100:110, 100:120] = (40, 40, 220)
+        dep2[100:110, 100:120] = 2000
+        node.tracks.clear()
+        far = _Obb(5, [[120, 110], [100, 110], [100, 100], [120, 100]])
+        node.update_tracks("gripper_cam", {**s, "bgr": img2, "depth_mm": dep2}, type("Res", (), {"boxes": None, "obb": [far]})())
+        far_msgs = [to_msg(i, t) for i, t in node.tracks.items()]
+        assert [(m.class_name, m.color, list(m.details)) for m in far_msgs] == [("puck", "red", [])], far_msgs
         d = {"class_name": "puck", "color": "red", "shape": "box"}
         from perception_node import same_object
         assert not same_object(tr, d)  # 같은 자리라도 모양이 다르면 다른 퍽
