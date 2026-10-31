@@ -117,6 +117,7 @@ def main():
     p.add_argument("--val", type=int, default=500)
     p.add_argument("--test", type=int, default=500)
     p.add_argument("--subframes", type=int, default=4, help="RTX subframes per capture (raise if ghosting)")
+    p.add_argument("--p-sign", type=float, default=P_SIGN, help="share of traffic light views (1.0 = sign-only eval set)")
     a = p.parse_args()
     out = a.output.expanduser().resolve()
     if out.exists():
@@ -336,7 +337,7 @@ def main():
                 negative = i % 12 == 11
                 noisy = i % 5 >= 3  # clean : noisy = 3 : 2
                 r = rng.random()
-                kind = "normal" if negative else "sign" if r < P_SIGN else "basket" if r < P_SIGN + P_BASKET else "normal"
+                kind = "normal" if negative else "sign" if r < a.p_sign else "basket" if r < a.p_sign + P_BASKET else "normal"
                 placed = scatter(rng)
                 if kind == "basket":
                     fill_basket(rng)
