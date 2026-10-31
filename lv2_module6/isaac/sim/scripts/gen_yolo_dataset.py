@@ -52,7 +52,7 @@ POLE_Z, POLE_PITCH = 0.446, 18.0  # pole cam height [m] and down pitch [deg] at 
 SURFACES = ["/World/start_boxes/start_%d" % i for i in range(1, 7)] + ["/World/shelf_L%d" % i for i in (1, 2, 3)]
 P_GRIPPER, P_LYING, MAX_OCCLUSION = 0.4, 0.4, 0.85
 PUCK_R, PUCK_L = 0.015, 0.06  # puck half width, height [m]; origin = bottom center
-P_FLOOR, P_SIGN, P_BASKET = 0.12, 0.12, 0.10
+P_FLOOR, P_SIGN, P_BASKET = 0.12, 0.20, 0.10
 # (name, p, dome scale lo, hi, virtual gain lo, hi) - a dome below ~0.15 renders to 8-bit mush, so darkness
 # beyond that is made by low_light() in image space
 LIGHTING = [("normal", .65, .3, 1.8, 1, 1), ("dim", .20, .15, .3, 2, 4), ("dark", .15, .15, .25, 4, 12)]
@@ -260,7 +260,7 @@ def main():
             # pole: fixed height/pitch, puck somewhere inside the horizontal FOV. Closer than ~0.45 m the
             # puck is below the bottom edge of the 42.6 deg vertical FOV.
             for _ in range(50):
-                d, az = rng.uniform(.45, 3.0), rng.uniform(0, 2 * math.pi)
+                d, az = .45 + 2.55 * rng.random() ** 1.6, rng.uniform(0, 2 * math.pi)  # leans to 0.45-1.5 m: shape still resolvable
                 ex, ey = tx + d * math.cos(az), ty + d * math.sin(az)
                 if arena.GetMin()[0] < ex < arena.GetMax()[0] and arena.GetMin()[1] < ey < arena.GetMax()[1]:
                     break
