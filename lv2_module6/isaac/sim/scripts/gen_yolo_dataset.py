@@ -2,7 +2,7 @@
 
 Classes = color x shape x posture: puck_red_box, puck_red_cyl, puck_green_box, puck_green_cyl and the
 same four with a _lying suffix, plus "box": the 20.7 cm cardboard boxes (start 1-6 and places L1-L3 look
-the same apart from the L1-L3 top tag, so one class; which box it is comes from the map / the tag), and
+the same apart from the L1-L3 tags, so one class; which box it is comes from the map / the tag), and
 the traffic light state: traffic_light_red / _yellow / _green / _off (one lamp at a time, as in sign/blink.py). perception_node splits the name on "_" and reads the hue token (index 1),
 so these names keep check_model_color working. Labels are Ultralytics OBB rows
 (class x1 y1 x2 y2 x3 y3 x4 y4, normalized): the min-area rectangle of the visible puck mask, so for a
@@ -16,7 +16,9 @@ either the pole front cam (z 0.446 m, pitched about 18 deg down, 0.45-3 m away) 
 (0.10-0.40 m above a puck, up to 30 deg off vertical). The robot is hidden, so gripper fingers never
 appear in the frame. Every 12th frame has no pucks (negative sample). Frame types besides that: P_SIGN
 pole views of the traffic light (random lamp), P_BASKET gripper-like views from above the robot's basket
-with 1-8 pucks standing in its slots (robot shown only there; otherwise it is parked 100 m below).
+with 1-8 pucks standing in its slots (robot shown only there; otherwise it is parked 100 m below), --p-dice
+dice-pip views: the mission end state on L1-L3 (R red / Y one shape / G green, 1-6 pips each, 60 mm grid), half
+of them with some pips still empty.
 Lighting: normal / dim / dark (lights off). Dim/dark render at a dome level that still has 8-bit detail and
 then get low_light(): the signal is divided by a virtual gain g (2-4 dim, 4-12 dark) and quantized, auto
 exposure multiplies it back, color desaturates, and sensor noise (noisy frames) grows with sqrt(g) - what a
@@ -56,6 +58,11 @@ P_FLOOR, P_SIGN, P_BASKET = 0.12, 0.20, 0.10
 # (name, p, dome scale lo, hi, virtual gain lo, hi) - a dome below ~0.15 renders to 8-bit mush, so darkness
 # beyond that is made by low_light() in image space
 LIGHTING = [("normal", .65, .3, 1.8, 1, 1), ("dim", .20, .15, .3, 2, 4), ("dark", .15, .15, .25, 4, 12)]
+# dice mission end states (documents/mission/README.md 4-5): R/Y/G groups of 1-6 pucks, sum 12, one group per
+# place L1-L3, pips on a 60 mm grid (world axes), standing, center error up to DICE_JITTER
+PIPS = {1: [(0, 0)], 2: [(-1, 1), (1, -1)], 3: [(-1, 1), (0, 0), (1, -1)], 4: [(-1, 1), (1, 1), (-1, -1), (1, -1)],
+        5: [(-1, 1), (1, 1), (-1, -1), (1, -1), (0, 0)], 6: [(-1, 1), (-1, 0), (-1, -1), (1, 1), (1, 0), (1, -1)]}
+PIP, DICE_JITTER, P_DICE = 0.06, 0.008, 0.10
 ROBOT = "/World/beebot"
 SLOTS = ROBOT + "/Geometry/base_footprint/base_link/basket_slot_%d"  # 12 slots, 65 mm pitch, puck bottom height
 
@@ -118,7 +125,11 @@ def main():
     p.add_argument("--test", type=int, default=500)
     p.add_argument("--subframes", type=int, default=4, help="RTX subframes per capture (raise if ghosting)")
     p.add_argument("--p-sign", type=float, default=P_SIGN, help="share of traffic light views (1.0 = sign-only eval set)")
+    p.add_argument("--seed-base", type=int, default=0, help="added to every frame seed (fresh holdout sets never reuse a seed)")
+    p.add_argument("--focus", default="", help="weak class to oversample, e.g. green_cyl_lying or green_box (both postures): most pucks of that shape get that color/posture")
+    p.add_argument("--p-dice", type=float, default=P_DICE, help="share of dice-pip views on L1-L3 (after sign and basket shares)")
     a = p.parse_args()
+    focus = a.focus.split("_") if a.focus else None  # [color, shape, "lying"?]
     out = a.output.expanduser().resolve()
     if out.exists():
         raise SystemExit("Refusing to overwrite " + str(out))
@@ -213,6 +224,9 @@ def main():
                 lying = rng.random() < P_LYING
                 yaw = rng.uniform(0, 360)
                 floor = rng.random() < P_FLOOR
+                focused = focus is not None and pk["shape"] == focus[1] and rng.random() < .7
+                if focused:  # green_cyl_lying: always lying; green_box: either posture, half each
+                    lying = focus[2:] == ["lying"] or (not focus[2:] and rng.random() < .5)
                 if floor:  # fell off a box: on the floor next to it, mostly lying
                     lying = rng.random() < .75
                 margin = PUCK_L / 2 + PUCK_R if lying else PUCK_R * 2  # body must stay on the top
@@ -225,7 +239,7 @@ def main():
                         cx, cy = rng.uniform(x0 + margin, x1 - margin), rng.uniform(y0 + margin, y1 - margin)
                     if all(math.hypot(cx - px, cy - py) > .07 for px, py, _ in placed):
                         break
-                color = rng.choice(sorted(COLORS))
+                color = focus[0] if focused else rng.choice(sorted(COLORS))
                 pk["tint"].Set(Gf.Vec3f(*COLORS[color]))
                 if lying:  # rotateXYZ(90, 0, yaw) sends local +Z (bottom -> top) to (sin yaw, -cos yaw, 0)
                     ax, ay = math.sin(math.radians(yaw)), -math.cos(math.radians(yaw))
@@ -236,15 +250,50 @@ def main():
                     placed.append((cx, cy, z + PUCK_L))
                 pk["prim"].GetAttribute("xformOp:translate").Set(Gf.Vec3d(*pos))
                 pk["prim"].GetAttribute("xformOp:rotateXYZ").Set(Gf.Vec3f(90 if lying else 0, 0, yaw))
-                pk.update(color=color, lying=lying, floor=floor, basket=False)
+                pk.update(color=color, lying=lying, floor=floor, basket=False, dice="")
             return placed
+
+        def dice(rng):
+            """Mission end state (or part of it): R = red, any shapes; G = green, any shapes; Y = one shape, any
+            colors; groups on L1-L3 in random order. Half the frames leave some pips empty (pick-and-place in
+            progress); those pucks wait two per start box at x +-40 mm like the mission's start layout."""
+            while True:
+                r, g = rng.randint(1, 6), rng.randint(1, 6)
+                if 1 <= 12 - r - g <= 6:
+                    break
+            y = 12 - r - g
+            shape = rng.choice(sorted({pk["shape"] for pk in pucks if sum(q["shape"] == pk["shape"] for q in pucks) >= y}))
+            pool = rng.sample(pucks, 12)
+            ys = [pk for pk in pool if pk["shape"] == shape][:y]
+            rest = [pk for pk in pool if pk not in ys]
+            groups = [("red", rest[:r]), (None, ys), ("green", rest[r:])]
+            places = rng.sample(tops[6:], 3)  # SURFACES order: start 1-6, then shelf L1-L3
+            fill = 1.0 if rng.random() < .5 else rng.uniform(.3, 1)
+            waiting = [((x0 + x1) / 2 + s * .04, (y0 + y1) / 2, z) for x0, x1, y0, y1, z in tops[:6] for s in (-1, 1)]
+            rng.shuffle(waiting)
+            placed = []
+            for (color, grp), (x0, x1, y0, y1, z), name in zip(groups, places, "RYG"):
+                for pk, (i, j) in zip(grp, PIPS[len(grp)]):
+                    c = color or rng.choice(sorted(COLORS))
+                    pk["tint"].Set(Gf.Vec3f(*COLORS[c]))
+                    if rng.random() < fill:
+                        pos = ((x0 + x1) / 2 + i * PIP + rng.uniform(-DICE_JITTER, DICE_JITTER),
+                               (y0 + y1) / 2 + j * PIP + rng.uniform(-DICE_JITTER, DICE_JITTER), z)
+                        placed.append((pos[0], pos[1], z + PUCK_L))
+                        where = name
+                    else:
+                        pos, where = waiting.pop(), ""
+                    pk["prim"].GetAttribute("xformOp:translate").Set(Gf.Vec3d(*pos))
+                    pk["prim"].GetAttribute("xformOp:rotateXYZ").Set(Gf.Vec3f(0, 0, rng.uniform(0, 360)))
+                    pk.update(color=c, lying=False, floor=False, basket=False, dice=where)
+            return placed or dice(rng)  # every pip left empty: draw again
 
         def fill_basket(rng):
             """Move 1-8 pucks (standing, any yaw) into random basket slots of the robot at home."""
             for pk, k in zip(rng.sample(pucks, rng.randint(1, 8)), rng.sample(range(12), 12)):
                 pk["prim"].GetAttribute("xformOp:translate").Set(Gf.Vec3d(*slots[k]))
                 pk["prim"].GetAttribute("xformOp:rotateXYZ").Set(Gf.Vec3f(0, 0, rng.uniform(0, 360)))
-                pk.update(lying=False, floor=False, basket=True)
+                pk.update(lying=False, floor=False, basket=True, dice="")
 
         def look(eye, target, up):
             cam_op.Set(Gf.Matrix4d().SetLookAt(Gf.Vec3d(*eye), Gf.Vec3d(*target), Gf.Vec3d(*up)).GetInverse())
@@ -332,13 +381,14 @@ def main():
             (out / "images" / split).mkdir(parents=True)
             (out / "labels" / split).mkdir(parents=True)
             for i in range(count):
-                seed = base + i
+                seed = a.seed_base + base + i
                 rng = random.Random(seed)
                 negative = i % 12 == 11
                 noisy = i % 5 >= 3  # clean : noisy = 3 : 2
                 r = rng.random()
-                kind = "normal" if negative else "sign" if r < a.p_sign else "basket" if r < a.p_sign + P_BASKET else "normal"
-                placed = scatter(rng)
+                kind = "normal" if negative else "sign" if r < a.p_sign else "basket" if r < a.p_sign + P_BASKET \
+                    else "dice" if r < a.p_sign + P_BASKET + a.p_dice else "normal"
+                placed = dice(rng) if kind == "dice" else scatter(rng)
                 if kind == "basket":
                     fill_basket(rng)
                 if negative:  # sink the pucks out of view; toggling visibility scrambles replicator's semantic ids
@@ -381,9 +431,9 @@ def main():
                     if abs(axis[2]) > .05 if pk["lying"] else axis[2] < .99:
                         raise RuntimeError("%s pose drifted from the label: axis %s" % (pk["name"], axis))
                     gt.append(dict(name=pk["name"], tag=pk["tag"], color=pk["color"], shape=pk["shape"], lying=pk["lying"],
-                                   floor=pk["floor"], basket=pk["basket"], pos=list(m.ExtractTranslation()), axis=list(axis)))
+                                   floor=pk["floor"], basket=pk["basket"], dice=pk["dice"], pos=list(m.ExtractTranslation()), axis=list(axis)))
                 cam_m = UsdGeom.Xformable(cam.GetPrim()).ComputeLocalToWorldTransform(Usd.TimeCode.Default())
-                manifest["samples"].append(dict(split=split, index=i, seed=seed, view=view, negative=negative,
+                manifest["samples"].append(dict(split=split, index=i, seed=seed, view=view, kind=kind, negative=negative,
                                                 lighting=light[0], gain=gain, lamp=lamp_state[0],
                                                 noise=noise, labels=len(rows), cam_to_world=matrix(cam_m),
                                                 pucks=[] if negative else gt))
