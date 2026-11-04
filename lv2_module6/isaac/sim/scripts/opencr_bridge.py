@@ -120,6 +120,22 @@ class Board:
         if self.t - self.last_err >= ERROR_PERIOD:
             self.send("E" + ",0" * 8)
             self.last_err = self.t
+        self.truth()
+
+    def truth(self):
+        """Ground truth for checking localization: true robot pose in the ROS map frame (= the start pose BEE_START_POSE),
+        once per second to /tmp/bee_truth.txt as 'sim_t x y yaw' (twin.rviz · check_truth.py compare it with TF map->base_footprint)."""
+        if self.t - getattr(self, "truth_t", -1.0) < 1.0:
+            return
+        self.truth_t = self.t
+        x0, y0, yaw0 = (float(v) for v in os.environ.get("BEE_START_POSE", "0,0,0").split(","))
+        r = self.view.get_root_transforms()[0]
+        qx, qy, qz, qw = r[3:7]
+        yaw = math.atan2(2 * (qw * qz + qx * qy), 1 - 2 * (qy * qy + qz * qz))
+        c, s = math.cos(-yaw0), math.sin(-yaw0)
+        dx, dy = r[0] - x0, r[1] - y0
+        with open("/tmp/bee_truth.txt", "w") as f:
+            f.write(f"{self.t:.2f} {c * dx - s * dy:.4f} {s * dx + c * dy:.4f} {math.remainder(yaw - yaw0, 2 * math.pi):.4f}\n")
 
     def grip_force(self):
         """Dummy grip force: the firmware sets one gripper current at boot and the serial protocol cannot change it.
