@@ -94,6 +94,19 @@ class Board:
             os.symlink(os.ttyname(self.slave), LINK)
             print(f"[opencr_bridge] virtual OpenCR on {LINK} -> {os.ttyname(self.slave)}")
         print(f"[opencr_bridge] attached {root.GetPath()} ({len(names)} dofs), IMU {imu.GetPath()}")
+        # BEE_START_POSE="x,y,yaw" (scene m · rad): put the robot at the mission start once, on the first attach — before the ROS
+        # side starts (it waits for /tmp/opencr), so odometry · cuVSLAM begin there. Editing the prim before Play instead made the
+        # articulation unfindable after Play (2026-11-04)
+        pose = os.environ.get("BEE_START_POSE")
+        if pose and not getattr(self, "placed", False):
+            x, y, yaw = (float(v) for v in pose.split(","))
+            t = self.view.get_root_transforms()
+            t[0, 0], t[0, 1] = x, y
+            t[0, 3:7] = (0.0, 0.0, np.sin(yaw / 2), np.cos(yaw / 2))  # x y z w
+            self.view.set_root_transforms(t, indices=np.array([0], dtype=np.int32))
+            self.view.set_root_velocities(np.zeros((1, 6), dtype=np.float32), indices=np.array([0], dtype=np.int32))
+            self.placed = True
+            print(f"[opencr_bridge] robot placed at {x:.3f}, {y:.3f}, yaw {yaw:.2f}")
 
     def step(self, dt):
         if self.view is None or not self.sim.is_valid:

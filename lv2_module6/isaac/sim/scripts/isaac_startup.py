@@ -42,11 +42,14 @@ async def _setup():
         scene = PhysxSchema.PhysxSceneAPI.Apply(stage.GetPrimAtPath("/PhysicsScene"))
         scene.CreateEnableGPUDynamicsAttr().Set(False)
         scene.CreateBroadphaseTypeAttr().Set("MBP")
-    # BEE_PROBLEM=<seed>|random: a random dice-mission problem (pucks · signal · barcode) — problem_setup.py
+    # BEE_PROBLEM=<seed>|random: a random problem — problem_setup.py (robot start pose: opencr_bridge BEE_START_POSE)
+    ps = {}
     if os.environ.get("BEE_PROBLEM"):
-        ps = {}
         path = os.path.join(HERE, "problem_setup.py")
+        ps["__file__"] = path
         exec(compile(open(path).read(), path, "exec"), ps)
+
+    if os.environ.get("BEE_PROBLEM"):
         p = os.environ["BEE_PROBLEM"]
         seq = ps["setup"](None if p == "random" else int(p), float(os.environ.get("BEE_LYING", "0")), os.environ.get("BEE_RUN_DIR"))
         ps["play_signal"](seq)  # blinks start on Play (timeline time)

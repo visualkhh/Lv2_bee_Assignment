@@ -14,6 +14,10 @@ MODE=${1:-mission}
 VENV=${BEE_TWIN_VENV:-$HOME/bee_twin_venv}
 export BEE_MAP_DIR=${BEE_MAP_DIR:-$HOME/bee_twin_maps}
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp   # pa27 ~/.bashrc는 Cyclone(pa-course) — 이 프로젝트는 Fast DDS (ros2_ws/fastdds.xml)
+# 로봇을 미션 출발 자리에 — 출발 구역 가운데 (734, 950) mm · −X (운영 규칙 · mission_manager start_pose_arena)
+#   scene_sim.usda는 로봇이 1.3 m 동쪽에서 +X를 봄 → 그대로면 지도 좌표가 경기장과 180° 어긋나 미션 목표가 엉뚱한 곳 (11-04)
+#   장면 좌표 = 경기장 m + (−2.721, −3.421) (problem_setup.ARENA_TO_SCENE)
+export BEE_START_POSE="-1.987,-2.471,3.14159"
 export BEE_AUTOPLAY=1                       # Isaac이 장면을 열면 Play (그때 ROS가 뜸)
 export PATH="$VENV/bin:$PATH"               # 인지 노드(perception_node)가 venv python3로 — torch · ultralytics
 mkdir -p "$BEE_MAP_DIR"
@@ -36,4 +40,15 @@ esac
     echo "[twin] 미션 시작 — 문제·정답 $BEE_RUN_DIR/problem.json · 진행 /mission/state"
   fi
 ) &
+# 실시간 상태 화면 (RViz): 지도 · Nav2 장애물 지도 · 계획 경로 · 로봇 · 카메라 점구름 · cuVSLAM 경로 · 미션 표시 — BEE_RVIZ=0이면 안 띄움
+if [ "${BEE_RVIZ:-1}" = 1 ]; then
+  (
+    source /opt/ros/lyrical/setup.bash
+    source "$HERE/../../ros2_ws/install/setup.bash"
+    export FASTDDS_DEFAULT_PROFILES_FILE="$HERE/../../ros2_ws/fastdds.xml"
+    export QT_SCALE_FACTOR_ROUNDING_POLICY=Floor XDG_CURRENT_DESKTOP=ubuntu:GNOME XDG_SESSION_TYPE=x11  # 3D 깜박임 · 어두운 테마
+    until ros2 node list 2>/dev/null | grep -q '^/nvblox_map$'; do sleep 3; done
+    exec rviz2 -d "$HERE/scripts/twin.rviz" --ros-args -p use_sim_time:=true
+  ) > /tmp/twin_rviz.log 2>&1 &
+fi
 exec "$HERE/isaac_sim.sh"
