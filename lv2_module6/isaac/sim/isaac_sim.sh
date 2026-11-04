@@ -57,7 +57,8 @@ source "$HERE/../../ros2_ws/install/setup.bash"
 # 자기 프로세스 그룹으로 띄운다(setsid) — 끌 때 그룹 전체(launch + 노드)에 SIGINT를 직접 준다.
 # 실측 2026-10-30: 백그라운드 launch는 SIGINT를 무시해 안 꺼졌고, SIGTERM을 주면 launch만 죽고 노드 10개가 고아로 남았다.
 # 노드는 SIGINT로 정상 종료한다(nvblox는 매핑이면 이때 지도 저장). 15초 안에 안 끝나면 그룹을 SIGKILL.
-setsid ros2 launch "$HERE/scripts/isaac_system.launch.py" &
+# BEE_MAP=slam|saved · BEE_MAP_DIR=<지도 폴더> (twin.sh가 넘김 — 없으면 launch 기본값)
+setsid ros2 launch "$HERE/scripts/isaac_system.launch.py" ${BEE_MAP:+map:=$BEE_MAP} ${BEE_MAP_DIR:+map_dir:=$BEE_MAP_DIR} &
 ROS_PID=$!
 cleanup() {
   trap - EXIT INT TERM HUP

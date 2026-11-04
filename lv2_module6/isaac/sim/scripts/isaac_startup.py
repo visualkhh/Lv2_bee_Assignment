@@ -42,6 +42,14 @@ async def _setup():
         scene = PhysxSchema.PhysxSceneAPI.Apply(stage.GetPrimAtPath("/PhysicsScene"))
         scene.CreateEnableGPUDynamicsAttr().Set(False)
         scene.CreateBroadphaseTypeAttr().Set("MBP")
+    # BEE_PROBLEM=<seed>|random: a random dice-mission problem (pucks · signal · barcode) — problem_setup.py
+    if os.environ.get("BEE_PROBLEM"):
+        ps = {}
+        path = os.path.join(HERE, "problem_setup.py")
+        exec(compile(open(path).read(), path, "exec"), ps)
+        p = os.environ["BEE_PROBLEM"]
+        seq = ps["setup"](None if p == "random" else int(p), float(os.environ.get("BEE_LYING", "0")), os.environ.get("BEE_RUN_DIR"))
+        ps["play_signal"](seq)  # blinks start on Play (timeline time)
     bridge = os.path.join(HERE, "opencr_bridge.py")  # creates the pty now; it attaches to the robot on the first physics step
     exec(compile(open(bridge).read(), bridge, "exec"), {"__name__": "__main__", "__file__": bridge})
     if os.environ.get("BEE_AUTOPLAY") == "1":  # press Play (the bridge links /tmp/opencr on the first step)
