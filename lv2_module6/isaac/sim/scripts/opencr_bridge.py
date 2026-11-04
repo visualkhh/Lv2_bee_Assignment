@@ -94,6 +94,19 @@ class Board:
             os.symlink(os.ttyname(self.slave), LINK)
             print(f"[opencr_bridge] virtual OpenCR on {LINK} -> {os.ttyname(self.slave)}")
         print(f"[opencr_bridge] attached {root.GetPath()} ({len(names)} dofs), IMU {imu.GetPath()}")
+        # BEE_START_POSE="x,y,yaw" (scene m · rad): put the robot at the mission start once, on the first attach — before the ROS
+        # side starts (it waits for /tmp/opencr), so odometry · cuVSLAM begin there. Editing the prim before Play instead made the
+        # articulation unfindable after Play (2026-11-04)
+        pose = os.environ.get("BEE_START_POSE")
+        if pose and not getattr(self, "placed", False):
+            x, y, yaw = (float(v) for v in pose.split(","))
+            t = self.view.get_root_transforms()
+            t[0, 0], t[0, 1] = x, y
+            t[0, 3:7] = (0.0, 0.0, np.sin(yaw / 2), np.cos(yaw / 2))  # x y z w
+            self.view.set_root_transforms(t, indices=np.array([0], dtype=np.int32))
+            self.view.set_root_velocities(np.zeros((1, 6), dtype=np.float32), indices=np.array([0], dtype=np.int32))
+            self.placed = True
+            print(f"[opencr_bridge] robot placed at {x:.3f}, {y:.3f}, yaw {yaw:.2f}")
 
     def step(self, dt):
         if self.view is None or not self.sim.is_valid:
@@ -107,6 +120,22 @@ class Board:
         if self.t - self.last_err >= ERROR_PERIOD:
             self.send("E" + ",0" * 8)
             self.last_err = self.t
+        self.truth()
+
+    def truth(self):
+        """Ground truth for checking localization: true robot pose in the ROS map frame (= the start pose BEE_START_POSE),
+        once per second to /tmp/bee_truth.txt as 'sim_t x y yaw' (twin.rviz · check_truth.py compare it with TF map->base_footprint)."""
+        if self.t - getattr(self, "truth_t", -1.0) < 1.0:
+            return
+        self.truth_t = self.t
+        x0, y0, yaw0 = (float(v) for v in os.environ.get("BEE_START_POSE", "0,0,0").split(","))
+        r = self.view.get_root_transforms()[0]
+        qx, qy, qz, qw = r[3:7]
+        yaw = math.atan2(2 * (qw * qz + qx * qy), 1 - 2 * (qy * qy + qz * qz))
+        c, s = math.cos(-yaw0), math.sin(-yaw0)
+        dx, dy = r[0] - x0, r[1] - y0
+        with open("/tmp/bee_truth.txt", "w") as f:
+            f.write(f"{self.t:.2f} {c * dx - s * dy:.4f} {s * dx + c * dy:.4f} {math.remainder(yaw - yaw0, 2 * math.pi):.4f}\n")
 
     def grip_force(self):
         """Dummy grip force: the firmware sets one gripper current at boot and the serial protocol cannot change it.

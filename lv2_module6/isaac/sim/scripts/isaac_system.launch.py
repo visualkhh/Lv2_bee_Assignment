@@ -4,7 +4,7 @@
     ros2_control: port:=/tmp/opencr — Isaac 안 opencr_bridge.py(가상 OpenCR)와 S/C 시리얼
     use_cameras:=false (토픽은 Isaac + camera_adapter.py가 실기 이름·형식으로 냄) · map:=slam (매핑)
     use_sim_time: 인자가 아니라 SetParameter로 모든 노드에 (ros2_ws 패키지는 수정하지 않음)
-    그 밖은 bringup 기본값 = 실기 (Nav2 · MoveIt · twist_mux · coordinator 시작 자세 등)
+    그 밖은 bringup 기본값 = 실기 (Nav2 · MoveIt · twist_mux · skill 노드 · 시작 자세 등)
     바꾸기: ros2 launch isaac_system.launch.py use_ml:=false map:=saved …
     perception_node는 torch · ultralytics · zxingcpp가 시스템 python3에 있어야 뜬다 (없으면 그 노드만 죽음)
   pole_front_cam 점구름: depth_image_proc
@@ -26,15 +26,18 @@ ARGS = {
     'port': '/tmp/opencr',       # opencr_bridge.py(가상 OpenCR)
     'use_cameras': 'false',      # 카메라 토픽은 Isaac이 실기 이름으로 냄
     'map': 'slam',               # 매핑 — 새 폴더 ~/.ros/beebot_maps/<날짜_시각>/ (저장 지도로: map:=saved)
+    'map_dir': '',               # 지도 폴더 (비면 ~/.ros/beebot_maps) — twin.sh는 실기 지도와 섞이지 않게 ~/bee_twin_maps
 }
 
-# beebot.usda 기본 자세 [deg] 0 · -109.435 · 78.5 · 34.1 · 0 → [rad] (joint1~5)
-SCAN_POSE = 'scan_pose:=[0.0, -1.91, 1.37008, 0.59516, 0.0]'
+# 스캔 자세 (지도 만들 때 팔 자세) — Isaac에서는 실기 scan_pose.yaml 자세를 쓰지 않음 (2026-11-04 실측):
+#   그 자세에서 시뮬 팔이 pole_front_cam 화면 가운데에 들어와(실기는 안 들어오게 정한 자세) body_filter가 다 못 지우고 →
+#   collision_monitor가 제 팔을 장애물로 보고 바퀴 명령을 0으로 막음 · nvblox에도 찍힘. 그래서 Isaac에서는
+#   팔 = 접은 자세(STOW) · pole_front_cam 깊이는 그 자세에서 넘김 · gripper_cam 깊이는 지도에 안 넣음(닿을 수 없는 자세로 문을 닫음)
+STOW = '[0.0, -1.91, 1.37008, 0.59516, 0.0]'  # beebot.usda 기본 자세 [rad]
 NODE_PARAMS = {  # 노드 이름: 명령줄 끝에 덧붙일 -p 값 (--after: 그 노드들을 먼저 고친 뒤에)
-    'state_manager': ['--after', 'coordinator,pole_depth_gate,gripper_depth_gate'],  # MAPPING은 스캔 자세를 고친 뒤에 냄
-    'coordinator': [SCAN_POSE],
-    'pole_depth_gate': [SCAN_POSE],
-    'gripper_depth_gate': [SCAN_POSE],
+    'state_manager': ['--after', 'pole_depth_gate,gripper_depth_gate'],  # MAPPING은 스캔 자세를 고친 뒤에 냄 (use_sim_time -p 순서도)
+    'pole_depth_gate': ['scan_pose:=' + STOW],
+    'gripper_depth_gate': ['scan_pose:=[9.0, 9.0, 9.0, 9.0, 9.0]'],  # 닿을 수 없는 자세 = 늘 닫힘
 }
 
 NS = '/pole_front_cam'
@@ -57,10 +60,13 @@ def generate_launch_description():
                             '--ros-args', '-p', 'use_sim_time:=true'], output='screen'),
         # bringup 노드 몇 개를 고친 파라미터로 다시 띄움 — 설명: node_params.py
         #   state_manager: use_sim_time -p가 params 파일 앞에 붙어 manager.yaml의 LOCALIZATION을 읽음(map:=slam인데 EXPLORE 거절) → -p를 뒤로
-        #   coordinator · pole/gripper_depth_gate: 스캔 자세 = beebot.usda 기본 자세 (scan_pose.yaml 자세는 팔이 처져 2초마다 다시 감)
         *[ExecuteProcess(cmd=['python3', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'node_params.py'), name, *extra],
                          output='screen')
           for name, extra in NODE_PARAMS.items()],
+        # skill_pose(컴포넌트라 다시 띄울 수 없음): 스캔 자세 = STOW (실행 중 변경)
+        ExecuteProcess(cmd=['bash', '-c', 'until ros2 param set /skill_pose scan_pose "' + STOW +
+                            '" 2>/dev/null | grep -q successful; do sleep 2; done; echo "[isaac] skill_pose scan_pose = 접은 자세"'],
+                       output='screen'),
         # Isaac 영상은 best_effort(SENSOR_DATA) — reliable로 구독하면 연결되지 않는다. 노드는 lazy 구독(points 구독자가 있어야 입력을 받음)
         Node(package='depth_image_proc', executable='point_cloud_xyz_node', name='pole_front_cam_points', output='screen',
              remappings=[('image_rect', DEPTH), ('points', NS + '/depth/color/points')],

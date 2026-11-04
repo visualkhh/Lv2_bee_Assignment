@@ -55,6 +55,12 @@ public:
     scan_timer_ = create_wall_timer(std::chrono::seconds(2), [this]() { check_scan_pose(); });
     param_cb_ = add_post_set_parameters_callback([this](const std::vector<rclcpp::Parameter> & ps) {
       for (const auto & p : ps) {
+        if (p.get_name() == "scan_pose" && p.as_double_array().size() == 5) {  // 실행 중 변경 (Isaac: 처지는 시뮬 팔에 맞춘 자세)
+          scan_pose_ = poses_["scan"] = p.as_double_array();
+          RCLCPP_INFO(get_logger(), "스캔 자세 바뀜 — 다음 확인 때 그 자세로");
+          continue;
+        }
+        if (p.get_name() == "scan_pose_tolerance") { scan_tol_ = p.as_double(); continue; }
         if (p.get_name() != "initial_pose_enabled") continue;
         initial_enabled_ = p.as_bool();
         if (!initial_enabled_) {
