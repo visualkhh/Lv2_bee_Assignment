@@ -55,7 +55,6 @@ flowchart TB
     end
     subgraph S3["③ 판단 보조 — ml"]
         GS["🛠 grasp_scorer"]
-        NT["🛠 rl_nav_tuner"]
     end
     subgraph S4["④ 확정 실행 — ros_system"]
         NAV["📦 Nav2"]
@@ -63,7 +62,6 @@ flowchart TB
         SLAM["📦 RTAB-Map · EKF"]
     end
     subgraph S5["⑤ 실행 보정 — ml"]
-        RLN["🛠 rl_nav_correction"]
         RLA["🛠 rl_arm_correction<br/>chainable controller"]
     end
     subgraph S6["⑥ 안전"]
@@ -90,10 +88,8 @@ flowchart TB
     CO -.->|"📞 /score_grasps"| GS
     CO ==>|"🎬 /navigate_to_pose"| NAV
     CO ==>|"🎬 /execute_task_solution"| MTC
-    NT -.->|"/speed_limit · set_parameters"| NAV
     SLAM -->|"/map · map→odom · odom"| NAV
-    NAV -->|"/cmd_vel_nav"| RLN
-    RLN -->|"/cmd_vel_corrected (자동)"| MUX
+    NAV -->|"/cmd_vel_nav (자동)"| MUX
     MAN -->|"/cmd_vel_manual (수동)"| MUX
     MUX -->|"/cmd_vel_mux"| SAFE
     SAFE -->|"/cmd_vel"| CM
@@ -111,7 +107,7 @@ flowchart TB
     classDef safe fill:#ffcdd2,stroke:#c62828,color:#1b1b1b;
     class PER,UI,CO,MAN,NAV,MTC,SLAM,CM,HWI std;
     class VLM ai;
-    class GS,NT,RLN,RLA rl;
+    class GS,RLA rl;
     class MUX,SAFE,ASM safe;
     class PCH,GCH,OCR hw;
 ```
@@ -167,7 +163,7 @@ sequenceDiagram
 | --- | --- |
 | 인지 | perception — pole_cam 영상 끊김, 발행 수 · signal_decoder — 깜빡임·단계·확정 |
 | 계획·임무 | user_input — 못 보낸 명령 · vlm_task_planner — 계획 보류·재계획·신호등 미션·수납 확인 · coordinator — 모드·단계·연속 실패·서버 대기 |
-| 학습 | grasp_scorer — enabled·요청 · rl_nav_tuner — 프리셋 · rl_nav_correction — /odom 끊김(Δ=0)·속도 상한 |
+| 학습 | grasp_scorer — enabled·요청 |
 | 제어 | arm_safety_monitor — 접촉 감지 · manual_control — 모드·모터 재부팅 결과 · **beebotsystem: OpenCR 연결** — 마지막 S 수신·송수신 줄 수·모터 Hardware Error · controller_manager |
 | 제공 패키지 | EKF · twist_mux · … |
 
@@ -184,7 +180,7 @@ flowchart LR
     subgraph DOCKER["도커 테스트베드 (ROS 2 Lyrical)"]
         BR["🛠 노드 전부 (bringup)<br/>+ diagnostic_aggregator"]
         RS["📦 ros_system 일부<br/>robot_state_publisher · controller_manager<br/>· twist_mux · EKF"]
-        FK["faker<br/>fake_camera(시뮬레이터 프레임) · fake_opencr(OpenCR — 물리 · S 쓰기) · ML 대역(fake_grasp_scorer · fake_rl_nav_tuner · fake_rl_nav_correction · FakeRlArmCorrection)<br/>map_server(코스 지도) · monitor_manager · input_manager"]
+        FK["faker<br/>fake_camera(시뮬레이터 프레임) · fake_opencr(OpenCR — 물리 · S 쓰기) · ML 대역(fake_grasp_scorer · FakeRlArmCorrection)<br/>map_server(코스 지도) · monitor_manager · input_manager"]
         SER["가상 시리얼<br/>/dev/opencr ↔ 파일"]
         FW["arduino-cli<br/>OpenCR 펌웨어 컴파일·업로드 검사"]
     end
@@ -226,7 +222,7 @@ lv2_module6/
 │       ├── perception/   🛠 perception · body_filter · signal_decoder          + msg TrackedObject(Array) · MissionSignal
 │       ├── control/      🛠 arm_safety_monitor · manual_control · BeebotSystemHardware(ros2_control)  + msg ArmSafetyEvent · MotorStatus
 │       ├── manager/      🛠 state_manager (상태의 주인 — /state/operation_mode · /state/map_mode · /state/map_name · /state/emergency · /state/devices(모터 에러 포함))
-│       ├── ml/           🛠 grasp_scorer · rl_nav_tuner · rl_nav_correction · rl_arm_correction  + srv ScoreGrasps
+│       ├── ml/           🛠 grasp_scorer · rl_nav_controller(Nav2 플러그인) · rl_arm_correction  + srv ScoreGrasps
 │       ├── plan/         🛠 user_input · vlm_task_planner · explorer · coordinator  + msg SubGoal(Array) · TaskStatus
 │       ├── ros_system/   🛠 scan_cam_gate · 📦 robot_state_publisher · controller_manager · twist_mux · RealSense ×2 · EKF · RTAB-Map · Nav2
 │       ├── bringup/      전체 실행 = ros_system + 🛠 노드 전부 + diagnostic_aggregator

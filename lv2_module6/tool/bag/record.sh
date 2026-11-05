@@ -10,7 +10,7 @@ DIR=${BAG_DIR:-$HOME/bee_bags}
 NODE=bee_blackbox
 mkdir -p "$DIR"
 # 팔 · 주행 · 인지 · 미션 · 상태 (영상 원본은 뺌 — 압축 영상·검출만)
-TOPICS='^/(joint_states|tf|tf_static|clock|odom.*|cmd_vel.*|arm_controller/.*|gripper_controller/.*|rl_arm_correction/debug|rl_nav_correction/.*|skill_context|hand_relative.*|arm_safety_event|motor_status|state/.*|mission/.*|coordinator/.*|task/.*|cmd/.*|perception/.*detections|tracked_objects|diagnostics_agg|diagnostics_toplevel_state|rosout|plan|local_plan|map)$|compressed$'
+TOPICS='^/(joint_states|tf|tf_static|clock|odom.*|cmd_vel.*|arm_controller/.*|gripper_controller/.*|rl_arm_correction/debug|skill_context|hand_relative.*|arm_safety_event|motor_status|state/.*|mission/.*|coordinator/.*|task/.*|cmd/.*|perception/.*detections|tracked_objects|diagnostics_agg|diagnostics_toplevel_state|rosout|plan|local_plan|map)$|compressed$'
 SKIP='image_raw$|/points$|depth/image'
 case "$MODE" in
   blackbox)

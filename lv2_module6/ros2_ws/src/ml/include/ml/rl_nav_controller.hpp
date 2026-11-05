@@ -1,0 +1,98 @@
+// RlNavController — Nav2 controller 플러그인 (ml 패키지) (ONNX 정책 + 기본 controller 바이패스).
+//   관측 51: 웨이포인트 5×2 + 가상 스캔 36 + v/w/gyro + 이전 행동 2
+//   가상 스캔: pole_front_cam 점구름(PointCloud2) → base_footprint 36방향 최소거리 (LiDAR 없음)
+//   ~/<controller>/toggle (std_srvs/SetBool): false(기본)=inner controller, true=정책
+#pragma once
+
+#include <array>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <vector>
+
+#include "geometry_msgs/msg/pose_stamped.hpp"
+#include "geometry_msgs/msg/twist.hpp"
+#include "geometry_msgs/msg/twist_stamped.hpp"
+#include "nav2_core/controller.hpp"
+#include "nav2_costmap_2d/costmap_2d_ros.hpp"
+#include "nav_msgs/msg/path.hpp"
+#include "pluginlib/class_loader.hpp"
+#include "ml/onnx_policy.hpp"
+#include "sensor_msgs/msg/imu.hpp"
+#include "sensor_msgs/msg/laser_scan.hpp"
+#include "sensor_msgs/msg/point_cloud2.hpp"
+#include "std_msgs/msg/float32_multi_array.hpp"
+#include "std_srvs/srv/set_bool.hpp"
+
+namespace ml {
+
+class RlNavController : public nav2_core::Controller {
+public:
+  void configure(
+    const nav2::LifecycleNode::WeakPtr & parent, std::string name,
+    nav2::TransformBuffer::SharedPtr tf, std::shared_ptr<nav2_costmap_2d::Costmap2DROS> costmap_ros) override;
+  void cleanup() override;
+  void activate() override;
+  void deactivate() override;
+  void newPathReceived(const nav_msgs::msg::Path & raw_global_path) override;
+  geometry_msgs::msg::TwistStamped computeVelocityCommands(
+    const geometry_msgs::msg::PoseStamped & pose, const geometry_msgs::msg::Twist & velocity,
+    nav2_core::GoalChecker * goal_checker, const nav_msgs::msg::Path & transformed_global_plan,
+    const geometry_msgs::msg::PoseStamped & global_goal) override;
+  bool cancel() override;
+  void setSpeedLimit(const double & speed_limit, const bool & percentage) override;
+  void reset() override;
+
+  // 관측 (학습 env와 같은 순서) — 테스트용으로 공개
+  std::vector<float> waypoints(const geometry_msgs::msg::PoseStamped & pose, const nav_msgs::msg::Path & plan) const;
+  std::vector<float> scan_rays(const sensor_msgs::msg::LaserScan & scan, double laser_yaw) const;
+
+private:
+  void load_model(const std::string & path);
+  void on_cloud(const sensor_msgs::msg::PointCloud2::SharedPtr cloud);
+
+  nav2::LifecycleNode::WeakPtr node_;
+  std::string name_;
+  nav2::TransformBuffer::SharedPtr tf_;
+  std::shared_ptr<nav2_costmap_2d::Costmap2DROS> costmap_ros_;
+  rclcpp::Logger logger_{rclcpp::get_logger("RlNavController")};
+
+  pluginlib::ClassLoader<nav2_core::Controller> loader_{"nav2_core", "nav2_core::Controller"};
+  nav2_core::Controller::Ptr inner_;
+  OnnxPolicy policy_;
+
+  nav2::ServiceServer<std_srvs::srv::SetBool>::SharedPtr toggle_srv_;
+  rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr debug_pub_;
+  nav2::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;
+  nav2::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;
+  nav2::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;
+
+  std::mutex mtx_;
+  bool enable_ = false;
+  bool use_scan_ = false;
+  sensor_msgs::msg::LaserScan::SharedPtr scan_;
+  std::vector<float> ranges_;  // 가상 스캔 (m) — lidar_rays_개
+  rclcpp::Time cloud_stamp_{0, 0, RCL_ROS_TIME};
+  bool cloud_ok_ = false;
+  size_t cloud_tf_fail_ = 0;
+  double gyro_z_ = 0.0;
+  bool gyro_seen_ = false;
+  double laser_yaw_ = 0.0;
+  bool laser_yaw_known_ = false;
+  float prev_a_[2] = {0.0f, 0.0f};
+
+  // 파라미터 (기본값 = 학습 env와 같게; 모델이 다르면 yaml에서 맞춘다)
+  int lookahead_ = 5;
+  double wp_step_ = 0.30, wp_scale_ = 2.0;
+  int lidar_rays_ = 36;
+  double lidar_max_ = 3.5;
+  double max_lin_ = 0.26, max_ang_ = 1.82, v_min_ratio_ = -0.2;
+  double speed_ratio_ = 1.0;
+  double extra_lin_vel_ = 0.0;  // [m/s] 정책 출력에 더하는 추가 선속도 (0~0.10, max_lin 상한 유지)
+  double extra_ang_vel_ = 0.0;  // [rad/s] 정책 출력에 더하는 추가 각속도 (0~0.50, max_ang 상한 유지)
+  int points_stride_ = 4;
+  double z_min_ = 0.03, z_max_ = 1.2;
+  double cloud_timeout_ = 0.5;
+};
+
+}  // namespace ml

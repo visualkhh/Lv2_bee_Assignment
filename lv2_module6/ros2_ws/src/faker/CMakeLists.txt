@@ -34,12 +34,12 @@ find_package(ament_index_cpp REQUIRED)
 find_package(OpenCV REQUIRED COMPONENTS core imgcodecs imgproc)
 
 # --- 노드: 클래스 구현(src/<노드>.cpp)은 라이브러리 하나로, 실행 파일은 src/<노드>_main.cpp (선언·설명은 include/faker/<노드>.hpp)
-#   📦 대역: fake_camera(RealSense · 장면은 시뮬레이터) · fake_opencr(OpenCR — 테스트베드의 유일한 OpenCR) · ml 대역 fake_grasp_scorer · fake_rl_nav_tuner · fake_rl_nav_correction (ml 노드와 1:1)
+#   📦 대역: fake_camera(RealSense · 장면은 시뮬레이터) · fake_opencr(OpenCR — 테스트베드의 유일한 OpenCR) · ml 대역 fake_grasp_scorer (ml 노드와 1:1)
 #   move_group은 진짜를 쓴다 (ros_system use_moveit — 테스트베드도 mock 컨트롤러로 동작)
 #   호스트 파일 연동: monitor_manager(토픽 → 파일) · input_manager(파일 → 토픽)
-set(NODES fake_camera fake_opencr fake_grasp_scorer fake_rl_nav_tuner fake_rl_nav_correction monitor_manager input_manager service_action_monitor service_action_input)
+set(NODES fake_camera fake_opencr fake_grasp_scorer monitor_manager input_manager service_action_monitor service_action_input)
 add_library(${PROJECT_NAME}_nodes STATIC
-  src/fake_camera.cpp src/fake_opencr.cpp src/fake_grasp_scorer.cpp src/fake_rl_nav_tuner.cpp src/fake_rl_nav_correction.cpp src/monitor_manager.cpp src/input_manager.cpp src/service_action_monitor.cpp src/service_action_input.cpp)
+  src/fake_camera.cpp src/fake_opencr.cpp src/fake_grasp_scorer.cpp src/monitor_manager.cpp src/input_manager.cpp src/service_action_monitor.cpp src/service_action_input.cpp)
 target_include_directories(${PROJECT_NAME}_nodes PUBLIC include)
 target_compile_features(${PROJECT_NAME}_nodes PUBLIC cxx_std_17)
 target_link_libraries(${PROJECT_NAME}_nodes PUBLIC rclcpp::rclcpp rclcpp_action::rclcpp_action

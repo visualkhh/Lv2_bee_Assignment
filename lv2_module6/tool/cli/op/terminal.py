@@ -36,6 +36,17 @@ class Terminal:
         if self.out.isatty():
             print('\033[2J\033[H', end='', flush=True, file=self.out)
 
+    def hide_cursor(self) -> None:
+        """실제 터미널 커서 숨김 — 화면 아래에서 깜빡이며 입력을 방해하지 않게."""
+        if self.out.isatty():
+            self.out.write('\033[?25l')
+            self.out.flush()
+
+    def show_cursor(self) -> None:
+        if self.out.isatty():
+            self.out.write('\033[?25h')
+            self.out.flush()
+
     @classmethod
     def char_cols(cls, ch: str) -> int:
         # 터미널 표시 너비: 한글·한자(W/F)는 2칸, 나머지는 1칸

@@ -3,7 +3,7 @@
 <package format="3">
   <name>ml</name>
   <version>0.1.0</version>
-  <description>학습 — 앞단 판단 보조(grasp_scorer, rl_nav_tuner) + 뒷단 실행 보정(rl_nav_correction, rl_arm_correction 컨트롤러). ScoreGrasps 서비스 정의 포함</description>
+  <description>학습 — 앞단 판단 보조(grasp_scorer) + 뒷단 실행 보정(rl_arm_correction 컨트롤러). ScoreGrasps 서비스 정의 포함</description>
   <maintainer email="todo@example.com">송정혁</maintainer>
   <license>Apache-2.0</license>
 
@@ -20,12 +20,18 @@
   <depend>sensor_msgs</depend>
   <depend>nav_msgs</depend>
   <depend>nav2_msgs</depend>
+  <depend>nav2_core</depend>
+  <depend>nav2_util</depend>
+  <depend>nav2_costmap_2d</depend>
+  <depend>nav2_ros_common</depend>
+  <depend>tf2</depend>
+  <depend>tf2_geometry_msgs</depend>
+  <depend>std_srvs</depend>
   <depend>perception</depend>
   <depend>controller_interface</depend>
   <depend>hardware_interface</depend>
   <depend>pluginlib</depend>
   <depend>rclcpp_lifecycle</depend>
-  <depend>std_srvs</depend>
 
   <exec_depend>rosidl_default_runtime</exec_depend>
   <exec_depend>launch</exec_depend>
@@ -36,5 +42,6 @@
 
   <export>
     <build_type>ament_cmake</build_type>
+    <nav2_core plugin="${prefix}/rl_nav_controller.xml"/>
   </export>
 </package>

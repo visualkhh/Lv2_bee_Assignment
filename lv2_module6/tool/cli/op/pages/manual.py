@@ -268,7 +268,7 @@ class ArmInitialItem(MenuItem):
     key = '7'
 
     def label(self):
-        return '시작 자세로 (plan.yaml initial_pose · initial_gripper)'
+        return '시작 자세로 (skills.yaml skill_pose initial_pose · initial_gripper)'
 
     def run(self):
         if not self.bus.ensure_arm_or_switch():

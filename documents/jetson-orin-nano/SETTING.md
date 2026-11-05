@@ -43,6 +43,76 @@ Python 3.12.3
 glibc 2.39
 ```
 
+## Swap 8GB (SLAM/mapping 대비)
+
+Jetson Orin Nano는 RAM 7.4Gi, 기본 swap 0B다. bringup만으로 5Gi 안팎을 쓰고,
+`map:=slam`(cuVSLAM + nvblox)에 VNC·RViz까지 올리면 여유가 2Gi 아래로 떨어진다.
+NVMe(116G)에 여유가 있어 **8GB swapfile**을 영구 설정했다 (2026-11-05).
+
+- swap은 **OOM 방지용 안전장치**다. cuVSLAM/nvblox의 GPU 멈춤·크래시를 고치지는 않는다.
+- mapping 중 swap 사용량이 2~3GB를 넘으면 성능이 급격히 떨어진다. RViz는 Jetson VNC에서
+  같이 띄우지 말고, 지도가 끝난 뒤(LOCALIZATION) 켠다.
+- 4GB도 최소지만, SLAM + VNC를 고려해 8GB로 잡았다.
+
+```bash
+# 기존 /swapfile이 있으면 먼저 해제
+sudo swapoff /swapfile 2>/dev/null || true
+sudo rm -f /swapfile
+
+sudo fallocate -l 8G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+
+# 재부팅 후에도 유지
+grep -q '^/swapfile ' /etc/fstab || \
+  echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+
+# 평소에는 swap을 적게 쓰고, 메모리 압박 때만 사용
+printf 'vm.swappiness=20\n' | sudo tee /etc/sysctl.d/99-swap.conf
+sudo sysctl --system
+```
+
+확인:
+
+```bash
+free -h
+swapon --show
+cat /proc/sys/vm/swappiness
+grep '/swapfile' /etc/fstab
+```
+
+정상 예:
+
+```text
+               total        used        free      shared  buff/cache   available
+Mem:           7.4Gi       5.2Gi       603Mi       1.2Gi       3.0Gi       2.2Gi
+Swap:          8.0Gi          0B       8.0Gi
+
+NAME      TYPE SIZE USED PRIO
+/swapfile file   8G   0B   -2
+
+20
+/swapfile none swap sw 0 0
+```
+
+크기 변경/제거:
+
+```bash
+# 크기 변경: swapoff → 파일 삭제 → 원하는 크기로 다시 생성
+sudo swapoff /swapfile
+sudo rm -f /swapfile
+# 위 생성 명령을 원하는 크기(-l 4G/12G)로 다시 실행
+
+# 제거
+sudo swapoff /swapfile
+sudo sed -i '\|^/swapfile |d' /etc/fstab
+sudo rm -f /swapfile
+```
+
+> swap을 켠 뒤에도 mapping이 또 멈추면 OOM인지 먼저 확인한다:
+> `journalctl -k -b -1 | grep -i -E 'oom|killed process'` · `tail -n 120 lv2_module6/tool/bringup.log`
+
 
 # ros setting
 ## link
@@ -89,13 +159,13 @@ cat >> ~/.bashrc <<'EOF'
 
 # ROS 2 Lyrical — Jetson 안에서만 (공유 메모리만, 네트워크로 안 나감)
 source /opt/ros/lyrical/setup.bash
-export ROS_DOMAIN_ID=0
+export ROS_DOMAIN_ID=88
 export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
-export FASTDDS_DEFAULT_PROFILES_FILE=$HOME/Lv2_bee_Assignment/lv2_module6/ros2_ws/fastdds_local.xml
+export FASTDDS_DEFAULT_PROFILES_FILE=$HOME/Lv2_bee_Assignment/lv2_module6/ros2_ws/fastdds_local_only.xml
 EOF
 source ~/.bashrc
 ```
-• Jetson은 ROS를 **기기 안에서만** 돌린다(bringup·`tool/run-cli`·`ros2` 명령 모두 Jetson에서). `fastdds_local.xml`이 DDS 전송을 공유 메모리(SHM)로만 제한해 노드 찾기·토픽이 네트워크로 나가지 않는다 — PC docker·시뮬레이터·다른 팀과 안 섞임
+• 기본은 `ROS_DOMAIN_ID=88` + `fastdds_local_only.xml` — DDS 전송이 공유 메모리(SHM)뿐이라 **Jetson 밖으로 나가지도, 밖에서 들어오지도 않는다** (PC docker·시뮬레이터·다른 팀과 안 섞임). `start.sh`도 같은 값을 기본값으로 쓴다.
 • bringup·run-cli·`ros2` 명령이 **모두 같은 프로파일**이어야 서로 보인다 → `~/.bashrc`에 두고 새 터미널에서 실행
 • `ROS_LOCALHOST_ONLY`·`ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`·`ROS_DISCOVERY_SERVER`는 쓰지 말 것 — LOCALHOST는 노드 일부가 안 보이고, Discovery Server는 서비스 응답이 버려져(`failed to send response … timeout`) lifecycle_manager가 velocity_smoother·collision_monitor를 못 켜 텔레오퍼가 안 움직임 (2026-10-26 실기)
 • PC에서 Jetson 토픽을 직접 봐야 할 때만: 프로파일을 `fastdds.xml`(UDP 포함)로 바꾸고 양쪽 `ROS_DOMAIN_ID`를 같게 — 아래 Wi-Fi 주의 참고
@@ -159,6 +229,7 @@ sudo apt-get install -y --no-install-recommends \
     ros-lyrical-teleop-twist-keyboard \
     ros-lyrical-robot-localization \
     ros-lyrical-rosx-introspection \
+    ros-lyrical-onnxruntime-vendor \
     ros-lyrical-cv-bridge \
     libopencv-dev \
     rapidjson-dev \

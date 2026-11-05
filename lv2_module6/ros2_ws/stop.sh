@@ -7,8 +7,10 @@
 # 패키지 이름으로 고르지 않는다 (새 패키지가 빠져 고아로 남음 — docker/test-*.sh와 같은 기준).
 # 같은 머신의 다른 ROS 작업도 같이 꺼진다.
 HERE="$(cd "$(dirname "$0")" && pwd)"
+# nvblox/cuVSLAM은 별도 workspace(~ /isaac_ros_ws)에 있어서 여기도 포함해야 한다.
+SLAM_WS="${SLAM_WS:-$HOME/isaac_ros_ws}"
 # [h] [n] — 패턴 글자가 이 스크립트를 부른 셸 명령줄과 겹쳐도 자기 자신은 안 걸리게
-PAT="(/opt/ros/[^/ ]+|$HERE/install|/ws/install)/[^ ]*li[b]/|bin/ros2 (launc[h]|ru[n]|topic|service|param|node|action|lifecycle|control)"
+PAT="(/opt/ros/[^/ ]+|$HERE/install|$SLAM_WS/install|/ws/install)/[^ ]*li[b]/|bin/ros2 (launc[h]|ru[n]|topic|service|param|node|action|lifecycle|control)"
 
 count() { pgrep -f "$PAT" | wc -l | tr -d ' '; }
 
@@ -33,5 +35,11 @@ if command -v ros2 >/dev/null 2>&1; then
   ros2 daemon stop >/dev/null 2>&1 || true
 else
   pkill -f "ros2cli.daemon.daemoniz[e]" 2>/dev/null || true
+fi
+# 강제 종료된 참가자의 Fast DDS SHM 통로가 남으면 다음 state_manager가 포트 lock에 걸려
+# publisher가 하나도 안 보일 수 있다 (/state/* publisher count 0). ROS가 모두 꺼진 뒤에만 지운다.
+if [ "$(count)" = 0 ]; then
+  rm -rf /dev/shm/fastdds_* /dev/shm/sem.fastdds_* 2>/dev/null || true
+  echo "Fast DDS SHM 잔재 정리"
 fi
 echo "남은 ROS 프로세스: $(count)개"

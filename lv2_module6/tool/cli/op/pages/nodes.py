@@ -6,7 +6,7 @@ import time
 
 from ..defs import STAY
 from ..terminal import BOLD, DIM, GREEN, RED, YELLOW
-from .base import InfoItem, Menu, MenuItem
+from .base import GoMenu, InfoItem, Menu, MenuItem
 
 
 class RestartAllItem(MenuItem):
@@ -37,7 +37,7 @@ class NodeStatusItem(MenuItem):
         self._name = name
 
     def label(self):
-        return '상태 보기'
+        return '상태 자세히 (한 번 출력)'
 
     def run(self):
         print('\n'.join(self.bus.node_status_lines(self._name)))
@@ -79,26 +79,47 @@ class NodeActivateItem(MenuItem):
 
 
 class NodeActionMenu(Menu):
+    REFRESH_S = 1.0  # 상태·진단 live 갱신
+
     def __init__(self, app, row: dict):
         super().__init__(app)
         self._row = row
         self.title = f'노드 · {row["name"]}'
+        self._lines: list[str] = []
+        self._at = 0.0
+
+    def _param_target(self):
+        full = self._row['name']
+        for n, ns in self.bus.param_nodes():
+            cand = f'{ns.strip("/")}/{n}' if ns not in ('/', '') else n
+            if cand == full or n == full:
+                return n, ns
+        return None
 
     def items(self):
         items: list[MenuItem] = [NodeStatusItem(self.app, self._row['name'])]
+        target = self._param_target()
+        if target:
+            from .params import NodeParamMenu
+            items.append(GoMenu(self.app, '4', '파라미터 · 진단 (live · 1초 갱신)',
+                                NodeParamMenu(self.app, target[0], target[1])))
         if self._row['pid']:
             items.append(NodeRestartItem(self.app, self._row['name'], self._row['lifecycle']))
         if self._row['lifecycle']:
             items.append(NodeActivateItem(self.app, self._row['name']))
         return items
 
+    def _refresh_status(self):
+        if self._lines and time.monotonic() - self._at < self.REFRESH_S:
+            return
+        self._lines = self.bus.node_status_lines(self._row['name'])
+        self._at = time.monotonic()
+
     def center(self):
-        r = self._row
-        lines = [f'[{r["name"]}]', f' pid: {r["pid"] or "- (재시작 목록 밖)"}',
-                 f' 그래프: {"보임" if r["alive"] else "안 보임"}']
-        if r['lifecycle']:
-            lines.append(' 수명주기 노드 — active가 아니면 3) 활성화')
-        return lines
+        self._refresh_status()
+        lines = list(self._lines)
+        lines += ['', ' 4) 파라미터 · 진단 live 화면으로']
+        return lines + self.ui.center_summary()
 
 
 class NodeItem(MenuItem):
@@ -125,7 +146,7 @@ class NodeItem(MenuItem):
 
 
 class NodesMenu(Menu):
-    title = '노드 (상태 · 재시작)'
+    title = '노드 (상태 · 파라미터 · 진단 · 재시작)'
     REFRESH_S = 3.0  # 노드 목록·수명주기 상태 조회 주기 (메뉴는 0.2초마다 다시 그림)
 
     def __init__(self, app):

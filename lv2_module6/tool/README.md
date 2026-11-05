@@ -13,10 +13,12 @@ tool/
 │   ├── stop.sh
 │   ├── restart.sh
 │   └── operator.rviz
+├── log/                 # 실행 결과 (raw.csv 등 · gitignore)
 └── cli/
     ├── start.sh
     ├── DEVELOP.md         # 개발자용 — TUI를 어떻게 만들었나 · 화면 흐름 규약 · 메뉴 추가 · 시험
     ├── operator_tool.py   # 얇은 App: 배선 + argparse + main
+    ├── calibration/       # wheel/{command.json,report.py} (sim과 같은 네모 · 비교 리포트)
     └── op/                # 실제 구현
         ├── terminal.py    # 터미널 원자 연산 (크기·색·표시너비)
         ├── defs.py        # 메뉴 내비게이션 상수
@@ -33,7 +35,7 @@ tool/
 ```bash
 cd tool
 ./run-cli                     # 대화형 메뉴 (TUI)
-./run-cli start               # bringup 시작 (백그라운드 · 로그 ~/.ros/bringup.log · 이미 떠 있으면 그대로)
+./run-cli start               # bringup 시작 (백그라운드 · 로그 ./bringup.log(실행한 폴더, BRINGUP_LOG=경로로 바꿈) · 이미 떠 있으면 그대로)
 ./run-cli stop                # 떠 있는 ROS 전부 끄기 (ros2_ws/stop.sh)
 ./run-cli restart             # stop → start (= restart all)
 ./run-cli restart perception  # 그 노드만 (state_manager · 수명주기 노드는 active까지)
@@ -41,7 +43,7 @@ cd tool
 ./run-cli beep                # OpenCR 부저 기본음 · ./run-cli beep 4000 300 = 높이·길이 (메뉴 0)
 ```
 
-`start`는 이 셸의 환경(`FASTDDS_DEFAULT_PROFILES_FILE` · `ROS_DOMAIN_ID`)을 그대로 넘긴다 — `~/.bashrc`를 고쳤으면 새 터미널에서.
+`start`는 기본값으로 **`ROS_DOMAIN_ID=88` + `ros2_ws/fastdds_local_only.xml`(SHM 전용)** 을 쓴다 — DDS가 기기 밖으로 나가지도 들어오지도 않는다. 셸의 `FASTDDS_DEFAULT_PROFILES_FILE` · `ROS_DOMAIN_ID`를 지정하면 그 값이 우선한다 (PC에서 볼 때는 `fastdds.xml`).
 
 ```bash
 cd tool
@@ -77,6 +79,8 @@ cd tool
  10) 노드 (상태 · 재시작 · 전체 재시작)
  11) RViz 열기 (Best Effort QoS)
  12) 파라미터 (노드별)
+ 13) 칼리브레이션 (바퀴 — 팔은 나중에)
+ 14) A/B 테스트 (노드별)
   q) 종료
 ```
 
@@ -128,6 +132,10 @@ cd tool
 `/state/operation_mode`, `/state/map_mode`, `/state/map_name`, `/state/emergency`,
 장치별 `/state/devices/<이름>`을 읽습니다.
 
+상단 상태바와 `status`의 배터리 %는 **3S LiPo 전압 기반 대략 추정**입니다.
+12V 아답터를 꽂으면 OpenCR 전원 입력값이라 배터리 잔량이 아니며, 12.45V 이상이면 `충전?`으로 표시합니다.
+정확한 잔량이 필요하면 주행 부하를 뺀 상태에서 전압을 보세요.
+
 ### 자동/수동 전환
 
 ```bash
@@ -169,6 +177,31 @@ cd tool
 # w/s 전후진 · a/d 좌우회전 · space 정지 · q 종료
 ```
 
+### 칼리브레이션 (바퀴)
+
+바퀴 응답(gain · 지연)을 재서 sim에 맞추는 측정입니다. 메뉴: **13) 칼리브레이션 → 1) 바퀴**. 팔(`calibrate arm`)은 나중에 같은 메뉴에 붙입니다.
+계획(JSON)의 `(v, w)`를 수동 경로로 재생하며 응답을 `raw.csv`로 기록합니다.
+계획 파일은 **설정**이라 `tool/cli/calibration/wheel/command.json`(sim과 같은 네모 54 s)에 두고,
+결과는 **실행 로그**라 `tool/log/calibration/<시각>_wheel/raw.csv`에 남깁니다.
+
+```bash
+./run-cli calibrate wheel --check-only          # 안 움직이고 준비만 확인 (MANUAL · /odom · /imu · /joint_states)
+./run-cli calibrate wheel                       # 기본 네모 재생 + 기록 → tool/log/calibration/<시각>_wheel/raw.csv
+./run-cli calibrate wheel plan.json             # 다른 계획: {"dt": 0.05, "label": "real", "steps": [[v, w], ...]}  (v ≤ 0.26 m/s · |w| ≤ 1.82 rad/s · 180 s 이하)
+
+./run-cli calibrate report                      # 최근 raw.csv 1~2개 → report.png (2개면 비교)
+./run-cli calibrate report sim.csv real.csv --labels SIM REAL --out compare.png
+```
+
+메뉴 13 → 바퀴: `1) 준비 확인` → (공간 비움) → `2) 재생 + 기록` · `3) 계획 파일 바꾸기` · `4) 리포트/비교`.
+
+- 명령은 `/cmd/manual/cmd_vel` → `manual_control` → `/cmd_vel_manual`이라 twist_mux 수동 경로로 바로 간다 (순수 응답).
+- 기록: `/odom` · `/imu` · `/joint_states`(바퀴) · `/cmd_vel`(smoother · collision_monitor를 거쳐 실제로 나간 명령) — isaac sim의 `raw.csv`와 같은 열.
+- 끝나거나 비상정지 · 모드 이탈 · Ctrl+C면 바로 정지 명령을 내고(저장 안 함), 로봇이 움직이므로 사방 약 1.5 m를 비웁니다. 팔이 시작 자세(stow)가 아니면 재생 전에 `arm initial`로 먼저 보내고 도달을 기다립니다(10 s 안에 못 가면 거부 · 충돌 회피 없음).
+- `report.py`는 궤적 · 명령 vs 엔코더/자이로 · 추종 오차 · 바퀴 속도 · 메시지 지연을 그리고,
+  두 CSV를 주면 두 궤적의 평균 거리까지 비교한다. 결과는 `tool/log/calibration/<시각>_wheel/report.png`.
+- 결과를 PC로: `scp bee@bee.local:<폴더>/raw.csv …` 후 isaac의 `calibration/report.py`로 sim과 비교.
+
 ### 팔·그리퍼
 
 ```bash
@@ -176,10 +209,10 @@ cd tool
 ./run-cli arm set joint1=0.0 joint2=0.4 joint3=-0.2
 ./run-cli arm delta joint2=+0.05
 ./run-cli arm home
-./run-cli arm initial       # 시작 자세로 — 떠 있는 coordinator의 initial_pose·initial_gripper (없으면 plan.yaml) (메뉴: 팔 → 7)
+./run-cli arm initial       # 시작 자세로 — 떠 있는 skill_pose의 initial_pose·initial_gripper (없으면 skills.yaml) (메뉴: 팔 → 7)
 ./run-cli arm reboot          # 과부하 등 Hardware Error 난 모터만 재부팅 (메뉴: 팔 → 5)
 ./run-cli mode teach          # TEACH: 팔(joint1~5)·그리퍼 토크 끔 — 손으로 자세 잡기 (팔이 처지니 잡고 있을 것)
-./run-cli arm capture         # 지금 팔·그리퍼 자세를 plan.yaml initial_pose·initial_gripper 줄로 출력 (파일은 안 고침)
+./run-cli arm capture         # 지금 팔·그리퍼 자세를 skills.yaml(skill_pose) initial_pose·initial_gripper 줄로 출력 (파일은 안 고침)
 ./run-cli mode manual         # TEACH를 나가면 그 자리에서 토크 켬 (튀지 않게 목표를 지금 각으로 먼저 맞춤)
 
 ./run-cli gripper show
@@ -191,7 +224,7 @@ cd tool
 - `arm set`은 지정한 관절만 보내고, 나머지는 `manual_control`이 현재 각으로 채웁니다.
 - `MAPPING` 중에는 팔 명령이 스캔 자세 고정 때문에 거절됩니다. 그리퍼는 가능합니다.
 - 관절 한계는 `controller_manager`의 joint limiter가 최종 적용합니다.
-- 시작 자세 다시 잡기: 메뉴 **팔 → 6** — TEACH로 바꿈(팔·그리퍼 토크 끔) → 손으로 자세 → 확인 → `initial_pose`·`initial_gripper` 줄 출력 → 바로 MANUAL로(그 자리에서 토크 켬). 출력된 줄을 `ros2_ws/src/plan/config/plan.yaml`(coordinator)에 직접 붙여 넣고 bringup을 재시작하면 시작 자세가 됩니다. MANUAL은 토크가 늘 켜져 있고, 토크를 푸는 건 운영 모드 **TEACH**뿐입니다(메뉴 조작 모드 → 4). TEACH 동안 수동 바퀴·팔·그리퍼 명령과 자동 작업·시작 자세 이동은 멈추고, 바퀴 토크는 그대로입니다. 지도 MAPPING 중에는 TEACH가 거절됩니다.
+- 시작 자세 다시 잡기: 메뉴 **팔 → 6** — TEACH로 바꿈(팔·그리퍼 토크 끔) → 손으로 자세 → 확인 → `initial_pose`·`initial_gripper` 줄 출력 → 바로 MANUAL로(그 자리에서 토크 켬). 출력된 줄을 `ros2_ws/src/skills/config/skills.yaml`(`skill_pose`)에 직접 붙여 넣고 bringup을 재시작하면 시작 자세가 됩니다. MANUAL은 토크가 늘 켜져 있고, 토크를 푸는 건 운영 모드 **TEACH**뿐입니다(메뉴 조작 모드 → 4). TEACH 동안 수동 바퀴·팔·그리퍼 명령과 자동 작업·시작 자세 이동은 멈추고, 바퀴 토크는 그대로입니다. 지도 MAPPING 중에는 TEACH가 거절됩니다.
 - `arm reboot`은 `/state/devices/<wheels·arm·gripper>`에서 모터 에러(`joint2:과부하`)를 보고, 있으면 `/cmd/manual/reboot_motors`를 보낸 뒤 풀릴 때까지(최대 8초) 기다립니다. 에러가 없으면 보내지 않습니다. MANUAL 모드에서만 동작하며, 팔 메뉴에도 에러가 빨간색으로 표시됩니다.
 
 ### 지도
@@ -202,7 +235,9 @@ cd tool
 ./run-cli map mode mapping
 ./run-cli map mode localization
 ./run-cli map switch 20261019_093353
-./run-cli map save
+./run-cli map save                 # 저장 후 LOCALIZATION 전환을 물어봄 (TTY)
+./run-cli map save --localize      # 저장 후 바로 LOCALIZATION (비대화형)
+./run-cli map save --no-localize   # 미리보기만 저장하고 MAPPING 유지
 ./run-cli map save --file /tmp/my_map
 ./run-cli map save --map-dir /path/to/maps
 ```
@@ -214,10 +249,14 @@ cd tool
 - 없는 지도 이름 · 지도 폴더 없이 `localization`은 CLI가 먼저 거절합니다 (state_manager는 거절 이유를 `/diagnostics`에만 남김).
 - COURSE(테스트베드 정지 지도)에서는 확인 뒤 `/cmd/restart`로 갈아탑니다. SLAM은 GPU가 있어야 해서 **GPU 없는 테스트베드에선 시작하다 멈춥니다**.
 - `map save`는 `/map_saver/save_map`(map:=slam·saved일 때만 뜸)을 불러 `.pgm`·`.yaml`을 저장합니다.
+  저장할 때 `/nvblox_node/save_map`으로 `nvblox.nvblx`도 명시적으로 저장한 뒤,
+  **LOCALIZATION으로 전환할지 물어보고** 위치추정으로 다시 뜹니다.
+  (`after_shutdown_map_save_path`는 png/yaml만 쓰므로 nvblx 저장은 이 서비스가 담당)
+  TUI **7) 지도 → 6) 지도 저장**도 같은 확인창을 띄웁니다.
   기본 경로는 `<state_manager의 map_dir>/<현재 지도 이름>/map` — map_saver가 도는 쪽(로봇·컨테이너) 경로라 원격 PC에서 CLI를 써도 맞습니다.
   `map_dir`을 못 읽으면 이 컴퓨터의 `ros2_ws/map`(또는 `BEEBOT_MAP_DIR`). `--file` · `--map-dir`는 그대로 씁니다.
 
-### 노드 (상태 · 재시작)
+### 노드 (상태 · 파라미터 · 진단 · 재시작)
 
 ```bash
 ./run-cli node list                          # 노드 전부 — ● 보임 / ✗ 안 보임 · pid · 수명주기 노드는 [active] 등
@@ -227,9 +266,20 @@ cd tool
 ./run-cli restart                            # 전체 재시작 — stop → start (메뉴 10 a)는 state_manager가 같은 launch 명령으로)
 ```
 
-- 메뉴 **10) 노드**: 맨 위 `a)` 전체 재시작(RESTART 입력), 그 아래 노드 목록. 노드를 고르면 1) 상태 보기 · 2) 재시작 · 3) 활성화(수명주기 노드만).
+- 메뉴 **10) 노드**: 맨 위 `a)` 전체 재시작(RESTART 입력), 그 아래 노드 목록. 노드를 고르면 상태·진단이 **1초마다 갱신**되고, 1) 상태 자세히 · 2) 재시작 · 3) 활성화(수명주기 노드만) · 4) 파라미터·진단 live(파라미터 서비스가 있는 노드만)를 고를 수 있습니다.
+- **4) 파라미터 · 진단 live** 화면은 파라미터 현재값과 그 노드의 `/diagnostics` 항목을 1초마다 다시 읽습니다. 값 변경은 `ros2 param set` 또는 메인 **12) 파라미터**에서.
 - 수명주기 노드(velocity_smoother · collision_monitor · Nav2 서버)는 `lifecycle_manager_base`·`_navigation`이 기동 때 켭니다. 기동 중 응답 시간 초과 등으로 멈춰 `[unconfigured]`·`[inactive]`로 남으면 바퀴 명령이 `/cmd_vel`까지 못 가 텔레오퍼가 안 움직입니다 → 그 노드를 **3) 활성화**.
 - 재시작은 state_manager 재시작 목록(이 launch 아래 노드)에 있는 것만 됩니다. 명령줄 재시작은 확인 없이 바로 실행합니다.
+
+### A/B 테스트 (주행 컨트롤러)
+
+메뉴 **14) A/B 테스트 (노드별)** → **rl_nav_controller** 순으로 들어간다.
+정책(ONNX) vs inner DWB를 같은 주행·같은 goal로 비교한다. 기록은 bee 안에 쌓인다.
+
+- 자동: `./run-cli ab rl_nav_controller guide --label test1`
+  (`tool/cli/ab/rl_nav_controller/command.json`의 start·route대로 A(정책) → 복귀 → B(DWB) 주행)
+- 수동: `status` · `record --label` · `stop` · `report --last` (위 ab/README 참고)
+- 리포트는 `tool/node/rl_nav_controller/report.py`가 만든다
 
 ## RViz
 
@@ -255,12 +305,12 @@ cd tool
 점구름과 gripper 영상은 네트워크를 많이 쓰므로 기본으로 꺼 두었습니다.
 필요할 때 RViz Displays에서 켜세요.
 
-Jetson에서 로컬로 실행하면 네트워크를 타지 않습니다. PC에서 원격으로 볼 때는
-PC도 Jetson과 같은 `ROS_DOMAIN_ID`(Jetson은 0)로 맞추고, `ROS_LOCALHOST_ONLY`는 끄세요.
+Jetson 기본은 `ROS_DOMAIN_ID=88` + `fastdds_local_only.xml`(SHM만)이라 네트워크를 타지 않습니다. PC에서 원격으로 보려면 양쪽을 `fastdds.xml`(UDP 포함)로 바꾸고, PC도 같은 `ROS_DOMAIN_ID=88`로 맞추고 `ROS_LOCALHOST_ONLY`는 끄세요.
 
 ```bash
 # PC — Jetson과 같은 값
-export ROS_DOMAIN_ID=0
+export ROS_DOMAIN_ID=88
+export FASTDDS_DEFAULT_PROFILES_FILE=/path/to/ros2_ws/fastdds.xml
 ```
 
 느리면 RViz Image Display의 **Transport Hint**를 `compressed`로 바꾸거나

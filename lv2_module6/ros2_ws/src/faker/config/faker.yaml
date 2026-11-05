@@ -31,9 +31,3 @@ input_manager:               # debug/input/topic/<토픽>/message → 토픽
   ros__parameters:
     debug_dir: /debug
     period_s: 0.2
-rl_nav_tuner:                # fake_rl_nav_tuner — ml 대역 (ml:=fake 또는 rl_nav_tuner:=fake). fake_grasp_scorer는 파라미터 없음
-  ros__parameters:
-    speed_percent: 100.0     # 고정 속도 상한 [%]
-rl_nav_correction:           # fake_rl_nav_correction
-  ros__parameters:
-    max_vel_x: 0.26          # [m/s] /speed_limit 백분율의 기준

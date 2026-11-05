@@ -27,9 +27,9 @@
 | --- | --- | --- | --- | --- |
 | ① 작업 계획 | 무엇을, 어떤 순서로 | vlm_task_planner (신호는 perception signal_decoder가 12회 점멸을 세어 `/mission/signal`로 — 그룹·배정 해석은 계획 쪽) | 명령·신호·단계 완료·최종 실패마다 (수 초) + 수납 확인 주기 | 신호등 미션은 규칙 · 일반 명령·바코드 지시는 사전학습 VLM(또는 사람 — ai-service human), 추가 학습 없음 |
 | ② 임무 관리 | 검증·실행·재시도·안전 규칙 | coordinator | 이벤트마다 | 없음 |
-| ③ 앞단 판단 보조 | 어떤 방식으로 할지 고르기 | grasp_scorer, rl_nav_tuner | pick 직전 1회 / 1~2초에 1회 | 지도학습 / 강화학습(또는 규칙) |
+| ③ 앞단 판단 보조 | 어떤 방식으로 할지 고르기 | grasp_scorer | pick 직전 1회 | 지도학습 |
 | ④ 확정 실행 | 궤적·속도 계산, 충돌 회피 | Nav2, MoveIt 2 (+MTC) | 20~100Hz | 없음 |
-| ⑤ 뒷단 실행 보정 | 명령에 작은 Δ를 더해 현실 오차 보정 | rl_nav_correction, rl_arm_correction | 20Hz / 100Hz | 강화학습 (residual) |
+| ⑤ 뒷단 실행 보정 | 명령에 작은 Δ를 더해 현실 오차 보정 | rl_arm_correction | 100Hz | 강화학습 (residual) |
 | ⑥ 안전 | 최종 명령 제한·감속·차단 | velocity_smoother, collision_monitor, JTC 허용오차, arm_safety_monitor, 전류 한계 | 매 주기 | 없음 |
 | ⑦ 하드웨어 | read → update → write | controller_manager + OpenCR | 100Hz | 없음 |
 

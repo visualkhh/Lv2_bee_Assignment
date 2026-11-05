@@ -1,8 +1,14 @@
 """StateStore — ROS 상태 보관. 구독 콜백이 채우고, 화면·명령이 읽는다."""
 from __future__ import annotations
 
+import math
 import time
 from collections import deque
+
+# 3S LiPo (TurtleBot3 11.1V) 방전 곡선 — 대략값. 12.6V 만충 · 11.1V 공칭 · 10.5V 방전.
+#   아답터를 꽂으면 OpenCR 전원 입력값이라 배터리 잔량이 아니다 (표시에 '충전?'을 붙인다).
+BATTERY_CURVE = ((12.6, 100), (12.3, 90), (12.0, 75), (11.8, 60),
+                 (11.5, 40), (11.2, 20), (11.0, 10), (10.5, 0))
 
 
 class Rate:
@@ -41,6 +47,7 @@ class StateStore:
         self.battery_v = float('nan')             # /motor_status OpenCR 전원 입력(배터리) V — NaN 모름
         self.last_joint_time = 0.0
         self.last_update = 0.0  # 마지막 토픽 수신 시각 (monotonic) — 헤더 갱신시각 표시용
+        self.state_last_update = 0.0  # 마지막 /state/* 수신 — launch 재시작 뒤 CLI 재연결 판단용
         self.param_clients: dict = {}
         # 상시 상태바용 (없으면 0/빈 값으로 표시, 보드 미동작 아님)
         self.tracked_count = 0
@@ -67,14 +74,17 @@ class StateStore:
     def on_state_value(self, key: str, data: str):
         self.values[key] = data
         self._touch()
+        self.state_last_update = time.monotonic()
 
     def on_emergency(self, data: bool):
         self._touch()
+        self.state_last_update = time.monotonic()
         self.emergency = bool(data)
 
     def on_devices(self, names: list[str]) -> list[str]:
         """장치 목록 갱신 → 새로 나타난 장치 이름 반환 (상세 구독용)."""
         self._touch()
+        self.state_last_update = time.monotonic()
         fresh = [n for n in names if n not in self.devices]
         self.devices = list(names)
         return fresh
@@ -82,6 +92,7 @@ class StateStore:
     def on_device_detail(self, name: str, text: str):
         self.device_details[name] = text
         self._touch()
+        self.state_last_update = time.monotonic()
 
     def on_joints(self, names, positions, velocities=None, efforts=None):
         self._touch()
@@ -102,6 +113,34 @@ class StateStore:
         self.battery_v = battery_v
         self.motor_temp.update(zip(names, temps))
         self.motor_text.update(zip(names, texts))
+
+    def battery_percent(self) -> int | None:
+        """3S LiPo 전압 → 대략 잔량 [%]. 전압이 없거나 12V가 꺼졌으면 None."""
+        v = self.battery_v
+        if not math.isfinite(v) or v < 5.0:
+            return None
+        if v >= BATTERY_CURVE[0][0]:
+            return 100
+        if v <= BATTERY_CURVE[-1][0]:
+            return 0
+        for (v1, p1), (v2, p2) in zip(BATTERY_CURVE, BATTERY_CURVE[1:]):
+            if v2 <= v <= v1:
+                return int(round(p2 + (v - v2) / (v1 - v2) * (p1 - p2)))
+        return None
+
+    def battery_summary(self, long: bool = False) -> str:
+        """상태바·텔레오퍼·status 공용 — '배터리' 접두어는 호출자가 붙인다."""
+        v = self.battery_v
+        if not math.isfinite(v):
+            return '-'
+        if v < 5.0:
+            return '12V 꺼짐'
+        pct = self.battery_percent()
+        if pct is None:
+            return f'{v:.2f} V'
+        charge = ' 충전?' if v >= 12.45 else ''
+        return (f'{v:.2f} V ({pct}% 추정{charge})' if long
+                else f'{v:.1f}V ({pct}% 추정{charge})')
 
     def on_diagnostics(self, statuses):
         self._touch()

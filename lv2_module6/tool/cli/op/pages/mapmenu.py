@@ -57,10 +57,13 @@ class MapMenu(Menu):
     def center(self):
         st = self.state
         maps = self.bus.map_names()
-        return (['[지도]',
+        lines = ['[지도]',
                  f' 모드: {st.map_mode or "-"}',
                  f' 이름: {st.values.get("map_name") or "-"}',
-                 f' 목록: {len(maps)}개'] + [f'  - {n}' for n in maps[:8]])
+                 f' 목록: {len(maps)}개']
+        if st.map_mode == 'MAPPING' and st.values.get('map_name'):
+            lines.append(' 작성 중 — nvblox.nvblx는 LOCALIZATION 전환/종료 때 저장')
+        return lines + [f'  - {n}' for n in maps[:8]]
 
 
 class MapSwitchItem(MenuItem):
@@ -154,5 +157,13 @@ class MapSavePage(Page):
             validate=lambda t: None if t.strip() or name else '현재 지도 이름이 없습니다 — 경로를 입력하세요')
         if raw is None:
             return STAY
-        self.bus.cmd_map(self.bus.map_args('save', file=raw.strip() or None))
+        rc = self.bus.cmd_map(self.bus.map_args('save', file=raw.strip() or None, localize=False))
+        if rc == 0 and self.state.map_mode == 'MAPPING':
+            if self.ui.confirm('LOCALIZATION 모드로 전환할까요?', default=True,
+                               body=['지도 미리보기 저장 완료.',
+                                     '전환하면 nvblox가 nvblox.nvblx를 저장하고 위치추정 모드로 다시 뜹니다.',
+                                     '다시 뜨는 데 수십 초 걸립니다 — 주행 중이면 먼저 정지하세요.']):
+                self.bus.cmd_map(self.bus.map_args('mode', name='localization'))
+            else:
+                print('LOCALIZATION 전환 생략 — nvblox.nvblx는 나중에 전환/종료할 때 저장됩니다.')
         return STAY

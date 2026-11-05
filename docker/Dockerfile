@@ -60,6 +60,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-lyrical-teleop-twist-keyboard \
     ros-lyrical-robot-localization \
     ros-lyrical-rosx-introspection \
+    ros-lyrical-onnxruntime-vendor \
     ros-lyrical-cv-bridge \
     libopencv-dev \
     rapidjson-dev \
@@ -72,6 +73,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # faker도 대역 없이 이걸 쓴다. map_server는 시뮬레이터·테스트용 코스 지도(faker/maps) (실기는 RTAB-Map이 지도·map→odom)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-lyrical-nav2-lifecycle-manager \
+    ros-lyrical-nav2-common \
     ros-lyrical-nav2-bt-navigator \
     ros-lyrical-nav2-behavior-tree \
     ros-lyrical-nav2-planner \

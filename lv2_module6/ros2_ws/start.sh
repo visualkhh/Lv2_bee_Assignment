@@ -65,14 +65,23 @@ if [ "$build" = 1 ] || [ ! -f "$HERE/install/setup.bash" ]; then
 fi
 # shellcheck disable=SC1091
 source "$HERE/install/setup.bash"
-# Fast DDS TypeLookup 끔 — 노드 40개에서 UDP 폭주로 controller_manager가 못 뜨는 것 방지 (설명: fastdds.xml)
-export FASTDDS_DEFAULT_PROFILES_FILE="${FASTDDS_DEFAULT_PROFILES_FILE:-$HERE/fastdds.xml}"
+# 기본: Jetson Orin Nano 로컬 전용 — SHM만 사용해 DDS가 네트워크로 나가지도 들어오지도 않는다.
+# PC에서 토픽/RViz를 봐야 할 때만 FASTDDS_DEFAULT_PROFILES_FILE=$HERE/fastdds.xml 로 덮어쓴다.
+export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-88}"
+export ROS_AUTOMATIC_DISCOVERY_RANGE="${ROS_AUTOMATIC_DISCOVERY_RANGE:-SUBNET}"
+export FASTDDS_DEFAULT_PROFILES_FILE="${FASTDDS_DEFAULT_PROFILES_FILE:-$HERE/fastdds_local_only.xml}"
 [ -f "$FASTDDS_DEFAULT_PROFILES_FILE" ] || echo "WARN: Fast DDS 프로파일 없음: $FASTDDS_DEFAULT_PROFILES_FILE — 기본 전송으로 실행 (UDP 폭주 가능)"
+# 로컬 전용 프로파일이면 외부 discovery 변수를 지운다 (실수로 네트워크로 새는 것 방지)
+case "$(basename "$FASTDDS_DEFAULT_PROFILES_FILE")" in
+  fastdds_local_only.xml)
+    unset ROS_STATIC_PEERS ROS_DISCOVERY_SERVER ROS_LOCALHOST_ONLY
+    ;;
+esac
 # 실기에서 확인한 함정 — 이 둘이면 Nav2 수명주기 서비스 응답이 버려져 velocity_smoother·collision_monitor가 안 켜짐 (텔레오퍼 안 움직임).
-# 기기 안 격리는 fastdds_local.xml(SHM만)로 — documents/jetson-orin-nano/SETTING.md 5
-[ -n "${ROS_DISCOVERY_SERVER:-}" ] && echo "WARN: ROS_DISCOVERY_SERVER=$ROS_DISCOVERY_SERVER — 서비스 응답 timeout으로 Nav2가 안 켜질 수 있음 (격리는 fastdds_local.xml)"
-[ "${ROS_AUTOMATIC_DISCOVERY_RANGE:-}" = LOCALHOST ] || [ "${ROS_LOCALHOST_ONLY:-0}" = 1 ] && echo "WARN: LOCALHOST discovery — 노드 일부가 서로 안 보일 수 있음 (격리는 fastdds_local.xml + SUBNET)"
-echo "Fast DDS 프로파일: $FASTDDS_DEFAULT_PROFILES_FILE"
+# 기기 안 격리는 fastdds_local_only.xml(SHM만)로 — documents/jetson-orin-nano/SETTING.md 5
+[ -n "${ROS_DISCOVERY_SERVER:-}" ] && echo "WARN: ROS_DISCOVERY_SERVER=$ROS_DISCOVERY_SERVER — 서비스 응답 timeout으로 Nav2가 안 켜질 수 있음 (격리는 fastdds_local_only.xml)"
+[ "${ROS_AUTOMATIC_DISCOVERY_RANGE:-}" = LOCALHOST ] || [ "${ROS_LOCALHOST_ONLY:-0}" = 1 ] && echo "WARN: LOCALHOST discovery — 노드 일부가 서로 안 보일 수 있음 (격리는 fastdds_local_only.xml + SUBNET)"
+echo "ROS_DOMAIN_ID=${ROS_DOMAIN_ID} · Fast DDS 프로파일: $FASTDDS_DEFAULT_PROFILES_FILE"
 
 # 로그 소음 줄이기: RCUTILS_DEFAULT_LOGGER_DEFAULT_LEVEL=WARN ./start.sh (기본 INFO — 전 노드 적용, rcl 표준).
 # 우리 노드 중요 이벤트는 WARN 이상이라 WARN으로 올려도 운영에 지장 없음 (INFO 계획 상세·주기 상태는 안 나옴).

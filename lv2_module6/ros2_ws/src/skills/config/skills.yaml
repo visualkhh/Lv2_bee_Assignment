@@ -23,6 +23,8 @@ skill_pose:
     initial_pose_move_s: 3.0       # [s] 궤적 시간 — 너무 짧으면 급정지·흔들림
     initial_pose_retries: 1        # 못 가면 다시 보낼 횟수 — 넘으면 지금 자세로 멈추고 ERROR (걸린 채 계속 밀면 과부하)
     initial_gripper: 0.0           # [m] 시작 그리퍼 (손가락 하나 — 0 닫힘 · 0.0265 열림) · 음수면 안 건드림
+    scan_pose_enabled: false       # 매핑 중 자동 scan 자세 이동 — 팔이 뒤로 가면 무게중심이 왼쪽으로 쏠려 기본 끔
+                                   # (scan 자세 값은 ros_system/config/scan_pose.yaml 하나 — pose scan 액션은 항상 사용)
 skill_inspect:
   ros__parameters:
     inspect_height_m: 0.15   # [m] 손끝을 퍽 윗면 위 이만큼 (16mm 태그 ≈ 50px — 한 칸 약 6px) · 시뮬 camera_look_down 0.08에서 100 %

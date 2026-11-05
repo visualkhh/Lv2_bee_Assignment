@@ -13,8 +13,8 @@
       cuVSLAM(scripts/cuvslam_slam.py) → map→odom · /cuvslam/odom(EKF)
       + nvblox(depth → 3D TSDF → 2D 점유 격자) → scripts/nvblox_map.py가 /map(latched)으로 · 지도 파일 nvblox.nvblx
   - Nav2 (use_nav2:=true, config/nav2_params.yaml): 서버를 직접 띄운다 — nav2_bringup navigation_launch는
-          velocity_smoother 입력을 /cmd_vel_nav로 고정해 rl_nav_correction·twist_mux를 건너뛰므로 안 씀.
-          속도 체인: controller·behavior → /cmd_vel_nav → rl_nav_correction → /cmd_vel_corrected → twist_mux
+          velocity_smoother 입력을 /cmd_vel_nav로 고정해 twist_mux를 건너뛰므로 안 씀.
+          속도 체인: controller·behavior → /cmd_vel_nav → twist_mux
                      → /cmd_vel_mux → velocity_smoother → /cmd_vel_smoothed → collision_monitor → /cmd_vel
           map→odom·/map은 SLAM (faker는 map_server + fake_localizer)
 TODO(권형중) 아직 자리만 있는 것 — 설정 패키지가 필요:
@@ -201,7 +201,7 @@ def generate_launch_description():
             target_action=spawner_action,
             on_exit=[move_group_node()])),
 
-        # 자동(/cmd_vel_corrected) · 수동(/cmd_vel_manual) 중 고르고 /state/emergency(← /cmd/e_stop, state_manager)면 막는다 → /cmd_vel_mux → velocity_smoother
+        # 자동(/cmd_vel_nav) · 수동(/cmd_vel_manual) 중 고르고 /state/emergency(← /cmd/e_stop, state_manager)면 막는다 → /cmd_vel_mux → velocity_smoother
         Node(
             package='twist_mux', executable='twist_mux', output='screen',
             condition=IfCondition(LaunchConfiguration('use_twist_mux')),

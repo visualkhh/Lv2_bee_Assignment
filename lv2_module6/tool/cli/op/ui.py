@@ -4,12 +4,15 @@ term=Terminal, state=StateStore(상태바용), poll=ROS 콜백 돌리기.
 """
 from __future__ import annotations
 
+import atexit
 import math
+import os
+import signal
 import sys
 import time
 
 from .consts import ARM_JOINTS, DIAG_LEVELS, GRIPPER_JOINT, WHEEL_JOINTS
-from .dialogs import Dialog, run_select
+from .dialogs import Dialog, run_select, set_cbreak
 from .terminal import BOLD, CYAN, DIM, GREEN, RED, RESET, YELLOW, Terminal
 
 
@@ -23,8 +26,68 @@ class Ui:
         self._sel_idx = 0
         self._frame_size = None
         self._busy = None   # 지금 떠 있는 처리 중 창 (메뉴 항목 실행 동안)
+        self._reconnect_check = None  # OperatorTool.check_cli_reconnect — 다이얼로그 안에서도 재연결 판단
+        self._reconnect_status = None  # OperatorTool.reconnect_status — 상태바 '재연결 Ns' 표시
         self._title = None  # 마지막으로 그린 화면 제목 (창이 떠 있는 동안 상단 상태바만 다시 그리기용)
         self._top_at = 0.0
+        # 화면 아래에서 깜빡이는 실제 커서를 숨긴다 (입력은 다이얼로그의 '▏'로 표시).
+        self._cursor_hidden = False
+        self._term_fd = None
+        self._term_attrs = None
+        if self.console.isatty() and sys.stdin.isatty():
+            self._enter_key_mode()
+            self.term.hide_cursor()
+            self._cursor_hidden = True
+            atexit.register(self.close)
+            self._install_cursor_signals()
+
+    def _enter_key_mode(self) -> None:
+        """TUI가 떠 있는 동안 cbreak·에코 없음을 유지한다.
+
+        KeyReader는 다이얼로그/메뉴 선택 동안만 모드를 잡는다. 그 사이(메뉴 재그리기·
+        ROS 폴링)에 눌린 키가 조리된 모드로 돌아가 에코되면 화면 맨 아래에 '[A'처럼
+        찍히며 커서가 움직인다 — 세션 전체를 no-echo로 고정해 막는다.
+        """
+        import termios
+        try:
+            fd = sys.stdin.fileno()
+            old = termios.tcgetattr(fd)
+            set_cbreak(fd)
+        except Exception:
+            return
+        self._term_fd, self._term_attrs = fd, old
+
+    def _install_cursor_signals(self) -> None:
+        """SIGTERM/SIGHUP(CLI stop 등)에서도 커서를 되살린다 — atexit은 실행되지 않는다."""
+        def _restore(signum, _frame):
+            self.close()
+            try:
+                signal.signal(signum, signal.SIG_DFL)
+                os.kill(os.getpid(), signum)
+            except Exception:
+                raise SystemExit(128 + signum)
+        for name in ('SIGTERM', 'SIGHUP'):
+            sig = getattr(signal, name, None)
+            if sig is None:
+                continue
+            try:
+                signal.signal(sig, _restore)
+            except (ValueError, OSError):
+                pass
+
+    def close(self) -> None:
+        """종료·예외 시 실제 커서·터미널 모드 복구 (여러 번 불러도 안전)."""
+        if self._term_attrs is not None:
+            try:
+                import termios
+                termios.tcsetattr(self._term_fd, termios.TCSADRAIN, self._term_attrs)
+            except Exception:
+                pass
+            self._term_fd = None
+            self._term_attrs = None
+        if self._cursor_hidden:
+            self.term.show_cursor()
+            self._cursor_hidden = False
 
     @property
     def operation(self) -> str:
@@ -127,6 +190,8 @@ class Ui:
     def tick(self, seconds: float) -> None:
         """창(결과·확인·입력)이 떠 있는 동안: ROS 폴링 + 상단 상태바 1초마다 갱신 (창 밑 화면이 멈춰 보이지 않게)."""
         self._poll(seconds)
+        if self._reconnect_check is not None:
+            self._reconnect_check()
         self.refresh_top()
 
     def refresh_top(self) -> None:
@@ -325,7 +390,7 @@ class Ui:
         if bat == bat and bat < 11.0:  # NaN 아님 · 낮음 → 경고
             level = max(level, 1)
         parts = [errors and '모터 에러 ' + ', '.join(errors) or (opencr[1] if opencr else 'OpenCR 진단 -'),
-                 ('배터리 -' if bat != bat else '배터리 12V 꺼짐' if bat < 5.0 else f'배터리 {bat:.1f}V'),
+                 f'배터리 {st.battery_summary()}',
                  f'최고 온도 {temps[hot]}°C({hot})' if hot else '온도 -',
                  f'팔 전류 {arm_a:.2f}A',
                  f'그리퍼 {grip * 1000:.0f}mA' if grip is not None else '그리퍼 전류 -']
@@ -348,6 +413,11 @@ class Ui:
         mode_c = {'MAPPING': YELLOW, 'LOCALIZATION': GREEN}.get(mode, '')
         op_txt = self.term.paint(op, op_c + BOLD)
         mode_txt = self.term.paint(mode, mode_c) if mode_c else self.term.paint(mode, DIM)
+        map_name = (self.state.values.get('map_name') or '').strip()
+        if map_name:
+            if len(map_name) > 20:
+                map_name = map_name[:19] + '…'
+            mode_txt += ' ' + self.term.paint(map_name, DIM)
         if self.state.emergency:
             estop = self.term.paint('ON', RED + BOLD)
         else:
@@ -362,18 +432,22 @@ class Ui:
                                      GREEN if active == len(self.state.devices) else YELLOW)
         else:
             dev_txt = self.term.paint('0/0', DIM)
-        # 갱신시각 (그리는 시점 벽시계 + 마지막 수신 뒤 경과)
-        now_wall = time.strftime('%m-%d %H:%M:%S', time.localtime())
-        if self.state.last_update <= 0:
-            upd_txt = self.term.paint('갱신 없음', YELLOW)
+        # 연결 상태 — 마지막 /state/* 수신 뒤 경과로 판단. 재연결 대기 중이면 남은 초를 같이.
+        if self.state.state_last_update <= 0:
+            conn_txt = self.term.paint('연결 ✗ 상태 없음 — bringup 확인', RED + BOLD)
         else:
-            age = time.monotonic() - self.state.last_update
-            if age <= 5.0:
-                upd_txt = self.term.paint(f'갱신 {now_wall} ({age:.1f}초 전)', DIM)
+            age = time.monotonic() - self.state.state_last_update
+            retry = self._reconnect_status() if self._reconnect_status is not None else None
+            if retry is not None:
+                conn_txt = self.term.paint(f'연결 ✗ {age:.0f}s — {retry}', RED + BOLD)
+            elif age <= 2.0:
+                conn_txt = self.term.paint('연결 ● 정상', GREEN)
+            elif age <= 5.0:
+                conn_txt = self.term.paint(f'연결 ▲ {age:.0f}s 지연', YELLOW)
             else:
-                upd_txt = self.term.paint(f'갱신 {now_wall} ({age:.0f}초 전 — 끊김?)', YELLOW)
+                conn_txt = self.term.paint(f'연결 ✗ {age:.0f}s 끊김 — bringup 확인', RED + BOLD)
         lines.append(f'  조작 {op_txt} | 지도 {mode_txt} | E-STOP {estop} | '
-                     f'장치 {dev_txt} | {upd_txt}')
+                     f'장치 {dev_txt} | {conn_txt}')
         # 2단 상시 상태바: 인지·임무·발화 (GUI 보드와 같은 내용, 1줄 요약)
         task = (self.state.task_status or '-')
         if len(task) > 38:

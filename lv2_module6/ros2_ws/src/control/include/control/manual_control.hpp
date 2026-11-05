@@ -11,7 +11,7 @@
 //         ✉️ /cmd/manual/reboot_motors (std_msgs/Empty) — Hardware Error(과부하·과열 등) 난 DYNAMIXEL 재부팅
 //            → 📞 /beebotsystem/reboot_motors (std_srvs/Trigger, BeebotSystemHardware — 에러 난 모터만 펌웨어 R)
 //         ✉️ /joint_states — 지금 관절각 (목표에 없는 팔 관절은 지금 각으로 채워 5축 전체 궤적을 보낸다 — JTC는 일부 관절 궤적을 거부)
-//   출력: ✉️ /cmd_vel_manual (TwistStamped) → twist_mux (자동 /cmd_vel_corrected보다 우선) → velocity_smoother → collision_monitor
+//   출력: ✉️ /cmd_vel_manual (TwistStamped) → twist_mux (자동 /cmd_vel_nav보다 우선) → velocity_smoother → collision_monitor
 //         📞 /collision_monitor/toggle (nav2_msgs/srv/Toggle) — MANUAL이면 끔(통과) · 나가면 켬. 조작자가 보고 모니까 자기 몸 점·근접 정지에
 //            막히지 않게. 비상정지 잠금(twist_mux)·가속 제한(velocity_smoother)은 수동도 그대로 거친다.
 //            collision_monitor가 늦게 뜨거나 재시작되면(기본 켜짐) 서비스가 다시 보일 때 원하는 상태를 또 보낸다

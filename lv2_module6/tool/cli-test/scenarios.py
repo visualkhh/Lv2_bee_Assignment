@@ -156,6 +156,19 @@ def _(s):
     s.finish()
 
 
+@scenario('calibrate-menu-wheel')
+def _(s):
+    s.step(b'1', wait=0.4)   # 메인 포커스는 항목 키(숫자)로 — 13은 두 자리라 방향키로 간다
+    s.step(ESC, '메인 메뉴')
+    for _ in range(12):      # 13번째 항목 (칼리브레이션)
+        s.step(DOWN, wait=0.15)
+    s.step(ENTER, '칼리브레이션')
+    s.step(ENTER, '바퀴 칼리브레이션')
+    s.step(ESC, wait=0.4)
+    s.step(ESC, wait=0.4)
+    s.finish()
+
+
 @scenario('manual-cancel-no-extra-dialog')
 def _(s):
     s.step(b'4', wait=0.4)

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import sys
+import time
 
 from ..defs import STAY
 from .base import InfoItem, Menu, MenuItem
@@ -174,6 +175,7 @@ class ConfigResetItem(MenuItem):
 
 class NodeParamMenu(Menu):
     title = '파라미터'
+    REFRESH_S = 1.0  # 파라미터 현재값 live 갱신
 
     def __init__(self, app, name: str, ns: str):
         super().__init__(app)
@@ -181,13 +183,16 @@ class NodeParamMenu(Menu):
         self.nodens = ns
         disp = f'{ns if ns.endswith("/") else ns + "/"}{name}' if ns not in ('/', '') else name
         self.title = f'파라미터 · {disp}'
-        self._rows: list | None = None  # [(이름, 현재값)] 캐시 — 진입·설정 때 갱신
+        self._rows: list | None = None  # [(이름, 현재값)] 캐시 — 진입·설정·1초마다 갱신
+        self._at = 0.0
 
     def refresh(self):
         self._rows = None
+        self._at = 0.0
 
     def _fetch(self) -> list:
-        if self._rows is not None:
+        now = time.monotonic()
+        if self._rows is not None and now - self._at < self.REFRESH_S:
             return self._rows
         rows = []
         cli = self.bus.param_client(self.nodename, self.nodens)
@@ -204,6 +209,7 @@ class NodeParamMenu(Menu):
                         v = None
                     rows.append((n, v))
         self._rows = rows
+        self._at = time.monotonic()
         return rows
 
     def items(self):
@@ -214,5 +220,13 @@ class NodeParamMenu(Menu):
         return items + [ConfigViewItem(self.app, self), ConfigResetItem(self.app, self)]
 
     def center(self):
-        return [f'[노드] {self.nodename} (ns: {self.nodens or "/"})',
-                ' 항목 선택 → 바로 값 설정 (현재값 표시됨)']
+        full = f'{self.nodens.strip("/")}/{self.nodename}' if self.nodens not in ('/', '') else self.nodename
+        lines = [f'[노드] {full}', ' 항목 선택 → 바로 값 설정 (현재값 1초마다 갱신)']
+        diags = [(n, lv, msg) for n, lv, msg in self.bus.diag_entries()
+                 if self.nodename in n or full in n]
+        for n, lv, msg in diags[:6]:
+            mark = 'OK' if lv == 0 else 'WARN' if lv == 1 else 'ERR' if lv == 2 else '?'
+            lines.append(f' 진단 {self.bus.diag_short(n)}: {mark} {msg}')
+        if not diags:
+            lines.append(' 진단: 이 노드 항목 없음')
+        return lines

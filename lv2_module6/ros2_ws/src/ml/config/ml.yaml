@@ -3,12 +3,11 @@
 grasp_scorer:
   ros__parameters:
     enabled: true            # false → 규칙 기반 점수
-rl_nav_tuner:
+rl_nav_controller:
   ros__parameters:
-    enabled: true            # false → 프리셋 A 고정
-rl_nav_correction:
-  ros__parameters:
-    enabled: true            # false → Δ=0 (통과만)
-    max_vel_x: 0.26          # [m/s] Waffle Pi 최대 선속도 (/speed_limit 백분율의 기준)
-    max_vel_theta: 1.82      # [rad/s]
-    timeout_s: 0.2           # [s] /odom이 이보다 오래 끊기면 Δ=0
+    # Nav2 FollowPath 플러그인용 ONNX — 같은 네임스페이스 규칙 (share/ml/model/<노드>/<이름>).
+    #   실제 값은 ros_system/config/nav2_params.yaml FollowPath에서 읽는다. 여기는 규격 기록용.
+    model_path: "nav_controller/policy.onnx"   # share/ml/model/nav_controller/policy.onnx
+    # extra_lin_vel [m/s] 0~0.10 · extra_ang_vel [rad/s] 0~0.50 — 정책 출력에 더하는 추가 속도 (상한 유지, 0 = 끄기)
+    extra_lin_vel: 0.0
+    extra_ang_vel: 0.0

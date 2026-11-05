@@ -15,9 +15,9 @@
   'all map:=slam' (그 인자만 바꿔) · 'node perception' (그 노드만, 같은 파라미터)
 
 🛠 노드 (패키지 · 담당):
-  perception: perception, body_filter, signal_decoder(신호등 암호 → /mission/signal) (전승혜), hand_relative(손 카메라 상대값 → 학습 보정)
-  plan:       user_input(외부 텍스트 입력), vlm_task_planner, coordinator, mission_manager(주사위 미션 순서) (권형중)
-  ml:         grasp_scorer, rl_nav_tuner, rl_nav_correction (송정혁)
+  perception: perception, body_filter, signal_decoder(신호등 암호 → /mission/signal) (전승혜)
+  plan:       user_input(외부 텍스트 입력), vlm_task_planner, coordinator (권형중)
+  ml:         grasp_scorer (송정혁)
               rl_arm_correction은 노드가 아니라 컨트롤러 플러그인(ml/RlArmCorrection) — ros_system의 controller_manager가 올린다
   control:    arm_safety_monitor, manual_control (김현하)
 상태: 각 노드 /diagnostics → diagnostic_aggregator → /diagnostics_agg (config/diagnostics.yaml)
@@ -37,7 +37,7 @@ from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
 
-ML_NODES = ('grasp_scorer', 'rl_nav_tuner', 'rl_nav_correction')
+ML_NODES = ('grasp_scorer',)
 
 
 def node(package, executable, overrides=None, condition=None):
@@ -123,7 +123,7 @@ def generate_launch_description():
         DeclareLaunchArgument('use_ros_system', default_value='true',
                               description='false면 ros_system(📦)을 띄우지 않음'),
         DeclareLaunchArgument('use_ml', default_value='true',
-                              description='false면 ml 노드(grasp_scorer · rl_nav_tuner · rl_nav_correction)를 띄우지 않음 — 아래 셋의 기본값'),
+                              description='false면 ml 노드(grasp_scorer)를 띄우지 않음'),
         *[DeclareLaunchArgument(f'use_{n}', default_value=LaunchConfiguration('use_ml'),
                                 description=f'false면 {n}을 띄우지 않음 (faker가 그 대역 fake_{n}을 띄울 때)') for n in ML_NODES],
         DeclareLaunchArgument('learning_enabled', default_value='true',

@@ -1,0 +1,7 @@
+<library path="rl_nav_controller">
+  <class name="ml::RlNavController"
+         type="ml::RlNavController"
+         base_class_type="nav2_core::Controller">
+    <description>RL navigation controller (ONNX policy) with inner-controller bypass. LiDAR 없이 pole_front_cam 점구름 가상 스캔.</description>
+  </class>
+</library>

@@ -18,9 +18,8 @@
 | coordinator | 직접 | plan · ROS 2 노드 | 계획 단계를 skill 노드에 맡기는 순서 — 계획 검증(navigate·approach·pick·place·inspect·say·pose·load·unload·stand·stand_pick), 물체 → 좌표, 다가가기, 재시도, 적재함 장부, AUTO가 아니면 취소 → /task/status |
 | skill_* (9개) | 직접 | skills · 컴포넌트 (arm_skills · base_skills 컨테이너) | skill마다 액션 서버 `/skills/<skill>` 하나 — navigate · approach · pose · inspect · pick · place · load · unload · stand(+stand_pick). 자기 학습 정책 폴더 `model/skills/<skill>/` ([API.md](../../API.md) 3장) · skill_pose는 시작·스캔 자세도 |
 | grasp_scorer | 직접 | ml · ROS 2 서비스 노드 | 모델 로드, IK 가능 후보만 채점, /score_grasps 응답 |
-| rl_nav_tuner | 직접 | ml · ROS 2 노드 | 상황 요약 → 프리셋 선택 → /speed_limit + set_parameters |
-| rl_nav_correction | 직접 | ml · ROS 2 노드 | /cmd_vel_nav → 속도 상한 재클리핑 → /cmd_vel_corrected (Nav2용 보정 정책은 아직 없음 — 정밀 주행 정책은 skill_approach) |
-| rl_arm_correction | 직접 | ml · ros2_control chainable controller | reference에 처짐 적분 + Δ 더하기 — 정책은 팔 skill 노드가 /skill_context로 알려 준 파일 |
+| rl_nav_controller | 직접 | ml · Nav2 controller 플러그인 | 관측 51(웨이포인트 5 + 가상스캔 36 + v/w/gyro + 이전행동 2), ONNX 추론, inner DWB 바이패스 |
+| rl_arm_correction | 직접 | ml · ros2_control chainable controller | reference에 Δ 더하기, enabled 파라미터 |
 | arm_safety_monitor | 직접 | control · ROS 2 노드 | 전류로 접촉 감지, 궤적 취소, coordinator 보고 |
 | manual_control | 직접 | control · ROS 2 노드 | 수동 모드(/state/operation_mode), 원격 조종 → twist_mux, 팔·그리퍼 직접 명령, `/cmd/manual/reboot_motors` → 📞 /beebotsystem/reboot_motors |
 | BeebotSystemHardware | 직접 | control · ros2_control SystemInterface 플러그인 | OpenCR와 USB 시리얼(`C` 명령 · `R` 재부팅 / `S` 상태 · `E` 모터 에러), 관절 영점 offset(URDF `<param name="offset">`), 첫 `S` 전엔 활성화 안 함, /motor_status(바뀔 때만), 📞 ~/reboot_motors, mock 모드 |
@@ -34,7 +33,7 @@
 | realsense2_camera ×2 (pole_front_cam, gripper_cam) | 제공 | Intel RealSense ROS 2 래퍼 | 장치를 USB 3로 열고 토픽 발행 — serial_no, camera_name, 해상도·fps, align_depth, pointcloud 켜기 |
 | robot_state_publisher | 제공 | ROS 2 기본 | URDF(urdf/<이름>/urdf.xacro — launch `urdf:=`, 기본 beebot_mesh) |
 | robot_localization (ekf) | 제공 | ROS 2 패키지 | /odom + /imu + /cuvslam/odom(속도) 융합, odom TF 발행 |
-| twist_mux | 제공 | ROS 2 패키지 | 자동 /cmd_vel_corrected · 수동 /cmd_vel_manual 고르기, /state/emergency 잠금(/cmd/e_stop → state_manager) → /cmd_vel_mux |
+| twist_mux | 제공 | ROS 2 패키지 | 자동 /cmd_vel_nav · 수동 /cmd_vel_manual 고르기, /state/emergency 잠금(/cmd/e_stop → state_manager) → /cmd_vel_mux |
 | bt_navigator, planner_server, controller_server, behavior_server, velocity_smoother, collision_monitor, lifecycle_manager | 제공 | Nav2 | nav2_params.yaml (voxel layer에 점구름, velocity_smoother 입력 /cmd_vel_mux), 리매핑 |
 | nvblox_node | 제공 | isaac_ros_nvblox (nvblox_ros) | config/nvblox.yaml — global_frame map, depth 카메라 2대 → TSDF → 2D 점유 격자, 매핑이면 끌 때 `nvblox.nvblx` 저장 (Jetson은 소스 빌드 — [CUVSLAM.md](../../jetson-orin-nano/CUVSLAM.md)) |
 | move_group + MTC | 제공 | MoveIt 2 | Setup Assistant 설정 패키지, pick_ik, octomap 센서, 속도 스케일 |
@@ -62,9 +61,8 @@ lv2_module6/
 ├── simulator/                    # SIL 시뮬레이터 (더 쓰지 않음)
 └── ros2_ws/src/
     ├── perception/   # perception · body_filter · signal_decoder + msg
-    ├── plan/         # user_input · vlm_task_planner · explorer · coordinator · mission_manager + msg · action/Skill
-    ├── skills/       # skill 노드 9개 (컴포넌트) · 팔 공통 arm_io · 세우기 경유점 stand_plan · params/ (자세·적재함·세우기 표)
-    ├── ml/           # grasp_scorer · rl_nav_tuner · rl_nav_correction · rl_arm_correction(플러그인) + srv
+    ├── plan/         # user_input · vlm_task_planner · explorer · coordinator + msg
+    ├── ml/           # grasp_scorer · rl_nav_controller(nav2 플러그인) · rl_arm_correction(플러그인) + srv
     ├── control/      # arm_safety_monitor · manual_control · BeebotSystemHardware(플러그인) + msg
     ├── manager/      # state_manager (상태 /state/*)
     ├── ros_system/   # 📦 기동 · config (controllers · ekf · twist_mux) · scan_cam_gate

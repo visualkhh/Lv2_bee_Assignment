@@ -25,9 +25,14 @@ public:
   : SkillNode("skill_pose", options), arm_(*this) {
     for (const char * n : {"stow", "carry_left", "carry_right"})
       poses_[n] = declare_parameter<std::vector<double>>(std::string("pose_") + n, std::vector<double>{});
+    // 값의 정본은 ros_system/config/scan_pose.yaml — skills.launch가 그 파일을 넘긴다.
+    // 아래 기본값은 ros_system 없이 skill만 띄울 때의 fallback이다.
     scan_joints_ = declare_parameter<std::vector<std::string>>("scan_pose_joints", {"joint1", "joint2", "joint3", "joint4", "joint5"});
     scan_pose_ = declare_parameter<std::vector<double>>("scan_pose", {2.618, 0.681, -1.414, 1.082, 0.0});
     scan_tol_ = declare_parameter<double>("scan_pose_tolerance", 0.05);
+    // 매핑 중 자동 스캔 자세는 기본 끔 — 팔을 뒤로 크게 돌리면 무게중심이 왼쪽으로 쏠린다.
+    // 필요하면 `ros2 param set /skill_pose scan_pose_enabled true`로 켠다 (pose scan 액션은 항상 사용 가능).
+    declare_parameter<bool>("scan_pose_enabled", false);
     poses_["scan"] = scan_pose_;  // pose scan (mission_manager — 바코드·신호 볼 때 팔이 pole_front_cam 시야를 안 가림)
     initial_enabled_ = declare_parameter<bool>("initial_pose_enabled", true);
     initial_joints_ = declare_parameter<std::vector<std::string>>("initial_pose_joints", {"joint1", "joint2", "joint3", "joint4", "joint5"});
@@ -177,6 +182,7 @@ private:
 
   void check_scan_pose() {
     // 지도를 만드는 중이고 작업이 없을 때 — 작업이 끝나면 다음 확인 때 돌아감. 수동 모드여도 (스캔은 보통 수동 주행)
+    if (!get_parameter("scan_pose_enabled").as_bool()) return;  // 실행 중 param set도 반영
     if (map_mode_ != "MAPPING" && mode_ != "EXPLORE") return;
     if (estop_ || busy_arm() || scan_moving_ || at(scan_joints_, scan_pose_, scan_tol_) || !arm_.moveit_ready()) return;
     double probe;

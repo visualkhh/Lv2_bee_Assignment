@@ -41,7 +41,16 @@ lv2_module6/firmware/build/
 /lv2_module6/ros2_ws/model/grasp_scorer/*.pt
 /lv2_module6/ros2_ws/model/skills/*/*.pt
 /lv2_module6/ros2_ws/model/nav_tuner/*.pt
+/lv2_module6/ros2_ws/model/*/*.pt
+/lv2_module6/ros2_ws/model/*/*.onnx
+/lv2_module6/ros2_ws/model/*/*.onnx.data
 /lv2_module6/simulator/yolo_job.log
 /log/
 /.playwright-mcp/
 /lv2_module6/simulator/dataset/
+
+# run-cli start 로그 (실행한 폴더에 생김)
+bringup.log
+
+# 칼리브레이션 결과 (tool/calibration/<시각>/raw.csv) — 계획 파일(wheel_square.json)만 커밋
+lv2_module6/tool/calibration/*/

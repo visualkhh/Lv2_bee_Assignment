@@ -1,12 +1,12 @@
 """ml 패키지 노드만 단독 실행.
 
-전체 로봇은 bringup/bringup.launch.py를 쓴다. 이 파일은 grasp_scorer,
-rl_nav_tuner, rl_nav_correction만 띄운다. rl_arm_correction은 노드가 아니라
+전체 로봇은 bringup/bringup.launch.py를 쓴다. 이 파일은 grasp_scorer만 띄운다.
+rl_arm_correction은 노드가 아니라
 controller_manager가 올리는 chainable controller 플러그인이라 여기 포함되지 않는다.
 
   ros2 launch ml ml.launch.py
   ros2 launch ml ml.launch.py learning_enabled:=false
-  ros2 launch ml ml.launch.py use_rl_nav_correction:=false
+  ros2 launch ml ml.launch.py use_grasp_scorer:=false
 """
 
 from launch import LaunchDescription
@@ -18,7 +18,7 @@ from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
 
-ML_NODES = ('grasp_scorer', 'rl_nav_tuner', 'rl_nav_correction')
+ML_NODES = ('grasp_scorer',)
 
 
 def node(name, learning_enabled):

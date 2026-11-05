@@ -5,7 +5,7 @@
   ros2 launch faker faker.launch.py mock_effort:=1.5        # 팔 전류 과다 → arm_safety_monitor 접촉 감지
   ros2 launch faker faker.launch.py mock_hardware:=true     # OpenCR 없이 (fake_opencr 안 띄움 — controller_manager mock이 명령을 상태로 되돌림, 물리 없음)
   ros2 launch faker faker.launch.py ml:=real                # ML 대역 대신 진짜 ml 노드·컨트롤러 (GPU·모델 없이도 돌 때만)
-  ros2 launch faker faker.launch.py grasp_scorer:=real      # 하나만 진짜로 (rl_nav_tuner · rl_nav_correction · rl_arm_correction도 같음, 기본 = ml 값)
+  ros2 launch faker faker.launch.py grasp_scorer:=real      # 하나만 진짜로 (rl_arm_correction도 같음, 기본 = ml 값)
   지도 map:= (fake_opencr 충돌 판정은 늘 실제 코스 — 월드. 로봇 쪽 지도만 바뀜):
   ros2 launch faker faker.launch.py                         # course (기본): 코스 지도를 외운 상태 (map_server + map→odom 항등)
   지도 한 벌 = 폴더 하나: /ws/map/<map_name>/ nvblox.nvblx (위치추정용 정본) · map.pgm · map.yaml (사람이 보는 미리보기)
@@ -22,8 +22,6 @@ map:=course일 때만 — 실기에서 SLAM(cuVSLAM + nvblox)이 하는 일의 �
 대역 (도커 이미지에 없는 📦 · GPU·모델이 없는 ML):
   ML 대역 (ml 패키지와 1:1 — 같은 노드 이름·토픽, 하나씩 진짜/대역 선택):
     fake_grasp_scorer       → 노드 grasp_scorer
-    fake_rl_nav_tuner       → 노드 rl_nav_tuner
-    fake_rl_nav_correction  → 노드 rl_nav_correction
     FakeRlArmCorrection     → 컨트롤러 rl_arm_correction 자리 (플러그인, Δ=0)
   fake_camera ×2   realsense2_camera (pole_front_cam, gripper_cam) — 시뮬레이터가 debug/input/hardware/camera/에 쓴 프레임만 (없으면 안 냄)
   fake_opencr      OpenCR (기본. mock_hardware:=true면 안 뜸 — 유일한 OpenCR, 미끄럼·충돌·통신 끊김, 진짜 위치 ~/ground_truth 발행 · 환경은 파라미터 · /cmd/fake_opencr/set_pose)
@@ -55,7 +53,7 @@ def include(package, launch_file, args):
         launch_arguments=args.items())
 
 
-ML_NODES = ('grasp_scorer', 'rl_nav_tuner', 'rl_nav_correction')   # ml 패키지 노드 — 대역 fake_<이름>
+ML_NODES = ('grasp_scorer',)   # ml 패키지 노드 — 대역 fake_<이름>
 ML = ML_NODES + ('rl_arm_correction',)                              # + 컨트롤러 플러그인
 
 

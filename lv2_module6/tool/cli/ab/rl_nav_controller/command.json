@@ -1,0 +1,14 @@
+{
+  "_help": "A/B 자동 주행 설정. start=null이면 지금 map 자세를 시작점으로 잡는다. route는 map 기준 goal 목록.",
+  "frame_id": "map",
+  "start": null,
+  "route": [
+    {"x": 1.0, "y": 0.0, "yaw_deg": 0.0}
+  ],
+  "repeats": 1,
+  "goal_timeout_s": 120.0,
+  "settle_s": 1.0,
+  "auto_mode": true,
+  "move_to_start": true,
+  "return_to_start": true
+}

@@ -141,7 +141,7 @@ class RvizPage(Page):
         if not (os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY')):
             print('거부: DISPLAY/WAYLAND_DISPLAY가 없습니다 — GUI가 있는 터미널에서 실행하세요.')
             return STAY
-        script = Path(__file__).resolve().parent.parent.parent / 'run-rviz'
+        script = Path(__file__).resolve().parents[3] / 'run-rviz'
         if not script.is_file():
             print(f'거부: 실행 파일 없음: {script}')
             return STAY

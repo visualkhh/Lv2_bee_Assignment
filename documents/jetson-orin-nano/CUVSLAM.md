@@ -38,6 +38,7 @@ gripper_cam 정렬 depth ─▶ gripper_depth_gate (스캔 자세일 때만 · 0
 ```
 
 - **자기 몸 빼기**: Nav2 costmap은 몸을 뺀 점구름(body_filter)을 쓰지만, nvblox는 depth 영상을 받는다. 그래서 depth에서 카메라 0.5 m 안 픽셀을 0(측정 없음)으로 바꿔서 넘긴다 (`…/aligned_depth_to_color/image_nvblox`). `scan_cam_gate`의 `depth_min_range` 옵션이 이 일을 한다.
+  - `skill_pose`의 자동 스캔 자세는 **기본 꺼짐**(`scan_pose_enabled=false`) — 팔을 뒤로 돌리면 무게중심이 왼쪽으로 쏠려서, 매핑 중에는 stow를 유지한다. 필요할 때만 `ros2 param set /skill_pose scan_pose_enabled true`.
   - 0.5 m 안의 실제 장애물은 nvblox 지도에 안 들어간다. 대신 Nav2 local costmap(몸 뺀 점구름)이 피한다.
 - **실행 중 지도 모드·지도 전환**(`/cmd/map_mode` · `/cmd/map_name`): cuVSLAM·nvblox는 실행 중 전환이 없어 state_manager가 launch 전체를 인자만 바꿔 다시 띄운다 (`/cmd/restart`의 `all`과 같은 길) — MAPPING → `map:=slam`(새 폴더) · LOCALIZATION / 지도 고르기 → `map:=saved map_name:=<이름>`. 지도 목록 `/state/map_list` = `nvblox.nvblx`가 있는 폴더.
 - **저장 지도로 위치추정(`map:=saved`)**: nvblox 지도를 불러오고, cuVSLAM은 원점부터 새로 시작한다. 그래서 **출발 자리·방향이 저장할 때와 같아야** 맞는다 (운영 규칙과 같음).
@@ -67,7 +68,7 @@ sudo apt install -y cuda-nvcc-13-2 cuda-cudart-dev-13-2 libcublas-dev-13-2 libcu
 # 2) 소스 (git-lfs 없이도 빌드됨 — 시험 이미지만 LFS)
 GIT_LFS_SKIP_SMUDGE=1 git clone --depth 1 --branch v17.0.1 https://github.com/NVlabs/PyCuVSLAM.git ~/cuvslam/src
 
-# 3) 라이브러리 빌드 — Orin GPU(sm_87)만 · 스왑이 없어 jobs 4 (수십 분)
+# 3) 라이브러리 빌드 — Orin GPU(sm_87)만 · 스왑 8GB 설정됨 · jobs 4 (수십 분)
 export PATH=/usr/local/cuda/bin:$PATH
 cd ~/cuvslam
 CUVSLAM_SRC_DIR=$HOME/cuvslam/src CUVSLAM_DST_DIR=$HOME/cuvslam/build \
@@ -94,7 +95,7 @@ python3 -c "import cuvslam; print(cuvslam.get_version()); cuvslam.warm_up_gpu();
 
 | 방법 | 내용 | 확인할 것 |
 |---|---|---|
-| (a) 소스 빌드 | `isaac_ros_nvblox`(nvblox 코어 포함)와 의존 패키지를 Lyrical 워크스페이스에서 colcon 빌드. CUDA 아키텍처 87 (Orin) | 의존: `nvblox_msgs` · `nvblox_ros_common` · `nvblox_ros_python_utils` · `nvblox_rviz_plugin` · `isaac_ros_common` · `cuda_buffer` (deb Depends 기준). 빌드 시간·메모리 (스왑 없음 → jobs 줄이기) |
+| (a) 소스 빌드 | `isaac_ros_nvblox`(nvblox 코어 포함)와 의존 패키지를 Lyrical 워크스페이스에서 colcon 빌드. CUDA 아키텍처 87 (Orin) | 의존: `nvblox_msgs` · `nvblox_ros_common` · `nvblox_ros_python_utils` · `nvblox_rviz_plugin` · `isaac_ros_common` · `cuda_buffer` (deb Depends 기준). 빌드 시간·메모리 (스왑 8GB 설정됨 — [SETTING.md](SETTING.md) "Swap 8GB") |
 | (b) Isaac ROS 컨테이너 | NVIDIA 공식 컨테이너에서 nvblox만 띄우고 나머지는 지금 Lyrical 스택 | 컨테이너가 JetPack 7 + Orin을 지원하는지 · 배포판이 달라도 `nvblox_msgs`·`OccupancyGrid`·TF가 오가는지 |
 
 설치 확인:
@@ -109,7 +110,7 @@ python3 -c "import cuvslam; print(cuvslam.get_version())"
 ```bash
 cd ~/Lv2_bee_Assignment/lv2_module6/ros2_ws
 export ROS_DOMAIN_ID=42
-export FASTDDS_DEFAULT_PROFILES_FILE=$PWD/fastdds.xml        # PC에서 보려면 (fastdds_local.xml은 Jetson 밖으로 안 나감)
+export FASTDDS_DEFAULT_PROFILES_FILE=$PWD/fastdds.xml        # PC에서 보려면 (fastdds_local_only.xml은 Jetson 밖으로 안 나감)
 export POLE_FRONT_CAM_SERIAL=261822074109 GRIPPER_CAM_SERIAL=261622075828
 ./start.sh map:=slam map_name:=<이름> use_moveit:=false
 ```
@@ -127,6 +128,11 @@ export POLE_FRONT_CAM_SERIAL=261822074109 GRIPPER_CAM_SERIAL=261622075828
 ```
 
 `추적`이 늘지 않으면 카메라 영상이 안 오는 것 — 아래 4절 "카메라·SLAM이 멈춤" 참고.
+
+> **메모리**: mapping은 cuVSLAM + nvblox + VNC로 RAM이 빠듯하다. Jetson에는 8GB swap을
+> 설정해 두었지만([SETTING.md](SETTING.md) "Swap 8GB"), **mapping 중 Jetson VNC에서 RViz를
+> 같이 띄우지 않는다.** 지도가 끝나고 LOCALIZATION으로 넘어간 뒤 켠다. `free -h`의
+> `available`이 300MiB 아래로 떨어지면 중단한다.
 
 ### 3-1. cuVSLAM + nvblox 실기 시험 순서 (정지 상태부터)
 

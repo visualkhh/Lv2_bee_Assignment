@@ -115,6 +115,7 @@ class Menu(Page):
         self.ui._center_provider = self.center  # 다이어로그 중 중앙 실시간 갱신용
         while rclpy.ok():
             self.app.poll(0.2)
+            self.app.check_cli_reconnect()
             visible = [i for i in self.items() if i.visible()]
             if not visible:
                 return STAY
@@ -131,12 +132,16 @@ class Menu(Page):
             label = item.label()   # 누른 순간 이름 (실행 뒤엔 바뀔 수 있음)
             if item.shows_busy:
                 self.ui.busy(label)   # 누른 즉시 표시 — 확인창이 뜨면 그 위로 덮였다가 닫히면 다시 보임
+            # 하위 화면이 자기 포커스(보통 0번)를 ui._sel_idx에 남긴다 — 돌아왔을 때
+            # 부모가 그 번호로 점프하지 않도록, 누르기 전 부모의 선택을 복원한다.
+            saved_idx = getattr(self.ui, '_sel_idx', 0)
             # 실행 중 print는 화면을 스크롤시키므로 가로채서 결과창에 넣는다.
             try:
                 with self.ui.capture() as (buf_out, buf_err):
                     result = item.run()
             finally:
                 self.ui._busy = None
+                self.ui._sel_idx = saved_idx
             out = (buf_out.getvalue() + buf_err.getvalue()).strip('\n')
             if out:
                 self.ui.pager(label, out)
