@@ -2,11 +2,12 @@
 perception:
   ros__parameters:
     rate_hz: 10.0            # /tracked_objects 발행 주기 (설계: 10Hz · reliable)
-    model_path: "bee_yolo11n_v3.pt"  # 비면 share/perception/model/model.pt(팀 모델) 자동 탐색, 없으면 빈 목록 · 파일 이름만 쓰면 그 폴더에서 찾음
-                            #   bee_yolo11n_v3.pt (11/02): 빨강·초록 퍽 × 사각·원기둥 4종 + 신호등 상태 4 + person · obstacle = 10클래스
-                            #     — 주사위 미션 경기장 합성 + 실물 신호등 + 실물 퍽 + 튜터 합성 퍽 3000장
-                            #     실물 시험(imgsz 416 · conf 0.4): 퍽 168/184 찾음 · 헛검출 19 · 신호등 상태 572/588 (v2: 145 · 33 · 563)
-                            #   되돌리기: "bee_yolo11n_v2.pt" (10/27, 노랑·파랑 퍽 포함 14클래스) · "bee_yolo11n_v1.pt" (10/22) · "" (팀 기본 model.pt)
+    model_path: "bee_yolo11n_v4.pt"  # 비면 share/perception/model/model.pt(팀 모델) 자동 탐색, 없으면 빈 목록 · 파일 이름만 쓰면 그 폴더에서 찾음
+                            #   bee_yolo11n_v4.pt (11/02): 10클래스(빨강·초록 퍽 × 사각·원기둥 · 신호등 상태 4 · person · obstacle) — v3 + 로봇 카메라 실물 531장
+                            #     (어둡게 + 노이즈 사본 · 작은 퍽 증강). 로봇 카메라 시험(학습에 안 쓴 녹화, 퍽 366, imgsz 416 · conf 0.4):
+                            #     퍽 335 찾음(91.5%) · 헛검출 12 (v3: 212 · 14) · 옛 실물 시험 퍽 180/184 · 신호등 상태 572/588
+                            #     imgsz 640(젯슨 엔진 384×640)이면 작은 퍽을 더 찾음 — 젯슨 속도 확인 후 바꿀 것
+                            #   되돌리기: "bee_yolo11n_v3.pt" (11/02 오전) · "bee_yolo11n_v2.pt" (10/27, 14클래스) · "" (팀 기본 model.pt)
     confidence: 0.4         # 검출 신뢰도 하한
     imgsz: 416              # YOLO 입력 한 변 (도커 CPU용)
     device: "cpu"           # 실기 GPU 있으면 cuda
@@ -28,7 +29,8 @@ perception:
     body_radius: 0.2        # 차체 원점에서 수평 이 안 · 높이 body_height 아래면 자기 몸 [m] (적재함·폴)
     body_height: 0.6
     self_arm_hits: 3        # 퍽이 아닌 검출 박스 안에 팔(TF 링크를 화면에 투영) 점이 이만큼 있으면 자기 팔 — 박스 일부만 팔이면 depth가 팔 뒤 바닥이라 위 3D 판정을 빠져나감 (0 = 안 봄)
-    # 안 보여도 기억 (퍽 · 목표 구역 · QR 판) — 2초 지나도 안 지우고, 그 자리가 잘 보이는데 연속 못 찾을 때만 지움 (팀 확인 10/22)
+    long_memory: false      # 11/04: 기억은 통합(판단) 쪽이 맡음 → 인지는 본 것만 (안 보이면 2초 뒤 지움) · true면 아래 규칙으로 안 보여도 기억
+    # (long_memory: true일 때만) 안 보여도 기억 (퍽 · 목표 구역 · QR 판) — 2초 지나도 안 지우고, 그 자리가 잘 보이는데 연속 못 찾을 때만 지움 (팀 확인 10/22)
     miss_count: 3           # 잘 보이는 자리에서 이만큼 연속 못 찾으면 지움 (옮겨짐 · 집어 감)
     miss_max_range: 3.0     # 이보다 먼 자리는 못 찾아도 세지 않음 [m] (멀면 YOLO가 놓치기 쉬움)
     miss_edge_px: 40        # 화면 가장자리 이만큼 안은 세지 않음 [px] (반쯤 잘려 놓칠 수 있음)
@@ -37,7 +39,7 @@ perception:
     # 퍽 판단 (실물 측정 10/21~22 · test/puck_tag_check.py) — 퍽 색·크기는 발제문이 나오면 여기서만 바꿀 것
     puck_colors: ["red", "green"]  # 퍽으로 볼 색 (발제 v5 · 사용자 10/29: 퍽은 빨강·초록뿐 — 파랑·노랑 퍽 없음)
     hue_tol: 10             # 기준 H(색상)에서 이만큼 안이어야 그 색 — 넘으면 other (주황 컵홀더 H12~13이 빨강으로 안 잡히게)
-    check_model_color: true # YOLO 이름의 색(puck_red)과 HSV 색이 다르면 퍽 아님
+    check_model_color: true # YOLO 이름의 색(puck_red)을 색 결정에 씀 — HSV가 어둡거나 애매하면 YOLO 색 · 분명히 다른 색(주황 등)만 버림 (11/03)
     size_long_min_cm: 2.5   # 박스 긴 변 하한 [cm] (끝면·윗면 3×3만 보이면 2.5~3.9)
     size_long_max_cm: 10.0  # 긴 변 상한 [cm] (누운 퍽 6.5~7.2 · 멀면 박스가 넉넉해져 8.5)
     size_short_min_cm: 2.2  # 짧은 변 하한 [cm] (빨대 1.0~1.5 거름)
@@ -47,6 +49,13 @@ perception:
     edge_px: 5              # 박스가 화면 가장자리 이 안에 닿으면 잘린 퍽 — 크기 하한·자세 안 봄 [px]
     near_px: 70             # 깊이 없는데 박스 짧은 변이 이 이상이면 너무 가까운 퍽 — 위치 갱신 없이 마지막 위치 유지 [px]
     depth_min_valid: 0.5    # 박스 가운데 깊이 화소가 이 비율보다 적으면 깊이 없음 (배경 몇 화소로 엉뚱한 거리 안 냄)
+hand_relative:               # 손 카메라 상대값 → 학습 보정 정책 입력 (scripts/hand_relative.py · 2026-11-03 배포 결정)
+  ros__parameters:
+    base_frame: "base_link"  # 시뮬 정책(isaac/lab)이 쓰던 좌표
+    ee_frame: "end_effector_link"
+    map_frame: "map"
+    rate_hz: 20.0            # slot(적재함, 카메라 없이 TF만) 발행 주기 [Hz]
+    max_age_s: 1.0           # 이보다 오래된 손 카메라 검출은 안 씀 [s]
 signal_decoder:              # 신호등 12회 점멸 (발제 v5 §02) — /tracked_objects 신호등 상태 → 사이클(12번)마다 → /mission/signal (→ 통합)
   ros__parameters:           #   한 번 = 1초 켜짐 + 1초 꺼짐 · 12번 뒤 3초 꺼짐 후 반복 (사용자 10/28)
     min_on_s: 0.3            # [s] 켜진 구간이 이보다 짧으면 잡음 (진짜 켜짐 1초)

@@ -1,0 +1,10 @@
+# skill 정책 폴더 — 이 skill 노드가 읽음 (skills/include/skills/model.hpp). 한 줄 "키: 값"
+
+skill: place_cell
+kind: arm            # arm (rl_arm_correction이 계산) | base (skill_approach가 계산)
+layout: place          # 정책 입력 모양 (ml/arm_obs.hpp place 39 · pick 41)
+use: true
+node: skill_place
+sim_baseline: 96.3      # [%] 학습 없이 기준 동작만 (1024판)
+sim_policy: 99.0        # [%] 학습 뒤
+source: 팀원 place_residual_sag (pip_env, feature/isaac-lab)

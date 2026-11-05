@@ -12,6 +12,8 @@
 # 3. 실행 중 Stop 금지 — 시뮬레이션 시계가 0으로 돌아가 cuVSLAM·nvblox가 멈춘다. 잠깐 멈추려면 Pause, 처음부터는 이 스크립트를 다시 실행
 HERE=$(dirname "$(realpath "$0")")
 PORT=/tmp/opencr
+# 관절 비틀림(opencr_bridge.py)과 그 보정(rl_arm_correction 앞먹임)을 늘 켠다. OPENCR_TWIST_SCALE=0 isaac_sim.sh 로 둘 다 끔
+export OPENCR_TWIST_SCALE="${OPENCR_TWIST_SCALE:-1}"
 # Fast DDS 프로파일은 실기 start.sh와 같은 ros2_ws/fastdds.xml (TypeLookup 끔 · SHM 32MB) — Isaac·ROS 모두.
 # 개인 프로파일(TypeLookup 켜짐)로 띄우면 노드 40개 규모에서 기동 직후 약 2분간 controller_manager 서비스가 안 보여
 # spawner가 실패 → joint_states 없음 → nvblox가 gripper_cam TF를 못 구한 depth에 막혀 지도가 멈췄다 (2026-10-30 실측)
@@ -54,13 +56,29 @@ until [ -e "$PORT" ]; do
   sleep 1
 done
 source "$HERE/../../ros2_ws/install/setup.bash"
+# perception_node runs on system python3, which may lack torch/ultralytics (then YOLO is skipped: empty detections).
+# YOLO_VENV=<venv with ultralytics, python3.12, numpy<2> appends its site-packages. It still shadows /usr/lib/python3/dist-packages
+# (numpy, cv2), so its numpy must match the system 1.26 that cv_bridge is built against.
+[ -n "$YOLO_VENV" ] && export PYTHONPATH="$PYTHONPATH:$YOLO_VENV/lib/python3.12/site-packages"
+if ! YOLO_ERR=$(/usr/bin/python3 -c 'import cv_bridge, torch, ultralytics' 2>&1); then
+  echo "[isaac_sim] YOLO 사용 불가 — 인식 결과가 비어 있게 된다 (YOLO_VENV='$YOLO_VENV'): $(tail -n 1 <<<"$YOLO_ERR")" >&2
+fi
 # 자기 프로세스 그룹으로 띄운다(setsid) — 끌 때 그룹 전체(launch + 노드)에 SIGINT를 직접 준다.
 # 실측 2026-10-30: 백그라운드 launch는 SIGINT를 무시해 안 꺼졌고, SIGTERM을 주면 launch만 죽고 노드 10개가 고아로 남았다.
 # 노드는 SIGINT로 정상 종료한다(nvblox는 매핑이면 이때 지도 저장). 15초 안에 안 끝나면 그룹을 SIGKILL.
 setsid ros2 launch "$HERE/scripts/isaac_system.launch.py" &
 ROS_PID=$!
+# 실기 기본값(controllers.yaml)은 꺼 둔 채 Isaac에서만 앞먹임을 켠다.
+# shortcut: 켤 때 한 번만 보낸다 — rl_arm_correction만 다시 띄우면 꺼지니 그때는 ros2 param set 또는 이 스크립트를 다시 실행
+GRAV_PID=
+if [ "$OPENCR_TWIST_SCALE" != 0 ]; then
+  (until ros2 param set /rl_arm_correction gravity_enabled true >/dev/null 2>&1; do sleep 2; done
+   echo "[isaac_sim] 중력 앞먹임 켬 (OPENCR_TWIST_SCALE=$OPENCR_TWIST_SCALE)") &
+  GRAV_PID=$!
+fi
 cleanup() {
   trap - EXIT INT TERM HUP
+  [ -n "$GRAV_PID" ] && kill $GRAV_PID 2>/dev/null
   kill $ISAAC_PID 2>/dev/null
   kill -INT -- -$ROS_PID 2>/dev/null
   for _ in $(seq 30); do pgrep -g $ROS_PID >/dev/null || return; sleep 0.5; done

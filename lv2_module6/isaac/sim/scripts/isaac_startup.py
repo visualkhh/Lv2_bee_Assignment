@@ -21,11 +21,12 @@ async def _setup():
     app = omni.kit.app.get_app()
     for _ in range(60):  # let the default windows come up first
         await app.next_update_async()
+    print(f"[isaac_startup] scene {os.path.abspath(SCENE)}")
     await omni.usd.get_context().open_stage_async(os.path.abspath(SCENE))
-    # Viewport: light RTX - Minimal renderer, no collider debug draw, no guide-purpose prims (the robot's
-    # collision meshes are guides). Set after opening the stage so per-user persistent settings don't win.
+    # Viewport: no collider debug draw, no guide-purpose prims (the robot's collision meshes are guides).
+    # Set after opening the stage so per-user persistent settings don't win.
+    # Render mode stays at the default RTX - Real-Time: /rtx/rendermode is global, so it also drives the ROS camera images.
     settings = carb.settings.get_settings()
-    settings.set("/rtx/rendermode", "MinimalRendering")
     settings.set_int("/persistent/physics/visualizationDisplayColliders", 0)
     settings.set_bool("/persistent/app/hydra/displayPurpose/guide", False)
     stage = omni.usd.get_context().get_stage()

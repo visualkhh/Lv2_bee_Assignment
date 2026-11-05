@@ -17,6 +17,9 @@ Usage:
   Remove the ActionGraph IMU publisher (isaac_read_imu_node, ros2_publish_imu): /imu now comes from
   imu_sensor_broadcaster like on the real robot, two publishers would fight.
 
+Joint twist: OPENCR_TWIST_SCALE=1 (isaac_sim.sh default) makes joint2/3 twist under gravity where the encoders cannot see it,
+as measured on the real arm (0 = off). The hand then sits below the TF until rl_arm_correction gravity_enabled cancels it.
+
 Not emulated: T (torque on/off) and R (motor reboot) lines are ignored; temperatures are a constant.
 Comments/strings stay English: the Script Editor breaks Korean text.
 """
@@ -45,6 +48,23 @@ TEMP_C = 35  # same as faker/fake_opencr (no thermal model)
 BATTERY_V = 12.0  # same as faker/fake_opencr (no discharge model)
 COMMAND_TIMEOUT = 0.5  # [s] firmware COMMAND_TIMEOUT_MS
 ERROR_PERIOD = 0.5  # [s] firmware MOTOR_CHECK_MS
+TWIST_SCALE = float(os.environ.get("OPENCR_TWIST_SCALE", "0"))  # 0 = off, 1 = as measured
+TWIST_K = {"joint2": 12.2, "joint3": 18.8}  # [Nm/rad] feature/isaac-setup isaac/sim/R2S/sag_fit.py 2026-11-04
+
+
+def gravity_torques(q2, q3, q4):
+    """joint2, joint3 gravity torque [Nm]: same point masses as gravity::torques in ml/rl_arm_correction.hpp (URDF values)."""
+    def x_of(th, x, z):  # arm plane vector rotated by pitch th, x component
+        return x * math.cos(th) + z * math.sin(th)
+    t23, t234 = q2 + q3, q2 + q3 + q4
+    p3 = x_of(q2, 0.024, 0.128)
+    fa = p3 + x_of(t23, 0.093796, 0.0)
+    p4 = p3 + x_of(t23, 0.124, 0.0)
+    wr = p4 + x_of(t234, 0.043623, 0.011449)
+    hd = p4 + x_of(t234, 0.0629 + 0.052686, 0.014472)
+    g, m_ua, m_fa, m_wr, m_hd = 9.81, 0.128865, 0.117300, 0.090152, 0.371242
+    return (g * (m_ua * x_of(q2, 0.008487, 0.104997) + m_fa * fa + m_wr * wr + m_hd * hd),
+            g * (m_fa * (fa - p3) + m_wr * (wr - p3) + m_hd * (hd - p3)))
 
 
 class Board:
@@ -59,6 +79,7 @@ class Board:
         self.t = 0.0
         self.last_cmd = -1e9
         self.last_err = -1e9
+        self.twist = {}  # [rad] true joint angle = encoder + twist
         self.sub = omni.physx.get_physx_interface().subscribe_physics_step_events(self.step)
         print(f"[opencr_bridge] virtual OpenCR ready, {LINK} appears on Play")
 
@@ -98,6 +119,7 @@ class Board:
         if self.view is None or not self.sim.is_valid:
             self.attach()
         self.t += dt
+        self.update_twist()
         self.read_commands()
         if self.t - self.last_cmd > COMMAND_TIMEOUT:  # watchdog: wheels stop, arm keeps its target
             self.set_targets(wheels=[0.0, 0.0])
@@ -105,6 +127,14 @@ class Board:
         if self.t - self.last_err >= ERROR_PERIOD:
             self.send("E" + ",0" * 8)
             self.last_err = self.t
+
+    def update_twist(self):
+        """shortcut: quasi-static, no spring motion, and a held puck or contact force does not change it; for those, spring joints in the USD."""
+        if not TWIST_SCALE:
+            return
+        pos = self.view.get_dof_positions()[0]
+        tau = gravity_torques(*(float(pos[self.idx[n]]) for n in ("joint2", "joint3", "joint4")))
+        self.twist = {n: TWIST_SCALE * t / TWIST_K[n] for n, t in zip(("joint2", "joint3"), tau)}
 
     def set_targets(self, wheels=None, arm=None):
         all_ = np.array([0], dtype=np.int32)
@@ -117,7 +147,7 @@ class Board:
             p = self.view.get_dof_position_targets()
             for name, q in arm.items():
                 for dof in (FINGERS if name == "gripper_left_joint" else [name]):
-                    p[0, self.idx[dof]] = q
+                    p[0, self.idx[dof]] = q + self.twist.get(dof, 0.0)
             self.view.set_dof_position_targets(p, all_)
 
     # ---- serial side
@@ -158,7 +188,7 @@ class Board:
         for name in ARM:
             i = self.idx[name]
             amps = 0.0 if name == "gripper_left_joint" else eff[i] / NM_PER_A
-            v += [pos[i] + OFFSET[name], vel[i], amps]
+            v += [pos[i] + OFFSET[name] - self.twist.get(name, 0.0), vel[i], amps]
         r = self.imu.get_sensor_reading(read_gravity=True)
         v += [r.orientation_x, r.orientation_y, r.orientation_z, r.orientation_w,
               r.angular_velocity_x, r.angular_velocity_y, r.angular_velocity_z,

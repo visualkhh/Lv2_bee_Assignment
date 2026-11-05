@@ -1072,9 +1072,9 @@
     </xacro:macro>
     <!-- 시작 자세 = SRDF stow (plan.yaml initial_pose와 같음, URDF 한계 안) -->
     <xacro:gz_jpc joint="joint1"/>
-    <xacro:gz_jpc joint="joint2" initial="-1.91"/>
-    <xacro:gz_jpc joint="joint3" initial="1.3701"/>
-    <xacro:gz_jpc joint="joint4" initial="0.5952"/>
+    <xacro:gz_jpc joint="joint2" initial="-1.9024"/>
+    <xacro:gz_jpc joint="joint3" initial="1.344"/>
+    <xacro:gz_jpc joint="joint4" initial="0.9023"/>
     <xacro:gz_jpc joint="joint5"/>
     <xacro:gz_jpc joint="gripper_left_joint" effort="20"/>
     <xacro:gz_jpc joint="gripper_right_joint" effort="20"/>

@@ -1,0 +1,13 @@
+# skill 하나 실행 — coordinator가 계획 단계마다 /skills/<skill> 액션 서버(skill 노드)에 맡김 (documents/API.md "skill 노드")
+#   어떤 필드를 쓰는지는 skill마다 (documents/API.md "skill 노드" 표). 안 쓰는 필드는 비워 둠
+string target                    # skill 안에서 고르는 이름: pose 자세 이름 · approach 정책(dock_box · park_home …) · place 방식(cell · over) · pick 물체 id
+geometry_msgs/PoseStamped pose   # 좌표 목표 (map): navigate·approach 자세 · inspect 볼 점 · place 놓을 면 · stand 누운 퍽
+string shape                     # 퍽 모양 box | cyl ("" 모름)
+int32 tag -1                     # 퍽 태그 (손 카메라 hand_relative가 찾을 퍽, -1 모름)
+int32 slot -1                    # 적재함 칸 0~11 (load · unload)
+float64[] values                 # skill마다 숫자 (place over: [다가가는 높이 m] · inspect: [손 방향 yaw rad, 없으면 자유])
+---
+bool success
+string reason                    # 실패 이유 (TaskStatus.reason으로 그대로): nav_failed · grasp_empty · arm_contact · *_unavailable …
+---
+string stage                     # 지금 단계 (로그·진단)

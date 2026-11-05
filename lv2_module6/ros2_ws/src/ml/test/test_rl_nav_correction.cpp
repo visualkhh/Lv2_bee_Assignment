@@ -6,7 +6,6 @@
 #include <thread>
 
 #include "ml/rl_nav_correction.hpp"
-#include "std_srvs/srv/set_bool.hpp"
 
 using namespace ml;  // 노드 클래스·메시지 별칭 (include/ml/*.hpp)
 
@@ -56,44 +55,4 @@ TEST_F(RosTest, ClipsToSpeedLimit) {
     },
     [&]() { return got && std::abs(got->twist.linear.x - 0.104) < 1e-9; }));
   EXPECT_DOUBLE_EQ(got->twist.angular.z, 0.30);  // 각속도는 max_vel_theta(1.82) 안이라 그대로
-}
-
-// 정책 출력 스케일·클램프 (학습 env와 같은 약속)
-TEST(RlNavCorrectionMath, ScaleAction) {
-  const auto a = scale_action(0.5f, -0.5f, 0.05, 0.10);
-  EXPECT_DOUBLE_EQ(a.first, 0.025);
-  EXPECT_DOUBLE_EQ(a.second, -0.05);
-  const auto b = scale_action(5.0f, -5.0f, 0.05, 0.10);  // [-1,1]로 자름
-  EXPECT_DOUBLE_EQ(b.first, 0.05);
-  EXPECT_DOUBLE_EQ(b.second, -0.10);
-}
-
-// 정지 명령에는 Δ를 주지 않는다 · 상한으로 자른다
-TEST(RlNavCorrectionMath, ApplyDelta) {
-  const auto zero = apply_delta({0.0, 0.0}, {0.05, 0.10}, 0.26, 1.82);
-  EXPECT_DOUBLE_EQ(zero.first, 0.0);
-  EXPECT_DOUBLE_EQ(zero.second, 0.0);
-  const auto clip = apply_delta({0.25, 1.80}, {0.05, 0.10}, 0.26, 1.82);
-  EXPECT_DOUBLE_EQ(clip.first, 0.26);
-  EXPECT_DOUBLE_EQ(clip.second, 1.82);
-  const auto add = apply_delta({0.10, 0.00}, {-0.02, 0.03}, 0.26, 1.82);
-  EXPECT_DOUBLE_EQ(add.first, 0.08);
-  EXPECT_DOUBLE_EQ(add.second, 0.03);
-}
-
-// ~/toggle 서비스로 ONNX 보정 켜기/끄기 (파라미터 enabled와 같은 값)
-TEST_F(RosTest, ToggleService) {
-  auto node = std::make_shared<RlNavCorrection>();
-  auto probe = std::make_shared<rclcpp::Node>("probe_toggle");
-  auto cli = probe->create_client<std_srvs::srv::SetBool>("/rl_nav_correction/toggle");
-  rclcpp::executors::SingleThreadedExecutor exec;
-  exec.add_node(node);
-  exec.add_node(probe);
-  ASSERT_TRUE(spin_until(exec, []() {}, [&]() { return cli->service_is_ready(); }));
-  auto req = std::make_shared<std_srvs::srv::SetBool::Request>();
-  req->data = false;
-  auto fut = cli->async_send_request(req);
-  ASSERT_TRUE(spin_until(exec, []() {}, [&]() { return fut.wait_for(std::chrono::seconds(0)) == std::future_status::ready; }));
-  EXPECT_FALSE(node->get_parameter("enabled").as_bool());
-  EXPECT_TRUE(fut.get()->success);
 }

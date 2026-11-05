@@ -28,8 +28,8 @@ ARGS = {
     'map': 'slam',               # 매핑 — 새 폴더 ~/.ros/beebot_maps/<날짜_시각>/ (저장 지도로: map:=saved)
 }
 
-# beebot.usda 기본 자세 [deg] 0 · -109.435 · 78.5 · 34.1 · 0 → [rad] (joint1~5)
-SCAN_POSE = 'scan_pose:=[0.0, -1.91, 1.37008, 0.59516, 0.0]'
+# beebot.usda 기본 자세 [deg] 0 · -109 · 77 · 51.7 · 0 → [rad] (joint1~5)
+SCAN_POSE = 'scan_pose:=[0.0, -1.9024, 1.344, 0.9023, 0.0]'
 NODE_PARAMS = {  # 노드 이름: 명령줄 끝에 덧붙일 -p 값 (--after: 그 노드들을 먼저 고친 뒤에)
     'state_manager': ['--after', 'coordinator,pole_depth_gate,gripper_depth_gate'],  # MAPPING은 스캔 자세를 고친 뒤에 냄
     'coordinator': [SCAN_POSE],

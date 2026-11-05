@@ -1,0 +1,37 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>skills</name>
+  <version>0.1.0</version>
+  <description>skill 노드 — 계획 단계(navigate · approach · pose · inspect · pick · place · load · unload · stand)마다 액션 서버 하나. 학습 정책은 skill마다 model/skills/&lt;skill&gt;/</description>
+  <maintainer email="todo@example.com">JuneKunst</maintainer>
+  <license>Apache-2.0</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>rclcpp</depend>
+  <depend>rclcpp_action</depend>
+  <depend>rclcpp_components</depend>
+  <depend>diagnostic_updater</depend>
+  <depend>std_msgs</depend>
+  <depend>std_srvs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>nav2_msgs</depend>
+  <depend>moveit_msgs</depend>
+  <depend>control_msgs</depend>
+  <depend>shape_msgs</depend>
+  <depend>trajectory_msgs</depend>
+  <depend>tf2</depend>
+  <depend>tf2_ros</depend>
+  <depend>ament_index_cpp</depend>
+  <depend>perception</depend>
+  <depend>control</depend>
+  <depend>ml</depend>
+  <depend>plan</depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <test_depend>ament_cmake_gtest</test_depend>
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

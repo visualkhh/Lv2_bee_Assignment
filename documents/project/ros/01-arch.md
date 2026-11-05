@@ -157,7 +157,7 @@ flowchart TB
     LMB -.-> CMN
     PER -->|"✉️ /tracked_objects · /mission/qr<br/>(perception/<br/>TrackedObjectArray ·<br/>std_msgs/String)"| VLM
     PER -->|"✉️ /tracked_objects<br/>신호등 색<br/>(perception/<br/>TrackedObjectArray)"| SD
-    SD -->|"✉️ /mission/signal<br/>(perception/MissionSignal)"| VLM
+    SD -->|"✉️ /mission/signal<br/>(perception/MissionSignal)<br/>→ mission_manager (03-plan.md)"| VLM
     PER -->|"✉️ /tracked_objects<br/>(perception/<br/>TrackedObjectArray)"| CO
     PER -->|"✉️ /tracked_objects<br/>대상 퍽 위치·크기<br/>(perception/<br/>TrackedObjectArray)"| GS
     VLM -->|"✉️ /task/sub_goals<br/>(plan/<br/>SubGoalArray)"| CO
@@ -247,7 +247,7 @@ flowchart TB
 ```
 
 - **상태는 state_manager 하나가 낸다.** 운영자의 `/cmd/operation_mode`·`/cmd/e_stop`·`/cmd/map_mode`를 받아 `/state/...`로 내고, 하드웨어 원본 사실(`/motor_status` — 펌웨어 `E` 줄)을 모아 `/state/devices/<이름>`(모터 에러면 `error`)을 만든다. 과부하·과열 모터는 수동 모드에서 `/cmd/manual/reboot_motors` → manual_control → 📞 `/beebotsystem/reboot_motors` → 펌웨어 `R`로만 풀린다.
-- **신호등 미션은 VLM 없이 규칙으로.** 인지 쪽 signal_decoder(perception 패키지)가 `/tracked_objects`의 신호등 상태를 시간축으로 세어 12회 점멸 답(`sequence` · R·Y·G 횟수)을 `/mission/signal`로 낸다 (사이클마다 결과·오류는 `/mission/signal_status`). 그룹·L1~L3 배정·정렬과 옮기기는 계획 쪽 몫이다 — 아래 흐름은 옛 3단계 규칙 기준이라 미션 흐름 작업에서 다시 쓴다. 일반 명령·장소 바코드 지시(`/mission/qr`)는 호스트 ai-service(VLM 또는 사람이 웹 페이지에서)가 계획한다.
+- **신호등 미션은 VLM 없이 규칙으로.** 인지 쪽 signal_decoder(perception 패키지)가 `/tracked_objects`의 신호등 상태를 시간축으로 세어 12회 점멸 답(`sequence` · R·Y·G 횟수)을 `/mission/signal`로 낸다 (사이클마다 결과·오류는 `/mission/signal_status`). 그룹·L1~L3 배정·정렬과 옮기기는 **mission_manager**([03-plan.md](03-plan.md))가 한다 — 아래 "신호부터 수납 확인까지"는 옛 3단계 규칙 기준(참고용). 일반 명령(`/cmd/user_command`)은 호스트 ai-service(VLM 또는 사람이 웹 페이지에서)가 계획한다. 바코드(`/mission/qr`)는 미션의 정렬 방향이라 mission_manager만 받는다.
 - **수동 조작은 manual_control → twist_mux.** 수동 모드(/cmd/operation_mode → state_manager)면 coordinator가 진행 중 이동·팔 goal을 취소하고 멈추고(/state/operation_mode), 운영자의 바퀴 명령은 twist_mux에서 자동보다 우선한다. 수동이어도 velocity_smoother·collision_monitor를 지나며, /cmd/e_stop은 twist_mux 잠금으로 모든 바퀴 명령을 막는다.
 - **모든 🛠 노드는 /diagnostics로 자기 상태를 낸다.** diagnostic_updater(OK·WARN·ERROR + 값)를 bringup의 diagnostic_aggregator가 계층별로 묶어 /diagnostics_agg로 — 운영자 CLI·시뮬레이터 상태 패널이 본다 (사람용, 노드는 의존하지 않음).
 - **도식에 bringup이 띄우는 노드가 전부 있다.** ros_system 묶음(robot_state_publisher · controller_manager + spawner 1회 · move_group · twist_mux · RealSense ×2 · ekf_filter_node · SLAM 묶음 cuvslam_slam · pole/gripper_depth_gate · nvblox_node · nvblox_map · Nav2 서버 6개 + lifecycle 관리자 둘)과 bringup 직접(🛠 노드들 · map_saver + lifecycle_manager_map_saver · diagnostic_aggregator). lifecycle 관리자를 둘로 나눈 이유: 바퀴 명령 체인(base)은 odom만 있으면 뜨게 — 하나로 묶으면 지도가 없을 때 global_costmap 실패로 수동 조작까지 막혔음.
@@ -319,7 +319,7 @@ flowchart TB
 
 ### 신호등 암호 미션 — 신호부터 수납 확인까지
 
-> **옛 규칙 기준 (2026-11-02):** 신호가 12회 점멸(PR #45)로 바뀌었고 2~6단계(번호 합 조합·목적지 태그)는 아직 옛 규칙입니다. 미션 흐름(그룹·L1~L3 배정·정렬) 작업에서 다시 씁니다.
+> **옛 규칙 (참고용):** 아래는 예전 3단계 신호 규칙의 흐름입니다. 지금 주사위 미션(12회 점멸 · 바코드 정렬 · 주사위 눈)은 vlm_task_planner가 아니라 **mission_manager**가 진행합니다 — [03-plan.md](03-plan.md).
 
 규칙: [mission/README.md](../../mission/README.md). 파라미터: [plan.yaml](../../../lv2_module6/ros2_ws/src/plan/config/plan.yaml).
 

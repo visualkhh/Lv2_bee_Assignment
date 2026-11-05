@@ -22,9 +22,9 @@
   <!-- 접은 자세 = Isaac Sim beebot.usda 의 drive target (joint2는 하한 -1.9199에서 살짝 안쪽) -->
   <group_state name="stow" group="arm">
     <joint name="joint1" value="0" />
-    <joint name="joint2" value="-1.91" />
-    <joint name="joint3" value="1.3701" />
-    <joint name="joint4" value="0.5952" />
+    <joint name="joint2" value="-1.9024" />
+    <joint name="joint3" value="1.344" />
+    <joint name="joint4" value="0.9023" />
     <joint name="joint5" value="0" />
   </group_state>
 

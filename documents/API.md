@@ -133,15 +133,16 @@ float32 offset_m
 
 | skill | target | 하는 일 (coordinator) |
 | --- | --- | --- |
-| `navigate` | 물체 id · `"x,y"`(map) | 그 물체 앞 `offset_m`까지 (relation `front`) 또는 그 좌표로 Nav2 이동 |
+| `navigate` | 물체 id · `"x,y[,yaw]"`(map) | 그 물체 앞 `offset_m`까지 (relation `front`) 또는 그 자세로 Nav2 이동 |
+| `approach` | `"x,y,yaw"`(map) | 박스 앞 마지막 몇 cm — `/cmd_vel_nav`로 저속 직선 (목표 뒤 `approach_pre_m`에서 돌고 직선으로 들어감). 진행이 멈추면 `approach_blocked` |
 | `pick` | 물체 id · `"tray"` | 파지 후보(`/score_grasps`) 순서로 집기 — 닫은 뒤 잡기 판정(그리퍼 위치 + 전류) · tray = `unload last` |
-| `place` | 물체 id · `"tray"` | `location_box`면 상자 윗면 위(손 안 퍽 바닥 + 0.02m)에서 벌림, 여러 개면 상자 안·상자 축으로 비킴 · 그 밖의 물체는 0.10m 위에서 (`place_spacing`씩 비킴) · tray = `load next` |
-| `pose` | `stow` · `carry_left` · `carry_right` | 이름 있는 관절 자세로 (MoveIt 관절 목표, 값 = plan/config/basket.yaml) |
+| `place` | 물체 id · `"x,y,z"` · `"tray"` | 좌표면 손 안 퍽 바닥이 z가 되게 (위 → 내려가 벌림 → 위 — 주사위 칸) · `location_box`면 상자 윗면 위(손 안 퍽 바닥 + 0.02m)에서 벌림, 여러 개면 상자 안·상자 축으로 비킴 · 그 밖의 물체는 0.10m 위에서 (`place_spacing`씩 비킴) · tray = `load next` |
+| `pose` | `stow` · `carry_left` · `carry_right` · `scan` | 이름 있는 관절 자세로 (MoveIt 관절 목표, 값 = skills/params/basket.yaml · scan = ros_system/config/scan_pose.yaml) |
 | `load` | 칸 `0`~`11` · `next` | 손의 퍽을 적재함 칸에 — carry(칸 방향) → 칸 위 → 내림 → 벌림 → 들어올림 → stow (12칸, 칸·퍽 모양별 관절값 basket.yaml) |
 | `unload` | 칸 `0`~`11` · `last` | 적재함 칸의 퍽 꺼내기 — carry → 벌림 → 칸 위 → 내림 → 닫기 → 잡기 판정 → 칸 위 → carry |
+| `inspect` | 퍽 id · `"x,y,z"` | 손끝을 퍽 윗면(좌표면 그 점) 위 `inspect_height_m`로 (좌표면 손 방향 = 로봇 → 점) → `inspect_wait_s` 기다림 — gripper_cam이 윗면 16mm AprilTag(번호)를 읽게. 못 읽어도 성공 (읽었는지는 `details.tag`) |
 | `stand` | 누운 퍽 id (`puck_lying`) | 누운 퍽 세우기 — 먼 끝을 가볍게 쥐고 가까운 아래 모서리 축으로 돌려 세운 뒤 벌리고 위로 (손은 빈 채 끝). 경유점 `stand_waypoints` ik(기본) · table |
 | `stand_pick` | 아무 값 (직전 `stand`의 퍽) | 세운 퍽 다시 집기 — 같은 손목으로 바로 아래로 → 닫기 → 잡기 판정 → 들어올림. 성공하면 그 퍽을 손에 든 것으로 장부에 |
-| `inspect` | 퍽 id | 손끝을 퍽 윗면 위 `inspect_height_m`로 → `inspect_wait_s` 기다림 — gripper_cam이 윗면 16mm AprilTag(번호)를 읽게. 못 읽어도 성공 (읽었는지는 `details.tag`) |
 | `say` | 말할 내용 | `/robot/say`로 알림 |
 
 <a id="api-msg-basketstate"></a>
@@ -179,7 +180,7 @@ uint32 plan_id
 SubGoal[] goals
 ```
 
-- 내는 쪽: vlm_task_planner → `/task/sub_goals` (reliable + transient_local). 받는 쪽: coordinator.
+- 내는 쪽: vlm_task_planner(일반 명령, plan_id 1부터) · mission_manager(주사위 미션, plan_id 1000000 + n) → `/task/sub_goals` (reliable + transient_local). 받는 쪽: coordinator.
 
 <a id="api-msg-taskstatus"></a>
 ### plan/msg/TaskStatus ([파일](../lv2_module6/ros2_ws/src/plan/msg/TaskStatus.msg))
@@ -194,11 +195,60 @@ uint8 state
 string reason       # grasp_failed_all | nav_failed | arm_contact ...
 ```
 
-- 내는 쪽: coordinator → `/task/status` (reliable + transient_local). 받는 쪽: vlm_task_planner(FAILED면 재계획 · SUCCEEDED면 다음 판단 — inspect 뒤 다시 조합, 옮기기 뒤 수납 확인) · user_input(표시).
+- 내는 쪽: coordinator → `/task/status` (reliable + transient_local). 받는 쪽: vlm_task_planner(자기 계획이 FAILED면 재계획) · mission_manager(자기 계획 결과로 다음 단계) · user_input(표시).
 - reason (coordinator.cpp): 이동 `nav_failed` · `approach_failed` / 집기 `no_grasp` · `grasp_failed_all` · `arm_contact` / 놓기 `place_failed` · `place_no_target` / 자세 `pose_failed` / 적재함 `slot_invalid` · `slot_full` · `slot_empty` · `load_failed` · `unload_failed` · `basket_table_missing` / 잡기 판정 `grasp_empty` / 세우기 `stand_failed` · `stand_not_lying` · `stand_no_yaw` · `stand_ik_unreachable` · `stand_table_missing` · `stand_pick_no_stand` · `stand_pick_failed` · `hand_full` / 보기 `inspect_no_target` · `inspect_failed` / 멈춤 `manual_override`·`manual_mode` · `explore_override`·`explore_mode` · `estop`·`estop_blocked` · `cancelled` — `manual`·`explore`·`estop`·`cancelled`로 시작하면 planner는 재계획하지 않음.
 - 주의: [노드 사전](project/ros/10-catalog.md)의 reason 예시(`nav_blocked`)와 파일(`nav_failed`)이 다릅니다 — 파일이 정본.
 
+<a id="api-msg-missionstate"></a>
+### plan/msg/MissionState ([파일](../lv2_module6/ros2_ws/src/plan/msg/MissionState.msg))
+
+```text
+# mission_manager 진행 상태 — /mission/state (reliable + transient_local). 시뮬레이터 패널 · RViz · 상태 화면이 구독
+std_msgs/Header header
+string phase            # IDLE | GO_OBSERVE | BARCODE | READ | SURVEY | BUILD | VERIFY | RETURN | DONE | ERROR
+string note             # 지금 하는 일 (사람이 읽는 설명)
+string barcode          # 읽은 바코드 원문 ("" = 아직)
+uint8 count_r           # 신호 횟수 (READ 뒤)
+uint8 count_y
+uint8 count_g
+string order            # L1·L2·L3 그룹 — 예 "YRG" ("" = 아직)
+string[] tray           # 적재함 칸 → 퍽 tag — "칸:tag" (예 "0:5" · tag 모름 "0:?" · 확인 필요 "0:5!") — coordinator 장부(/coordinator/basket)를 그대로 옮김
+uint16 placed           # 놓기를 마친 퍽 수 (놓은 뒤 확인 통과)
+uint16 total            # 놓을 퍽 수
+string[] results        # 퍽·장소별 결과 — 예 "puck 5: place_off 14mm" · "L1: ok" (실패해도 다음으로 계속 — )
+string error            # ERROR 이유 (정지한 경우만)
+```
+
+- 내는 쪽: mission_manager → `/mission/state` (reliable + transient_local, 바뀔 때마다). 흐름: [03-plan.md](project/ros/03-plan.md).
+
 <a id="api-msg-missionsignal"></a>
+### ml/msg/SkillContext ([파일](../lv2_module6/ros2_ws/src/ml/msg/SkillContext.msg))
+
+팔 skill 노드(skills 패키지)가 학습 보정 컨트롤러에 "지금 어느 skill의 어느 단계인지 · 그 skill의 정책 파일" 알림 (2026-11-03 배포 결정: 닿는 구간만 시뮬 기준 동작 + 보정. 주행 정책은 skill_approach가 직접 계산).
+
+| 칸 | 뜻 |
+|---|---|
+| `header.stamp` | 이 단계 시작 시각 (정책 입력 "진행"의 기준) |
+| `run_id` | skill 한 번마다 +1 — 바뀌면 보정 컨트롤러가 처짐 적분·보정·이전 행동을 0부터 |
+| `skill` | `place_cell` · `load_slot` · `pick_standing_puck` · `unload_slot` … · `""` = 보정 끔 |
+| `policy` · `layout` | 그 skill 노드의 정책 파일 (`share/skills/model/<skill>/<skill>.policy`) · 입력 모양 `place` \| `pick` — `""`면 이 skill은 정책 안 씀 (Δ = 0). 컨트롤러는 처음 받은 경로를 실시간 루프 밖에서 읽어 둠 |
+| `phase` · `holding` · `residual_live` | 팔: 0 위에서 정지 · 1 내려가기 · 2 안정 · 3 쥐기/놓기 · 4 올리기 · 5 대기 / 처짐 적분이 도는지 / 정책이 보정을 바꿀 수 있는지 |
+| `q_above` · `q_down` | 팔: 내려가기 시작·끝 관절 (정책 입력) |
+
+### perception/msg/HandTarget · HandRelative ([파일](../lv2_module6/ros2_ws/src/perception/msg/HandRelative.msg))
+
+학습 보정 정책(시뮬 isaac/lab에서 학습)이 보던 "손 카메라로 잰 상대값"을 로봇에서 만든다 (2026-11-03 배포 결정: 퍽에 닿는 구간은 시뮬과 같은 기준 동작 + 학습 보정).
+
+| skill | `HandTarget.kind` | `HandRelative.rel` (base_link, m) | 그 밖에 쓰는 칸 |
+|---|---|---|---|
+| pick · unload · regrasp | `puck` (`puck_tag`, −1 = 손에 가장 가까운 퍽) | 퍽 가운데(반 높이) − 손끝 | `face_yaw`(사각 퍽 면 − 손 방향, ±45°) · `is_box` |
+| stand | `puck` | 퍽 가운데 − 손끝 | `axis`(가까운 끝 → 먼 끝) · `neighbour` · `neighbour_rel` |
+| place | `cell` (`box_tag`, `point` 계획 칸, `box_point` 계획 상자) | 칸 가운데 − 손 안 퍽 바닥 | 상자가 밀렸으면(≤ 5 cm) 지금 본 상자만큼 칸을 옮김 |
+| load | `slot` (`slot` 0~11) | 적재함 칸 가운데 − 손 안 퍽 바닥 | 카메라 없이 TF만 (적재함은 로봇에 고정) |
+
+- 손 안 퍽 바닥 = 손끝 + 손 회전 · (0, 0, 0.0606) — 정상 파지 위치 (손 카메라가 밑면을 못 봄). 시뮬 정책은 손 안 오차 ±2~3 mm까지 보며 학습 — 로봇에선 0으로 들어감.
+- 값이 ≤ 4Hz로 오므로(손 카메라 추론 주기) 받는 쪽은 새 값이 올 때까지 마지막 값을 쓴다. `valid=false`면 정책 입력 0 (시뮬 정책이 "못 봄"을 배운 적은 없음 — 그때는 보정 끄기 권장).
+
 ### perception/msg/MissionSignal ([파일](../lv2_module6/ros2_ws/src/perception/msg/MissionSignal.msg))
 
 ```text
@@ -211,7 +261,7 @@ bool ok                 # true = 12개 · 각 1~6회 · 모르는 색 없음 · 
 string error            # ok=false 이유 — count(12개 아님) | unknown(모르는 색) | range(1~6 벗어남) | unconfirmed(아직 confirm번 못 봄) · ok면 빈 값
 int32 cycles            # 같은 답이 연달아 나온 사이클 수 (정상 사이클이 아니면 0)
 string raw              # 읽은 그대로 (예: "R G R R G R G G Y G Y G" · 모르는 색은 ?)
-string color            # ┐ 옛 3단계 규칙 칸 — 값 안 채움("" · 0). vlm_task_planner가 아직 읽어서 빌드용으로만 남김
+string color            # ┐ 옛 3단계 규칙 칸 — 값 안 채움("" · 0). 읽는 노드 없음 — 인지 쪽에서 지울 예정
 int32 count             # │   (planner를 새 칸으로 옮기면 삭제)
 int32 sum               # │
 int32 dest_tag          # ┘
@@ -222,7 +272,7 @@ int32 dest_tag          # ┘
   - `/mission/signal` (reliable + transient_local): **두 사이클 연속 같은 답일 때 새 답마다 한 번** (`ok=true`). 첫 확정까지 약 1분.
   - `/mission/signal_status` (reliable, 래치 없음): **사이클마다** 결과 — `ok=false`면 `error`로 이유. 받는 쪽이 "아직 확정 전(`unconfirmed`)"과 "읽기 실패(`unknown`·`range`·`count`)"를 가려 대기 또는 오류 기록·안전 정지.
 - 읽는 법: 켜진 구간 하나 = 점멸 1번 (구간 안 색이 흔들려도 다수결 `min_share`, `min_off_s`보다 짧은 꺼짐은 구간 안, `min_on_s`보다 짧은 켜짐은 잡음). 꺼짐이 `gap_s` 넘으면 사이클 끝. 노드가 켜진 뒤 첫 사이클 끝 전 조각은 버림. 신호등을 0.6초 넘게 못 보면 꺼짐으로 셈 — perception 추론이 카메라당 약 2Hz 아래로 떨어지면 점멸이 쪼개질 수 있음. 파라미터: [perception.yaml](../lv2_module6/ros2_ws/src/perception/config/perception.yaml) `signal_decoder`.
-- **해석은 받는 쪽**: 그룹 나누기·L1~L3 배정·바코드 정렬은 미션 흐름(통합) 몫. 지금 vlm_task_planner는 옛 3단계 칸(`color`·`sum`·`dest_tag`)을 읽어 새 신호로는 신호 미션 계획이 나오지 않음 — 미션 흐름 작업에서 바꿈.
+- **해석은 받는 쪽 — mission_manager** ([03-plan.md](project/ros/03-plan.md#신호-read)): `ok`면 확정 → R·Y·G 횟수와 바코드로 L1~L3 배정 · `unconfirmed`면 기다림 · `count`·`unknown`·`range`가 `signal_error_cycles`번 이어지면 오류 정지. `/mission/signal`은 같은 답이면 다시 안 나와서 `/mission/signal_status`의 `ok`도 확정으로 봄.
 
 <a id="api-msg-armsafetyevent"></a>
 ### control/msg/ArmSafetyEvent ([파일](../lv2_module6/ros2_ws/src/control/msg/ArmSafetyEvent.msg))
@@ -286,7 +336,10 @@ string message
 | `/gripper_cam/aligned_depth_to_color/image_nvblox` | sensor_msgs/Image (16UC1, mm) | gripper_depth_gate (scan_cam_gate) → nvblox_node | gripper_cam 정렬 depth — 팔이 스캔 자세(`scan_pose.yaml`)에 멈춰 있을 때만(0.5m 안은 0), 아니면 전부 0 (지도 만들 때 두 번째 카메라) |
 | `/gripper_cam/depth/color/points` | sensor_msgs/PointCloud2 | realsense2_camera (gripper_cam) → grasp_scorer | 근접 파지용 |
 | `/tracked_objects` | perception/TrackedObjectArray | perception → vlm_task_planner, coordinator, grasp_scorer | 10Hz · reliable — 두 카메라 융합 결과 ([필드 뜻](#api-msg-trackedobject)) |
-| `/perception/pole_front_cam/detections` · `/perception/gripper_cam/detections` | perception/TrackedObjectArray | perception → (시뮬레이터·디버그) | 추론마다(카메라당 ≤4Hz) · reliable — 융합 전 카메라별 검출, `id` = 붙은 트랙 |
+| `/perception/pole_front_cam/detections` · `/perception/gripper_cam/detections` | perception/TrackedObjectArray | perception → hand_relative, (시뮬레이터·디버그) | 추론마다(카메라당 ≤4Hz) · reliable — 융합 전 카메라별 검출, `id` = 붙은 트랙 |
+| `/skill_context` | ml/SkillContext | 팔 skill 노드 → rl_arm_correction | 단계 바뀔 때마다 · reliable — 지금 skill·단계 (학습 보정을 켜고 입력을 만듦) |
+| `/hand_relative/target` | perception/HandTarget | 팔 skill 노드 → hand_relative | 닿는 구간 시작 전 한 번 · reliable + transient_local — 무엇을 잴지 (`puck` 퍽 번호 · `cell` 상자 태그와 계획 칸 · `slot` 적재함 칸 · `none`) |
+| `/hand_relative` | perception/HandRelative | hand_relative → rl_arm_correction | 손 카메라 검출마다(≤4Hz, `slot`은 20Hz) — base_link 기준 퍽 − 손끝 / 칸 − 손 안 퍽 바닥, 사각 퍽 면 방향 오차, 퍽 축, 옆 퍽. 학습 보정 정책 입력과 같은 정의 ([scripts/hand_geom.py](../lv2_module6/ros2_ws/src/perception/scripts/hand_geom.py)) |
 
 - depth 단위는 16UC1 = 밀리미터. D435 최소 측정 거리 약 0.2~0.3m — 그리퍼가 퍽에 바짝 붙으면 빈다.
 
@@ -295,12 +348,15 @@ string message
 | 이름 | 타입 | 보내는 쪽 → 받는 쪽 | 주기 · QoS |
 | --- | --- | --- | --- |
 | `/cmd/user_command` | std_msgs/String | user_input → vlm_task_planner | 명령마다 · reliable |
-| `/mission/qr` | std_msgs/String | perception → vlm_task_planner | 장소 바코드(작업 지시 문자열, 예 `P2-01`) · QR — 읽은 내용이 바뀔 때만 · reliable + transient_local. VLM이 해석 |
-| `/mission/signal` | perception/MissionSignal | signal_decoder (perception) → vlm_task_planner | 신호등 12회 점멸 확정 답 {sequence, red, yellow, green, ok, raw} — 두 사이클 같게 읽혀 새 답이 확정될 때만 · reliable + transient_local. 해석(그룹·L1~L3·정렬)은 받는 쪽 — planner는 아직 옛 3단계 칸을 읽음 (미션 흐름 작업에서 바꿈) |
-| `/mission/signal_status` | perception/MissionSignal | signal_decoder (perception) → (미션 흐름 — 예정) | 사이클마다 결과 · `ok=false`면 `error` = count · unknown · range · unconfirmed · reliable (래치 없음) |
+| `/cmd/mission` | std_msgs/String | 운영자 → mission_manager | `start` · `abort` — 주사위 미션 시작·정지 · reliable |
+| `/mission/qr` | std_msgs/String | perception → mission_manager | 바코드 원문(예 `P2-01` — 정렬 방향) · QR — 읽은 내용이 바뀔 때만 · reliable + transient_local. vlm_task_planner는 받지 않음 (미션과 계획이 겹치지 않게) |
+| `/mission/signal` | perception/MissionSignal | signal_decoder (perception) → mission_manager | 신호등 12회 점멸 확정 답 {sequence, red, yellow, green, ok, raw} — 두 사이클 같게 읽혀 새 답이 확정될 때만 · reliable + transient_local. 해석(L1~L3 배정)은 mission_manager |
+| `/mission/signal_status` | perception/MissionSignal | signal_decoder (perception) → mission_manager | 사이클마다 결과 · `ok=false`면 `error` = count · unknown · range · unconfirmed · reliable (래치 없음) |
 | `/robot/say` | std_msgs/String | coordinator → user_input | 알릴 때 · reliable |
 | `/task/sub_goals` | plan/SubGoalArray | vlm_task_planner → coordinator | 계획마다 · reliable + transient_local. target = 물체 id · `"x,y"`(navigate) · **`"tray"`(pick·place — 로봇 뒤 적재함 12칸: place tray = `load next`, pick tray = `unload last`)** · 칸 번호·`next`·`last`(load·unload) · 자세 이름(pose) · 퍽 id(inspect) · 말할 내용(say) |
-| `/task/status` | plan/TaskStatus | coordinator → vlm_task_planner, user_input | 단계 완료·실패 시 · reliable + transient_local |
+| `/mission/state` | plan/MissionState | mission_manager → (운영 화면 · RViz) | 단계 · 지금 하는 일 · 바코드 · R·Y·G 횟수 · L1~L3 그룹 · 적재함 칸 → tag · 놓은 수 · 결과 · 오류 — 바뀔 때마다 · reliable + transient_local ([03-plan.md](project/ros/03-plan.md)) |
+| `/mission/markers` | visualization_msgs/MarkerArray | mission_manager → RViz | 출발 구역 · 박스 · 장소 3×3 칸(배정 뒤 그룹 색) — 1Hz · reliable + transient_local |
+| `/task/status` | plan/TaskStatus | coordinator → vlm_task_planner, mission_manager, user_input | 단계 완료·실패 시 · reliable + transient_local |
 | `/speed_limit` | nav2_msgs/SpeedLimit | rl_nav_tuner → controller_server, rl_nav_correction | 프리셋 변경 시 · reliable |
 | `/arm_safety_event` | control/ArmSafetyEvent | arm_safety_monitor → coordinator | 접촉 시 |
 | `/motor_status` | control/MotorStatus | BeebotSystemHardware → state_manager | 모터별 Hardware Error (0 정상 · −1 응답 없음 · 비트 1 입력전압 4 과열 8 엔코더 16 전기충격 32 과부하) + 사람이 읽는 이름 + 온도 °C — 바뀔 때만 · reliable + transient_local (펌웨어 `E` 줄 · `S` 끝 온도) |
@@ -329,9 +385,7 @@ string message
 
 | 이름 | 타입 | 보내는 쪽 → 받는 쪽 | 주기 · QoS |
 | --- | --- | --- | --- |
-| `/cmd_vel_corrected` | geometry_msgs/TwistStamped | rl_nav_correction → twist_mux (자동, priority 10) | 20Hz — ONNX Δ(±max_delta) 더한 값 |
-| `/rl_nav_correction/debug` | std_msgs/Float32MultiArray | rl_nav_correction → 디버그 | 20Hz — [v_cmd,w_cmd,v_odom,w_odom,w_gyro,t_change_max,Δv,Δw,v_out,w_out,on] |
-| `/rl_nav_correction/toggle` | std_srvs/SetBool (서비스) | 운영자 → rl_nav_correction | ONNX 보정 켜기/끄기 (`enabled` 파라미터와 같은 값) |
+| `/cmd_vel_corrected` | geometry_msgs/TwistStamped | rl_nav_correction → twist_mux (자동, priority 10) | 20Hz |
 | `/cmd_vel_manual` | geometry_msgs/TwistStamped | manual_control → twist_mux (수동, priority 100) | 수동 조작 시 |
 | `/cmd/e_stop` | std_msgs/Bool | 운영자 → state_manager → `/state/emergency` → twist_mux (잠금 priority 255) | true면 전부 차단 |
 | `/cmd_vel_mux` | geometry_msgs/TwistStamped | twist_mux → velocity_smoother | 20Hz |
@@ -403,24 +457,42 @@ string message
 <a id="api-actions"></a>
 ## 3. 액션 목록
 
+### skill 노드 (`plan/action/Skill`, 2026-11-04)
+
+coordinator가 계획 단계마다 skill 노드 하나에 맡김 — 한 노드에 한 번에 goal 하나. 결과 `success` · `reason`(실패 이유 → `/task/status` reason 그대로) · 피드백 `stage`.
+학습 정책은 skill 노드가 갖고 관리: `lv2_module6/ros2_ws/model/skills/<skill>/` (`<skill>.policy` 로봇용 · `<skill>.onnx` 원본 · `meta.yaml` 쓸지·시뮬 성공률·출처).
+
+| 액션 | 노드 (컨테이너) | 쓰는 goal 칸 | 하는 일 · 정책 |
+| --- | --- | --- | --- |
+| `/skills/navigate` | skill_navigate (base_skills) | `pose` | Nav2 `/navigate_to_pose` |
+| `/skills/approach` | skill_approach (base_skills) | `pose` (x, y, yaw) · `target` = 정책 `dock_box`(기본) \| `park_home` \| `drive_arc` \| `drive_straight` | 시뮬 기준 제어 + 정책 보정을 직접 계산 → `/cmd_vel_nav` (20 Hz) · 도착 판정은 정책 meta (tol_m · tol_deg · hold_s) |
+| `/skills/pose` | skill_pose (arm_skills) | `target` = stow \| carry_left \| carry_right \| scan | MoveIt 관절 목표 · 시작 자세 · 지도 만들 때 스캔 자세도 이 노드 |
+| `/skills/inspect` | skill_inspect | `pose` (볼 점) · `values[0]` 손 방향 yaw | 점 위 `inspect_height_m`에서 기다림 (태그 읽기) |
+| `/skills/pick` | skill_pick | `target` 물체 id · `tag` · `shape` | score_grasps → 퍽 위 5 cm (MoveIt) → 닿는 구간 `pick_standing_puck` |
+| `/skills/place` | skill_place | `target` cell \| over · `pose` (놓을 면) · `values[0]` 다가가는 높이 | 닿는 구간 `place_cell` (cell) · 물체 위 MoveIt (over) |
+| `/skills/load` · `/skills/unload` | skill_load · skill_unload | `slot` · `shape` · `tag` | 적재함 칸 (장부는 coordinator) · `load_slot` · `unload_slot` |
+| `/skills/stand` · `/skills/stand_pick` | skill_stand | `pose` (누운 퍽) · `shape` · `tag` | 세우기 · 그 자리 다시 쥐기 · `regrasp_after_stand` (meta use: false — 로봇 입력 모양 없음) |
+
+### 그 밖
+
 | 이름 | 타입 | 요청 → 서버 | 용도 |
 | --- | --- | --- | --- |
-| `/navigate_to_pose` | nav2_msgs/action/NavigateToPose | coordinator · explorer → bt_navigator | 이동 단계마다 (explorer = 탐색 모드 목표). feedback: 남은 거리 |
+| `/navigate_to_pose` | nav2_msgs/action/NavigateToPose | skill_navigate · explorer → bt_navigator | 이동 단계마다 (explorer = 탐색 모드 목표). feedback: 남은 거리 |
 | `/compute_path_to_pose` | nav2_msgs/action/ComputePathToPose | bt_navigator → planner_server | 약 1Hz 재계획 |
 | `/follow_path` | nav2_msgs/action/FollowPath | bt_navigator → controller_server | 경로 변경 시 |
 | `/spin`, `/backup`, `/wait` | nav2_msgs/action/Spin · BackUp · Wait | bt_navigator → behavior_server | 복구 시. BackUp은 0.1m 이하로 제한 (뒤를 못 봄) |
-| `/execute_trajectory` | moveit_msgs/action/ExecuteTrajectory | coordinator → move_group | pick·place·inspect 단계마다 — `/plan_kinematic_path`로 받은 궤적 실행 (MTC 안 씀) |
+| `/execute_trajectory` | moveit_msgs/action/ExecuteTrajectory | 팔 skill 노드 → move_group | pick·place·inspect 단계마다 — `/plan_kinematic_path`로 받은 궤적 실행 (MTC 안 씀) |
 | `/arm_controller/follow_joint_trajectory` | control_msgs/action/FollowJointTrajectory | move_group → arm_controller | `/execute_trajectory` 실행 때 (moveit_controllers.yaml엔 arm_controller만) |
-| `/gripper_controller/gripper_cmd` | control_msgs/action/ParallelGripperCommand | coordinator · manual_control → gripper_controller | 열기·닫기 (position = 손가락 하나 이동량 m · effort = 쥐는 힘 한계 A, 비우면 `max_effort` 0.6 → `max_effort_interface` → 펌웨어 C 9번째 Goal Current). MoveIt을 거치지 않음 — parallel_gripper_action_controller. 결과 stalled로 빈손 판단 |
+| `/gripper_controller/gripper_cmd` | control_msgs/action/ParallelGripperCommand | 팔 skill 노드 · manual_control → gripper_controller | 열기·닫기 (position = 손가락 하나 이동량 m · effort = 쥐는 힘 한계 A, 비우면 `max_effort` 0.6 → `max_effort_interface` → 펌웨어 C 9번째 Goal Current). MoveIt을 거치지 않음 — parallel_gripper_action_controller. 결과 stalled로 빈손 판단 |
 
 <a id="api-services"></a>
 ## 4. 서비스 목록
 
 | 이름 | 타입 | 호출 → 서버 | 용도 |
 | --- | --- | --- | --- |
-| `/score_grasps` | ml/srv/ScoreGrasps | coordinator → grasp_scorer | pick 직전 1회 |
+| `/score_grasps` | ml/srv/ScoreGrasps | skill_pick → grasp_scorer | pick 직전 1회 |
 | `/coordinator/basket_clear` | std_srvs/srv/Trigger | 운영자 → coordinator | 적재함 장부 비우기 (사람이 적재함을 손으로 비웠을 때) — 파일도 비움 |
-| `/rl_arm_correction/reset_sag` | std_srvs/srv/Trigger | coordinator → rl_arm_correction | 팔 skill 시작 때 한 번 — 처짐 보정 적분 0 (서비스 없으면 경고만, develop엔 아직 없음) |
+| `/rl_arm_correction/reset_sag` | std_srvs/srv/Trigger | 팔 skill 노드 → rl_arm_correction | 팔 skill 시작 때 한 번 — 처짐 보정 적분 0 (서비스 없으면 경고만) |
 | `/collision_monitor/toggle` | nav2_msgs/srv/Toggle | manual_control → collision_monitor | `/state/operation_mode`가 MANUAL이면 끔(속도 명령 그대로 통과 — 근접 정지 없음) · 나가면 켬. 비상정지 잠금(twist_mux)·가속 제한(velocity_smoother)은 수동도 그대로. collision_monitor가 다시 뜨면 다시 보냄 |
 | `/beebotsystem/set_arm_torque` | std_srvs/srv/SetBool | manual_control → BeebotSystemHardware | 운영 모드 TEACH에 들어가면 팔(joint1~5)·그리퍼 토크 끔 · 나가면 JTC·그리퍼 목표를 지금 값으로 맞춘 뒤 켬 (펌웨어 `T`, 바퀴 그대로). 직접 부르면 켤 때 팔이 예전 목표로 튈 수 있음 — `/cmd/operation_mode TEACH`로 |
 | `/beebotsystem/reboot_motors` | std_srvs/srv/Trigger | manual_control(`/cmd/manual/reboot_motors`) → BeebotSystemHardware | Hardware Error 난 DYNAMIXEL만 재부팅 (펌웨어 `R` 줄) — 운영자는 토픽 `/cmd/manual/reboot_motors`로 (수동 모드에서만) |
@@ -463,7 +535,7 @@ string message
 | /cmd_vel 체인 | reliable | volatile | 1 | 명령 유실 방지, 오래된 명령은 버림 |
 | /map, /tf_static | reliable | transient_local | 1 | 늦게 붙어도 받음 |
 | /task/sub_goals, /task/status | reliable | transient_local | 10 | 재시작해도 마지막 계획 받음 |
-| /mission/signal, /mission/qr, /motor_status | reliable | transient_local | 1 | 바뀔 때만 냄 — 늦게 붙어도 마지막 값 |
+| /mission/signal, /mission/qr, /mission/state, /motor_status | reliable | transient_local | 1 | 바뀔 때만 냄 — 늦게 붙어도 마지막 값 |
 | /mission/signal_status | reliable | volatile | 10 | 사이클마다 — 지난 결과는 안 받음 |
 | /state/... | reliable | transient_local | 1 | state_manager가 바뀔 때만 냄 |
 | /tracked_objects | reliable | volatile | 5 | 누락 시 다음 값으로 충분 |

@@ -1,0 +1,117 @@
+# 학습용 skill 목록 — 한 곳에서 관리 (설명 페이지: https://junekunst.github.io/bee/skill-learning.html)
+# method: rl(기준선 + 학습 보정) · yolo(팀 YOLO에 이미 학습됨 — 틀리면 데이터 더 모아 재학습) · rule(규칙·계산 — 실기에서 틀리면 그때 학습)
+#         measured(실측 데이터 모델) · none(학습 없음) · keep(지금 방식, 학습 여부 확인 필요)
+# baseline: 학습한 것과 비교할 지금 방식 — 시뮬에서 이보다 좋을 때만 바꿈
+# start / success: skill 계약 (Isaac Lab 종료 조건 · coordinator 판정 · plan_next 행동 막기가 같은 정의를 씀)
+# reward: rl은 보상 항 · measured는 loss(손실) · yolo·rule은 check(재학습을 정하는 평가 지표). 모든 rl에 common_penalty를 더함
+
+common_penalty: [puck_tipped_or_dropped (큰 벌점), collision, body_tilt (비상 E1과 같은 기준), joint_limit, motor_overcurrent, residual_magnitude]
+
+tasks:
+  observe: [camera_clear_view, read_signal_barcode]
+  survey: [navigate, dock_box, camera_look_down, detect_puck, classify_color, read_puck_tag, classify_shape_pose]
+  collect: [pregrasp, pick_standing_puck, stand_lying_puck, regrasp_after_stand, load_slot]
+  place: [navigate, dock_box, detect_location_box, unload_slot, place_cell, judge_cell, nudge_cell, stand_puck_in_cell]
+  verify: [navigate, dock_box, camera_look_down, judge_cell]
+  return: [move_pose, navigate, park_home]
+
+skills:
+  # ---------- 주행 (차동 구동 — 횡이동 없음: drive_turn → drive_straight → drive_turn)
+  drive_straight: {area: drive, method: rl, baseline: diff_drive 제어기, start: 앞 경로 비어 있음 · 팔 접힘, success: 거리·방향 오차 기준 안 · 멈춤,
+                   reward: [+목표 거리 접근, -옆 벗어남, -방향 틀어짐, +도착, -넘어서 감]}
+  drive_turn: {area: drive, method: rl, baseline: diff_drive 제어기, start: 회전 반경 안 장애물 없음, success: 각도 오차 기준 안 · 제자리,
+               reward: [+목표 각도 접근, -제자리 밀림, +도착, -넘어서 돎]}
+  drive_arc: {area: drive, method: rl, baseline: diff_drive 제어기, start: 경로 비어 있음, success: 목표 자세 도착,
+              reward: [+목표 자세 접근, -경로 이탈, -급가속]}
+  navigate: {area: drive, method: rl, baseline: Nav2, start: 팔 stow · 위치 추정 정상, success: 목표 영역(0.25m) 도착,
+             reward: [+목표 영역 도착, +경로 따라감, -장애물 근접, -멈춤·헤맴]}
+  dock_box: {area: drive, method: rl, baseline: 스크립트 approach, start: 상자 0.25m 앞 · 상자가 보임, success: 상자 기준 거리·옆·각도가 팔이 닿는 영역 안,
+             reward: [+닿는 영역 도착, +다음 집기 성공 보너스, -상자 충돌]}
+  park_home: {area: drive, method: rl, baseline: 스크립트, start: 출발 구역 근처, success: 차체 전체 구역 안 · 3초 정지,
+              reward: [+차체 전체 구역 안, +3초 정지, -구역 선 밟음]}
+
+  # ---------- 인식
+  detect_puck: {area: perception, method: yolo, baseline: bee_yolo11n_v3, check: [위치 오차, 놓침, 잘못 찾음]}
+  classify_color: {area: perception, method: yolo, baseline: bee_yolo11n_v3 색 클래스 + HSV 확인, check: [색 오답]}
+  read_puck_tag: {area: perception, method: rule, baseline: AprilTag 디코드, check: [ID 오답, 못 읽음]}
+  classify_shape_pose: {area: perception, method: yolo, baseline: "모양 bee_yolo11n_v3 · 자세 깊이 높이÷폭 규칙 (YOLO 자세는 실물에서 틀렸음)", check: [모양·자세 오답, 방향 각도 오차(180° 대칭)]}
+  detect_location_box: {area: perception, method: rule, baseline: AprilTag 12~14 디코드, check: [윗면 위치·방향 오차]}
+  read_signal_barcode: {area: perception, method: rule, baseline: "signal_decoder (신호등 상태는 YOLO)", check: [색 오답, 놓친 점멸, "불확실하면 모름이 정답 (추정 금지)"]}
+  judge_cell: {area: perception, method: rule, baseline: 칸 중심 거리 계산, check: [추정 오차 - 실제 오차]}
+
+  # ---------- 팔 (카메라 조작 · 집기 · 놓기 · 적재함)
+  compensate_sag: {area: arm, method: measured, baseline: 고정값, loss: [예측 처짐 - 실제 처짐]}
+  grip_force: {area: arm, method: measured, baseline: 고정 전류, loss: [예측 힘 - 실제 힘]}
+  move_pose: {area: arm, method: rl, baseline: MoveIt, start: "-", success: 관절 오차 기준 안, reward: [+목표 관절 접근, +도착, -흔들림]}
+  pregrasp: {area: arm, method: rl, baseline: MoveIt, start: 퍽 위치 앎 · 손 비어 있음, success: 손끝 위치·방향 기준 안,
+             reward: [+목표점 접근, +손 방향 맞음, -퍽 건드림]}
+  camera_clear_view: {area: arm, method: rl, baseline: MoveIt (scan 자세), start: "-", success: 팔이 기둥 카메라 시야 밖, reward: [+시야 밖, +도착]}
+  camera_look_down: {area: arm, method: rl, baseline: MoveIt (inspect), start: 볼 점 앎, success: 점이 화면 가운데 · 0.15m 위,
+                     reward: [+점이 화면 가운데, +높이 맞음, +태그 읽음 보너스]}
+  pick_standing_puck: {area: arm, method: rl, baseline: 스크립트 + IK, start: 손이 퍽 위 · 퍽 서 있음 · 손 비어 있음, success: 들어 올림 · 손가락 ≥3mm · 전류 ≥0.25A,
+                 reward: [+들어 올림, +잡기 판정, -옆 퍽 건드림, -미끄러짐, +끝 자세가 load_slot 시작 범위 안]}
+  stand_lying_puck: {area: arm, method: rl, baseline: 스크립트 + 해석 IK (stand), start: 퍽 누움 · 손이 먼 끝 위, success: 퍽 서 있음(인식) · 손 빠짐,
+             reward: [+퍽 서 있음, +손 벌리고 빠짐, -상자 밖으로, -0.4N보다 세게 쥠]}
+  regrasp_after_stand: {area: arm, method: rl, baseline: 스크립트 (stand_pick), start: stand_lying_puck 성공 직후, success: 들어 올림 · 잡기 판정,
+                  reward: [+들어 올림, +잡기 판정, -다시 넘어뜨림]}
+  load_slot: {area: arm, method: rl, baseline: 적재함 표 (basket.yaml), start: 손에 퍽 · 칸 비어 있음, success: 칸 바닥까지 · 손 빠짐,
+              reward: [+칸 바닥까지, +손 빠짐, -링 모서리 걸림, -옆 칸 건드림]}
+  unload_slot: {area: arm, method: rl, baseline: 적재함 표, start: 손 비어 있음 · 칸에 퍽, success: 들어 올림 · 잡기 판정,
+                reward: [+들어 올림, +잡기 판정, -링 걸림, +끝 자세가 place_cell 시작 범위 안]}
+  place_cell: {area: arm, method: rl, baseline: 스크립트 + IK, start: 손에 퍽 · 칸 위 · 칸 보정 끝, success: 칸 중심 10mm 안 · 기울기 ≤5° · 2초 안정 · 이웃 그대로,
+               reward: [+10mm 안 (가까울수록), +기울기 작음, +2초 안정, -이웃 건드림·밀어냄]}
+  nudge_cell: {area: arm, method: rl, baseline: 스크립트, start: 놓은 퍽 10~25mm 벗어남 · 손 비어 있음, success: 10mm 안 · 서 있음,
+               reward: [+오차 줄어듦, +10mm 안, -넘어뜨림, -이웃 건드림]}
+  stand_puck_in_cell: {area: arm, method: rl, baseline: stand_lying_puck, start: 칸 안 퍽 누움, success: 서 있음, reward: [stand_lying_puck과 같음, -이웃 건드림 (큰 벌점)]}
+
+  # ---------- 상태 · 비상 (감시 — 다른 skill의 시작·중단 조건)
+  monitor_battery: {area: status, method: rule, baseline: 전압 문턱값, check: [놓친 저전압, 잘못 울림]}
+  monitor_current: {area: status, method: rule, baseline: 전류 문턱값, check: [걸림 판정 오답]}
+  monitor_motor: {area: status, method: rule, baseline: 온도 문턱값, check: [놓친 과열, 잘못 울림]}
+  basket_ledger: {area: status, method: none, baseline: coordinator 장부}
+  detect_tip_impact: {area: emergency, method: rule, baseline: 기울기 문턱값, check: [놓친 넘어짐 (가장 중요), 잘못 울림]}
+  estop: {area: emergency, method: none, baseline: 버튼 · 모드}
+
+  # ---------- 맵 (학습 여부 확인 필요 — 제안: 유지)
+  slam_localize: {area: map, method: keep, baseline: cuVSLAM + EKF}
+  build_map: {area: map, method: keep, baseline: nvblox}
+  align_arena: {area: map, method: keep, baseline: 시작 자세 + 상자 태그}
+
+  # ---------- 플랜
+  plan_next: {area: plan, method: rl, baseline: "mission_manager 규칙 · 계산기 solver.py", start: 매 skill 끝, success: "-",
+              reward: [장소별 주사위 눈 +10, 색·모양 +6, 검증 +2, 복귀 +10, 자율 완주 +5, -퍽 떨어뜨림, -걸린 시간 조금],
+              code: learning/plan}
+
+# ---------- 배포 조건 (2026-11-03 결정) — 학습한 보정은 시뮬의 기준 동작 위에서만 맞으므로 로봇도 같은 방식으로 움직인다
+#   planner: 빈 공간 이동은 무엇으로 (MoveIt · Nav2) / learned: 학습 보정이 붙는 짧은 구간과 그 기준 동작
+#   env: 시뮬 학습 환경 (isaac/lab, 브랜치 feature/skill-envs) / runs_in: 로봇에서 정책을 돌리는 곳
+#   obs_missing: 정책 입력 중 로봇에 아직 없는 값 (없으면 []) · obs_from: 손 카메라 상대값을 주는 토픽 (perception hand_relative, 브랜치 feature/hand-relative)
+deploy_rule: "빈 공간 이동 = MoveIt / Nav2 · 퍽에 닿는 구간과 상자 앞 도킹 = 시뮬과 같은 기준 동작(오프라인 IK + 관절 보간 → JTC, 돌기-직진-돌기 P 제어) + 학습 보정"
+deploy:
+  place_cell:   {planner: "MoveIt: carry → 칸 위 50 mm", learned: "내려가기 → 놓기 → 올리기 (IK + 보간)", env: "pip_env (팀원)", runs_in: rl_arm_correction,
+                 obs_missing: ["손 안 퍽 위치 오차 (정상 파지로 둠)"], obs_from: /hand_relative cell}
+  pick_standing_puck: {planner: "MoveIt: stow → 퍽 위 50 mm", learned: "내려가기 → 쥐기 → 들기 (IK + 보간)", env: "pick_env (팀원)", runs_in: rl_arm_correction,
+                 obs_missing: [], obs_from: /hand_relative puck}
+  stand_lying_puck:     {planner: "MoveIt: stow → 누운 퍽 먼 끝 위", learned: "살짝 집기 → 원호로 세우기 → 놓기 → 비키기 (IK 경유점)", env: "right_env (팀원)", runs_in: rl_arm_correction,
+                 obs_missing: [], obs_from: /hand_relative puck (axis · neighbour)}
+  regrasp_after_stand: {planner: "(stand_lying_puck에 이어서)", learned: "그 자리에서 내려가 쥐기 → 들기", env: "right_env regrasp=1 (팀원)", runs_in: rl_arm_correction,
+                 obs_missing: [], obs_from: /hand_relative puck}
+  load_slot:    {planner: "MoveIt: 들어 올린 뒤 → carry 자세", learned: "칸 위 → 칸 바닥 → 놓기 → 올리기 (slot_table 자세)", env: slot_env.LoadEnv, runs_in: rl_arm_correction,
+                 obs_missing: ["손 안 퍽 위치 오차 (정상 파지로 둠)"], obs_from: /hand_relative slot}
+  unload_slot:  {planner: "MoveIt: stow → carry 자세", learned: "칸 위 → 잡는 자세 → 쥐기 → 칸 위 (slot_table 자세)", env: slot_env.UnloadEnv, runs_in: rl_arm_correction,
+                 obs_missing: [], obs_from: /hand_relative puck}
+  pregrasp:     {planner: "MoveIt 경로", learned: "도착 뒤 끝 자세 유지 (처짐 보정)", env: "reach_env target=above", runs_in: rl_arm_correction, obs_missing: []}
+  camera_look_down: {planner: "MoveIt 경로", learned: "도착 뒤 끝 자세 유지", env: "reach_env target=look", runs_in: rl_arm_correction, obs_missing: [],
+                 note: "plan.yaml inspect_height_m 0.15는 닿지 않음 (0.08~0.10 m) — 확인 필요"}
+  move_pose:    {planner: "MoveIt 경로", learned: "없음 (시뮬 기준선 100 %)", env: "reach_env target=pose", runs_in: "-", obs_missing: []}
+  camera_clear_view: {planner: "MoveIt 경로", learned: "없음 (시뮬 기준선 100 %)", env: "reach_env target=clear", runs_in: "-", obs_missing: []}
+  dock_box:     {planner: "Nav2: 상자 면 앞 정렬 위치까지", learned: "정렬 위치 → 도킹 (돌기-직진-돌기 P 제어, coordinator approach)", env: "drive_env task=dock",
+                 runs_in: "rl_nav_correction 도킹 모드", obs_missing: []}
+  park_home:    {planner: "Nav2: 출발 구역 근처까지", learned: "구역 안 정지 (같은 P 제어)", env: "drive_env task=park", runs_in: "rl_nav_correction 도킹 모드", obs_missing: []}
+  drive_straight: {planner: "-", learned: "짧은 직진 (같은 P 제어)", env: "drive_env task=straight", runs_in: "rl_nav_correction 도킹 모드", obs_missing: []}
+  drive_turn:   {planner: "-", learned: "없음 (시뮬 기준선 100 %)", env: "drive_env task=turn", runs_in: "-", obs_missing: []}
+  drive_arc:    {planner: "-", learned: "짧은 곡선 (같은 P 제어)", env: "drive_env task=arc", runs_in: "rl_nav_correction 도킹 모드", obs_missing: []}
+  navigate:     {planner: Nav2, learned: "보류 (환경 없음)", env: "-", runs_in: "-", obs_missing: []}
+  plan_next:    {planner: "-", learned: "다음 skill 고르기", env: "learning/plan/mission_sim.py", runs_in: "mission_manager (PR #49 병합 뒤, 마지막 단계)", obs_missing: []}
+  nudge_cell:   {planner: "MoveIt: 칸 위", learned: "보류 (기준 동작·환경 없음)", env: "-", runs_in: "-", obs_missing: []}
+  stand_puck_in_cell: {planner: "MoveIt: 칸 위", learned: "보류 (기준 동작·환경 없음)", env: "-", runs_in: "-", obs_missing: []}

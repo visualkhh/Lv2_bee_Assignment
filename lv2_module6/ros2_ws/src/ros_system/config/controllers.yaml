@@ -56,6 +56,15 @@ rl_arm_correction:
     joints: [joint1, joint2, joint3, joint4, joint5]
     enabled: true
     max_delta: 0.05
+    sag_enabled: true          # 처짐 보정 적분 (reference가 멈춰 있을 때만)
+    sag_gain: 4.2              # [1/s] 학습 env와 같은 감쇠율 (85 ms마다 오차 30 %)
+    sag_max: 0.2               # [rad]
+    still_rate: 0.005          # [rad/s] reference 변화율이 이보다 작으면 멈춤
+    # 발열 방지 (stow로 주행하는 동안 서보가 계속 밀지 않게)
+    rest_pose: [0.0, -1.9024, 1.344, 0.9023, 0.0]  # = plan basket.yaml pose_stow — 여기선 적분 안 하고 0으로 풂
+    rest_tol: 0.03             # [rad]
+    windup_s: 2.0              # [s] 적분이 상한에 이만큼 붙어 있으면 (닿아서 못 감) 풀고 다음 reset_sag까지 쉼
+    debug_hz: 20.0             # ~/debug (ml/ArmCorrectionDebug) — 실기 디버깅·rosbag용, 0 = 안 냄
 
 arm_controller:
   ros__parameters:

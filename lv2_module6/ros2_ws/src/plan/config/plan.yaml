@@ -7,65 +7,61 @@ vlm_task_planner:
     max_replans: 1           # 명령 하나당 재계획 횟수 (coordinator의 max_step_failures와 짝)
     vlm_endpoint: ""         # 비면 템플릿 고정(기본·CI). 호스트 ai-service면 "http://127.0.0.1:8000" (컨테이너 host망이라 localhost가 호스트)
     vlm_timeout_s: 120.0    # [s] VLM 대기 — 넘기면 템플릿 폴백. ai-service backend human(사람이 웹에서 계획)이면 그쪽 timeout_s(600) 이상으로
-    tray_capacity: 12        # 한 번에 적재함에 싣는 퍽 수 (coordinator 적재함 칸 수 — basket.yaml 12칸)
-    # 수납 확인 — 신호등 미션 옮기기가 끝나면 바로, 그 뒤 이 주기마다 목적지로 가서 옮긴 번호가 그대로 있는지 봄
-    #   (AUTO · 하던 계획이 끝났을 때만). 다른 곳에 있으면 다시 옮기고, 안 보이면 say. 새 명령·신호가 오면 그만
-    verify_period_s: 60.0    # [s] 0이면 주기 확인 끔 (옮긴 직후 한 번은 함)
-    verify_radius_m: 0.20    # [m] 목적지 장소 상자(location_box) 윗면 가운데에서 이 안이면 "거기 있음" (place_spacing 0.08 × 퍼짐 + 여유)
 coordinator:
   ros__parameters:
-    # 시작 자세 — bringup 직후 한 번 팔을 이 자세로 (MoveIt 없이 JTC 토픽, 3초 궤적).
-    #   0 = 서보 영점(팔 곧게 위). 다시 잡으려면 run-cli 팔 → 6 (TEACH로 손으로 잡으면 initial_pose·initial_gripper 줄을 보여 줌 → 여기 붙여 넣기).
-    #   (예전 실측 [-0.0898, -1.8069, 1.3432, 1.6473, -0.0268]은 한계 안이었지만 실기에서 도달 못 하고 계속 밀어 과부하 — 그래서 재전송 1회 제한)
-    #   MAPPING/EXPLORE면 스캔 자세가 우선이라 건너뛴다. false면 자동 이동 안 함.
-    #   실행 중 끄기: ros2 param set /coordinator initial_pose_enabled false (가는 중이면 그 자리에서 멈춤)
-    initial_pose_enabled: true
-    initial_pose_joints: [joint1, joint2, joint3, joint4, joint5]
-    # = MoveIt SRDF 'stow' = Isaac beebot.usda 접은 자세. joint2는 URDF 하한(-1.919862) 안쪽으로 -1.91
-    #   (예전 TEACH 값 [-0.0215, -2.0019, 1.1152, 0.8682, 0.0936]은 joint2가 하한 밖이라 controller_manager가 잘라 도달 판정 실패)
-    initial_pose: [0.0, -1.91, 1.3701, 0.5952, 0.0]
-    initial_pose_tolerance: 0.05   # [rad] 이 안이면 이미 그 자세 (이동 생략)
-    initial_pose_move_s: 3.0       # [s] 궤적 시간 — 너무 짧으면 급정지·흔들림
-    initial_pose_retries: 1        # 못 가면 다시 보낼 횟수 — 넘으면 지금 자세로 멈추고 ERROR (걸린 채 계속 밀면 과부하)
-    initial_gripper: 0.0           # [m] 시작 그리퍼 (손가락 하나 이동량 — 0 닫힘 · 0.0265 열림) · 음수면 안 건드림. 팔 시작 자세와 함께 한 번
-    max_grasp_tries: 2       # 파지 후보를 점수순으로 몇 개까지 시도 (규칙 4)
-    max_step_failures: 2     # 같은 단계가 이만큼 연속 실패하면 알리고 정지 (규칙 5)
-    server_wait_s: 30.0      # [s] Nav2·MoveIt 서버가 뜰 때까지 기다리는 시간
-    arm_plan_tries: 3        # 팔 계획 실패 시 같은 목표로 다시 (IK·OMPL이 무작위라 닿는 곳도 가끔 못 찾음)
-    # 자세(stow · carry)와 적재함 12칸 load · unload 관절값은 basket.yaml (isaac-lab slot_table) — skill 정의: documents/project/ros/05-arm.md
-    # 잡기 판정 (pick · unload — 닫은 뒤): 그리퍼 위치 ≥ grasp_min_pos_m(퍽이 끼어 덜 닫힘) 이고 전류 ≥ grasp_min_effort [A]
-    #   실측 (팀원 11/02): 퍽에 닿는 곳 약 5mm(gripper_left_joint 0.005) · 원기둥 0.33~0.42A · 팀 기준 0.3~0.4A · 한계 0.6A — 실기에서 다시 맞출 값
-    #   끄기: launch 인자 grasp_check:=false (faker는 그리퍼가 끝까지 닫혀 늘 빈손이라 끔) — 여기 넣지 말 것 (launch 인자가 안 먹는 경우 있음)
-    # 적재함 장부 (coordinator 하나만 씀 — /coordinator/basket) · 파일에 저장해 다시 떠도 이어 감 ("" = 저장 안 함)
+    # 계획 단계를 skill 노드(skills 패키지, /skills/<skill>)에 맡기는 순서 담당 — 팔·주행 값은 skills/config/skills.yaml · skills/params/
+    max_step_failures: 2     # 같은 단계가 이만큼 연속 실패하면 알리고 정지 (규칙 3)
+    server_wait_s: 30.0      # [s] skill 노드가 뜰 때까지 기다리는 시간
+    pose_names: [stow, carry_left, carry_right, scan]   # pose 단계 검증 (값은 skill_pose — skills/params/basket.yaml · scan_pose.yaml)
+    # 적재함 장부 (이 노드만 씀): 파일에 저장해 다시 떠도 이어 감 · load next가 쓰는 칸 (팔이 잘 못 닿는 칸은 실기에서 확인 후 뺌)
+    basket_slots: 12
     #   사람이 적재함을 손으로 비웠으면: ros2 service call /coordinator/basket_clear std_srvs/srv/Trigger
     basket_file: "~/.ros/beebot_basket.txt"
-    # load next가 쓰는 칸 — 팔이 잘 못 닿는 칸은 여기서 뺌 (Isaac 10/27: 칸 2·8·9 성공률 낮음 — 실기에서 확인 후)
     basket_use: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
-    # 쥐는 힘 [A] — 닫을 때 그리퍼 액션 goal effort로 보냄 (pick · unload). 팀 결정 0.3~0.4 A ≈ 22~29 N.
-    #   비우면 controllers.yaml max_effort 0.6 A — 0.6 A로 쥐면 놓을 때 0.75~0.80 A까지 튐 (시뮬 보고서 6장). 펌웨어가 0.00269~1.2 A로 자름
-    grip_current_a: 0.35
-    grasp_min_pos_m: 0.003
-    grasp_min_effort: 0.25
-    # 세우기 stand · stand_pick (팀원 right_env tilt — 05-arm.md 6-1). 경유점 고르기:
-    #   ik    = 퍽마다 손끝 경유점 + 손이 아래 향하는 5축 해석 IK (기본 · 어느 퍽 위치든)
-    #   table = config/stand_table.yaml (팀원 학습 표와 같은 것, plan/scripts/stand_table_export.py) — 가까운 방향 5° 칸 + 위치 선형 보정
-    stand_waypoints: ik
-    stand_box_top_m: 0.07          # 시작 박스 윗면 높이 (바닥 기준) — 누운 퍽 바닥
-    stand_pinch_current_a: 0.0055  # 세울 때 가볍게 쥐는 힘 [A] — 팀원 0.4 N(29 N @ 0.4 A 비례). 0.6 N부터 퍽이 안 돎 → mA↔N 실측 필요
-    stand_vel_scale: 0.3           # 내려가기·위로 × 팀 관절 한계
-    stand_arc_vel_scale: 0.5       # 호 × 팀 관절 한계 (팀원 실험: 0.3 → 63 %, 0.5 → 100 %)
-    # place <location_box>: 상자 윗면 + 손 안 퍽 바닥(손끝 아래 held_bottom_m, slot_table d_nom) + place_release_m에서 벌림
-    held_bottom_m: 0.0606
-    place_release_m: 0.02
-    box_margin_m: 0.03       # [m] 여러 개 놓을 때 상자 가장자리에서 이만큼 안쪽까지만
     place_spacing: 0.08      # [m] 같은 곳(B 지역 판)에 여러 개 내려놓을 때 비키는 간격 (MISSION: 퍽 사이 0.08 이상)
-    # 팔이 닿게 다가가기 — pick · place <물체 id> 때 대상이 로봇 중심에서 reach_m 넘으면 먼저 approach_m 앞까지 navigate (단계마다 한 번)
+    box_margin_m: 0.03       # [m] 상자 위에 여러 개 놓을 때 상자 가장자리에서 이만큼 안쪽까지만
+    # 팔이 닿게 다가가기 — pick · place · inspect · stand <물체 id> 때 대상이 로봇 중심에서 reach_m 넘으면 먼저 approach_m 앞까지 navigate
     #   바닥 퍽은 팔 회전축(차체 중심 앞 0.05)에서 수평 약 0.08~0.26 — 차체 중심 기준 약 0.13~0.31 (simulator 팔 범위 지도)
     reach_m: 0.30
     approach_m: 0.24         # [m] 다가간 뒤 로봇 중심 ~ 물체 중심 (범퍼 0.18 + 여유 — 팔 범위 가운데쯤)
-    # inspect <퍽 id> — 퍽 윗면 16mm AprilTag는 gripper_cam이 위에서 봐야 읽힘 (pole_front_cam은 한 칸 1~2px라 못 읽음)
-    inspect_height_m: 0.15   # [m] 손끝을 퍽 윗면 위 이만큼 (16mm 태그 ≈ 50px — 한 칸 약 6px)
-    inspect_wait_s: 1.0      # [s] 그 자리에서 기다림 (perception 추론 4Hz × 몇 장)
+mission_manager:             # 주사위 기억 미션 (documents/mission/README.md) — 좌표는 경기장(arena) m · 왼쪽 아래 기둥 원점 · +Y 위
+  ros__parameters:
+    # 로봇을 켠 자리의 arena 자세 [x, y, yaw] — 운영 규칙: 출발 관측 위치에서 −X(π)를 보고 켬. 다르면 launch 인자 start_pose:=x,y,yaw
+    start_pose_arena: [0.734, 0.950, 3.14159]
+    start_zone: [0.434, 0.650, 1.034, 1.250]   # 출발 구역 [x0, y0, x1, y1] (복귀 판정·RViz)
+    footprint: [0.069, -0.233, 0.153]        # 로봇 외곽 [앞, 뒤, 옆 반폭] (base_footprint, URDF) — 복귀 때 차체 전체가 구역 안인지
+    start_boxes: [1.468, 0.950, 3.670, 3.152, 2.936, 5.354, 0.734, 5.354, 2.202, 5.354, 3.670, 3.886]   # 시작 박스 1~6 중심
+    box_half: 0.1025                         # 205 박스 반 변
+    puck_offsets_x: [-0.040, 0.040]          # 박스 위 퍽 두 개 — 중심 X±40
+    locations: [3.670, 0.950, 2.202, 3.700, 3.670, 5.354]   # L1·L2·L3 격자 중심
+    location_boxes: [3.670, 0.950, 0.1025, 2.202, 3.700, 0.1025, 3.670, 5.354, 0.1025]   # 장소가 놓인 박스 [x, y, 반 변] — 셋 다 205 박스 (11-04 운영 확인: L2 받침대도 같은 크기)
+    location_tags: [12, 13, 14]              # L1·L2·L3 장소 태그 번호
+    tag_correction_max: 0.05                 # [m] 놓기 직전 인지 location_box(상자 윗면 가운데)가 예상 상자 중심에서 어긋난 만큼 칸을 옮기는 최대 거리 — 넘으면 잘못 본 것으로 보고 보정 안 함
+    # 적재함: 장부(칸 → tag)는 coordinator가 씀 (/coordinator/basket) — 쓰는 칸은 coordinator basket_use. 다 차면 나머지는 시작 박스에서 직접 운반
+    box_top_z: 0.070                         # 박스 윗면 = 퍽 바닥
+    puck_height: 0.060
+    grid_step: 0.060                         # 주사위 칸 간격
+    standoff: 0.25                           # [m] Nav2로 박스 변 바깥 이만큼까지 (로봇을 원 0.18로 보므로 더는 못 붙음)
+    approach_gap: 0.085                      # [m] 그다음 approach로 base_footprint ~ 박스 변을 이만큼까지 (로봇 앞면 0.069 → 1.6 cm)
+                                             #   Isaac 도달 지도(dice_reach.py): 0.08이면 3×3 칸 9개 다 닿음 · 0.10이면 먼 줄 양끝 못 닿음
+    approach_tries: 3                        # 접근 자리 실패 시 다른 변으로 몇 번까지
+    retries: 2                               # skill(집기·놓기·inspect)이 실패하면 다시 하는 횟수. 그래도 안 되면 그 퍽만 실패로 두고 다음
+    planner: "rule"                          # BUILD 순서: rule (배정 순서대로) | plan_next (학습된 플래너가 다음 퍽·복귀 시점을 고름 — 마지막 단계)
+    plan_model: ""                           # 비면 share/ml/model/plan/plan_next.policy
+    place_tol: 0.010                         # [m] 놓은 뒤 확인 · 재검증 — 칸 중심에서 이 안이어야 성공
+    place_search: 0.05                       # [m] 놓은 뒤 확인 때 칸에서 이 안의 퍽만 그 퍽으로 봄
+    match_radius: 0.04                       # [m] 조사 때 퍽 자리와 트랙을 짝짓는 거리
+    stand_check_s: 1.0                       # [s] 누운 퍽 stand 뒤 인지가 섰는지 볼 때까지 기다림 → 섰으면 stand_pick, 아직 누웠으면 stand 다시 (retries번)
+    verify_radius: 0.15                      # [m] 재검증 때 장소 중심에서 이 안의 퍽만
+    # 바코드 보는 자세 (출발 구역 안) — 관측 자리(−X)에선 바코드(80, 650, 450)가 화면 위·왼쪽 끝에 걸림 (시뮬레이터 렌더 확인).
+    #   조금 뒤로 물러나 바코드 쪽으로 돌면 화면 안. 실물 카메라 시야로 다시 정할 것
+    barcode_pose_arena: [0.950, 0.800, 3.3126]
+    barcode_timeout_s: 20.0                  # [s] 이번에 본 바코드가 없으면 오류
+    signal_timeout_s: 150.0                  # [s] READ 시작부터 신호 확정까지 (한 사이클 약 27초 · 두 사이클 같아야 확정 — 중간부터 보면 3사이클)
+    signal_error_cycles: 2                   # 오류 사이클(count·unknown·range)이 이만큼 이어지면 ERROR — 한 번은 잡음일 수 있어 다음 사이클을 봄
+    home_hold_s: 3.0                         # [s] 출발 구역에서 정지 (발제: 3초)
+    log_dir: "~/.ros/mission"                # 회차별 signal · allocation · build · verify · return (· error) .json + photos/
+    photo_topic: "/gripper_cam/color/image_raw"   # 단계 사진 (찍을 때만 잠깐 구독) — 빈 문자열이면 안 찍음
 
 explorer:                    # 자동 탐사 — /state/operation_mode EXPLORE일 때 /map 프론티어로 Nav2 목표
   ros__parameters:

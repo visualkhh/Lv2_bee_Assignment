@@ -114,6 +114,47 @@ def test_classify_color():
     assert classify_color("person", np.zeros((5, 5, 3), np.uint8)) == ""
 
 
+def test_puck_color_real_green():
+    """실물 초록 퍽 색(11/03 실측 H 64~85, RGB (19,128,71) ≈ H74)이 초록으로 · 빨강 퍽은 빨강 · 주황 컵홀더(H12~13)는 other"""
+    import cv2
+    import numpy as np
+    from perception_node import puck_color
+
+    def roi_h(h):  # H만 바꾼 진한 색 조각 (S 200 · V 150)
+        return cv2.cvtColor(np.full((20, 20, 3), (h, 200, 150), np.uint8), cv2.COLOR_HSV2BGR)
+
+    real_green = np.full((20, 20, 3), (71, 128, 19), np.uint8)  # 실물 초록 퍽 BGR (real_colors_1029)
+    assert puck_color(real_green, ["red", "green"], 10)[0] == "green"
+    for h in (64, 71, 77, 85, 90):
+        assert puck_color(roi_h(h), ["red", "green"], 10)[0] == "green", h
+    assert puck_color(roi_h(2), ["red", "green"], 10)[0] == "red"
+    assert puck_color(roi_h(13), ["red", "green"], 10)[0] == "other"   # 주황 컵홀더
+    assert puck_color(roi_h(110), ["red", "green"], 10)[0] == "other"  # 파랑
+
+
+def test_settle_puck_color():
+    """노드 색 확인은 분명히 다른 색일 때만 버림 (11/03) — 애매·어두우면 YOLO 색 · HSV가 다른 퍽 색이면 HSV 색"""
+    import cv2
+    import numpy as np
+    from perception_node import puck_color, settle_puck_color
+
+    def roi_hsv(h, s=200, v=150):
+        return cv2.cvtColor(np.full((20, 20, 3), (h, s, v), np.uint8), cv2.COLOR_HSV2BGR)
+
+    pc = ["red", "green"]
+
+    def settle(roi, model):
+        return settle_puck_color(roi, puck_color(roi, pc, 10)[0], model, pc)
+
+    assert settle(roi_hsv(77), "green") == ("green", "")            # 실물 초록
+    assert settle(roi_hsv(77), "red") == ("green", "")              # YOLO 색과 달라도 HSV 색 (버리지 않음)
+    assert settle(roi_hsv(13), "red")[0] is None                    # 주황 컵홀더 → 다른 색(orange)
+    assert settle(roi_hsv(110), "green")[0] is None                 # 파랑
+    assert settle(roi_hsv(0, 40, 40), "red") == ("red", "")         # 어두워 색 화소 없음 → YOLO 색
+    assert settle(roi_hsv(0, 40, 40), "")[0] is None                # YOLO 색도 없으면 버림
+    assert settle_puck_color(roi_hsv(77), "green", "red", pc, use_model_color=False) == ("green", "")
+
+
 def test_qr_crop():
     """멀리 있는 작은 QR 판(60px)도 박스만 잘라 확대하면 읽힌다 — 전체 화면으로는 못 읽음."""
     import cv2
@@ -329,6 +370,7 @@ def test_remember_out_of_view():
     rclpy.init()
     try:
         node = PerceptionNode()
+        node.long_memory = True  # 긴 기억 규칙 시험 (11/04부터 기본은 끔 — 기억은 통합 쪽)
         puck = {"p": (1.0, 0.0, 0.03)}
         person = {"p": (1.5, 0.3, 0.9), "cls": "person", "color": ""}
         for t in (0.0, 0.1, 0.2):  # 처음 3프레임 — 확인(기억 대상)
@@ -347,6 +389,27 @@ def test_remember_out_of_view():
         rclpy.shutdown()
 
 
+def test_no_long_memory_default():
+    """(11/04) 기본값 long_memory False — 기억은 통합(판단) 쪽이 맡음: 퍽도 사람처럼 2초 넘게 안 보이면 지움
+    · 보이는 동안·잠깐 놓쳤다 다시 보이면(2초 안) 같은 id (짧은 추적은 그대로)"""
+    os.environ.setdefault("ROS_DOMAIN_ID", "101")
+    rclpy.init()
+    try:
+        node = PerceptionNode()
+        assert node.long_memory is False
+        puck = {"p": (1.0, 0.0, 0.03)}
+        for t in (0.0, 0.1, 0.2, 0.3):
+            _step(node, t, _view(0), [puck])
+        first = min(node.tracks)
+        _step(node, 0.8, _view(90), [puck])                     # 잠깐 안 보임 (0.5초)
+        assert _step(node, 1.0, _view(0), [puck]) == [first]     # 2초 안에 다시 → 같은 id
+        for k in range(1, 16):  # 화면 밖 3초
+            _step(node, 1.0 + 0.2 * k, _view(90), [puck])
+        assert _names(node) == []                                # 기억 안 함 → 지움
+    finally:
+        rclpy.shutdown()
+
+
 def test_remember_not_counted():
     """못 봤다고 세지 않는 경우 — 앞이 가려짐(그 자리 깊이가 가까움) · 3m 넘게 멂 · 깊이 없음(너무 가까움) → 계속 기억
     (3프레임 보고 확인한 뒤 3초 — 확인 전이었다면 2초 규칙으로 지워졌을 시간)"""
@@ -356,6 +419,7 @@ def test_remember_not_counted():
     rclpy.init()
     try:
         node = PerceptionNode()
+        node.long_memory = True  # 긴 기억 규칙 시험 (11/04부터 기본은 끔 — 기억은 통합 쪽)
         for p, depth in (((1.0, 0.0, 0.03), np.full((H_T, W_T), 0.5, np.float32)),   # 0.5m 앞에 무언가
                          ((3.5, 0.0, 0.03), None),                                    # 너무 멂
                          ((1.0, 0.0, 0.03), np.zeros((H_T, W_T), np.float32))):       # 깊이 0
@@ -376,6 +440,7 @@ def test_ghost_not_remembered():
     rclpy.init()
     try:
         node = PerceptionNode()
+        node.long_memory = True  # 긴 기억 규칙 시험 (11/04부터 기본은 끔 — 기억은 통합 쪽)
         real = {"p": (1.0, 0.0, 0.03)}
         ghost = {"p": (1.0, 0.6, 0.03)}  # TF가 틀린 한 프레임에만 찍힌 자리
         for t in (0.0, 0.1, 0.2):
@@ -483,7 +548,7 @@ def test_puck_judge_pipeline():
         assert run((300, 200, 318, 236), "red", 1000) == [("puck", "red")]            # 서있음 3×6cm
         assert run((300, 200, 336, 218), "red", 1000) == [("puck_lying", "red")]      # 누움 6×3cm
         assert run((300, 200, 318, 236), "orange", 1000) == []                        # 주황 컵홀더 — 색
-        assert run((300, 200, 318, 236), "red", 1000, cls=3) == []                    # YOLO 파랑 · HSV 빨강
+        assert run((300, 200, 318, 236), "red", 1000, cls=3) == [("puck", "red")]     # YOLO 파랑 · HSV 빨강 → HSV 색 (11/03: 버리지 않음)
         assert run((300, 200, 306, 236), "red", 1000) == []                           # 빨대 1×6cm — 크기
         assert run((300, 100, 400, 300), "red", 1000) == []                           # 16×33cm 판 — 크기
         assert run((250, 150, 400, 400), "red", 0) == []                              # 깊이 없는 근접 퍽 — 위치 모름
@@ -685,6 +750,30 @@ def test_box_tops():
     assert tops == []
 
 
+def test_box_cut_and_arm_mask():
+    """(11/04) 화면 가장자리에 걸친 상자 → box_cut True (노드는 방향을 '모름'으로) · 다 보이는 상자 → False
+    상자 옆에 붙은 자기 그리퍼(같은 높이 작은 덩어리) → mask_px로 그 둘레를 빼면 상자 크기가 원래대로 (안 빼면 커짐)"""
+    import numpy as np
+    from perception_node import box_cut, find_box_tops
+
+    args = (0.0, (0.05, 0.09), 0.17, 1.0, 0.02)
+    d, rot, trans, fx, fy, cx, cy = _box_depth([(1.0, 0.0, 0.205, 0.07, np.radians(20))])   # 화면 가운데 · 다 보임
+    tops = find_box_tops(d, rot, trans, fx, fy, cx, cy, *args, step=2)
+    assert len(tops) == 1 and not box_cut(tops[0], rot, trans, fx, fy, cx, cy, 320, 240, 8)
+    d, rot, trans, fx, fy, cx, cy = _box_depth([(1.0, 0.55, 0.205, 0.07, np.radians(20))])  # 화면 왼쪽 끝에 걸침
+    tops = find_box_tops(d, rot, trans, fx, fy, cx, cy, *args, step=2)
+    assert len(tops) == 1 and box_cut(tops[0], rot, trans, fx, fy, cx, cy, 320, 240, 8)
+
+    grip = (1.0, 0.1025 + 0.03, 0.06, 0.07, 0.0)   # 상자 옆면에 붙은 6 cm 그리퍼 흉내
+    d, rot, trans, fx, fy, cx, cy = _box_depth([(1.0, 0.0, 0.205, 0.07, 0.0), grip])
+    tops = find_box_tops(d, rot, trans, fx, fy, cx, cy, *args, step=2)
+    assert len(tops) == 1 and tops[0][1][0] > 0.28   # 그리퍼까지 합쳐서 커짐 (11/04 로봇 녹화와 같은 문제)
+    q = rot.T @ (np.array([grip[0], grip[1], 0.07]) - trans)   # 팔 투영점 (arm_pixels가 주는 [u, v, r] 모양)
+    arm = np.array([[fx * q[0] / q[2] + cx, fy * q[1] / q[2] + cy, fx * 0.04 / q[2]]])
+    tops = find_box_tops(d, rot, trans, fx, fy, cx, cy, *args, step=2, mask_px=arm)
+    assert len(tops) == 1 and tops[0][1][0] < 0.25   # 팔을 빼면 원래 상자 크기 (격자 여유 포함)
+
+
 def test_box_tracks():
     """상자 검출 → start_box (주기 90) · 장소 태그 붙은 상자 → location_box(tag · 태그 방향 360°를 윗면 방향이 덮지 않음)
     · 같은 자리 start_box는 장소 상자가 생기면 지움 · 태그만 보이면 태그에서 반 변 안쪽"""
@@ -696,6 +785,7 @@ def test_box_tracks():
     rclpy.init()
     try:
         node = PerceptionNode()
+        node.long_memory = True  # 긴 기억 규칙 시험 (11/04부터 기본은 끔 — 기억은 통합 쪽)
         assert list(node.location_box_size) == [0.205, 0.205, 0.07]
         sb = {**_det((1.0, 0.5, 0.07), cls="start_box", color=""), "size": np.array([0.2, 0.2, 0.07]),
               "yaw": 0.3, "yaw_period": np.pi / 2}
@@ -713,5 +803,98 @@ def test_box_tracks():
         node.tracks[a[0]]["hits"] = node.tracks[b[0]]["hits"] = 5  # 여러 번 잡혀 기억하는 상자 (2초 규칙 밖)
         node.prune(3.0, set(c) | {a[0], b[0]}, _view(0.0))
         assert c[0] not in node.tracks and b[0] in node.tracks and a[0] in node.tracks
+    finally:
+        rclpy.shutdown()
+
+
+def test_box_rois():
+    """상자 YOLO 네모(rois) 안의 점만 씀 — 네모가 상자 위면 그대로 찾고 · 다른 곳이면 못 찾음 · 빈 목록이면 상자 없음 (11/04)"""
+    import numpy as np
+    from perception_node import find_box_tops
+
+    d, rot, trans, fx, fy, cx, cy = _box_depth([(1.0, 0.1, 0.205, 0.07, 0.3)])
+    args = (0.0, (0.05, 0.09), 0.17, 1.0, 0.02)
+    full = find_box_tops(d, rot, trans, fx, fy, cx, cy, *args, step=2)
+    assert len(full) == 1
+    c = np.array([1.0, 0.1, 0.07])
+    q = rot.T @ (c - trans)
+    u, v = fx * q[0] / q[2] + cx, fy * q[1] / q[2] + cy
+    on = find_box_tops(d, rot, trans, fx, fy, cx, cy, *args, step=2, rois=[(u - 60, v - 40, u + 60, v + 40)])
+    assert len(on) == 1 and np.linalg.norm(on[0][0] - full[0][0]) < 0.02
+    assert find_box_tops(d, rot, trans, fx, fy, cx, cy, *args, step=2, rois=[(0, 0, 20, 20)]) == []
+    assert find_box_tops(d, rot, trans, fx, fy, cx, cy, *args, step=2, rois=[]) == []
+
+
+def test_capture_dice():
+    """주사위 완성 사진: 장소 상자(tag 13) 윗면을 위에서 보는 카메라 → 정사각형으로 펴서 /mission/dice_image 발행 (11/04 발제)
+    윗면 가운데에 빨간 점을 그려 두면 편 사진의 가운데가 빨강이어야 함 · 없는 태그를 요청하면 발행 안 함"""
+    import cv2
+    import numpy as np
+    from builtin_interfaces.msg import Time
+    from geometry_msgs.msg import TransformStamped
+    from std_msgs.msg import Int32
+
+    os.environ.setdefault("ROS_DOMAIN_ID", "101")
+    rclpy.init()
+    try:
+        node = PerceptionNode()
+        node.long_memory = True  # 긴 기억 규칙 시험 (11/04부터 기본은 끔 — 기억은 통합 쪽)
+        node.dice_px = 200
+        # 그리퍼캠이 상자(가운데 1.0, 0, 윗면 0.07) 바로 위 0.5 m에서 아래를 봄: 광학 z = -추적 z
+        t = TransformStamped()
+        t.header.frame_id, t.child_frame_id = "odom", "gripper_cam_color_optical_frame"
+        t.transform.translation.x, t.transform.translation.z = 1.0, 0.57
+        t.transform.rotation.x, t.transform.rotation.y = 1.0, 0.0  # x축 180° 회전 (아래를 봄)
+        t.transform.rotation.w = 0.0
+        node.tf.set_transform_static(t, "test")
+        img = np.full((480, 640, 3), 90, np.uint8)
+        cv2.circle(img, (320, 240), 12, (0, 0, 255), -1)  # 윗면 가운데 = 화면 가운데
+        node.frames["gripper_cam"] = {"bgr": img, "stamp": Time(), "frame_id": "gripper_cam_color_optical_frame",
+                                      "fx": 600.0, "fy": 600.0, "cx": 320.0, "cy": 240.0}
+        node.tracks[1] = {"class_name": "location_box", "tag": 13, "p": np.array([1.0, 0.0, 0.07]),
+                          "size": np.array([0.205, 0.205, 0.07]), "yaw": 0.0}
+        got = []
+        node.dice_pub.publish = lambda m: got.append(m)
+        node.on_capture_dice(Int32(data=12))   # 없는 태그 → 발행 안 함
+        assert got == []
+        node.on_capture_dice(Int32(data=13))
+        assert len(got) == 1 and got[0].width == 200 and got[0].height == 200
+        top = np.frombuffer(bytes(got[0].data), np.uint8).reshape(200, 200, 3)
+        b, g, r = top[95:105, 95:105].reshape(-1, 3).mean(0)
+        assert r > 200 and b < 60  # 가운데가 빨강
+
+        # (11/04) 폴캠도 상자를 비스듬히(아래로 40°) 다 보고 있을 때 → 더 수직인 그리퍼캠 사진을 골라야 함 (폴캠 화면은 파랑)
+        pitch = np.radians(40.0)
+        fwd = np.array([np.cos(pitch), 0.0, -np.sin(pitch)])           # 광학 z (앞)
+        right = np.array([0.0, -1.0, 0.0])                              # 광학 x (오른쪽)
+        rmat = np.stack([right, np.cross(fwd, right), fwd], -1)         # 열 = 광학 x·y·z 축 (추적 좌표)
+        cam_p = np.array([1.0, 0.0, 0.07]) - fwd * 0.7                  # 상자 가운데를 0.7 m 앞에서 봄
+        qw = np.sqrt(max(1.0 + np.trace(rmat), 1e-12)) / 2
+        qx, qy, qz = ((rmat[2, 1] - rmat[1, 2]) / (4 * qw), (rmat[0, 2] - rmat[2, 0]) / (4 * qw),
+                      (rmat[1, 0] - rmat[0, 1]) / (4 * qw))
+        t2 = TransformStamped()
+        t2.header.frame_id, t2.child_frame_id = "odom", "pole_front_cam_color_optical_frame"
+        t2.transform.translation.x, t2.transform.translation.y, t2.transform.translation.z = (float(v) for v in cam_p)
+        t2.transform.rotation.x, t2.transform.rotation.y, t2.transform.rotation.z, t2.transform.rotation.w = qx, qy, qz, qw
+        node.tf.set_transform_static(t2, "test")
+        node.frames["pole_front_cam"] = {"bgr": np.full((480, 640, 3), (255, 0, 0), np.uint8), "stamp": Time(),
+                                         "frame_id": "pole_front_cam_color_optical_frame",
+                                         "fx": 600.0, "fy": 600.0, "cx": 320.0, "cy": 240.0}
+        got.clear()
+        node.on_capture_dice(Int32(data=13))
+        top = np.frombuffer(bytes(got[0].data), np.uint8).reshape(200, 200, 3)
+        b, g, r = top[95:105, 95:105].reshape(-1, 3).mean(0)
+        assert r > 200 and b < 60  # 그리퍼캠(수직) 사진 — 폴캠(파랑)이 아님
+        del node.frames["gripper_cam"]
+        got.clear()
+        node.on_capture_dice(Int32(data=13))   # 그리퍼캠이 없으면 폴캠 사진
+        top = np.frombuffer(bytes(got[0].data), np.uint8).reshape(200, 200, 3)
+        assert top[95:105, 95:105].reshape(-1, 3).mean(0)[0] > 200
+
+        # (11/04) 긴 기억을 끄면(기본) 요청한 태그 상자 트랙이 없어도 지금 보이는 가장 가까운 상자로 찍음
+        node.long_memory = False
+        got.clear()
+        node.on_capture_dice(Int32(data=12))
+        assert len(got) == 1
     finally:
         rclpy.shutdown()

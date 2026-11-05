@@ -183,7 +183,7 @@ controller_server:
 # ═════════════════════════════════════════════════════════════════════════════
 
 # ─────────────────────────────────────────────────────────────────────────────
-# planner_server — map 위 전역 경로(/plan). 미로 칸 단위라 NavFn(Dijkstra)이면 충분.
+# planner_server — map 위 전역 경로(/plan). NavFn A* (use_astar) — 목표 쪽으로 거리 추정을 더해 Dijkstra보다 덜 펼쳐 찾음.
 #   이름 GridBased = 기본 BT(navigate_to_pose_w_replanning_and_recovery)가 부르는 planner_id
 # ─────────────────────────────────────────────────────────────────────────────
 planner_server:
@@ -194,7 +194,7 @@ planner_server:
       plugin: "nav2_navfn_planner::NavfnPlanner"
       # 목표가 벽·팽창 영역 안이면 이 거리(m)까지 가까운 빈 곳으로 대신 감 (퍽 앞 접근 자세가 벽에 붙을 때)
       tolerance: 0.20
-      use_astar: false
+      use_astar: true        # A* (false = Dijkstra). 둘 다 최단 경로 — A*는 탐색 칸이 적어 계획이 빠름
       allow_unknown: true
 
 

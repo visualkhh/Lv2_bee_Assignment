@@ -1,30 +1,30 @@
-# 4 팔·MoveIt — coordinator skill 정의
+# 4 팔·MoveIt — skill 정의 (skill 노드)
 
-coordinator가 실행하는 skill(`SubGoal.skill` 한 단계)의 정의입니다. 구현은 [coordinator.cpp](../../../lv2_module6/ros2_ws/src/plan/src/coordinator.cpp)(세우기 경유점은 [stand_plan.cpp](../../../lv2_module6/ros2_ws/src/plan/src/stand_plan.cpp))이고, 아직 없는 것은 **(예정)**으로 표시했습니다.
+coordinator가 계획 단계(`SubGoal.skill`)를 skill 노드에 맡기고, skill 노드가 실행합니다 (2026-11-04 skill마다 노드 하나로 나눔). 구현은 [skills 패키지](../../../lv2_module6/ros2_ws/src/skills/) — 액션 `/skills/<skill>` · 노드 skill_<skill> · 팔 공통 [arm_io.cpp](../../../lv2_module6/ros2_ws/src/skills/src/arm_io.cpp) · 세우기 경유점 [stand_plan.cpp](../../../lv2_module6/ros2_ws/src/skills/src/stand_plan.cpp). 순서·적재함 장부는 [coordinator.cpp](../../../lv2_module6/ros2_ws/src/plan/src/coordinator.cpp). 학습 정책은 skill마다 `model/skills/<skill>/` ([API.md 3장](../../API.md#3-액션-목록)).
 
 근거:
 - 팀원 팔 스펙 (2026-11-02): 자세 stow·carry, skill 6개, reset_sag, 성공 판정
-- 적재함 자세표: [plan/config/basket.yaml](../../../lv2_module6/ros2_ws/src/plan/config/basket.yaml). feature/isaac-lab의 `isaac/lab/slot_table.yaml` 값을 옮긴 것으로, 원본은 `slot_table.py`가 URDF로 오프라인 계산합니다.
+- 적재함 자세표: [skills/params/basket.yaml](../../../lv2_module6/ros2_ws/src/skills/params/basket.yaml). feature/isaac-lab의 `isaac/lab/slot_table.yaml` 값을 옮긴 것으로, 원본은 `slot_table.py`가 URDF로 오프라인 계산합니다.
 - 인지 출력: [API.md TrackedObject](../../API.md#api-msg-trackedobject) (PR #45 — 퍽 `shape`·`yaw`, `location_box`·`start_box`)
 
 ## 한눈에 보기
 
 skill은 coordinator가 실행하는 `SubGoal` 한 단계입니다. 세 부분으로 나뉩니다.
-- **skill을 조합해 보내는 쪽**: 미션 흐름(mission_manager — 3번 작업), vlm_task_planner, ai-service
+- **skill을 조합해 보내는 쪽**: 미션 흐름(mission_manager — [03-plan.md](03-plan.md)), vlm_task_planner, ai-service
 - **skill을 실행하는 coordinator**: 이 문서의 대상
 - **skill이 읽는 값**: 인지, 적재함 표, 그리퍼 상태
 
 ```mermaid
 flowchart LR
   subgraph CALLER["① 계획을 보내는 쪽 — 단계를 다 적어 보냄"]
-    MM["mission_manager<br/>미션 흐름 (3번 작업 · 예정)"]
+    MM["mission_manager<br/>주사위 미션 흐름 (03-plan.md)"]
     VLM["vlm_task_planner<br/>일반 명령 · 템플릿"]
     AIS["ai-service<br/>VLM · 사람 화면"]
   end
   subgraph CO["② coordinator — skill 실행 (05-arm.md)"]
     direction TB
     subgraph KEEP["그대로 (이번 PR 변경 없음)"]
-      NAV["navigate"]
+      NAV["navigate · approach"]
       INS["inspect"]
       SAY["say"]
     end
@@ -38,7 +38,7 @@ flowchart LR
     end
   end
   subgraph EXE["③ 실행"]
-    NAV2["Nav2<br/>NavFn(Dijkstra) · DWB"]
+    NAV2["Nav2<br/>NavFn(A*) · DWB"]
     MG["MoveIt move_group"]
     JTC["arm_controller (JTC)"]
     RL["rl_arm_correction"]
@@ -120,14 +120,15 @@ carry 방향은 **칸이 정합니다**. basket.yaml `basket_carry`에서 칸 0�
 
 | skill | target | 하는 일 | 끝 자세 |
 |---|---|---|---|
-| `navigate` | 물체 id · `"x,y"` | Nav2로 이동 (`relation front`와 `offset_m`을 주면 물체 앞으로) | — |
-| `inspect` | 퍽 id | 손끝을 퍽 윗면 `inspect_height_m`(0.15m) 위로 옮겨 gripper_cam이 16mm 태그를 읽게 함. 집지 않음 | 그 자리 |
+| `navigate` | 물체 id · `"x,y[,yaw]"` | Nav2로 이동 (`relation front`와 `offset_m`을 주면 물체 앞으로, 좌표면 그 자세로) | — |
+| `approach` | `"x,y,yaw"` (map) | 박스 앞 마지막 몇 cm를 `/cmd_vel_nav`로 저속 직선. 목표 뒤 `approach_pre_m` 자리에서 돌고 직선으로 들어감 (박스 바로 앞 제자리 회전 안 함). 4초 동안 진행 없으면 `approach_blocked` | — |
+| `inspect` | 퍽 id · `"x,y,z"` | 손끝을 퍽 윗면(또는 그 점) `inspect_height_m`(0.15m) 위로 옮겨 gripper_cam이 16mm 태그를 읽게 함. 좌표면 손 방향 = 로봇 → 점. 집지 않음 | 그 자리 |
 | `say` | 말할 내용 | `/robot/say` | — |
-| `pose` | `stow` · `carry_left` · `carry_right` | 이름 있는 관절 자세로 이동 | 그 자세 |
+| `pose` | `stow` · `carry_left` · `carry_right` · `scan` | 이름 있는 관절 자세로 이동 | 그 자세 |
 | `pick` | 퍽 id | 위에서 집기: 접근 → 벌림 → 내려감 → 닫기 → **잡기 판정** → 들어올림. 파지 후보는 grasp_scorer가 냄 | 들어올린 자리 |
 | `load` | 칸 `0`~`11` · `next` | 손에 든 퍽을 적재함 칸에 싣기: **carry(칸 방향) → q_over → q_low → 벌림 → q_lift → stow** | `stow` |
 | `unload` | 칸 `0`~`11` · `last` | 적재함 칸의 퍽 꺼내기: **carry(칸 방향) → 벌림 → q_over → q_grasp → 닫기 → 잡기 판정 → q_over → carry** | `carry_<칸 방향>` |
-| `place` | `location_box` id (다른 물체도 됨) | 손에 든 퍽을 상자 윗면에 놓기 ([4절](#place--상자-값)) | 상자 위 |
+| `place` | `location_box` id (다른 물체도 됨) · `"x,y,z"` | 손에 든 퍽을 상자 윗면에 놓기 ([4절](#place--상자-값)). 좌표면 **손 안 퍽 바닥이 z**가 되게: 위 `place_approach_m` → 내려가 `place_release_m`에서 벌림 → 다시 위 (주사위 칸) | 상자 위 · 그 점 위 |
 | `stand` | 퍽 id (`puck_lying`) | 누운 퍽을 세워 놓음 — 먼 끝을 가볍게(0.4N) 쥐고 가까운 아래 모서리를 축으로 돌려 세운 뒤 벌리고 위로 (팀원 `right_env` tilt 방식). 경유점 `stand_waypoints`: `ik`(기본) · `table` | 있음 ([6-1](#6-1-세우기--stand--stand_pick)) |
 | `stand_pick` | 아무 값 (직전 `stand`의 퍽 — 기록용으로 퍽 id) | 세운 퍽을 다시 집기 — 직전 `stand` 계획의 같은 손목으로 선 퍽 위 → 바로 아래로 → 제 힘으로 쥐고 잡기 판정 → 들어올림. 성공하면 그 퍽(tag·색·모양)을 손에 든 것으로 장부에 | 있음 |
 
@@ -163,7 +164,7 @@ flowchart LR
 ## 4. skill 안에서 쓰는 값
 
 ### 시작할 때: 처짐 보정 초기화
-팔 skill(`pick`, `place`, `load`, `unload`)을 **시작할 때 한 번** `/rl_arm_correction/reset_sag`(std_srvs/Trigger)를 부릅니다. skill 중간에는 부르지 않습니다. 다가가기(`approach`)가 끝나고 팔이 움직이기 직전에 부릅니다.
+팔 skill(`pick`, `place`, `load`, `unload`)을 **시작할 때 한 번** `/rl_arm_correction/reset_sag`(std_srvs/Trigger)를 부릅니다. skill 중간에는 부르지 않습니다. 팔이 안 닿아 먼저 다가가는 이동이 끝나고, 팔이 움직이기 직전에 부릅니다.
 - 서비스가 없으면 WARN을 한 번 남기고 계속합니다. 지금 develop에는 없고 feature/isaac-lab에만 있습니다.
 - `stand`도 시작할 때 부릅니다. **`stand_pick`은 부르지 않습니다** — 세운 직후 보정을 0으로 되돌리면 손이 처진 만큼 떨어지기 때문입니다(팀원 `stand_dummy.py`). 같은 손목으로 이어 갑니다.
 
@@ -212,7 +213,7 @@ flowchart LR
 |---|---|
 | `invalid_plan:<이유>` | 계획 검증 실패. 모르는 skill, 모르는 자세 이름(`pose <이름>`), 없는 물체 id |
 | `arm_unavailable` · `pick_unavailable` · `nav_unavailable` | MoveIt·그리퍼·grasp_scorer·Nav2 서버가 `server_wait_s` 안에 안 뜸 |
-| `nav_failed` · `approach_failed` | 이동·다가가기 실패 |
+| `nav_failed` · `nav_bad_target` · `approach_failed` · `approach_blocked` · `approach_bad_target` · `approach_no_tf` | 이동·다가가기 실패 · 좌표 형식 오류 · 직선 접근이 막힘 · 로봇 위치 모름 |
 | `no_grasp` · `grasp_failed_all` · `grasp_empty` · `arm_contact` | 파지 후보 없음 · 후보 다 실패 · 닫았는데 빈손 · 팔 접촉 |
 | `pose_failed` | 그 자세로 못 감 |
 | `slot_invalid` · `slot_full` · `slot_empty` | 칸 번호가 0~11 밖 · `load` 칸이 차 있음(`next`면 다 참) · `unload` 칸이 빔(`last`면 실린 게 없음) |
@@ -300,10 +301,10 @@ flowchart TB
    - 값: 관절 경유점 W×5 (위 → 시작 → 호 … → 내려놓기 → 위로 → 다시 잡기 2개) + 경유점마다 손끝 위치 오차 → 관절 보정 행렬 P(5×3)
    - 전제: 로봇이 시작 박스 앞 정해진 자리에 섬 (`right_env` dock: 박스 중심이 로봇 앞 0.08m + 박스 반 변)
 2. **coordinator에서 쓰는 법**: 인지한 퍽 축 방향에 가장 가까운 방향 칸 → 옆 위치로 보간 → 남은 위치 오차는 `q = q_nom + P·Δp`로 보정 → 구간을 [호 올라가기 · 멈춤 · 되돌려 놓기]로 묶어 사다리꼴 속도(호 속도 배율 0.5)로 시간을 매김 → ExecuteTrajectory.
-3. **파일**: `plan/config/stand_table.yaml` (bringup이 coordinator에 넘김, 1.25MB). `plan/scripts/stand_table_export.py`가 팀원 `right_env.plan_waypoints`·`ArmIK`를 **소스에서 그대로 불러** 같은 표를 만듭니다(Isaac Lab 없이 numpy + pinocchio). 지금 파일은 feature/isaac-lab `7f8ae2c`로 만들었고, `right_env` 값이 바뀌면 다시 만듭니다.
+3. **파일**: `skills/params/stand_table.yaml` (skills.launch.py가 skill_stand에 넘김, 1.25MB). `skills/scripts/stand_table_export.py`가 팀원 `right_env.plan_waypoints`·`ArmIK`를 **소스에서 그대로 불러** 같은 표를 만듭니다(Isaac Lab 없이 numpy + pinocchio). 지금 파일은 feature/isaac-lab `7f8ae2c`로 만들었고, `right_env` 값이 바뀌면 다시 만듭니다.
 
    ```bash
-   python3 plan/scripts/stand_table_export.py <feature/isaac-lab의 lv2_module6/isaac/lab> --source "feature/isaac-lab <커밋>" --out plan/config/stand_table.yaml
+   python3 skills/scripts/stand_table_export.py <feature/isaac-lab의 lv2_module6/isaac/lab> --source "feature/isaac-lab <커밋>" --out skills/params/stand_table.yaml
    ```
 4. **팀원에게 확인할 것**: 세우기 성공률(보정 켬/끔), dock 자세 오차 허용 범위.
 
@@ -311,7 +312,7 @@ flowchart TB
 
 | | 내용 |
 |---|---|
-| 경유점 | [stand_plan.hpp](../../../lv2_module6/ros2_ws/src/plan/include/plan/stand_plan.hpp) — `right_env` tilt 계획을 C++로 옮김 (위 · 시작 · 호 17 · 멈춤 · 되돌림 4 · 놓기 · 위로 · 다시 잡기 2 = 27개) |
+| 경유점 | [stand_plan.hpp](../../../lv2_module6/ros2_ws/src/skills/include/skills/stand_plan.hpp) — `right_env` tilt 계획을 C++로 옮김 (위 · 시작 · 호 17 · 멈춤 · 되돌림 4 · 놓기 · 위로 · 다시 잡기 2 = 27개) |
 | B (`ik`, 기본) | 손이 바로 아래·닫는 축이 퍽 축과 직각이면 5축 팔은 **해석해**가 있음: joint1 = 손목 방향, joint2·3 = 팔 평면 2링크, joint4 = π/2 − joint2 − joint3, joint5 = 닫는 축 방향. FK는 URDF 그대로 (pinocchio와 5e-10 m 일치) |
 | A (`table`) | 가까운 방향 칸(5°) · 가까운 옆 칸 → `q = q_nom + P·(x − box_cx, y − yc, 0)` (`right_env._reset_idx` 그대로) |
 | 대조 (로컬) | B 경유점 = 팀원 `plan_waypoints` (수치 IK) 관절값과 최대 0.0025 rad 차이 (팀원 쪽 수렴 허용치 2e-3 rad). A 표 → 손끝: 격자점 0.2 mm · 격자 사이 평균 2.1 mm · 최대 6.5 mm (방향 5° 칸 포함) — B는 0 |

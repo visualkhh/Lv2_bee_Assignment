@@ -25,6 +25,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   msg/TrackedObject.msg
   msg/TrackedObjectArray.msg
   msg/MissionSignal.msg
+  msg/HandTarget.msg
+  msg/HandRelative.msg
   DEPENDENCIES std_msgs builtin_interfaces geometry_msgs diagnostic_msgs)
 rosidl_get_typesupport_target(msgs_cpp ${PROJECT_NAME} rosidl_typesupport_cpp)  # 같은 패키지 메시지를 C++ 노드가 씀
 
@@ -46,6 +48,9 @@ install(TARGETS body_filter signal_decoder DESTINATION lib/${PROJECT_NAME})
 install(PROGRAMS scripts/perception_node.py
   DESTINATION lib/${PROJECT_NAME}
   RENAME perception_node)
+# 손 카메라 상대값 (Python, scripts/hand_relative.py + 계산 모듈 hand_geom.py를 같은 폴더에)
+install(PROGRAMS scripts/hand_relative.py DESTINATION lib/${PROJECT_NAME} RENAME hand_relative)
+install(FILES scripts/hand_geom.py DESTINATION lib/${PROJECT_NAME})
 
 # 파라미터 (bringup이 share/perception/config/perception.yaml을 노드에 넘긴다)
 install(DIRECTORY config DESTINATION share/${PROJECT_NAME})
@@ -66,6 +71,7 @@ endif()
 if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
   ament_add_pytest_test(test_node test/test_node.py TIMEOUT 120 ENV ROS_DOMAIN_ID=101)
+  ament_add_pytest_test(test_hand_relative test/test_hand_relative.py TIMEOUT 60)
   find_package(ament_cmake_gtest REQUIRED)
   ament_add_gtest(test_body_filter test/test_body_filter.cpp TIMEOUT 60 ENV ROS_DOMAIN_ID=108)
   target_link_libraries(test_body_filter ${PROJECT_NAME}_nodes)
