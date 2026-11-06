@@ -24,6 +24,11 @@ nvblox_node:
     publish_layer_rate_hz: 2.0
     # 경기장(약 4.4 × 6.3 m)을 통째로 기억 — 멀어져도 지우지 않음
     map_clearing_radius_m: -1.0
+    # TSDF 감쇠 끔 — nvblox 기본은 5 Hz로 안 보이는 복셀 무게에 0.95를 곱해(static_mapper.tsdf_decay_factor) 지나온 곳이
+    #   몇 초 뒤 '모름'으로 돌아감 (11-06 트윈: 탐사한 곳이 지도에서 사라져 같은 곳을 다시 감 · 저장 지도도 불러온 뒤 사라짐).
+    #   감쇠 주기를 0으로 (tsdf_decay_factor는 1.0 미만만 받음 — 1.0이면 nvblox가 시작하다 죽음)
+    #   경기장은 정적 — 움직이는 사람·로봇은 Nav2 local costmap · collision_monitor가 맡음
+    decay_tsdf_rate_hz: 0.0
     map_clearing_frame_id: "base_footprint"
     esdf_slice_bounds_visualization_attachment_frame_id: "base_footprint"
     workspace_height_bounds_visualization_attachment_frame_id: "base_footprint"
