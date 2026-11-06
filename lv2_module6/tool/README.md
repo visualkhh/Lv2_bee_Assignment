@@ -316,6 +316,25 @@ export FASTDDS_DEFAULT_PROFILES_FILE=/path/to/ros2_ws/fastdds.xml
 느리면 RViz Image Display의 **Transport Hint**를 `compressed`로 바꾸거나
 Jetson에서 `tool/run-rviz`를 실행하세요.
 
+## Foxglove (아이패드 등 원격 모니터링)
+
+RViz는 PC·Jetson에 붙어야 하지만, 아이패드 같은 태블릿에서 실기를 바로 보고 조작하려면
+[Foxglove Studio](https://foxglove.dev/)(앱 또는 웹)가 더 간단합니다. WebSocket 하나로 붙고,
+카메라 2대·3D 지도·진단·관절 그래프를 한 화면에 배치해 저장해 둘 수 있습니다.
+
+```bash
+./start.sh use_foxglove:=true                 # 기본 포트 8765 (ws://<로봇 IP>:8765)
+./start.sh use_foxglove:=true foxglove_port:=8766   # 포트를 바꿀 때
+```
+
+- 설치(실기 PC·Jetson): `sudo apt-get install ros-lyrical-foxglove-bridge`
+- 아이패드: Foxglove 앱(App Store) 또는 Safari에서 https://studio.foxglove.dev 접속 → **Open connection** → `ws://<로봇 IP>:8765` 입력.
+  Jetson 기본 DDS는 `fastdds_local_only.xml`(SHM만)이라 외부로 새지 않지만, foxglove_bridge는 별도 TCP 포트라
+  같은 WiFi에만 있으면 DDS 설정과 무관하게 붙습니다 (RViz 원격 보기처럼 `fastdds.xml`로 바꿀 필요 없음).
+- RViz와 달리 터치로 2D/3D 뷰를 돌리고, Panel 레이아웃을 저장해 다음에 바로 불러올 수 있습니다.
+  `ros2 topic pub`·`ros2 param set` 대신 Foxglove의 **Parameters**·**Publish** 패널로 바로 값을 바꾸고 명령을 보낼 수도 있습니다.
+- 점구름·카메라는 Best Effort라 RViz와 마찬가지로 네트워크를 많이 씁니다. 느리면 Panel에서 해상도 낮은 토픽만 켜세요.
+
 ## 안전 규칙
 
 - 수동 주행·팔·그리퍼는 `MANUAL` 모드에서만 동작합니다.

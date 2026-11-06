@@ -21,6 +21,7 @@
   <exec_depend>manager</exec_depend>
   <exec_depend>nav2_map_server</exec_depend>
   <exec_depend>nav2_lifecycle_manager</exec_depend>
+  <exec_depend>foxglove_bridge</exec_depend>  <!-- use_foxglove:=true — 아이패드 등 원격 모니터링 (ros-lyrical-foxglove-bridge, 실기 PC에만 설치해도 됨) -->
 
   <test_depend>ament_cmake_test</test_depend>
 

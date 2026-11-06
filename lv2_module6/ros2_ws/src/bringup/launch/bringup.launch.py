@@ -4,6 +4,7 @@
   ros2 launch bringup bringup.launch.py use_ros_system:=false            # 📦 대신 faker 등 다른 입력 (faker.launch.py가 씀)
   ros2 launch bringup bringup.launch.py learning_enabled:=false           # 학습 노드 Δ=0 · 프리셋 A 고정 (비교 기준)
   ros2 launch bringup bringup.launch.py command:="빨간 퍽을 목표 구역으로 옮겨"   # user_input에 텍스트 명령 한 번
+  ros2 launch bringup bringup.launch.py use_foxglove:=true               # 아이패드 등에서 Foxglove Studio로 원격 모니터링 (기본 포트 8765)
 지도 (실기·테스트베드 공통 — 지도 한 벌 = 폴더 하나 <map_dir>/<map_name>/ nvblox.nvblx · map.pgm · map.yaml):
   ros2 launch bringup bringup.launch.py map:=slam                 # 매핑: 새 폴더 <날짜_시각>/ (map_name:=으로 이름 지정, 있는 이름이면 거부)
   ros2 launch bringup bringup.launch.py map:=saved                # 위치추정: 가장 최근 폴더 (기본)
@@ -146,6 +147,10 @@ def generate_launch_description():
                               description='지도 폴더들이 있는 곳 — <map_dir>/<map_name>/nvblox.nvblx (비면 ~/.ros/beebot_maps)'),
         DeclareLaunchArgument('map_name', default_value='',
                               description='지도 폴더 이름 — slam: 비우면 날짜_시각으로 새로 · saved: 비우면 가장 최근'),
+        DeclareLaunchArgument('use_foxglove', default_value='false',
+                              description='true면 foxglove_bridge를 띄워 Foxglove Studio(아이패드·웹 포함)로 원격 모니터링·조작'),
+        DeclareLaunchArgument('foxglove_port', default_value='8765',
+                              description='foxglove_bridge WebSocket 포트 (Foxglove Studio 접속: ws://<로봇 IP>:<이 포트>)'),
         *[DeclareLaunchArgument(k, default_value=v, description=d) for k, (v, d) in ROS_SYSTEM_ARGS.items()],
         OpaqueFunction(function=setup_map),
 
@@ -196,4 +201,9 @@ def generate_launch_description():
                                           'restart_log': ParameterValue(LaunchConfiguration('restart_log'), value_type=str)}),
         Node(package='diagnostic_aggregator', executable='aggregator_node', output='screen',
              parameters=[PathJoinSubstitution([FindPackageShare('bringup'), 'config', 'diagnostics.yaml'])]),
+        # 아이패드 등 Foxglove Studio(ws://<로봇 IP>:<foxglove_port>)로 원격 모니터링·조작. use_foxglove:=true로 켬
+        Node(package='foxglove_bridge', executable='foxglove_bridge', output='screen',
+             parameters=[{'port': LaunchConfiguration('foxglove_port'), 'address': '0.0.0.0',
+                          'send_buffer_limit': 100_000_000}],
+             condition=IfCondition(LaunchConfiguration('use_foxglove'))),
     ])
