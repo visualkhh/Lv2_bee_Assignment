@@ -54,6 +54,25 @@ bool interrupted(const std::string & why) {
 SubGoal stow() { return SubGoal().set__skill("pose").set__target("stow"); }
 }  // namespace
 
+const perception::msg::TrackedObject * puck_for(const perception::msg::TrackedObjectArray * objs, int tag,
+                                                const double * spot_xy, double radius) {
+  if (!objs) return nullptr;
+  const perception::msg::TrackedObject * best = nullptr;
+  for (const auto & o : objs->objects)
+    if (is_puck(o) && detail(o, "tag") == str(tag) &&
+        (!best || rclcpp::Time(o.last_seen, RCL_ROS_TIME) > rclcpp::Time(best->last_seen, RCL_ROS_TIME))) best = &o;
+  if (best || !spot_xy) return best;
+  double best_d = radius;
+  for (const auto & o : objs->objects) {
+    if (!is_puck(o)) continue;
+    const std::string t = detail(o, "tag");
+    if (!t.empty() && t != str(tag)) continue;
+    const double d = std::hypot(o.pose.pose.position.x - spot_xy[0], o.pose.pose.position.y - spot_xy[1]);
+    if (d < best_d) { best_d = d; best = &o; }
+  }
+  return best;
+}
+
 MissionManager::MissionManager()
 : rclcpp::Node("mission_manager") {
   const auto sp = declare_parameter<std::vector<double>>("start_pose_arena", {0.734, 0.950, M_PI});
@@ -303,7 +322,7 @@ void MissionManager::survey(size_t b) {
     run_retry(goals, [this, b, box](bool ok2, const std::string & why2) {
       if (!ok2) RCLCPP_WARN(get_logger(), "시작 박스 %zu inspect 실패 (%s) — 본 것만", b + 1, why2.c_str());
       snap("box" + str(static_cast<int>(b) + 1));
-      std::vector<std::pair<int, uint32_t>> found;
+      std::vector<int> found;
       for (double dx : puck_dx_) {  // 그 자리(map)에서 match_radius 안 퍽 중 tag를 읽은 것
         const auto m = to_map(box.x + dx, box.y);
         const TrackedObject * best = nullptr;
@@ -319,7 +338,7 @@ void MissionManager::survey(size_t b) {
         pucks_.push_back({tag, best->color, detail(*best, "shape")});
         puck_at_[tag] = {b, dx};
         if (is_lying(*best)) lying_.insert(tag);  // 실을 때 세워서 집음 (stand → stand_pick)
-        found.push_back({tag, best->id});
+        found.push_back(tag);
         RCLCPP_INFO(get_logger(), "퍽 %d: %s %s (박스 %zu)", tag, best->color.c_str(), detail(*best, "shape").c_str(), b + 1);
       }
       publish_state();
@@ -328,14 +347,13 @@ void MissionManager::survey(size_t b) {
   });
 }
 
-void MissionManager::load(size_t b, std::vector<std::pair<int, uint32_t>> found, size_t k) {
+void MissionManager::load(size_t b, std::vector<int> found, size_t k) {
   if (k >= found.size()) { survey(b + 1); return; }
   if (!basket_has_room()) { load(b, found, found.size()); return; }  // 꽉 참 — 나머지는 BUILD 때 시작 박스에서 직접
-  const int tag = found[k].first;
-  const uint32_t id = found[k].second;
+  const int tag = found[k];
   note("퍽 " + str(tag) + " → 적재함 (load next)");
   // 칸은 coordinator가 고르고 장부에 tag까지 적음 (pick 때 그 퍽의 tag·색·모양을 기억해 둠)
-  grab(tag, id, [this, b, found, k, tag](bool ok, const std::string & why) {
+  grab(tag, [this, b, found, k, tag](bool ok, const std::string & why) {
     if (!ok) { result("puck " + str(tag) + ": load_pick_failed " + why + " (직접 운반)"); load(b, found, k + 1); return; }
     run_retry({SubGoal().set__skill("load").set__target("next")}, [this, b, found, k, tag](bool ok2, const std::string & why2) {
       if (ok2) { load(b, found, k + 1); return; }
@@ -423,10 +441,7 @@ void MissionManager::bring(size_t i) {
   const Box box = start_boxes_[b];
   go_near(box, box.x + dx, box.y, [this, i, job, tx, ty, skip](bool ok, const std::string & why) {
     if (!ok) { skip("puck_approach_failed " + why); return; }
-    const TrackedObject * o = find_puck(job.tag);  // 집는 순간의 트랙 id — 퍽은 tag로 찾는다
-    if (!o) { skip("puck_lost"); return; }
-    if (is_lying(*o)) lying_.insert(job.tag);  // 조사 뒤에 넘어진 퍽도 세워서
-    grab(job.tag, o->id, [this, i, job, tx, ty, skip](bool ok2, const std::string & why2) {
+    grab(job.tag, [this, i, job, tx, ty, skip](bool ok2, const std::string & why2) {
       if (!ok2) { skip("pick_failed " + why2); return; }
       go_near(loc_boxes_[job.loc], tx, ty, [this, i, job, skip](bool ok3, const std::string & why3) {
         if (ok3) { correct(job.loc); place_check(i, 0); return; }
@@ -793,20 +808,41 @@ const perception::msg::TrackedObject * MissionManager::puck_near(double mx, doub
 }
 
 // ---------- 집기 · 세우기
-void MissionManager::grab(int tag, uint32_t id, Done done) {
-  if (!lying_.count(tag)) { run_retry({SubGoal().set__skill("pick").set__target(std::to_string(id))}, done); return; }
-  const TrackedObject * o = find_puck(tag);
-  if (!o && objects_) for (const auto & x : objects_->objects) if (x.id == id) o = &x;
-  if (!o) { done(false, "puck_lost"); return; }
-  if (!is_lying(*o)) {  // 그새 서 있음 (다른 각도에서 다시 봄) — 그냥 집기
+void MissionManager::grab(int tag, Done done, int tries) {
+  locate(tag, [this, tag, done, tries](const TrackedObject * o) {
+    if (!o) { done(false, "puck_lost"); return; }
+    if (is_lying(*o)) {  // 누움 (조사 뒤에 넘어진 퍽도) — 세워서 쥠 (stand_up 안에 다시 시도가 있음)
+      lying_.insert(tag);
+      stand_up(o->id, o->pose.pose.position.x, o->pose.pose.position.y, 0, [this, tag, done](bool ok, const std::string & why) {
+        if (ok) lying_.erase(tag);
+        done(ok, why);
+      });
+      return;
+    }
     lying_.erase(tag);
-    run_retry({SubGoal().set__skill("pick").set__target(std::to_string(o->id))}, done);
-    return;
-  }
-  stand_up(o->id, o->pose.pose.position.x, o->pose.pose.position.y, 0, [this, tag, done](bool ok, const std::string & why) {
-    if (ok) lying_.erase(tag);
-    done(ok, why);
+    run({SubGoal().set__skill("pick").set__target(std::to_string(o->id))}, [this, tag, done, tries](bool ok, const std::string & why) {
+      if (ok || tries >= retries_ || interrupted(why)) { done(ok, why); return; }
+      RCLCPP_WARN(get_logger(), "퍽 %d pick 실패 (%s) — 다시 찾아서 (%d/%d)", tag, why.c_str(), tries + 1, retries_);
+      grab(tag, done, tries + 1);  // 트랙 id가 바뀌었을 수 있음 — 다시 찾음
+    });
   });
+}
+
+void MissionManager::locate(int tag, std::function<void(const TrackedObject *)> cb) {
+  const auto at = puck_at_.find(tag);
+  if (at == puck_at_.end()) { cb(puck_for(objects_.get(), tag, nullptr, match_radius_)); return; }
+  const Box & box = start_boxes_[at->second.first];
+  const double ax = box.x + at->second.second, ay = box.y;
+  const auto m = to_map(ax, ay);
+  const double spot[2] = {m.x, m.y};
+  if (const auto * o = puck_for(objects_.get(), tag, spot, match_radius_)) { cb(o); return; }
+  // 안 보인 지 2초 넘어 인지 목록에서 빠짐 — 그 자리를 다시 봄
+  note("퍽 " + str(tag) + " 다시 보기 (인지 목록에 없음)");
+  run({SubGoal().set__skill("inspect").set__target(point(ax, ay, box_top_z_ + puck_h_))},
+      [this, tag, mx = m.x, my = m.y, cb](bool, const std::string &) {
+        const double spot2[2] = {mx, my};
+        cb(puck_for(objects_.get(), tag, spot2, match_radius_));
+      });
 }
 
 void MissionManager::stand_up(uint32_t id, double mx, double my, int tries, Done done) {
@@ -827,14 +863,6 @@ void MissionManager::stand_up(uint32_t id, double mx, double my, int tries, Done
       run({SubGoal().set__skill("stand_pick").set__target("last")}, done);
     });
   });
-}
-
-const perception::msg::TrackedObject * MissionManager::find_puck(int tag) const {
-  const TrackedObject * best = nullptr;
-  if (objects_) for (const auto & o : objects_->objects)
-    if (is_puck(o) && detail(o, "tag") == str(tag) &&
-        (!best || rclcpp::Time(o.last_seen, RCL_ROS_TIME) > rclcpp::Time(best->last_seen, RCL_ROS_TIME))) best = &o;
-  return best;
 }
 
 // ---------- 좌표
