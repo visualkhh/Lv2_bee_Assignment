@@ -72,6 +72,8 @@ if(BUILD_TESTING)
   target_link_libraries(test_explorer ${PROJECT_NAME}_nodes)
   ament_add_gtest(test_mission_solver test/test_mission_solver.cpp TIMEOUT 60)
   target_link_libraries(test_mission_solver ${PROJECT_NAME}_nodes)
+  ament_add_gtest(test_mission_memory test/test_mission_memory.cpp TIMEOUT 60)
+  target_link_libraries(test_mission_memory ${PROJECT_NAME}_nodes)
   ament_add_gtest(test_plan_next test/test_plan_next.cpp TIMEOUT 60)
   target_link_libraries(test_plan_next ${PROJECT_NAME}_nodes)
   target_compile_definitions(test_plan_next PRIVATE MODEL_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../model"

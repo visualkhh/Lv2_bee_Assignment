@@ -56,6 +56,12 @@ using plan::msg::TaskStatus;
 
 struct Box { double x, y, half; };  // arena [m] — 정사각 박스 (윗면 = box_top_z)
 
+// 집을 퍽 트랙 고르기 — 인지는 안 보이는 물체를 2초 뒤 지우므로(long_memory: false) 퍽은 tag로 기억하고 집기 직전에 다시 찾는다.
+//   ① tag를 읽은 퍽 중 가장 최근에 본 것 ② (spot이 있으면) 그 map 점에서 radius 안 가장 가까운 퍽 — tag를 못 읽었거나 같은 tag인 것만
+//   (다른 tag를 읽은 퍽은 고르지 않음). 없으면 nullptr
+const perception::msg::TrackedObject * puck_for(const perception::msg::TrackedObjectArray * objs, int tag,
+                                                const double * spot_xy, double radius);
+
 class MissionManager : public rclcpp::Node {
 public:
   MissionManager();
@@ -82,7 +88,7 @@ private:
   void barcode_phase();
   void read_phase();
   void survey(size_t box);
-  void load(size_t box, std::vector<std::pair<int, uint32_t>> found, size_t k);  // 찾은 퍽 (tag, 트랙 id)을 적재함에
+  void load(size_t box, std::vector<int> found, size_t k);  // 찾은 퍽(tag)을 적재함에 — 트랙 id는 집기 직전에 다시 찾음
   void solve_allocation();
   void build(size_t i);
   void bring(size_t i);                          // 그 퍽을 장소 앞에서 손에 쥘 때까지 (적재함 · 시작 박스)
@@ -93,11 +99,13 @@ private:
   // 장소 상자로 장소 li 칸 보정 — 지금 /tracked_objects에 그 태그의 location_box가 있으면 corr_[li]를 갱신
   void correct(size_t li);
   std::pair<double, double> cell_target(size_t li, int cell) const;  // 보정을 더한 칸 중심 (arena)
-  const TrackedObject * find_puck(int tag) const;  // tag를 읽은 퍽 트랙 (가장 최근에 본 것)
   const TrackedObject * puck_near(double mx, double my) const;  // map 점에서 match_radius 안 가장 가까운 퍽 (tag 상관없이)
   // 누운 퍽을 세워서 손에 쥠: stand → stand_check_s 뒤 인지로 섰나 → stand_pick. 아직 누웠으면 그 퍽으로 stand 다시 (retries번)
   void stand_up(uint32_t id, double mx, double my, int tries, Done done);
-  void grab(int tag, uint32_t id, Done done);  // 그 퍽을 손에 — 누웠으면 stand_up, 아니면 pick (retries)
+  // 그 퍽(tag)을 손에 — 집기 직전에 locate로 트랙을 다시 찾고, 누웠으면 stand_up · 아니면 pick. pick이 실패하면 다시 찾아서 (retries번)
+  void grab(int tag, Done done, int tries = 0);
+  // 퍽(tag) 트랙을 지금 찾음 — 목록에 없으면 조사한 자리(puck_at_)를 inspect로 다시 보고 한 번 더 찾음 (그래도 없으면 nullptr)
+  void locate(int tag, std::function<void(const TrackedObject *)> cb);
 
   Pose2 to_map(double x, double y, double yaw = 0.0) const;
   Pose2 to_arena(double mx, double my, double myaw = 0.0) const;
