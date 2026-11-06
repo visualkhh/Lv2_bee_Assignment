@@ -105,13 +105,13 @@ deploy:
                  note: "plan.yaml inspect_height_m 0.15는 닿지 않음 (0.08~0.10 m) — 확인 필요"}
   move_pose:    {planner: "MoveIt 경로", learned: "없음 (시뮬 기준선 100 %)", env: "reach_env target=pose", runs_in: "-", obs_missing: []}
   camera_clear_view: {planner: "MoveIt 경로", learned: "없음 (시뮬 기준선 100 %)", env: "reach_env target=clear", runs_in: "-", obs_missing: []}
-  dock_box:     {planner: "Nav2: 상자 면 앞 정렬 위치까지", learned: "정렬 위치 → 도킹 (돌기-직진-돌기 P 제어, coordinator approach)", env: "drive_env task=dock",
-                 runs_in: "rl_nav_correction 도킹 모드", obs_missing: []}
-  park_home:    {planner: "Nav2: 출발 구역 근처까지", learned: "구역 안 정지 (같은 P 제어)", env: "drive_env task=park", runs_in: "rl_nav_correction 도킹 모드", obs_missing: []}
-  drive_straight: {planner: "-", learned: "짧은 직진 (같은 P 제어)", env: "drive_env task=straight", runs_in: "rl_nav_correction 도킹 모드", obs_missing: []}
+  dock_box:     {planner: "Nav2: 상자 면 앞 정렬 위치까지", learned: "정렬 위치 → 도킹 (돌기-직진-돌기 P 제어, skill_approach)", env: "drive_env task=dock",
+                 runs_in: "skill_approach (주행 정책 직접 계산, 20 Hz)", obs_missing: []}
+  park_home:    {planner: "Nav2: 출발 구역 근처까지", learned: "구역 안 정지 (같은 P 제어)", env: "drive_env task=park", runs_in: "skill_approach (주행 정책 직접 계산, 20 Hz)", obs_missing: []}
+  drive_straight: {planner: "-", learned: "짧은 직진 (같은 P 제어)", env: "drive_env task=straight", runs_in: "skill_approach (주행 정책 직접 계산, 20 Hz)", obs_missing: []}
   drive_turn:   {planner: "-", learned: "없음 (시뮬 기준선 100 %)", env: "drive_env task=turn", runs_in: "-", obs_missing: []}
-  drive_arc:    {planner: "-", learned: "짧은 곡선 (같은 P 제어)", env: "drive_env task=arc", runs_in: "rl_nav_correction 도킹 모드", obs_missing: []}
-  navigate:     {planner: Nav2, learned: "보류 (환경 없음)", env: "-", runs_in: "-", obs_missing: []}
+  drive_arc:    {planner: "-", learned: "짧은 곡선 (같은 P 제어)", env: "drive_env task=arc", runs_in: "skill_approach (주행 정책 직접 계산, 20 Hz)", obs_missing: []}
+  navigate:     {planner: Nav2, learned: "경로 따라가기 속도 (RlNavController — Nav2 FollowPath 플러그인, 정책이 속도를 직접 냄 · 정책 없으면 DWB)", env: "동료 학습 중 (model/nav_controller/policy.onnx)", runs_in: "Nav2 controller_server", obs_missing: []}
   plan_next:    {planner: "-", learned: "다음 skill 고르기", env: "learning/plan/mission_sim.py", runs_in: "mission_manager (PR #49 병합 뒤, 마지막 단계)", obs_missing: []}
   nudge_cell:   {planner: "MoveIt: 칸 위", learned: "보류 (기준 동작·환경 없음)", env: "-", runs_in: "-", obs_missing: []}
   stand_puck_in_cell: {planner: "MoveIt: 칸 위", learned: "보류 (기준 동작·환경 없음)", env: "-", runs_in: "-", obs_missing: []}

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """🛠 hand_relative — 손 카메라 상대값 (학습 보정 정책 입력) · 계산은 hand_geom.py
 
-  입력: /hand_relative/target (perception/HandTarget, coordinator가 닿는 구간 시작 전에 보냄 · reliable + transient_local)
+  입력: /hand_relative/target (perception/HandTarget, 팔 skill 노드(skills ArmIO)가 닿는 구간 시작 전에 보냄 · reliable + transient_local)
         /perception/gripper_cam/detections (perception/TrackedObjectArray, map 기준 · 영상 시각)
         TF map → base_link, base_link → end_effector_link (영상 시각, 없으면 최신)
   출력: /hand_relative (perception/HandRelative, base_link 기준) — rl_arm_correction이 정책 관측으로 씀

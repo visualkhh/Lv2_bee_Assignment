@@ -5,11 +5,11 @@
 #   주의: URL은 반드시 따옴표로 감싼다 (Notion 링크의 &가 셸에서 잘림)
 #
 # 예)
-#   ./download.sh 'https://.../policy.onnx?download=1' rl_nav_correction
-#   ./download.sh 'https://.../policy.onnx?download=1' rl_nav_correction policy.onnx
+#   ./download.sh 'https://.../policy.onnx?download=1' nav_controller
+#   ./download.sh 'https://.../policy.onnx?download=1' nav_controller policy.onnx
 #   ./download.sh 'https://.../policy.onnx?download=1' nav_controller
 #   ./download.sh 'https://.../nav.zip?download=1' nav_controller --unzip
-#   ./download.sh 'https://.../policy.onnx' rl_nav_correction --sha256 3f2a...
+#   ./download.sh 'https://.../policy.onnx' nav_controller --sha256 3f2a...
 #
 # 받을폴더를 생략하면 model/ 바로 아래에 저장한다. 상대 경로는 이 스크립트 위치(model/) 기준.
 # 파일이름을 생략하면 URL 경로의 마지막 조각을 쓴다 (기존 동작).
@@ -123,4 +123,4 @@ esac
 
 echo "OK: $(du -h "$OUT" | cut -f1)  $OUT"
 echo "    모델 경로 예: ros2_ws/model/$(basename "$DEST")/$NAME"
-echo "    (rl_nav_correction은 model_path: policy.onnx → rl_nav_correction/, rl_nav_controller는 nav_controller/)"
+echo "    (rl_nav_controller는 model_path: nav_controller/policy.onnx — Nav2 FollowPath 플러그인)"
