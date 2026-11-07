@@ -3,10 +3,14 @@
 //     contact_mode sim: 칸 위 5 cm까지 MoveIt → 닿는 구간 (place_cell 정책: 내려가기 → 벌림 → 올리기) — 손 안 퍽 바닥이 면에 닿는 자리에서 벌림 (시뮬 place_m 0)
 //     moveit: 위 place_approach_m → 퍽 바닥 + place_release_m까지 내려가 벌림 → 다시 위 (예전)
 //   target "over" (물체 위 — location_box · 판): 면 + held_bottom + place_release 위로 values[0](다가가는 높이)만큼 위에서 MoveIt → 벌림
-//   정책: model/skills/place_cell/ (팀원 pip_env)
+//   정책: model/skills/place_cell/ (팀원 pip_env) — 상수 오프셋만으로 시뮬 Δ = 0 99.7 %라 meta.yaml use: false
+//   손가락은 늘 로봇 y 방향으로 닫고(시뮬 place_env와 같음), 놓을 때 36 mm만 벌리고, 목표를 로봇 앞쪽으로 place_offset_x_m만큼 뒤로 옮긴다
 #include "rclcpp_components/register_node_macro.hpp"
 #include "skills/arm_io.hpp"
 #include "skills/skill_node.hpp"
+#include "skills/stand_plan.hpp"
+
+#include <cmath>
 
 namespace skills {
 
@@ -17,6 +21,7 @@ public:
     held_bottom_m_ = declare_parameter<double>("held_bottom_m", 0.0606);      // 손끝 → 손 안 퍽 바닥
     release_m_ = declare_parameter<double>("place_release_m", 0.02);          // 벌리는 높이 (퍽 바닥이 면 위 이만큼)
     approach_m_ = declare_parameter<double>("place_approach_m", 0.08);        // moveit 방식: 위에서 내려오는 높이
+    offset_x_m_ = declare_parameter<double>("place_offset_x_m", 0.0037);      // 시뮬 Δ = 0: 퍽이 칸 가운데보다 로봇 앞으로 이만큼 놓임 → 목표를 뒤로 (실기에서 다시 재서 바꿈)
     policy_ = load_model("place_cell");
     serve("place", [this](const SkillGoal & g, Done done) {
       if (g.target != "cell" && g.target != "over") { done(false, "place_bad_target"); return; }
@@ -28,6 +33,12 @@ public:
         release.header.stamp = now();
         release.pose.orientation = geometry_msgs::msg::Quaternion();
         release.pose.position.z += held_bottom_m_ + release_m_;
+        double yb = 0.0;  // 로봇 방향 [rad, release 좌표계] — 손가락 닫는 축을 로봇 y에 맞추고 목표를 앞뒤로 옮길 때 씀
+        if (g.target == "cell") {
+          if (!base_yaw(release.header.frame_id, yb)) { done(false, "place_tf"); return; }
+          release.pose.position.x -= offset_x_m_ * std::cos(yb);
+          release.pose.position.y -= offset_x_m_ * std::sin(yb);
+        }
         const auto fin = [this, done](bool ok) { done(ok, ok ? "" : arm_.contact() ? "arm_contact" : "place_failed"); };
         if (g.target == "over") {
           auto above = release;
@@ -39,7 +50,7 @@ public:
           });
           return;
         }
-        place_cell(release, g.pose.pose.position.z, fin);
+        place_cell(release, g.pose.pose.position.z, yb, fin);
       });
     });
   }
@@ -48,7 +59,20 @@ protected:
   void stop() override { arm_.stop(); }
 
 private:
-  void place_cell(const geometry_msgs::msg::PoseStamped & release, double top, ArmIO::Cb done) {
+  // ψ = 로봇 yaw → 손가락 닫는 축 = ψ − 90° = 로봇 y (ik_ee_yaw · move_arm yaw와 같은 정의). 퍽 놓기는 모든 칸을 이 방향으로 한다
+  bool base_yaw(const std::string & frame, double & yaw) {
+    try {
+      const auto tf = arm_.tf().lookupTransform(frame, "base_footprint", tf2::TimePointZero);
+      const auto & r = tf.transform.rotation;
+      yaw = std::atan2(2 * (r.w * r.z + r.x * r.y), 1 - 2 * (r.y * r.y + r.z * r.z));
+      return true;
+    } catch (const std::exception &) {
+      return false;
+    }
+  }
+
+  void place_cell(const geometry_msgs::msg::PoseStamped & release, double top, double psi, ArmIO::Cb done) {
+    const double open_m = stand::gap_joint(PLACE_OPEN_GAP_M);
     if (arm_.sim_contact()) {
       auto down = release;
       down.pose.position.z -= release_m_;  // 퍽 바닥이 면에 닿는 자리
@@ -56,26 +80,33 @@ private:
       above.pose.position.z += CONTACT_ABOVE_M;
       arm_.hand_target("cell", -1, -1, down.pose.position.x, down.pose.position.y, top);
       stage("칸 위");
-      arm_.move_arm(above, [this, down, done](bool ok) {
+      arm_.move_arm(above, [this, down, above, psi, open_m, done](bool ok) {
         if (!ok) { done(false); return; }
-        arm_.contact_step(policy_, [this, down](ArmIO::Q5 & a, ArmIO::Q5 & d) { return arm_.arm_now(a) && arm_.ik_ee(down, a, d); },
-                          false)(done);
-      });
+        ArmIO::Q5 now{}, q_above{};  // MoveIt은 손 방향을 ±0.15 rad까지만 맞춤 — 닫는 축을 로봇 y에 정확히 (pick과 같은 방식)
+        if (!arm_.arm_now(now) || !arm_.ik_ee_yaw(above, psi, now, q_above)) { done(false); return; }
+        arm_.move_joints(std::vector<double>(q_above.begin(), q_above.end()), [this, down, open_m, done](bool ok2) {
+          if (!ok2) { done(false); return; }
+          arm_.contact_step(policy_, [this, down](ArmIO::Q5 & a, ArmIO::Q5 & d) { return arm_.arm_now(a) && arm_.ik_ee(down, a, d); },
+                            false, open_m)(done);
+        });
+      }, psi);
       return;
     }
     auto above = release;
     above.pose.position.z += approach_m_;
     auto steps = std::make_shared<std::vector<ArmIO::Step>>(std::vector<ArmIO::Step>{
-      [this, above](ArmIO::Cb c) { arm_.move_arm(above, c); },     // 위
-      [this, release](ArmIO::Cb c) { arm_.move_arm(release, c); }, // 내려가기
-      arm_.gripper_step(GRIPPER_OPEN_M),                           // 벌리기
-      [this, above](ArmIO::Cb c) { arm_.move_arm(above, c); }});   // 다시 위 (놓은 퍽을 건드리지 않게)
+      [this, above, psi](ArmIO::Cb c) { arm_.move_arm(above, c, psi); },     // 위
+      [this, release, psi](ArmIO::Cb c) { arm_.move_arm(release, c, psi); }, // 내려가기
+      arm_.gripper_step(open_m),                                             // 벌리기 (36 mm)
+      [this, above, psi](ArmIO::Cb c) { arm_.move_arm(above, c, psi); }});   // 다시 위 (놓은 퍽을 건드리지 않게)
     arm_.run_steps(steps, 0, done);
   }
 
+  static constexpr double PLACE_OPEN_GAP_M = 0.036;  // 시뮬 place_env release_gap_mm — 이웃 퍽 사이(틈 30 mm)에 손가락이 들어가는 폭
+
   ArmIO arm_;
   SkillModel policy_;
-  double held_bottom_m_, release_m_, approach_m_;
+  double held_bottom_m_, release_m_, approach_m_, offset_x_m_;
 };
 
 }  // namespace skills
