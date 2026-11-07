@@ -13,13 +13,21 @@ cli/
 ├── operator_tool.py   # OperatorTool(Node): 구독 배선 + argparse + main. 화면 번호 → Page (screen())
 └── op/
     ├── terminal.py    # Terminal — 크기 · 색 · 표시 너비(fit). ROS·메뉴를 모름
-    ├── dialogs.py     # KeyReader(키 읽기) · Dialog(확인/입력/결과창) · run_select(메뉴 루프). 키 규약 정리
-    ├── ui.py          # Ui — 4분할 프레임 그리기 · 상단 상태바 · confirm/modal_input/pager/select 진입점
+    ├── keys.py        # KeyReader(키 읽기) · set_cbreak — 창·메뉴·poll_key 공용
+    ├── component.py   # Component — 화면 부품 최상위 부모 (focusable · on_key · activate)
+    ├── window/        # 화면 틀 — Window(조합·그리기·키 루프·신호) · 키 규약
+    ├── menu_bar/      # 메뉴 막대 — MenuBar → LeftSideMenuBar · ChoiceItem (한 파일에 한 클래스)
+    ├── dialog/        # 창 — Dialog(dialog.py) 최상위 부모 + 하위 클래스 한 파일에 하나 (Input·Key·Pager·Busy·Teleop·RouteRviz)
+    ├── state_bar/     # 상단 상태바 — State(칸) 하위 클래스들 + StateBar(줄로 그림) + TopStateBar(기본 구성)
+    ├── ui.py          # Ui — 터미널 모드 · print 가로채기 · confirm/modal_input/pager/select 진입점 · ui.window
     ├── state.py       # StateStore — 구독한 ROS 상태 보관 (화면은 여기만 읽음)
     ├── bus.py         # Bus — 발행·대기·모드 게이트 · cmd_* (한 번 실행 명령과 메뉴가 같이 씀)
     ├── defs.py        # BACK/MAIN/QUIT/STAY/TIMEOUT · MENU_REFRESH_S
     ├── consts.py      # 관절 이름 · 파라미터 변환
     └── pages/         # Page → Menu → 각 화면 (MenuItem 객체)
+        ├── nodes/     # 노드별 추가 상태 (feature.py + <node>.py)
+        ├── ab/        # A/B 화면 + core.py + <node>/command.json
+        └── calibration/  # 칼리브레이션 화면 + core.py + wheel/
 ```
 
 `./run-cli status`처럼 인자가 있으면 `Bus.cmd_*`만 돌고 화면은 없습니다. 인자가 없고 TTY면 `MainMenu`가 뜹니다.
@@ -59,7 +67,7 @@ for ln in frame:                  # 항상 정확히 rows-1줄 (짧아진 화면
 화면은 **커서 위치를 지정해 쓸 수 있는 글자 격자**입니다.
 
 ```python
-# op/dialogs.py Dialog.draw()
+# op/dialog/dialog.py Dialog.draw()
 console.write(f'\033[{top};{left}H┌' + '─' * (w - 2) + '┐')    # top행 left열로 이동 후 쓰기
 for i, s in enumerate(content):
     console.write(f'\033[{top + 1 + i};{left}H│' + fit(s, w - 2) + '│')
@@ -69,12 +77,77 @@ for i, s in enumerate(content):
 - 입력창에 진짜 위젯은 없습니다. 키 하나마다 `buf`에 붙이고 박스를 다시 그려 `값> 0.3▏`처럼 보여 줄 뿐입니다 (`▏`도 글자).
 - 창 크기가 바뀌어 박스 위치가 달라지면 예전 자리를 공백으로 지웁니다 (`Ui._erase_rect`).
 
+#### 창은 전부 Dialog를 상속한다 (Page → Menu처럼)
+
+박스 그리기·크기·지우기·키 루프(`run()`)는 기반 `Dialog`가 맡고, 창마다 하위 클래스가 세 가지만 정한다.
+밖에서 창의 내부 줄(`lines` 등)을 직접 바꾸지 않는다 — 내용은 `content()`가 그때그때 만든다.
+
+| 메서드 | 정하는 것 |
+|---|---|
+| `content()` | 박스 안 줄 목록 (기본: 제목 · 빈 줄 · body) |
+| `on_key(k)` | 키 하나 → `CONTINUE`(창 유지) 또는 결과(창 닫고 `run()`이 돌려줌) |
+| `on_tick()` | 키가 있든 없든 0.1초마다 — ROS 폴링·명령 재전송 등 (기본: 상단 상태바 갱신) |
+| `fallback()` | TTY가 아닐 때(명령줄·파이프) `run()`의 결과 |
+
+```text
+Dialog (op/dialog/dialog.py — 하위 클래스는 op/dialog/<이름>_dialog.py)
+ ├─ InputDialog      한 줄 입력 · validate        ← ui.modal_input
+ ├─ KeyDialog        키 하나 (confirm의 y/n)      ← ui.modal_key · ui.confirm
+ ├─ PagerDialog      결과창 스크롤                ← ui.pager
+ ├─ BusyDialog       처리 중 창 (키 루프 없음)    ← ui.busy · step · progress
+ ├─ TeleopDialog     텔레오퍼                     ← bus.cmd_teleop (A/B 경로 goal 찍기는 on_mark로 같은 창)
+ └─ RouteRvizDialog  A/B RViz goal 찍기          ← pages/ab 경로 편집
+```
+
+새 창은 `op/dialog/<이름>_dialog.py`에 `Dialog`를 상속해 위 메서드만 채우고 `dialog/__init__.py`에 넣는다.
+쓰는 곳에서는 `XxxDialog(ui, ...).run()`의 결과로 다음 동작을 정한다.
+
+#### 상단 상태바도 칸(State)을 상속해서 더한다
+
+```text
+State (op/state_bar/state.py)  — text()만 정함 (빈 문자열 = 그 칸 안 보임)
+ ├─ OperationState · MapState · EstopState · DeviceState · ConnectionState     (줄 1)
+ ├─ PerceptionState · TaskState · DiagState · SayState                        (줄 2)
+ ├─ TopicRateState (키·라벨·기준 Hz를 받아 joint·odom·imu·카메라·인지 6개)  (줄 3)
+ ├─ RobotState                                                               (줄 4)
+ └─ NoDataState  (상태를 하나도 못 받았을 때만)
+StateBar (state_bar.py)  — State를 줄(row)로 받아 ' | '로 이어 그림 · add(state, row)로 칸·줄 추가
+ └─ TopStateBar (top_state_bar.py) — 위 구성. Window.top_bar, Window.top_lines()가 그린다
+```
+
+새 칸: `op/state_bar/<이름>_state.py`에 `State`를 상속해 `text()`를 만들고 `TopStateBar` 구성에 넣거나 `ui.window.top_bar.add(XxxState(ui), row=1)`.
+고를 수 있는 칸으로 만들려면 `focusable = True` + `activate()` (예: `DiagState.activate()` → `self.ui.window.navigate('diagnostics')`).
+
+#### 화면 틀 — Window가 Component들을 조합한다
+
+```text
+Component (op/component.py)  — focusable · on_key(k) → 처리했으면 True · activate() → STAY/BACK/MAIN/QUIT 또는 값
+ ├─ MenuItem (pages/base.py)    activate() = window.perform(label, run) — '처리 중' 창 · print 가로채 결과창 · run()
+ │   └─ ChoiceItem (menu_bar/choice_item.py)  (key, label) 고르기 — activate()가 key를 돌려줌 (ui.select)
+ ├─ State (state_bar/state.py)  focusable 기본 False — DiagState는 True (Enter → 진단 화면)
+ ├─ StateBar → TopStateBar      focusable 칸이 있으면 포커스 가능 · ←→ 칸 이동 · activate() = 그 칸의 activate()
+ └─ MenuBar (menu_bar/menu_bar.py)  MenuItem들을 세로로 · ↑↓/숫자/글자 포커스
+     └─ LeftSideMenuBar (menu_bar/left_side_menu_bar.py)  왼쪽 열 (폭 = 라벨에 맞춤, 최소 24 · 최대 화면 절반)
+
+Window (op/window/window.py) — ui.window
+  top_bar(TopStateBar) + menu_bar(LeftSideMenuBar) + 중앙(center_fn) + 힌트 줄을 조합해 draw()
+  run(title, items_fn, center_fn, back, main)  화면 하나의 키 루프 (Menu.show가 부름)
+     Tab = 메뉴 막대 ↔ 상태바 포커스 · Enter = 포커스된 부품 activate() · Esc/b/m/q = 이동
+  select(title, [(key, label)], center)        한 번 고르기 (ChoiceItem으로 run(once=True))
+  perform(label, fn, busy)                     실행 + 끝나면 이 화면의 메뉴 막대·중앙·포커스 복원
+  신호 connect/emit — OperatorTool이 연결:
+     'tick'(seconds)  ROS 폴링 + 재연결 판단 (메뉴 대기 · 창이 떠 있는 동안)
+     'navigate'(name) screen(name).show() — 상태 칸 등 메뉴 밖에서 화면 열기
+```
+
+소스에서 직접 실행하려면 Enter와 같은 길로 `item.activate()` / `state.activate()`를 부른다.
+
 ### 2.4 stdin/stdout — 표준 입출력 그대로, 터미널 모드만 바꿈
 
 터미널 기본은 canonical 모드입니다: Enter를 쳐야 한 줄이 넘어오고, 친 글자가 자동으로 찍힙니다(echo). TUI는 이걸 끕니다.
 
 ```python
-# op/dialogs.py KeyReader
+# op/keys.py KeyReader
 old = termios.tcgetattr(fd)
 tty.setcbreak(fd)                               # 줄 단위 X · echo X → 키 누르는 즉시 1바이트
 ...
@@ -84,12 +157,12 @@ ready, _, _ = select.select([fd], [], [], 0.1)  # 최대 0.1초만 기다림
 raw = os.read(fd, 1)                            # 버퍼 있는 sys.stdin.read는 select와 어긋나 키가 씹힘
 ```
 
-- `select`로 기다리는 시간을 제한해야 키가 없어도 루프가 돕니다 → 그 사이 ROS 콜백(`Ui._poll`)과 2초 갱신.
-- `tcflush`(입력 버퍼 비우기)는 **확인창·입력창·결과창을 열 때만** 합니다 (앞 화면에서 누른 `y`가 확인창을 미리 넘기지 않게). 메뉴(`run_select`)는 `flush=False` — 2초마다 다시 그릴 때마다 비우면 그 사이 누른 키가 사라집니다.
+- `select`로 기다리는 시간을 제한해야 키가 없어도 루프가 돕니다 → 그 사이 ROS 콜백(Window `'tick'` 신호)과 2초 갱신.
+- `tcflush`(입력 버퍼 비우기)는 **확인창·입력창·결과창을 열 때만** 합니다 (앞 화면에서 누른 `y`가 확인창을 미리 넘기지 않게). 메뉴(`Window._wait_key`)는 `flush=False` — 2초마다 다시 그릴 때마다 비우면 그 사이 누른 키가 사라집니다.
 
 출력 쪽 규칙:
 
-- 메뉴 항목 실행 중 `print()`는 `contextlib.redirect_stdout`으로 가로채 **결과창(pager)** 에 모아 보여 줍니다 (`Ui.capture`, `Menu.show`). 그냥 찍으면 화면이 스크롤돼 레이아웃이 깨집니다.
+- 메뉴 항목 실행 중 `print()`는 `contextlib.redirect_stdout`으로 가로채 **결과창(pager)** 에 모아 보여 줍니다 (`Ui.capture`, `Window.perform`). 그냥 찍으면 화면이 스크롤돼 레이아웃이 깨집니다.
 - 화면 그리기는 시작할 때 잡아 둔 진짜 stdout(`Ui.console` = `Terminal.out`)에 씁니다 → 가로채기에 안 걸림. 텔레오퍼 HUD도 여기에 그립니다.
 
 ### 2.5 색
@@ -117,16 +190,17 @@ def paint(self, text, color):
 | ↑ ↓ | `\x1b[A` `\x1b[B` | PgUp PgDn | `\x1b[5~` `\x1b[6~` |
 | ← → | `\x1b[D` `\x1b[C` | Home End | `\x1b[H` `\x1b[F` |
 | Esc 단독 | `\x1b` | Enter / Backspace | `\r`·`\n` / `\x7f` |
+| Tab | `\t` | | |
 
 Esc 단독과 방향키가 둘 다 `\x1b`로 시작하므로, `\x1b`를 받으면 **40ms 더 기다려** 뒤 바이트가 오면 방향키, 안 오면 Esc로 봅니다. 한글 등 UTF-8은 첫 바이트를 보고 몇 바이트를 더 읽을지 정합니다. `KeyReader.read()`는 `'up'`·`'esc'`·`'enter'`·`'가'` 같은 이름으로 돌려줍니다.
 
-메뉴는 **현재 위치 `idx` 하나**만 들고 있습니다.
+메뉴 막대는 **현재 위치 `idx` 하나**만 들고 있습니다.
 
 ```python
-# op/dialogs.py run_select()
-if k == 'up':    idx = (idx - 1) % len(items)   # 맨 위에서 ↑ → 맨 아래
-if k == 'down':  idx = (idx + 1) % len(items)
-if k == 'enter': return items[idx][0]           # 고른 항목의 key
+# op/menu_bar/menu_bar.py MenuBar.on_key()
+if k == 'up':    self.idx = (self.idx - 1) % len(self.items)   # 맨 위에서 ↑ → 맨 아래
+if k == 'down':  self.idx = (self.idx + 1) % len(self.items)
+# Enter는 Window가: menu_bar.focused_item.activate()
 # 다시 그릴 때 i == idx인 줄만 '❯' + 반전색
 ```
 
@@ -136,7 +210,7 @@ if k == 'enter': return items[idx][0]           # 고른 항목의 key
 
 ## 3. 화면 흐름 규약
 
-키 규약은 `op/dialogs.py` 맨 위, 흐름 규약은 `op/pages/base.py` 맨 위에 있습니다. 새 화면도 이걸 지킵니다.
+키 규약은 `op/window/window.py`·`op/dialog/dialog.py` 맨 위, 흐름 규약은 `op/pages/base.py` 맨 위에 있습니다. 새 화면도 이걸 지킵니다.
 
 - `MenuItem.run()`은 `BACK/MAIN/QUIT/STAY`만 돌려줍니다. 화면 이동은 반환값으로만.
   - 하위 화면이 돌려준 `BACK`은 "그 화면이 닫힘"이라 부모는 남습니다 (두 단계 뒤로 가지 않음). `MAIN`·`QUIT`만 위로 전파.

@@ -70,4 +70,10 @@ else
   echo "ROS_DOMAIN_ID 미설정 → 기본값 0 사용"
 fi
 
+# tool/.venv (setting-venv.sh) — 있으면 그 파이썬 (ROS PYTHONPATH는 위에서 이미 잡힘), 없으면 시스템 python3
+VENV="$HERE/../.venv"
+if [ -f "$VENV/bin/activate" ]; then
+  # shellcheck disable=SC1091
+  source "$VENV/bin/activate"
+fi
 exec python3 -u "$HERE/operator_tool.py" "$@"

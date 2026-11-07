@@ -38,6 +38,7 @@ def launch_setup(context):
         scan_pose = []
     arm = table('arm.yaml')
     arm['grasp_check'] = ParameterValue(LaunchConfiguration('grasp_check'), value_type=bool)
+    arm['grasp_min_effort'] = ParameterValue(LaunchConfiguration('grasp_min_effort'), value_type=float)
     basket, stand = table('basket.yaml'), table('stand_table.yaml')
 
     def skill(cls, name, *extra):
@@ -68,5 +69,7 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument('grasp_check', default_value='true',
                               description='잡기 판정 (닫은 뒤 그리퍼 위치 + 전류). mock 그리퍼는 퍽 없이 끝까지 닫혀 false'),
+        DeclareLaunchArgument('grasp_min_effort', default_value='0.25',
+                              description='잡기 판정 전류 하한 [A] — Isaac은 그리퍼 전류를 안 내서 0 (위치만, opencr_bridge)'),
         OpaqueFunction(function=launch_setup),
     ])

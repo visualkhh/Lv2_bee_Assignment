@@ -33,17 +33,10 @@ lv2_module6/firmware/build/
 /lv2_module6/ros2_ws/debug/
 /lv2_module6/ros2_ws/firmware/
 /lv2_module6/ros2_ws/map/*
-!/lv2_module6/ros2_ws/map/default
 # 지도 정본(nvblox.nvblx)은 커서 커밋 안 함 — default 폴더도 미리보기(map.pgm·yaml)만
 /lv2_module6/ros2_ws/map/*/nvblox.nvblx
 
-# YOLO 가중치(model/yolo/model.pt, 약 5MB)는 커밋 — CI 인지 테스트에 필요. 나머지 학습 모델은 아직 제외
-/lv2_module6/ros2_ws/model/grasp_scorer/*.pt
-/lv2_module6/ros2_ws/model/skills/*/*.pt
-/lv2_module6/ros2_ws/model/nav_tuner/*.pt
-/lv2_module6/ros2_ws/model/*/*.pt
-/lv2_module6/ros2_ws/model/*/*.onnx
-/lv2_module6/ros2_ws/model/*/*.onnx.data
+
 /lv2_module6/simulator/yolo_job.log
 /log/
 /.playwright-mcp/
@@ -54,3 +47,7 @@ bringup.log
 
 # 칼리브레이션 결과 (tool/calibration/<시각>/raw.csv) — 계획 파일(wheel_square.json)만 커밋
 lv2_module6/tool/calibration/*/
+
+
+# run-cli 산출물 (tool/artifacts/<테스트>/<시각>_<라벨>/ — bag·리포트, 호스트 직접 실행 시)
+lv2_module6/tool/artifacts/

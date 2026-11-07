@@ -318,7 +318,7 @@ def _(s):
     s.step(b'a', wait=0.3)
     s.step(ENTER, 'RESTART를 입력')
     s.step(b'nope' + ENTER, 'RESTART를 정확히 입력하세요')
-    s.step(ESC, '노드 (상태 · 재시작)')
+    s.step(ESC, '노드 (상태 · 파라미터 · 진단 · 재시작)')
     s.absent('/cmd/restart')
     s.finish()
 
@@ -332,6 +332,18 @@ def _(s):
     s.step(ENTER, '값 입력')
     s.step(b'-1' + ENTER, '0 이상이어야 합니다')
     s.step(BACKSPACE * 2 + b'0.3' + ENTER, '선속도 : 0.30 m/s')
+    s.finish()
+
+
+@scenario('state-bar-tab-diag')
+def _(s):
+    s.step(b'r', wait=0.5)                 # 첫 화면 키 루프가 뜰 때까지 (새로고침 = 아무 일 없음)
+    s.step(b'\t', 'Tab/Esc 메뉴로')        # Tab → 상태바 포커스 (진단 칸)
+    s.step(ENTER, '·  진단')               # 진단 칸 Enter → 진단 화면 (navigate)
+    s.step(ESC, 'Tab/Esc 메뉴로')           # 진단 닫으면 메인 · 포커스는 들어가기 전 그대로 (상태바)
+    s.step(ESC, 'Tab 상태바')               # Esc → 메뉴로 포커스 복귀
+    s.step(b'\t', 'Tab/Esc 메뉴로')        # Tab 다시 → 상태바
+    s.step(b'\t', 'Tab 상태바')            # Tab → 메뉴
     s.finish()
 
 

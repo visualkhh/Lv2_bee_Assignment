@@ -44,7 +44,7 @@ private:
   // 지도 PGM 읽기 (P5) — 실패하면 빈 지도(충돌 없음)
   bool load_map(const std::string & yaml_path);
   bool occupied(double x, double y) const;
-  bool collide(double x, double y, double r) const;
+  bool collide(double x, double y, double yaw) const;
   // C 파일 끝부분에서 가장 최근의 완전한 "C,..." 줄을 파싱 → true (8 필드, 빈칸=유지 NaN)
   bool read_command(std::array<double, 8> & cmd);
   // 펌웨어 parse_fields와 같은 규칙으로 C 한 줄 검사

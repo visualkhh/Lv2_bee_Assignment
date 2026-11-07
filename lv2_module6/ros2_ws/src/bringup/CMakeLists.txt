@@ -5,6 +5,8 @@ find_package(ament_cmake REQUIRED)
 
 install(DIRECTORY launch config
   DESTINATION share/${PROJECT_NAME})
+# stand_test.launch.py 전용 — Nav2 없이 /cmd_vel_mux → /cmd_vel (수동 주행이 바퀴까지 가게)
+install(PROGRAMS scripts/cmd_vel_relay.py DESTINATION lib/${PROJECT_NAME} RENAME cmd_vel_relay)
 
 # --- 테스트: colcon test --packages-select bringup
 if(BUILD_TESTING)

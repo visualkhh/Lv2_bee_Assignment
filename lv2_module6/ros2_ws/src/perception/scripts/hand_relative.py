@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """🛠 hand_relative — 손 카메라 상대값 (학습 보정 정책 입력) · 계산은 hand_geom.py
 
-  입력: /hand_relative/target (perception/HandTarget, coordinator가 닿는 구간 시작 전에 보냄 · reliable + transient_local)
+  입력: /hand_relative/target (perception/HandTarget, 팔 skill 노드(skills ArmIO)가 닿는 구간 시작 전에 보냄 · reliable + transient_local)
         /perception/gripper_cam/detections (perception/TrackedObjectArray, map 기준 · 영상 시각)
         TF map → base_link, base_link → end_effector_link (영상 시각, 없으면 최신)
   출력: /hand_relative (perception/HandRelative, base_link 기준) — rl_arm_correction이 정책 관측으로 씀
-  왜: 시뮬 학습 정책(isaac/lab)은 "손 카메라로 잰 퍽 − 손 / 칸 − 손 안 퍽"을 보고 보정함 (2026-11-03 배포 결정:
+  왜: 시뮬 학습 정책(isaac/rl/bee_isaac/tasks)은 "손 카메라로 잰 퍽 − 손 / 칸 − 손 안 퍽"을 보고 보정함 (2026-11-03 배포 결정:
       닿는 구간은 시뮬과 같은 기준 동작 + 학습 보정 → 그 입력을 로봇에서 만들어야 함).
   주기: cell·puck은 손 카메라 검출이 올 때마다 (≤ 4Hz), slot은 rate_hz (카메라 없이 TF만 — 적재함은 로봇에 고정).
 """
@@ -24,7 +24,7 @@ from tf2_ros import Buffer, TransformListener
 
 import hand_geom as hg
 
-# 적재함 칸 가운데 (base_link, 칸 바닥 높이) — isaac/lab/slot_table.py SLOTS와 같음 (URDF basket_slot_0~11)
+# 적재함 칸 가운데 (base_link, 칸 바닥 높이) — isaac/scripts/tools/slot_table.py SLOTS와 같음 (URDF basket_slot_0~11)
 SLOTS = [(x, y, 0.09125) for x in (-0.16984, -0.10484, -0.03984) for y in (-0.0975, -0.0325, 0.0325, 0.0975)]
 
 
@@ -42,7 +42,7 @@ def yaw_of_quat(q):
 class HandRelativeNode(Node):
     def __init__(self):
         super().__init__("hand_relative")
-        self.declare_parameter("base_frame", "base_link")  # 시뮬 정책 입력 좌표 (isaac/lab: base_link)
+        self.declare_parameter("base_frame", "base_link")  # 시뮬 정책 입력 좌표 (isaac/rl/bee_isaac/tasks: base_link)
         self.declare_parameter("ee_frame", "end_effector_link")
         self.declare_parameter("map_frame", "map")
         self.declare_parameter("rate_hz", 20.0)  # slot (카메라 없음) 발행 주기

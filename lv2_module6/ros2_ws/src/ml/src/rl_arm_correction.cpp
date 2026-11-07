@@ -21,9 +21,12 @@ CallbackReturn RlArmCorrection::on_init() {
   auto_declare<double>("rest_tol", 0.03);           // [rad] 모든 관절이 이 안이면 쉬는 자세
   auto_declare<double>("debug_hz", 20.0);          // ~/debug (ml/ArmCorrectionDebug) 주기 — 0 = 안 냄
   auto_declare<double>("windup_s", 2.0);            // [s] 0 = 막힘 감지 끔
-  auto_declare<bool>("gravity_enabled", false);     // 중력 앞먹임 (헤더 설명)
+  auto_declare<bool>("gravity_enabled", true);      // 중력 앞먹임 (헤더 설명)
+  auto_declare<bool>("twist_state", true);          // 상태 = 엔코더 + d (헤더 설명) — 하드웨어 twist_state와 같이
   auto_declare<double>("gravity_compliance_j2", 0.0817);  // [rad/Nm] = 1/강성 12.2 Nm/rad
   auto_declare<double>("gravity_compliance_j3", 0.0532);  // [rad/Nm] = 1/강성 18.8 Nm/rad
+  auto_declare<double>("gravity_compliance_j4", 0.0);     // [rad/Nm] 높이 측정만으로는 0과 구분 안 됨 (isaac/scripts/calib/sag_fit.py)
+  auto_declare<double>("gravity_z_offset_m", 0.0);        // [m] 고정 높이 오차를 올리는 양 (실측 처짐이 −5 mm 고정이면 0.005)
   auto_declare<double>("gravity_ramp_s", 2.0);      // [s] 켜고 끌 때 서서히
   auto_declare<double>("gravity_max", 0.2);         // [rad] 한 관절 상한
   auto_declare<double>("policy_hz", 50.0);          // 시뮬 정책 주기
@@ -49,13 +52,17 @@ CallbackReturn RlArmCorrection::on_configure(const rclcpp_lifecycle::State &) {
     rest_pose_.clear();
   }
   gravity_enabled_ = node->get_parameter("gravity_enabled").as_bool();
+  twist_state_ = node->get_parameter("twist_state").as_bool();
   gravity_c2_ = node->get_parameter("gravity_compliance_j2").as_double();
   gravity_c3_ = node->get_parameter("gravity_compliance_j3").as_double();
+  gravity_c4_ = node->get_parameter("gravity_compliance_j4").as_double();
+  gravity_z_offset_ = node->get_parameter("gravity_z_offset_m").as_double();
   gravity_ramp_s_ = node->get_parameter("gravity_ramp_s").as_double();
   gravity_max_ = node->get_parameter("gravity_max").as_double();
   gravity_cb_ = node->add_on_set_parameters_callback([this](const std::vector<rclcpp::Parameter> & params) {
     for (const auto & p : params)
       if (p.get_name() == "gravity_enabled") gravity_enabled_ = p.as_bool();
+      else if (p.get_name() == "twist_state") twist_state_ = p.as_bool();
     rcl_interfaces::msg::SetParametersResult result;
     result.successful = true;
     return result;
@@ -100,10 +107,25 @@ InterfaceConfiguration RlArmCorrection::state_interface_configuration() const {
 }
 
 CallbackReturn RlArmCorrection::on_activate(const rclcpp_lifecycle::State &) {
-  // 시작할 때 reference를 현재 자세로 — 첫 주기에 0rad로 튀지 않게
+  // 시작할 때 reference를 현재 자세로 — 첫 주기에 0rad로 튀지 않게. JTC도 이 값으로 자세를 잡는다
+  //   (set_last_command_interface_value_as_state_on_activation). twist_state면 상태 = 엔코더 + d(처진 실제 각)라
+  //   그대로 쓰면 처진 자세를 붙잡는다 → 엔코더 각(서보가 잡고 있던 자세, 예: stow)으로. 앞먹임이 켜지며 실제가 거기로 올라감
+  J5 seed{};
+  bool have = refs_.size() == 5;
   for (size_t i = 0; i < refs_.size(); ++i) {
     const auto pos = state_interfaces_[2 * i].get_optional<double>();
-    if (pos) (void)refs_[i]->set_value(*pos);
+    if (!pos) have = false;
+    seed[i] = pos ? *pos : 0.0;
+  }
+  if (have && twist_state_) {
+    const auto tau = gravity::torques(seed[1], seed[2], seed[3]);
+    seed[1] -= gravity_c2_ * tau[0];
+    seed[2] -= gravity_c3_ * tau[1];
+    seed[3] -= gravity_c4_ * tau[2];
+  }
+  for (size_t i = 0; i < refs_.size(); ++i) {
+    const auto pos = state_interfaces_[2 * i].get_optional<double>();
+    if (pos) (void)refs_[i]->set_value(i < 5 ? seed[i] : *pos);
   }
   ctx_ = ml::msg::SkillContext();
   reset_run();
@@ -195,6 +217,18 @@ return_type RlArmCorrection::update_and_write_commands(const rclcpp::Time & time
   for (int i = 0; rest && i < 5; ++i) rest = std::abs(ref[i] - rest_pose_[i]) <= rest_tol_;
   for (int i = 0; i < 5; ++i) corr_[i] = sag_[i].corr;  // 정책 관측용
 
+  // 중력 앞먹임 (헤더 설명)
+  const double gravity_step = dt / std::max(gravity_ramp_s_, 1e-3);
+  gravity_scale_ = gravity_enabled_ ? std::min(1.0, gravity_scale_ + gravity_step) : std::max(0.0, gravity_scale_ - gravity_step);
+  J5 grav{};
+  if (ok && gravity_scale_ > 0.0) {
+    const auto tau = gravity::torques(q[1], q[2], q[3]);
+    std::array<double, 3> d = {-gravity_c2_ * tau[0], -gravity_c3_ * tau[1], -gravity_c4_ * tau[2]}, up{};
+    if (gravity_z_offset_ != 0.0 && gravity::lift(q[1], q[2], q[3], gravity_z_offset_, up))
+      for (size_t k = 0; k < 3; ++k) d[k] += up[k];
+    for (size_t k = 0; k < 3; ++k) grav[k + 1] = gravity_scale_ * std::clamp(d[k], -gravity_max_, gravity_max_);
+  }
+
   const Skill * it = enabled_ && ok ? skill_.get() : nullptr;
   bool cam_ok = false;
   double cam_age = -1.0;
@@ -208,7 +242,9 @@ return_type RlArmCorrection::update_and_write_commands(const rclcpp::Time & time
     if (since_policy_ >= policy_dt_ - 1e-6 && ctx_.q_above.size() == 5 && ctx_.q_down.size() == 5 && cam_ok) {
       since_policy_ = 0.0;
       ArmObsIn in;
-      in.q = q; in.qd = qd; in.q_ref = ref; in.prev_act = prev_act_; in.corr = corr_;
+      in.qd = qd; in.q_ref = ref; in.prev_act = prev_act_; in.corr = corr_;
+      // 앞먹임이 민 만큼 뺌 — 정책은 비틀림 없는 시뮬 각도로 학습됨 (twist_state면 상태가 이미 실제 각)
+      for (int i = 0; i < 5; ++i) in.q[i] = twist_state_ ? q[i] : q[i] - grav[i];
       std::copy(ctx_.q_above.begin(), ctx_.q_above.end(), in.q_above.begin());
       std::copy(ctx_.q_down.begin(), ctx_.q_down.end(), in.q_down.begin());
       in.phase = ctx_.phase;
@@ -226,20 +262,12 @@ return_type RlArmCorrection::update_and_write_commands(const rclcpp::Time & time
       }
     }
   }
-  // 중력 앞먹임 (헤더 설명)
-  const double gravity_step = dt / std::max(gravity_ramp_s_, 1e-3);
-  gravity_scale_ = gravity_enabled_ ? std::min(1.0, gravity_scale_ + gravity_step) : std::max(0.0, gravity_scale_ - gravity_step);
-  J5 grav{};
-  if (ok && gravity_scale_ > 0.0) {
-    const auto tau = gravity::torques(q[1], q[2], q[3]);
-    grav[1] = gravity_scale_ * std::clamp(-gravity_c2_ * tau[0], -gravity_max_, gravity_max_);
-    grav[2] = gravity_scale_ * std::clamp(-gravity_c3_ * tau[1], -gravity_max_, gravity_max_);
-  }
   for (size_t i = 0; i < joints_.size() && i < 5; ++i) {
     if (!ok) continue;  // reference가 아직 없음 — 아무것도 안 씀 (예전처럼)
     const double total = delta_[i] + grav[i];  // 둘 다 오차에 넣어 처짐 적분이 지우지 않는다
     if (sag_enabled_) {
-      sag_joint_step(sag_[i], still, rest, ref[i], total, q[i], dt, sag_gain_, sag_max_, windup_s_);
+      // twist_state면 q = 실제 각 → 목표 ref + Δ (앞먹임은 비틀림이 되돌리므로 빼지 않음)
+      sag_joint_step(sag_[i], still, rest, ref[i], twist_state_ ? delta_[i] : total, q[i], dt, sag_gain_, sag_max_, windup_s_);
       corr_[i] = sag_[i].corr;
     }
     (void)command_interfaces_[i].set_value(ref[i] + corr_[i] + total);

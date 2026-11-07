@@ -16,7 +16,7 @@
           velocity_smoother 입력을 /cmd_vel_nav로 고정해 twist_mux를 건너뛰므로 안 씀.
           속도 체인: controller·behavior → /cmd_vel_nav → twist_mux
                      → /cmd_vel_mux → velocity_smoother → /cmd_vel_smoothed → collision_monitor → /cmd_vel
-          map→odom·/map은 SLAM (faker는 map_server + fake_localizer)
+          map→odom·/map은 SLAM (faker는 map_server + fake_cuvslam)
 TODO(권형중) 아직 자리만 있는 것 — 설정 패키지가 필요:
   - move_group (+ MTC capability): config/moveit 으로 해소 (use_moveit:=true) — pick_ik·octomap 센서(pole_front_cam 점구름)는 아직
 테스트베드에서는 faker가 이 패키지들 대신 같은 토픽·액션을 낸다 (ros2 launch faker faker.launch.py).
@@ -113,6 +113,8 @@ def spawner():
             '--controller-manager-timeout', '120',  # 재시작 직후 DDS 탐색·빌드로 느려지면 60초 안에 못 붙고 FATAL → 여유 120초
             '--service-call-timeout', '30',  # 기동 직후 CPU가 몰리면 10초(기본) 안에 응답 못 할 때가 있다
             '--param-file', share('config', 'controllers.yaml'),
+            # 하드웨어 twist_state와 같은 값을 rl_arm_correction에 (다른 컨트롤러는 이 파라미터를 선언 안 해 무시)
+            '--controller-ros-args', ['--param twist_state:=', LaunchConfiguration('twist_state')],  # -p는 spawner가 자기 --param-file로 읽음
             '--controller-ros-args', '-r ~/cmd_vel:=/cmd_vel',
             '--controller-ros-args', '-r ~/odom:=/odom',
             '--controller-ros-args', '-r ~/imu:=/imu'])
@@ -155,7 +157,8 @@ def generate_launch_description():
     robot_description = ParameterValue(Command(urdf_xacro(
         ' mock_hardware:=', LaunchConfiguration('mock_hardware'),
         ' mock_effort:=', LaunchConfiguration('mock_effort'),
-        ' port:=', LaunchConfiguration('port'))), value_type=str)
+        ' port:=', LaunchConfiguration('port'),
+        ' twist_state:=', LaunchConfiguration('twist_state'))), value_type=str)
     ros2_control = IfCondition(LaunchConfiguration('use_ros2_control'))
     # spawner는 한 번만 만든다 — OnProcessExit target과 기동 목록이 같은 객체여야 한다
     spawner_action = spawner()
@@ -165,6 +168,7 @@ def generate_launch_description():
         flag('mock_hardware', 'false', 'true면 BeebotSystemHardware가 실기 대신 명령을 상태로 되돌림'),
         flag('mock_effort', '0.0', 'mock일 때 팔 관절 effort [A]'),
         flag('port', '/dev/opencr', 'OpenCR 포트 (udev 고정 이름)'),
+        flag('twist_state', 'true', 'true면 joint2·3 상태 = 엔코더 + 중력 비틀림 (rl_arm_correction twist_state도 같이) · false = 엔코더 각 그대로 (강성 측정)'),
         flag('arm_correction_type', 'ml/RlArmCorrection', 'rl_arm_correction 컨트롤러 플러그인 (테스트베드 ML 대역: faker/FakeRlArmCorrection)'),
         flag('use_twist_mux', 'true', '바퀴 속도 명령 고르기 (자동 · 수동 · 비상정지 잠금)'),
         flag('use_cameras', 'true', 'RealSense 2대 (pole_front_cam·gripper_cam) 전체 스위치'),

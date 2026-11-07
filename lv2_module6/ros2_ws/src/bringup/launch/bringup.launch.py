@@ -53,6 +53,7 @@ ROS_SYSTEM_ARGS = {
     'mock_hardware': ('false', 'true면 OpenCR 없이 BeebotSystemHardware가 명령을 상태로 되돌림'),
     'mock_effort': ('0.0', 'mock일 때 팔 관절 effort [A]'),
     'port': ('/dev/opencr', 'OpenCR 포트 (udev 고정 이름)'),
+    'twist_state': ('true', 'true면 joint2·3 상태 = 엔코더 + 중력 비틀림 (BeebotSystemHardware) → TF = 실제 팔 · false = 엔코더 각 그대로 (강성 측정)'),
     'arm_correction_type': ('ml/RlArmCorrection', 'rl_arm_correction 컨트롤러 플러그인 (테스트베드 ML 대역: faker/FakeRlArmCorrection)'),
     'use_cameras': ('true', 'RealSense 2대 (테스트베드는 faker의 fake_camera가 대신 → false)'),
     'use_pole_front_cam': ('true', 'pole_front_cam만 끄기/켜기 (한 대만 연결할 때)'),

@@ -12,7 +12,7 @@ import math
 
 import numpy as np
 
-GRASP_Z = 0.06 - 0.020 + 0.0206  # 퍽 바닥이 손끝 아래 이만큼 (isaac/lab/bee_common.py GRASP_Z: PUCK_H − GRIP_DEPTH + FINGER_TIP)
+GRASP_Z = 0.06 - 0.020 + 0.0206  # 퍽 바닥이 손끝 아래 이만큼 (isaac/rl/bee_isaac/common.py GRASP_Z: PUCK_H − GRIP_DEPTH + FINGER_TIP)
 PUCK_H = 0.06
 
 

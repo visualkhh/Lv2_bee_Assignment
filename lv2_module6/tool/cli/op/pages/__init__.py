@@ -1,7 +1,7 @@
 """메뉴 화면들."""
 from .ab import AbMenu, RlNavControllerAbMenu
 from .base import Menu, Page
-from .calibrate import CalibrateMenu
+from .calibration import CalibrateMenu
 from .devices import DeviceDetailMenu, DevicesMenu
 from .mainmenu import MainMenu
 from .manual import ArmMenu, DriveSettingsMenu, GripperMenu, ManualMenu, WheelMenu

@@ -123,3 +123,54 @@ TEST(StandPlan, Timing) {
   for (size_t i = 1; i < arc.size(); ++i)
     for (int j = 0; j < 5; ++j) EXPECT_LT(std::abs(arc[i][j] - arc[i - 1][j]), 0.05) << i;  // smooth step 최고 속도 ≤ 1.5 × (0.5 × 3 rad/s)
 }
+
+TEST(StandPlan, DragWaypoints) {  // 실기 대각선 끌기: 먼 끝을 쥐고 로봇 쪽으로 끌며 올린 뒤 눌러 놓음
+  Params p;
+  p.drag_m = 0.04;
+  p.drag_lift_m = 0.035;
+  p.set_dz_m = -0.02;
+  double cy;
+  const V3 c = {0.19, 0.0, 0.07};
+  const auto pts = waypoints(c, 0.0, true, p, cy);
+  ASSERT_EQ(pts.size(), 11u);  // 위 · 쥐기 · 끌기 4 · 멈춤 · 놓기 · 위로 · 다시 잡기 2
+  EXPECT_NEAR(pts[1][0], c[0] + PUCK_L / 2, 1e-12);
+  EXPECT_NEAR(pts[5][0] - pts[1][0], -0.04, 1e-12);
+  EXPECT_NEAR(pts[5][2] - pts[1][2], 0.035, 1e-12);
+  EXPECT_NEAR(pts[7][2] - pts[6][2], -0.02, 1e-12);
+  std::vector<Q5> qs;
+  std::string why;
+  ASSERT_TRUE(plan_ik(c, 0.0, true, p, qs, why)) << why;
+  const std::vector<Q5> wp(qs.begin(), qs.end() - 2);
+  EXPECT_EQ(arc_groups(p, static_cast<int>(wp.size()) - 3)[0], std::make_pair(0, 4));
+  const auto path = sample_arc(wp, p, 0.5, 0.5, 0.02);
+  for (int j = 0; j < 5; ++j) EXPECT_NEAR(path.back()[j], wp[wp.size() - 2][j], 1e-9);  // 눌러 놓는 자리에서 끝
+}
+
+TEST(StandPlan, LowersAboveWhenUnreachable) {  // 대기 높이를 못 가면 낮춰서 품
+  Params p;
+  p.above_m = 0.5;
+  std::vector<Q5> qs;
+  std::string why;
+  ASSERT_TRUE(plan_ik({0.19, 0.0, 0.07}, 0.0, true, p, qs, why)) << why;
+  EXPECT_NEAR(fk(qs[0])[2] - fk(qs[1])[2], 0.03, 1e-6);
+}
+
+TEST(StandPlan, SymmetricCloseAxisPicksNearestWrist) {  // 손가락 대칭 — 같은 파지 중 손목이 덜 도는 쪽
+  const V3 p = {0.2, 0.0, 0.15};
+  const Q5 near = {0.0, 0.0, 0.5, 1.0, 0.0};
+  Q5 q;
+  ASSERT_TRUE(ik_down_sym(p, M_PI / 2 + M_PI, near, q));  // 닫는 축 270° = 90°와 같음 → joint5 ≈ 0
+  EXPECT_NEAR(q[4], 0.0, 0.01);  // joint1이 팔 받침 옆 오프셋만큼 살짝 돎
+  V3 axis;
+  const V3 tip = fk(q, &axis);
+  EXPECT_LT(dist(tip, p), 1e-6);
+  EXPECT_NEAR(std::abs(axis[1]), 1.0, 1e-6);  // 닫는 축이 y 방향
+  EXPECT_NEAR(axis[2], 0.0, 1e-6);
+  EXPECT_FALSE(ik_down_sym({0.9, 0.0, 0.15}, 0.0, near, q));  // 안 닿음
+}
+
+TEST(StandPlan, StandingGraspHeightIgnoresPerceivedFace) {  // 인지 z가 윗면 위·앞면이어도 상자 윗면 + GRASP_Z
+  EXPECT_NEAR(standing_grasp_z(0.152), 0.07 + GRASP_Z, 1e-12);
+  EXPECT_NEAR(standing_grasp_z(0.104), 0.07 + GRASP_Z, 1e-12);
+  EXPECT_NEAR(standing_grasp_z(0.05), GRASP_Z, 1e-12);  // 바닥
+}

@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bee-isaac"
+version = "0.1.0"
+description = "BEE robot Isaac Sim / Isaac Lab shared code: assets, scenes, RL tasks"
+requires-python = ">=3.11"
+
+[tool.setuptools.packages.find]
+where = ["rl"]
+
+[tool.setuptools.package-data]
+bee_isaac = ["data/*"]

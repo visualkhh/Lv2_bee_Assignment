@@ -1,5 +1,5 @@
 # hand_relative → rl_arm_correction (학습 보정 정책 입력): 손 카메라로 잰 상대 위치 — 시뮬 정책 입력과 같은 정의
-#   (isaac/lab pick_env · place_env · right_env · slot_env, 설명: scripts/hand_geom.py)
+#   (isaac/rl/bee_isaac/tasks pick_env · place_env · right_env · slot_env, 설명: scripts/hand_geom.py)
 std_msgs/Header header    # frame_id = base_link · stamp = 그 값을 만든 손 카메라 영상 시각 (slot은 TF 시각)
 string kind               # puck | cell | slot (HandTarget과 같음)
 bool valid                # 목표를 찾아 잰 값이면 true · 못 찾으면 false (값은 0)

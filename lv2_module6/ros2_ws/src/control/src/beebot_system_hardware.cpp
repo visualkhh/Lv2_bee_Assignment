@@ -22,6 +22,18 @@ static constexpr double BATTERY_WARN_V = 11.0;
 static constexpr int TEMP_WARN_C = 70;
 static const char * motor_name(size_t i) { return i < WHEELS.size() ? WHEELS[i] : ARM[i - WHEELS.size()]; }
 
+// joint2·3 중력 토크 [Nm], 앞으로 처지는 쪽 + — ml/rl_arm_correction.hpp gravity::torques와 같은 팔 평면 점질량 (URDF 값).
+// ponytail: 사본(그 헤더 · Isaac opencr_bridge.py) — control이 ml에 의존하지 않게. 하나가 바뀌면 셋 다
+static std::array<double, 2> arm_torques(double q2, double q3, double q4) {
+  const auto x_of = [](double th, double x, double z) { return x * std::cos(th) + z * std::sin(th); };
+  const double t23 = q2 + q3, t234 = t23 + q4;
+  const double p3 = x_of(q2, 0.024, 0.128), fa = p3 + x_of(t23, 0.093796, 0.0), p4 = p3 + x_of(t23, 0.124, 0.0);
+  const double wr = p4 + x_of(t234, 0.043623, 0.011449), hd = p4 + x_of(t234, 0.0629 + 0.052686, 0.014472);
+  constexpr double G = 9.81, M_UA = 0.128865, M_FA = 0.117300, M_WR = 0.090152, M_HD = 0.371242;
+  return {G * (M_UA * x_of(q2, 0.008487, 0.104997) + M_FA * fa + M_WR * wr + M_HD * hd),
+          G * (M_FA * (fa - p3) + M_WR * (wr - p3) + M_HD * (hd - p3))};
+}
+
 // DYNAMIXEL Hardware Error Status 비트 → 사람이 읽는 이름
 static std::string error_text(int e) {
   if (e < 0) return "응답 없음";
@@ -38,6 +50,9 @@ CallbackReturn BeebotSystemHardware::on_init(const hardware_interface::HardwareC
   mock_ = hp.count("mock") && (hp.at("mock") == "true" || hp.at("mock") == "True");
   mock_effort_ = hp.count("mock_effort") ? std::stod(hp.at("mock_effort")) : 0.0;
   port_ = hp.count("port") ? hp.at("port") : "/dev/opencr";
+  twist_state_ = !hp.count("twist_state") || hp.at("twist_state") == "true" || hp.at("twist_state") == "True";  // 없으면 켬
+  if (hp.count("twist_compliance_j2")) twist_c2_ = std::stod(hp.at("twist_compliance_j2"));
+  if (hp.count("twist_compliance_j3")) twist_c3_ = std::stod(hp.at("twist_compliance_j3"));
   imu_ = info_.sensors.empty() ? "imu" : info_.sensors.front().name;
   if (!mock_) {  // 실기 프로토콜은 관절 순서가 고정 — URDF와 다르면 시작하지 않는다
     const auto in_urdf = [this](const char * name) {
@@ -57,8 +72,9 @@ CallbackReturn BeebotSystemHardware::on_init(const hardware_interface::HardwareC
     const auto it = j.parameters.find("offset");
     offset_[j.name] = it != j.parameters.end() ? std::stod(it->second) : 0.0;  // 미리 채워 read/write에서 삽입 없게
   }
-  RCLCPP_INFO(get_logger(), "관절 %zu개 · 센서 %zu개 · %s", info_.joints.size(), info_.sensors.size(),
-    mock_ ? "mock (명령 → 상태 되돌림)" : ("실기 OpenCR " + port_).c_str());
+  RCLCPP_INFO(get_logger(), "관절 %zu개 · 센서 %zu개 · %s%s", info_.joints.size(), info_.sensors.size(),
+    mock_ ? "mock (명령 → 상태 되돌림)" : ("실기 OpenCR " + port_).c_str(),
+    twist_state_ && !mock_ ? " · 비틀림 상태 켬 (joint2·3 위치 = 엔코더 + c·τ)" : "");
   return CallbackReturn::SUCCESS;
 }
 
@@ -135,7 +151,12 @@ CallbackReturn BeebotSystemHardware::on_activate(const rclcpp_lifecycle::State &
   for (const auto & j : info_.joints) {
     for (const auto & c : j.command_interfaces) {
       const auto key = j.name + "/" + c.name;
-      set_command(key, c.name == hardware_interface::HW_IF_POSITION ? get_state<double>(key) : 0.0);
+      double v = 0.0;
+      if (c.name == hardware_interface::HW_IF_POSITION) {
+        v = get_state<double>(key);
+        for (size_t k = 0; k < ARM.size(); ++k) if (j.name == ARM[k]) v -= twist_[k];  // 비틀림 상태면 엔코더 각으로 (안 튀게)
+      }
+      set_command(key, v);
     }
   }
   return CallbackReturn::SUCCESS;
@@ -282,7 +303,9 @@ bool BeebotSystemHardware::apply_state(const std::string & text) {
     if (wheel_effort_) set_state(std::string(name) + "/effort", v[i]);  // URDF 바퀴에 effort 상태가 있을 때만
     ++i;
   }
-  for (const auto * name : ARM) {
+  std::array<double, 6> arm_p{};
+  for (size_t k = 0; k < ARM.size(); ++k) {
+    const char * name = ARM[k];
     double p = v[i++] - offset_[name];  // 서보 값 → 관절값
     // 시리얼은 소수 넷째 자리(%.4f) — 한계값 명령(π = 3.14159)이 3.1416으로 오가며 한계를 0.0001쯤 넘는다.
     // 그대로 내보내면 MoveIt이 출발 자세가 한계 밖이라며 모든 계획을 거부했음 (START_STATE_INVALID) → 반올림만큼 넘은 건 한계로
@@ -292,9 +315,22 @@ bool BeebotSystemHardware::apply_state(const std::string & text) {
       if (p > hi && p - hi < 1e-3) p = hi;
       if (p < lo && lo - p < 1e-3) p = lo;
     }
-    set_state(std::string(name) + "/position", p);
+    arm_p[k] = p;
     set_state(std::string(name) + "/velocity", v[i++]);
     set_state(std::string(name) + "/effort", v[i++]);
+  }
+  if (twist_state_) {  // 비틀림 상태 (헤더 설명) — 토크는 엔코더 각으로 (rl_arm_correction 앞먹임 · Isaac opencr_bridge와 같게)
+    const auto tau = arm_torques(arm_p[1], arm_p[2], arm_p[3]);
+    twist_[1] = twist_c2_ * tau[0];
+    twist_[2] = twist_c3_ * tau[1];
+  }
+  for (size_t k = 0; k < ARM.size(); ++k) {
+    double p = arm_p[k] + twist_[k];
+    // 더한 d가 한계를 넘기면 한계로 — stow joint3 1.344 + d 0.054 = 1.398 > 1.396이라 MoveIt이 출발 자세를 거부함 (START_STATE_INVALID)
+    const auto lim = info_.limits.find(ARM[k]);
+    if (twist_[k] != 0.0 && lim != info_.limits.end() && lim->second.has_position_limits)
+      p = std::clamp(p, lim->second.min_position, lim->second.max_position);
+    set_state(std::string(ARM[k]) + "/position", p);
   }
   for (const auto * field : IMU_FIELDS) set_state(imu_ + "/" + field, v[i++]);
   for (size_t k = 0; k < MOTORS; ++k) hw_temp_[k] = static_cast<int>(std::lround(v[i++]));  // °C, −1 = 모름

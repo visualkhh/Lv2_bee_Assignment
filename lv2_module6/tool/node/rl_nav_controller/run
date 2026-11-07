@@ -20,6 +20,6 @@ cmd="${1:-report}"
 [ $# -gt 0 ] && shift
 case "$cmd" in
   record) exec "$HERE/record.sh" "$@" ;;
-  report) exec python3 "$HERE/report.py" "$@" ;;
+  report) exec python3 "$HERE/../../../cli/op/pages/ab/rl_nav_controller/report.py" "$@" ;;
   *) echo "사용법: $0 record <bag> | report <bag...> [--labels ON OFF] [--out png]" >&2; exit 2 ;;
 esac

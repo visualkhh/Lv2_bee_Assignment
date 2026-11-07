@@ -19,7 +19,8 @@ from geometry_msgs.msg import TwistStamped
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Bool, Empty, Int32MultiArray, String
 
-from .ab import AbTest
+from .dialog import TeleopDialog
+from .pages.ab.core import AbTest
 from .consts import (ARM_JOINTS, DIAG_LEVELS, GRIPPER_CLOSE, GRIPPER_JOINT,
                     GRIPPER_OPEN, WHEEL_JOINTS)
 from .terminal import BOLD, DIM, GREEN, RED, YELLOW, Terminal
@@ -31,14 +32,6 @@ except ImportError:  # nav2_msgs가 없는 환경에서도 나머지 명령은 �
 
 
 # 수동 주행 속도 상한 (텔레오퍼 -/= · 메뉴 속도 설정) — Waffle Pi 사양 (바퀴 상한 ≈ 8 rad/s × 0.033 m)
-MAX_LIN, MAX_ANG = 0.26, 1.82
-# 텔레오퍼 키 → (전후, 회전) 방향. 사선(둘 다 0 아님) = 설정 선속도 그대로 + 반경 DIAG_RADIUS 원호.
-# 후진 사선은 회전 부호 반대 (teleop_twist_keyboard와 같음: z = 뒤로 가며 왼쪽으로 휘어짐)
-TELEOP_MOVES = {'w': (1, 0), 'x': (-1, 0), 'a': (0, 1), 'd': (0, -1), 's': (0, 0),
-                'q': (1, 1), 'e': (1, -1), 'z': (-1, -1), 'c': (-1, 1)}
-DIAG_RADIUS = 0.5  # [m] 사선 원호 반경
-
-
 class Bus:
     def __init__(self, node, state, prompt, term: Terminal):
         self.node = node
@@ -360,7 +353,7 @@ class Bus:
         return files[:n]
 
     def calibration_report(self, args) -> int:
-        script = Path(__file__).resolve().parents[1] / 'calibration' / 'wheel' / 'report.py'
+        script = Path(__file__).resolve().parent / 'pages' / 'calibration' / 'wheel' / 'report.py'
         if not script.is_file():
             print(f'FAIL: 리포트 스크립트 없음: {script}', file=sys.stderr)
             return 2
@@ -385,13 +378,13 @@ class Bus:
         return int(res.returncode)
 
     def cmd_calibrate(self, args) -> int:
-        """calibrate <부분> — wheel: 계획 파일을 /cmd/manual/cmd_vel로 재생하며 응답을 raw.csv로 기록 (op/calibrate.py). arm은 나중."""
+        """calibrate <부분> — wheel: 계획 파일을 /cmd/manual/cmd_vel로 재생하며 응답을 raw.csv로 기록 (op/pages/calibration/core.py). arm은 나중."""
         if args.part == 'report':
             return self.calibration_report(args)
         if args.part != 'wheel':
             print(f'거부: calibrate {args.part} — 아직 없음 (wheel만)', file=sys.stderr)
             return 2
-        from .calibrate import ensure_stow, load_plan, run
+        from .pages.calibration.core import ensure_stow, load_plan, run
         try:
             plan = load_plan(args.plan)
         except ValueError as exc:
@@ -406,79 +399,16 @@ class Bus:
 
     # ------------------------------------------------------------------ teleop
 
-    def cmd_teleop(self, args) -> int:
-        """키보드 수동 주행 — w/x/a/d·방향키 이동 · q/e/z/c 사선(원호) · s/space 정지 · -/= 속도± · b 삑 · Esc 종료.
-        속도는 방향 × 설정값이라 달리는 중에 바꿔도 바로 반영. 0.1초마다 다시 보냄 (manual_control cmd_timeout 0.5초)."""
+    def cmd_teleop(self, args, on_mark=None) -> int:
+        """키보드 수동 주행 — 창·키 처리는 TeleopDialog. 끝나면(어떻게 끝나든) 바퀴를 세운다.
+        on_mark: 있으면 g/Enter에 로봇을 세우고 on_mark() 호출 — 반환 문자열을 창에 표시 (A/B 경로 goal 찍기)."""
         if not self.ensure_manual_or_switch(args.force):
             return 1
         if not sys.stdin.isatty():
             print('거부: teleop은 터미널에서 실행해야 합니다', file=sys.stderr)
             return 2
-        from .dialogs import Dialog, KeyReader
-        move = (0, 0)  # (전후, 회전) 방향
-        lin_speed, ang_speed = min(args.linear, MAX_LIN), min(args.angular, MAX_ANG)
-        last_send = 0.0
-        last_bar = 0.0
-        last_key, key_count = '-', 0
-        box = Dialog(self.prompt, '텔레오퍼 → /cmd/manual/cmd_vel', [])  # 공용 박스 — console로 그려 캡처를 우회
-        alias = {'up': 'w', 'down': 'x', 'left': 'a', 'right': 'd', ' ': 's'}
         try:
-            with KeyReader(self.term) as keys:  # cbreak + 시작 전 눌린 키 비우기
-                while rclpy.ok():
-                    linear = move[0] * lin_speed
-                    # 사선 = 설정 선속도 그대로 + 반경 DIAG_RADIUS 원호 (ω = v / R → 속도를 바꿔도 휘는 모양이 같음)
-                    angular = move[1] * (lin_speed / DIAG_RADIUS if move[0] else ang_speed)
-                    wl = self.state.joint_vel.get('wheel_left_joint')
-                    wr = self.state.joint_vel.get('wheel_right_joint')
-                    actual = (f'실제 바퀴 좌{wl:+.2f} 우{wr:+.2f} rad/s'
-                              if wl is not None and wr is not None else '실제 ? (joint_states 무응답)')
-                    # 다이어로그가 떠 있는 동안 뒤 프레임은 안 그리므로, 전류·온도·배터리는 여기 넣는다
-                    al = self.state.joint_effort.get('wheel_left_joint')
-                    ar = self.state.joint_effort.get('wheel_right_joint')
-                    cur = (f'전류 L {al * 1000:+.0f} R {ar * 1000:+.0f} mA'
-                           if al is not None and ar is not None else '전류 ? (effort 없음)')
-                    tl = self.state.motor_temp.get('wheel_left_joint', -1)
-                    tr = self.state.motor_temp.get('wheel_right_joint', -1)
-                    temp = f'온도 L {tl} R {tr}°C' if tl >= 0 and tr >= 0 else '온도 ?'
-                    bat_txt = self.state.battery_summary()
-                    err = [n for n in ('wheel_left_joint', 'wheel_right_joint')
-                           if self.state.motor_text.get(n, '정상') not in ('', '정상')]
-                    err_txt = (' · ' + self.term.paint('에러 ' + ', '.join(err), RED)) if err else ''
-                    key_txt = f'키 {last_key} ×{key_count}' if key_count else '키 입력 대기 중'
-                    box.lines = [box.title,
-                                 f'모드: {self.state.operation or "-"}' + (' · E-STOP' if self.state.emergency else ''),
-                                 f'명령 v={linear:+.2f} m/s ω={angular:+.2f} rad/s',
-                                 actual,
-                                 f'{cur} · {temp} · 배터리 {bat_txt}{err_txt}',
-                                 f'{key_txt} · 설정 v {lin_speed:.2f} m/s · ω {ang_speed:.2f} rad/s',
-                                 self.term.paint('w/x/a/d·방향키 이동 · q/e/z/c 사선 · s/space 정지', DIM),
-                                 self.term.paint('-/= 속도± · b 삑 · Esc 종료', DIM)]
-                    box.draw('key')
-                    now = time.monotonic()
-                    if now - last_bar >= 0.5:  # 박스 뒤 상단 상태바·중앙(가리지 않은 줄) 갱신
-                        self.prompt.refresh_bar()
-                        self.prompt.refresh_center(getattr(box, '_geom', None))
-                        last_bar = now
-                    if now - last_send >= 0.1:
-                        self._send_velocity(linear, angular)
-                        last_send = now
-                    key = keys.read(0.1)
-                    self._poll(0.01)
-                    if key is None:
-                        continue
-                    if key in ('esc', 'eof', '\x03'):
-                        break
-                    key = alias.get(key, key)
-                    key_count += 1
-                    last_key = 'space' if key == 's' else key
-                    if key in TELEOP_MOVES:
-                        move = TELEOP_MOVES[key]
-                    elif key == 'b':
-                        self.pub_beep.publish(Int32MultiArray())
-                    elif key in ('=', '+'):  # 상한 = Waffle Pi 사양
-                        lin_speed, ang_speed = min(lin_speed + 0.05, MAX_LIN), min(ang_speed + 0.3, MAX_ANG)
-                    elif key in ('-', '_'):
-                        lin_speed, ang_speed = max(lin_speed - 0.05, 0.05), max(ang_speed - 0.3, 0.2)
+            TeleopDialog(self, args.linear, args.angular, on_mark).run()
         finally:
             for _ in range(3):
                 self._send_velocity(0.0, 0.0)
@@ -1121,6 +1051,12 @@ class Bus:
         print(f'{name}: {self.lifecycle_state(name) or "?"}')
         return True
 
+    def node_feature_lines(self, name: str, summary: bool = False) -> list[str]:
+        """노드별 추가 상태 — op/pages/nodes/<node>.py의 NodeFeature."""
+        from .pages.nodes import feature_for
+        feature = feature_for(name)
+        return feature.status_lines(self, name, summary=summary) if feature else []
+
     def node_status_lines(self, name: str) -> list[str]:
         row = next((r for r in self.node_rows() if r['name'] == name), None)
         lines = [f'[{name}]']
@@ -1130,6 +1066,7 @@ class Bus:
                      f' · pid {row["pid"] or "-"}{"" if row["pid"] else " (state_manager 재시작 목록에 없음)"}')
         if row['lifecycle']:
             lines.append(f' 수명주기: {self.lifecycle_state(name) or "응답 없음"} (active가 아니면 3) 활성화)')
+        lines += self.node_feature_lines(name)
         try:
             ns = '/'
             pubs = self.node.get_publisher_names_and_types_by_node(name.split('/')[-1], ns)
@@ -1167,8 +1104,8 @@ class Bus:
         return 1
 
     def cmd_ab(self, args) -> int:
-        """A/B 테스트 — ab.py로 위임 (메뉴 14와 같은 구현)."""
-        from .ab import AbTest
+        """A/B 테스트 — op/pages/ab/core.py로 위임 (메뉴 14와 같은 구현)."""
+        from .pages.ab.core import AbTest
         return AbTest(self).cmd(args)
 
     def cmd_node(self, args) -> int:

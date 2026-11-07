@@ -1,17 +1,19 @@
 # SIL 시뮬레이터
 
-실기 대신 세상(코스·퍽·장애물·이동물체·카메라 장면)과 로봇 몸(OpenCR)을 흉내 내고, ROS 쪽은 실제 노드가 그대로 돈다. 호스트에서 띄우는 창이고, 컨테이너와는 `../../debug` 파일로만 주고받는다 (호스트에 ROS 불필요). 전체 개발 흐름은 [DEVELOP.md](gazebo/DEVELOP.md).
+실기 대신 세상(코스·퍽·장애물·이동물체·카메라 장면)과 로봇 몸(OpenCR)을 흉내 내고, ROS 쪽은 실제 노드가 그대로 돈다. 호스트에서 띄우는 창이고, 컨테이너와는 `../../debug` 파일로만 주고받는다 (호스트에 ROS 불필요). 전체 개발 흐름은 [DEVELOP.md](../gazebo/DEVELOP.md).
 
 ```bash
 # 컨테이너 (저장소 루트에서 — 둘 중 하나로 띄워 두기)
 cd docker && docker compose up -d && docker compose exec lyrical bash   # 컨테이너 셸
-test-faker 0                          # 기본 — 컨테이너 fake_opencr가 OpenCR 역할 (미끄럼 · 마찰 · 충돌 · 통신 끊김, 시뮬레이터 버튼으로 요청)
+test-faker 0                          # 기본 = 주사위 미션(dice_maze) — fake_opencr가 OpenCR 역할
+test-faker 0 course:=twin_closed_maze # 옛 미로 (기존 테스트 흐름)
 test-faker 0 mock_hardware:=true      # OpenCR 없이 mock: 바퀴·팔은 명령 그대로 (물리 없음)
 # 호스트 (새 터미널)
 cd lv2_module6/simulator
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt   # 최초 1회
-.venv/bin/python main.py
-.venv/bin/python main.py --snapshot out.png                # 창 없이 한 장 (확인용)
+python3 -m venv .venv && .venv/bin/pip install -r vazebo/requirements.txt   # 최초 1회
+.venv/bin/python vazebo/main.py                                  # 기본 = 주사위 미션 (dice_maze + q1)
+.venv/bin/python vazebo/main.py --course twin_closed_maze --dice ""   # 옛 미로
+.venv/bin/python vazebo/main.py --snapshot out.png                # 창 없이 한 장 (확인용)
 ```
 
 | 시뮬레이터 기능 | 필요한 컨테이너 명령 | 안 맞으면 |
@@ -19,19 +21,35 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt   # 최초 1�
 | 카메라·명령·수동 조작·service/action 입력·상태/진단 보기 | `test-faker 0` (mock도 됨) | 카메라 `waiting`, 진단은 `(진단 없음)` |
 | 미끄럼·마찰·충돌·통신 끊김·팔 붙잡기 (fake_opencr) | `test-faker 0` (기본) | `mock_hardware:=true`면 상태 'OpenCR 없음', 실제 로봇(채움) 안 뜸 |
 
+## 주사위 미션 (course dice_maze)
+
+```bash
+# 컨테이너 — 주사위 코스 지도 · 출발 자세(시뮬레이터는 +X를 보고 켬) · 예전 텍스트 명령 끔
+test-faker 0 course:=dice_maze "start_pose:=[0.734, 0.950, 0.0]" command:=" "
+# 호스트 — 이제 기본값이 dice_maze + q1 (--dice 다른이름으로 문제 교체, --dice ""면 안 깖)
+.venv/bin/python vazebo/main.py
+```
+
+- 오른쪽 [주사위 미션]: 문제 깔기 · 신호 시작(12회 점멸) · 미션 시작/중지 (`/cmd/mission start|abort` → mission_manager)
+  · "READ가 되면 신호 자동 시작" 체크면 mission_manager가 신호 관측 단계에 들어갈 때 신호등이 시작됨
+- 장면 (`dice.py`): 시작 박스 6 × 퍽 2 (Z=70, 윗면 AprilTag = 퍽 ID) · 장소 태그 12~14 (박스 수직면) · 바코드 판 Code 128 · 신호등
+  — 태그·바코드 무늬는 640×480으로 키운 영상에 입힌다 (320 렌더에선 16mm 태그·바코드 칸이 뭉개짐)
+- 놓은 퍽은 박스 위면 박스 윗면(70mm)에 안착 (`on_box`) — 로봇과 같이 움직이지 않음
+- 문제 파일 `dice/<이름>.json`: signal · barcode · pucks[tag, color, shape(cylinder|cuboid), box(1~6), side(−1|+1)]
+
 ## 호스트 CLI (`bee.py`) — 컨테이너에 안 들어가고 지시
 
 ```bash
-.venv/bin/python bee.py user "빨간 퍽을 목표 구역으로 옮겨"   # 텍스트 명령
-.venv/bin/python bee.py status                                # 작업·모드·위치·service/action 목록
-.venv/bin/python bee.py estop on|off                          # 비상정지
-.venv/bin/python bee.py manual on|off                         # 수동 모드
-.venv/bin/python bee.py twist 0.1 0.0                         # 수동 바퀴 (수동 모드에서만)
-.venv/bin/python bee.py service score_grasps '{"object_id": 3}'   # 응답 대기, exit 2=호출 실패
-.venv/bin/python bee.py action navigate_to_pose '{"x": 1.0, "y": 0.5}'  # accept→result 대기
-.venv/bin/python bee.py action navigate_to_pose '{...}' --no-wait     # accept까지만
-.venv/bin/python bee.py cancel navigate_to_pose <goal_id>
-.venv/bin/python bee.py snap out.png
+.venv/bin/python vazebo/bee.py user "빨간 퍽을 목표 구역으로 옮겨"   # 텍스트 명령
+.venv/bin/python vazebo/bee.py status                                # 작업·모드·위치·service/action 목록
+.venv/bin/python vazebo/bee.py estop on|off                          # 비상정지
+.venv/bin/python vazebo/bee.py manual on|off                         # 수동 모드
+.venv/bin/python vazebo/bee.py twist 0.1 0.0                         # 수동 바퀴 (수동 모드에서만)
+.venv/bin/python vazebo/bee.py service score_grasps '{"object_id": 3}'   # 응답 대기, exit 2=호출 실패
+.venv/bin/python vazebo/bee.py action navigate_to_pose '{"x": 1.0, "y": 0.5}'  # accept→result 대기
+.venv/bin/python vazebo/bee.py action navigate_to_pose '{...}' --no-wait     # accept까지만
+.venv/bin/python vazebo/bee.py cancel navigate_to_pose <goal_id>
+.venv/bin/python vazebo/bee.py snap out.png
 ```
 
 service/action은 `request_id`·`goal_id` 일치로 자기 응답만 받는다 (stale 무시). 창(`main.py`)을 안 띄우고 명령·호출만 할 때 쓴다.
@@ -44,7 +62,7 @@ service/action은 `request_id`·`goal_id` 일치로 자기 응답만 받는다 (
 | 로봇 3D | 지금 상태(URDF+관절값, 드래그 회전 · Shift+드래그 이동 · 휠 줌) + 주변 퍽·장애물·이동물체 — 바퀴 회오리(스포크 4개 — 바퀴 관절각만큼 돌아 굴러가는 게 보임, 주황=회전 중) + map·odom·base_footprint 좌표 + `관절축 보기` 체크(X빨·Y초·Z파, 바퀴는 같이 돌아 회전 표시) + **`충돌 모양 보기 (collision)` 체크** — 켜면 로봇 3D와 pole_cam·gripper_cam 렌더가 URDF `<collision>` 모양(주황)으로 바뀜 (메시 충돌체도 메시 그대로). 끄면 원래대로 + **`감지 물체` 체크** — 인지 결과를 3D에 겹침: `/tracked_objects` = 보라 와이어 상자(size 크기, 라벨 `class#id`, 두 카메라 융합이면 **F**) · `/perception/<cam>/detections` = 카메라 색 점(pole_cam 주황 · gripper_cam 분홍) → 붙은 트랙까지 선 (면이 아니라 선이라 실제 물체 모형을 안 가림, 조작 창 3D와 체크 공유) — 수동 조작 창의 로봇 뷰를 여기로 옮김 |
 | 퍽 · 배경 · 바닥 | [퍽 랜덤 배치] 개수 · 모양(원기둥·상자·구) · 색 무작위 / 360° 파노라마 배경 / 바닥 텍스처(`images/floor`, 1타일=1m 반복, 없으면 격자) / 벽 텍스처(`images`, 가로 0.5m 반복, 없으면 단색) / [카메라 송출] 끄기 = 카메라 빠짐 |
 | 환경 | 미끄럼(바퀴가 돈 만큼 덜 나감) · 마찰(가속 한계) · [이동물체 추가/삭제](미로 안 칸 사이를 돌아다님, 삭제는 나중 것부터) · [바닥 장애물 추가/삭제](삭제는 나중 것부터) · [신호등 추가/삭제](랜덤 배치, 평소 꺼짐 — 초록 5초 → 황 2초 → 빨강 5초, 사이 1초씩 꺼짐, 높이 벽 수준) · [로봇 위치 초기화](fake_opencr 위치 + odom 리셋) · OpenCR 통신 끊기 · 팔 붙잡기(과전류) · 조명(카메라 밝기 배율) · 카메라 잡음 |
-| 미션 | `../../../documents/mission/MISSION.md` 방식 — 한 맵에 **미션 지역 여러 곳**(주황 판 · QR 판 · 퍽), 끝나면 출발 칸 복귀. 처음엔 빈 맵. **지도 오른쪽 클릭 메뉴**: 빈 칸 = [여기에 미션 지역 ▸ 문제] · [B 지역을 여기로] · [로봇을 여기로](진짜 위치 순간이동 — /cmd/fake_opencr/set_pose, 실기로 치면 들어 옮김) · [여기로 이동](Nav2) · **[여기가 로봇 위치 (초기 위치 지정)]**(위치추정 모드에서만 — RTAB-Map이 매핑 중엔 무시. `/initialpose` PoseWithCovarianceStamped → RTAB-Map에 '로봇은 여기', 방향은 지금 실제 로봇 방향, RViz 2D Pose Estimate와 같음. map 좌표는 고정 기준 = 출발 칸 원점·0° — 지도는 출발 칸에서 시작해 만듦. 지도 칸 **[실제 위치로 맞추기]** = 클릭 없이 실제 위치로), 미션 지역 위 = [문제 바꾸기 ▸] · [QR 판 돌리기] · [미션 지역 지우기] (가장 가까운 칸에 M1·M2…, 출발 칸 · B 칸은 안 됨). **Shift+왼쪽 드래그**로 미션 지역(판·QR 판·퍽 통째로)·B 지역 옮기기 — 놓으면 칸에 맞춰 붙고, 안 되는 칸이면 원위치. 판 위에 퍽·로봇이 있어도 통째로 잡힘. 그냥 드래그는 퍽·로봇·장애물 하나. 오른쪽 드래그 = 지도 이동. 퍽: 정렬 6개 3색 · 세우기 5개 중 1~3개 누움 · 옮기기 4개. QR 판은 벽 쪽에 붙어 통로 쪽을 봄(자동) — 옮긴 칸에서 벽 방향이 바뀌면 다시 맞춤. [환경 배치]: 바닥 장애물 3 · 이동물체 1 · 미끄러운 구간 2(하늘색, 카메라엔 안 보임) · 조명 변화 (seed 같으면 같은 배치), [환경 해제]. 시작 신호는 명령 줄의 [모든 미션 수행 후 출발 칸으로 복귀]. QR 무늬는 출력 해상도에서 원근 투영으로 입혀 0.4~1.0m에서 읽힘(perception → `/mission_qr`). 퍽 세우기: 집을 때보다 손을 60° 넘게 기울여 놓으면 누움 ↔ 섬. 문제 = `simulator/qr/<코드>/` 폴더 (폴더 이름 = 코드·지도 표시): `qr.png`(판에 입힐 QR 그림 — 대회 QR로 교체 가능) + `info.json`(`text` QR 텍스트 · `name` · `pucks` · `colors` · `lying`). 문제 추가는 폴더 하나, 시작 때 qr.png 해독값과 `text`가 다르면 경고. 환경 수는 `scene.py` `ENV_LAYOUT`. 채점은 외부(대회 심판) |
+| 미션 | `../../../documents/mission/README.md` 방식 — 한 맵에 **미션 지역 여러 곳**(주황 판 · QR 판 · 퍽), 끝나면 출발 칸 복귀. 처음엔 빈 맵. **지도 오른쪽 클릭 메뉴**: 빈 칸 = [여기에 미션 지역 ▸ 문제] · [B 지역을 여기로] · [로봇을 여기로](진짜 위치 순간이동 — /cmd/fake_opencr/set_pose, 실기로 치면 들어 옮김) · [여기로 이동](Nav2) · **[여기가 로봇 위치 (초기 위치 지정)]**(위치추정 모드에서만 — RTAB-Map이 매핑 중엔 무시. `/initialpose` PoseWithCovarianceStamped → RTAB-Map에 '로봇은 여기', 방향은 지금 실제 로봇 방향, RViz 2D Pose Estimate와 같음. map 좌표는 고정 기준 = 출발 칸 원점·0° — 지도는 출발 칸에서 시작해 만듦. 지도 칸 **[실제 위치로 맞추기]** = 클릭 없이 실제 위치로), 미션 지역 위 = [문제 바꾸기 ▸] · [QR 판 돌리기] · [미션 지역 지우기] (가장 가까운 칸에 M1·M2…, 출발 칸 · B 칸은 안 됨). **Shift+왼쪽 드래그**로 미션 지역(판·QR 판·퍽 통째로)·B 지역 옮기기 — 놓으면 칸에 맞춰 붙고, 안 되는 칸이면 원위치. 판 위에 퍽·로봇이 있어도 통째로 잡힘. 그냥 드래그는 퍽·로봇·장애물 하나. 오른쪽 드래그 = 지도 이동. 퍽: 정렬 6개 3색 · 세우기 5개 중 1~3개 누움 · 옮기기 4개. QR 판은 벽 쪽에 붙어 통로 쪽을 봄(자동) — 옮긴 칸에서 벽 방향이 바뀌면 다시 맞춤. [환경 배치]: 바닥 장애물 3 · 이동물체 1 · 미끄러운 구간 2(하늘색, 카메라엔 안 보임) · 조명 변화 (seed 같으면 같은 배치), [환경 해제]. 시작 신호는 명령 줄의 [모든 미션 수행 후 출발 칸으로 복귀]. QR 무늬는 출력 해상도에서 원근 투영으로 입혀 0.4~1.0m에서 읽힘(perception → `/mission_qr`). 퍽 세우기: 집을 때보다 손을 60° 넘게 기울여 놓으면 누움 ↔ 섬. 문제 = `simulator/vazebo/qr/<코드>/` 폴더 (폴더 이름 = 코드·지도 표시): `qr.png`(판에 입힐 QR 그림 — 대회 QR로 교체 가능) + `info.json`(`text` QR 텍스트 · `name` · `pucks` · `colors` · `lying`). 문제 추가는 폴더 하나, 시작 때 qr.png 해독값과 `text`가 다르면 경고. 환경 수는 `scene.py` `ENV_LAYOUT`. 채점은 외부(대회 심판) |
 | 지도 (SLAM) | 컨테이너를 `test-faker 0 map:=slam`(스캔) 또는 `map:=saved`(저장 지도)로 띄웠을 때 SLAM(cuVSLAM + nvblox — **GPU 필요**, 테스트베드 컨테이너엔 없어 시작할 때 멈춤) 상태 + **[스캔 시작]**(새 지도 폴더로 다시 띄움 `map:=slam` — nvblox는 이어 붙이기·비우기가 없음) · **[위치추정으로]**(`/cmd/map_mode` → state_manager가 `map:=saved`로 다시 띄움) + **[지도 저장]**(`/map_saver/save_map` → 지금 지도 폴더 `ros2_ws/map/<이름>/map.pgm`·`map.yaml`). 지도 한 벌 = 폴더 하나 `ros2_ws/map/<날짜_시각>/`(`nvblox.nvblx` · `map.pgm` · `map.yaml`) — 지도 목록(`/state/map_list`)에서 폴더를 고르면 **그 지도로 다시 띄움**(`/cmd/map_name` → state_manager → `map:=saved map_name:=<이름>`). 위치추정은 `nvblox.nvblx`가 있어야 함(pgm은 미리보기) |
 | 수동 조작 | 우측 [수동 조작] 탭 (`manual_window.py`, 고르면 수동 모드 · 나가면 바퀴 정지 + 자동 모드): 바퀴 버튼 앞 · 뒤 · 멈춤 · 좌측 바퀴 앞/뒤 · 우측 바퀴 앞/뒤 · 전체 속도 ▲▼, 비상정지(mock 모드 벽 앞 자동 정지), **팔 3D**(몸체는 어둡게 · 팔은 회색으로 구분 + 주변 퍽·장애물·이동물체를 메인 창 로봇 3D처럼 로봇 기준으로 같이 · 바퀴 회전 스포크(바퀴 버튼·단축키로 움직이면 굴러가는 게 보임, 주황=회전 중) · `감지 물체` 체크(메인 로봇 3D와 같은 그림·같은 체크) · 노란 관절 마커를 잡아 위아래로 끌면 그 관절 회전 → 놓으면 `/cmd/manual/arm`, 목표 밝게 · 지금 어둡게, **손끝 목표** — 지금 손끝 손잡이(하늘색 점·원)를 **잡고 끌기** = 손끝 목표가 지금 손끝 자리에서 시작해 커서를 따라감 — **팔이 닿는 곳까지만**(URDF FK로 손끝이 아래를 보는 자세의 닿는 범위를 계산(모델이 오면 약 2초, 백그라운드) · MoveIt 실측 보정: 바깥 경계 2cm 깎음 · 팔 회전축 0.08m 안쪽(몸과 부딪힘)·joint1은 360°라 방향 제한 없음 · 로봇 몸체(차체·적재함·폴·바퀴 — URDF 충돌 모양을 3D 칸으로, 그리퍼 반폭 0.04m 넓힘)와 손끝~손끝 위 0.10m(손목) 높이가 겹치면 제외 — 적재함 위는 닿음, 그 위 pole 카메라는 손 위라 상관없음 — 밖으로 끌면 가장 가까운 닿는 곳에 멈춤 · 범위는 3D에 **지금 팔이 향한 방향(joint1 실측)의 수직 단면**으로 옅은 청록 면 — 팔이 돌면 같이 돔, 끄는 중엔 그 높이에서 팔을 돌려 닿는 고리(360°, 몸체에 막힌 곳은 끊김)를 진하게)(수평 · Shift면 높이, 끄는 도중에 Shift를 눌러도 바뀜 — MoveIt RViz 손끝 마커처럼, 하늘색 원 + 좌표축 + 바닥까지 세로선, 좌표 base_footprint는 팔 조작 열에 표시) · **닿는 범위 두 개**: 지금 모드 범위는 채움 · 다른 모드 범위는 외곽선 (라벨 `집기 자세 (손가락 아래)` · `전체 (방향 자유)`) — 팔을 든 자세처럼 손끝이 집기 범위 밖이면 잡아도 목표가 튀지 않고 그 자리에서 시작, 범위에 들어온 뒤부터 묶임 + "집기 자세로는 못 가는 곳" 경고 · **`손끝 방향 자유` 체크** = 방향 상관없이 위치만: 시뮬레이터가 FK 표 + 감쇠 최소제곱으로 IK를 풀어(joint5는 지금 값) MoveIt `/move_action` **관절 목표**로 (몸체와 안 부딪히는 경로, pick_ik는 위치만 준 목표를 잘 못 풀어서) — 못 닿으면 "IK 해 없음" · **손가락 방향** 체크 + 0~179°(손목 회전 joint5 — 끄면 자유, 켜면 손가락이 벌어지는 선의 수평 방위로 고정 ±0.05rad, 3D에 파란 선으로 표시 · 누운 퍽 등) → **[end_effector 이동]** = 수동 모드로 바꾸고 MoveIt `/move_action`(service_action_input 경유)으로 손끝을 그 자리에 위→아래 방향으로 계획+실행, 결과(성공 · 실패 이유 · 팔 받침에서 거리) 표시 · [이동 취소] · [목표 지우기] (확인 `test_manual_goal.py`), 팔/그리퍼 초기화, 그리퍼 열기/닫기, **[모터 재부팅]**(`/cmd/manual/reboot_motors` — 과부하 등 Hardware Error 난 DYNAMIXEL만, 에러가 있으면 버튼 아래 빨간 글씨 `모터 에러: joint2:과부하` — `/state/devices/<wheels·arm·gripper>`) · Shift+드래그 시점 이동) + **팔 조작 열**(오른쪽 세로 스크롤 — 팔·그리퍼 버튼 + 관절 슬라이더, joint1~5 °·gripper mm, URDF 한계 — 3D 마커와 같은 목표, 놓으면 **MoveIt `/move_action` 관절 목표**(몸체·폴과 안 부딪히는 경로, 불가능하면 거절하고 목표를 지금 자세로 되돌림 · MoveIt 이동이 성공하면 슬라이더·밝은 팔(목표)을 옮겨진 실제 자세로 맞춤 · 슬라이더는 놓거나 0.4초 멈추면 보냄) · '관절 직접 보내기' 체크 = 예전처럼 `/cmd/manual/arm`(충돌 검사 없음) · 그리퍼는 늘 직접 · **[퍽 집기]**(손끝 목표 = 집을 자리: 벌리기 → 위 0.05 → 내려가기 → 닫기 → 들어올리기) · **[내려놓기]** · **적재함 칸 1~4 [싣기]·[꺼내기]**(칸 = coordinator `tray_slots`, 높이 0.22·0.17 — coordinator place·pick tray와 같은 순서), 하나라도 실패하면 멈추고 이유 표시) + 바퀴 단축키(`W/X` 앞뒤 · `S` 멈춤 · `Q/Z` 좌바퀴앞뒤 · `E/C` 우바퀴앞뒤 · `A/D` 회전 · `[`/`]` 속도, 1.5초 자동정지). 로봇 전체 3D(지금 상태)는 메인 창에 있음 |
 | 시리얼 (장비) | 로봇 3D 옆. 가상 시리얼 파일 그대로 — 위: SBC → OpenCR `C` 명령(`debug/output/hardware/serial`, 형식 틀린 줄도 그대로), 아래: OpenCR → SBC `S` 상태(`debug/input/hardware/serial`) 최근 7줄 · 읽은 시각(ms). 파일에 새 줄이 붙을 때만 갱신 — 시뮬레이터는 읽기만 한다 (S는 fake_opencr가 씀). 머리줄에 연결 상태(대기 = mock_hardware:=true라 시리얼 안 씀 · 연결 · 통신 끊김)와 C·S 초당 개수. 프로토콜: `firmware/README.md` |
@@ -79,7 +97,7 @@ service/action은 `request_id`·`goal_id` 일치로 자기 응답만 받는다 (
 - 카메라 렌더: 로봇 URDF (`/robot_description`) 순기구학 + 관절값 + 로봇 위치 (fake_opencr가 돌면 진짜 위치 `/fake_opencr/ground_truth`, 아니면 `/odom`)로 두 카메라 자세를 구해 광선 추적 (`scene.py`, 2대 병렬로 약 0.3초 — 내부는 절반 해상도로 쏘고 320×240으로 확대).
   화면 타일은 SIM 렌더를 직접 보여준다 (ROS 왕복분 빠름, 타일에 SIM/ROS 표시). `input/hardware/camera` 파일 → `fake_camera` → ROS 토픽 경로는 그대로 돌아간다.
   URDF visual 상자로 **자기 몸 (팔·폴·상판)도 그린다** — 뒤쪽 상판에 실은 퍽 확인용. 렌더 중인 카메라 자체 마운트만 제외.
-  자기 몸은 카메라 기준으로 관절값에만 달려서, 관절값 (바퀴 제외, 0.01rad 단위)이 같으면 몸 광선 추적 결과 (거리·색·법선)를 재사용하고 음영만 지금 자세로 다시 계산한다 (`Renderer.render(body_key=…)`). pole_cam이 몸을 내려다보면 메시 광선 추적이 프레임당 약 1초 (MPS 실측)라, 매번 하면 카메라가 약 2Hz로 떨어지고 collision_monitor가 점구름 끊김 (`invalid source`)으로 로봇을 세웠다. 재사용하면 약 40ms. 확인: `.venv/bin/python test_scene.py` (재사용한 렌더 = 안 한 렌더).
+  자기 몸은 카메라 기준으로 관절값에만 달려서, 관절값 (바퀴 제외, 0.01rad 단위)이 같으면 몸 광선 추적 결과 (거리·색·법선)를 재사용하고 음영만 지금 자세로 다시 계산한다 (`Renderer.render(body_key=…)`). pole_cam이 몸을 내려다보면 메시 광선 추적이 프레임당 약 1초 (MPS 실측)라, 매번 하면 카메라가 약 2Hz로 떨어지고 collision_monitor가 점구름 끊김 (`invalid source`)으로 로봇을 세웠다. 재사용하면 약 40ms. 확인: `cd lv2_module6/simulator && .venv/bin/python vazebo/test_scene.py` (재사용한 렌더 = 안 한 렌더).
   화각 `HFOV_DEG`는 프레임 메타에 같이 써서 fake_camera가 그대로 쓴다 (따로 맞출 값 없음).
 - 코스는 저장소의 `course/twin_closed_maze/walls.json`을 읽는다 (네트워크 불필요) — [course/README.md](../../course/README.md).
 - map·odom 원점 = 미로 시작 칸으로 가정 (위치추정이 붙기 전까지). 퍽은 시작 칸이 있는 절반에만 놓는다 (가운데 벽이 위·아래를 막음).

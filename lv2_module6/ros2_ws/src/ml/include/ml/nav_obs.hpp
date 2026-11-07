@@ -1,6 +1,6 @@
 #pragma once
 
-// 주행 보정 정책 입력 13개 — 시뮬 drive_env와 같은 순서·단위 (isaac/lab/drive_env.py _get_observations · test/test_nav_obs.cpp)
+// 주행 보정 정책 입력 13개 — 시뮬 drive_env와 같은 순서·단위 (isaac/rl/bee_isaac/tasks/drive_env.py _get_observations · test/test_nav_obs.cpp)
 //   목표(로봇 기준) dx dy [m] · cos·sin 방향 차 · 차체 속도 vx vy [m/s] · 회전 wz [rad/s] · 직전 명령 v w · 직전 행동 2
 //   · 시간 비율 (시작 뒤 시간 / 제한 시간) · 차체 기울기 [rad]
 #include <algorithm>

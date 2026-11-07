@@ -3,8 +3,9 @@
 set -eo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-if [ -x "$HERE/.venv/bin/python" ]; then
-  PY="$HERE/.venv/bin/python"
+# tool/.venv (../setting-venv.sh) — run-cli와 같은 venv
+if [ -x "$HERE/../.venv/bin/python" ]; then
+  PY="$HERE/../.venv/bin/python"
 else
   PY="python3"
 fi

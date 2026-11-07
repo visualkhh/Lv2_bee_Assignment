@@ -53,7 +53,9 @@ class StateStore:
         self.tracked_count = 0
         self.task_status = ''
         self.say_last = ''
-        self.rates: dict[str, Rate] = {}  # 상단 생존 표시 — 키는 ui.TOPIC_DOTS
+        self.rates: dict[str, Rate] = {}  # 상단 생존 표시 — 키는 state_bar/top_state_bar.py TOPIC_RATES
+        self.rl_status: list[float] = []  # controller_server FollowPath RL/DWB 상태
+        self.rl_status_time = 0.0
 
     def tick(self, key: str):
         self.rates.setdefault(key, Rate()).tick()
@@ -113,6 +115,12 @@ class StateStore:
         self.battery_v = battery_v
         self.motor_temp.update(zip(names, temps))
         self.motor_text.update(zip(names, texts))
+
+    def on_rl_status(self, data):
+        """controller_server FollowPath 상태 — [rl_active, reason, ...]."""
+        self.rl_status = list(data)
+        self.rl_status_time = time.monotonic()
+        self._touch()
 
     def battery_percent(self) -> int | None:
         """3S LiPo 전압 → 대략 잔량 [%]. 전압이 없거나 12V가 꺼졌으면 None."""

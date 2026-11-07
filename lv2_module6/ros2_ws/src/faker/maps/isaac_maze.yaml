@@ -1,0 +1,8 @@
+# course/tools/build_map_usd.py 가 isaac/usda/maze/maze.usda에서 만든 지도 — 원점 = 출발 칸 (scene_sim.usda beebot = 미로 (-0.185, -2.370))
+image: isaac_maze.pgm
+mode: trinary
+resolution: 0.05
+origin: [-2.262, -1.045, 0.0]
+negate: 0
+occupied_thresh: 0.65
+free_thresh: 0.25

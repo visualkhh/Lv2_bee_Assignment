@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """호스트용 명령 CLI — 컨테이너에 들어가지 않고 debug/ 파일로 지시한다.
 
-  .venv/bin/python bee.py user "빨간 퍽을 목표 구역으로 옮겨"
-  .venv/bin/python bee.py estop on|off
-  .venv/bin/python bee.py manual on|off
-  .venv/bin/python bee.py twist 0.1 0.0          # 수동 모드에서만 먹음
-  .venv/bin/python bee.py service score_grasps '{"object_id": 3}' [--timeout 15]
-  .venv/bin/python bee.py action navigate_to_pose '{"x": 1.0, "y": 0.5}' [--timeout 120]
-  .venv/bin/python bee.py cancel navigate_to_pose <goal_id>
-  .venv/bin/python bee.py reset   # 로봇 위치 초기화 (odom 0 = spawn)
-  .venv/bin/python bee.py interface ml/srv/ScoreGrasps   # 타입 정의 보기
-  .venv/bin/python bee.py status
-  .venv/bin/python bee.py snap out.png           # main.py --snapshot 위임
+  .venv/bin/python vazebo/bee.py user "빨간 퍽을 목표 구역으로 옮겨"
+  .venv/bin/python vazebo/bee.py estop on|off
+  .venv/bin/python vazebo/bee.py manual on|off
+  .venv/bin/python vazebo/bee.py twist 0.1 0.0          # 수동 모드에서만 먹음
+  .venv/bin/python vazebo/bee.py service score_grasps '{"object_id": 3}' [--timeout 15]
+  .venv/bin/python vazebo/bee.py action navigate_to_pose '{"x": 1.0, "y": 0.5}' [--timeout 120]
+  .venv/bin/python vazebo/bee.py cancel navigate_to_pose <goal_id>
+  .venv/bin/python vazebo/bee.py reset   # 로봇 위치 초기화 (odom 0 = spawn)
+  .venv/bin/python vazebo/bee.py interface ml/srv/ScoreGrasps   # 타입 정의 보기
+  .venv/bin/python vazebo/bee.py status
+  .venv/bin/python vazebo/bee.py snap out.png           # main.py --snapshot 위임
 
 service/action은 request_id·goal_id 일치로 자기 응답만 받는다 (stale 무시).
 """

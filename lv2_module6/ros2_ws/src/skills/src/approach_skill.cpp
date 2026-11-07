@@ -150,7 +150,7 @@ private:
     dw = std::clamp(res_w_ * act1_, -0.10, 0.10);
   }
 
-  // 시뮬 drive_env._baseline과 같은 식 (isaac/lab/drive_env.py, demo_cycle drive_to)
+  // 시뮬 drive_env._baseline과 같은 식 (isaac/rl/bee_isaac/tasks/drive_env.py, demo_cycle drive_to)
   void tick_sim() {
     double x, y, yaw;
     if (!robot_pose(x, y, yaw)) return;

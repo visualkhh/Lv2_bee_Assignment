@@ -1,0 +1,27 @@
+# Poses for `sag_calib` (gravity sag data for the k_i fit). Angles in deg, arm joints only (gripper keeps its opening).
+# Setup: a 200 x 200 x 70 mm shelf, its near edge 50 mm in front of the chassis front, centred on the robot centre
+# line. The 4 poses put the fingertips (tool pointing down) 30 mm above the shelf top over: near, far, left, right.
+# IK on urdf/beebot_mesh kinematics (pinocchio, damped least squares): position error < 0.2 mm, all joints and the
+# +-approach_deg offsets inside the URDF limits. NOT checked: collision (arm vs chassis / shelf) — run the first pass
+# with a hand on the stop (Ctrl+C) and look at each pose before pressing Enter.
+# Measure the fingertip from `origin_mm`: chassis front edge, robot centre line, floor. Type "forward left up" in mm
+# (left positive, e.g. shelf_near: 100 0 100). tip_mm below is the expected value in that frame.
+move_s: 4.0         # minimum time of one move
+settle_s: 1.5       # s to stand still after a move before the averaging window
+avg_s: 1.0          # /joint_states averaging window (current [A])
+approach_deg: 2.0   # joint2-4 come from +/- this far from the pose (reverses the direction of travel; 6 deg dropped the tip 15-50 mm into the shelf in the sim check)
+origin_mm: [69.0, 0.0, -10.0]   # the measuring origin in base_link coordinates (front at x = 0.069 m, floor 10 mm below base_link)
+
+poses:
+  shelf_near:  {joint1: 0.1,   joint2: -5.3, joint3: 34.1,  joint4: 61.1, joint5: 0.1,   tip_mm: [100, 0, 100]}
+  shelf_far:   {joint1: 0.0,   joint2: 38.2, joint3: -30.8, joint4: 82.6, joint5: 0.1,   tip_mm: [200, 0, 100]}
+  shelf_left:  {joint1: 22.3,  joint2: 20.7, joint3: -1.3,  joint4: 70.5, joint5: 22.3,  tip_mm: [150, 70, 100]}
+  shelf_right: {joint1: -22.2, joint2: 20.7, joint3: -1.1,  joint4: 70.5, joint5: -22.2, tip_mm: [150, -70, 100]}
+  # more gravity-torque variety: tool-down poses all load joint3 / joint4 about the same (j3 -0.7, j4 -0.06 N.m by
+  # pinocchio, j2 -0.5..-1.5), so the tool-tilted poses are what separates k3 and k4
+  shelf_stretch: {joint1: 0.1,  joint2: 54.0, joint3: -60.5, joint4: 96.5, joint5: 0.1,   tip_mm: [220, 0, 100]}   # max reach, tool down
+  tool_45:       {joint1: 0.0,  joint2: -6.9, joint3: 61.4,  joint4: -9.6, joint5: 0.0,   tip_mm: [196, 0, 116]}   # tool 45 deg down
+  zero:          {joint1: 0.0,  joint2: 0.0,  joint3: 0.0,   joint4: 0.0,  joint5: 0.0,   tip_mm: [320, 0, 351]}   # set_center pose, tool forward
+  # held out of the fit (use: val): predict them with the fitted k_i and compare with the measurement
+  val_shelf_high:     {joint1: 0.1, joint2: 10.5, joint3: -9.7,  joint4: 89.2, joint5: 0.1,  tip_mm: [150, 0, 150], use: val}
+  val_shelf_far_left: {joint1: 9.9, joint2: 47.3, joint3: -47.6, joint4: 90.3, joint5: 9.9,  tip_mm: [210, 40, 100], use: val}

@@ -14,6 +14,7 @@ constexpr double L2 = 0.124, L3 = 0.0629;     // joint3 → joint4 → joint5
 constexpr double EE = 0.109055;               // gripper_link → end_effector_link (손끝, gripper x)
 constexpr Q5 LO = {-3.14159, -1.919862, -1.570796, -1.7, -3.141593};
 constexpr Q5 HI = {3.14159, 1.919862, 1.396263, 1.97, 3.141593};
+constexpr double MAX_JUMP = 0.8;              // [rad] 쥔 채 도는 경로의 이웃 점이 이보다 튀면 손목 뒤집힘 — 실패로 (실기 stand_run)
 
 using M3 = std::array<std::array<double, 3>, 3>;
 M3 mul(const M3 & a, const M3 & b) {
@@ -84,6 +85,14 @@ bool ik_down(const V3 & p, double close_yaw, const Q5 & near, Q5 & out) {
   return found;
 }
 
+bool ik_down_sym(const V3 & p, double close_yaw, const Q5 & near, Q5 & out) {
+  Q5 a, b;
+  const bool ok_a = ik_down(p, close_yaw, near, a), ok_b = ik_down(p, close_yaw + M_PI, near, b);
+  if (!ok_a && !ok_b) return false;
+  out = !ok_b || (ok_a && linf(a, near) <= linf(b, near)) ? a : b;
+  return true;
+}
+
 double away_yaw(double yaw) { return yaw - M_PI * std::floor((yaw + M_PI / 2) / M_PI); }
 
 std::vector<V3> waypoints(const V3 & centre, double yaw, bool is_box, const Params & p, double & close_yaw) {
@@ -92,24 +101,40 @@ std::vector<V3> waypoints(const V3 & centre, double yaw, bool is_box, const Para
   const V3 u = {std::cos(yaw), std::sin(yaw), 0.0};
   const V3 pivot = plus(centre, u, -PUCK_L / 2);  // 가까운 끝 아래 모서리
   close_yaw = yaw + M_PI / 2;                      // 닫는 축 = 퍽 축과 직각 (perp)
-  std::vector<double> fs;
-  for (int i = 0;; ++i) {
-    const double f = i * p.arc_step_deg;
-    if (f > p.arc_end_deg + 1e-6) break;
-    fs.push_back(f * M_PI / 180);
-  }
-  const double f_end = fs.back();
   const auto on_arc = [&](double f, double h) {
     V3 q = plus(pivot, u, a * std::cos(f) - b * std::sin(f));
     q[2] += a * std::sin(f) + b * std::cos(f) + ee_up + h;
     return q;
   };
   std::vector<V3> pts;
-  for (double f : fs) pts.push_back(on_arc(f, p.tilt_over_m * f / f_end));  // 호 0 → 끝, 가며 tilt_over만큼 더 올림
-  pts.push_back(pts.back());                                                // 멈춤
-  for (auto it = fs.rbegin(); it != fs.rend(); ++it)                        // 같은 호로 90°까지 되돌림
-    if (*it < f_end - 1e-9 && *it >= M_PI / 2 - 1e-9) pts.push_back(on_arc(*it, p.tilt_over_m));
-  pts.push_back(on_arc(M_PI / 2, p.set_dz_m));  // 눌러 놓기
+  if (p.drag_m > 0.0) {  // 먼 끝을 잡은 채 로봇 쪽으로 대각선으로 끌고, 끝점에서 눌러 놓기 (기하는 실기 11-04 세우기 시험 292ec509)
+    const V3 pinch = on_arc(0.0, 0.0);
+    const int nd = up_segments(p);
+    pts.push_back(pinch);
+    for (int k = 1; k <= nd; ++k) {
+      const double f = static_cast<double>(k) / nd;
+      V3 q = plus(pinch, u, -p.drag_m * f);
+      q[2] += p.drag_lift_m * f;
+      pts.push_back(q);
+    }
+    pts.push_back(pts.back());  // 멈춤
+    V3 set = pts.back();
+    set[2] += p.set_dz_m;
+    pts.push_back(set);
+  } else {
+    std::vector<double> fs;
+    for (int i = 0;; ++i) {
+      const double f = i * p.arc_step_deg;
+      if (f > p.arc_end_deg + 1e-6) break;
+      fs.push_back(f * M_PI / 180);
+    }
+    const double f_end = fs.back();
+    for (double f : fs) pts.push_back(on_arc(f, p.tilt_over_m * f / f_end));  // 호 0 → 끝, 가며 tilt_over만큼 더 올림
+    pts.push_back(pts.back());                                                // 멈춤
+    for (auto it = fs.rbegin(); it != fs.rend(); ++it)                        // 같은 호로 90°까지 되돌림
+      if (*it < f_end - 1e-9 && *it >= M_PI / 2 - 1e-9) pts.push_back(on_arc(*it, p.tilt_over_m));
+    pts.push_back(on_arc(M_PI / 2, p.set_dz_m));  // 눌러 놓기
+  }
   V3 above = pts.front();
   above[2] += p.above_m;
   V3 away = pts.back();
@@ -130,9 +155,20 @@ bool plan_ik(const V3 & centre, double yaw, bool is_box, const Params & p, std::
   const auto pts = waypoints(centre, yaw, is_box, p, close_yaw);
   Q5 near = {std::atan2(pts[1][1], pts[1][0]), -0.2, 0.7, 1.0, 0.0};  // right_env 시드 (팔꿈치 위)
   qs.clear();
-  for (const auto & pt : pts) {
+  const size_t away_i = pts.size() - 3;  // 뒤에서 [위로 · 다시 잡기 · 들어올림]
+  for (size_t i = 0; i < pts.size(); ++i) {
+    // 손을 아래로 향한 채 높이 못 가는 자리가 많음 — 대기·손 빼기 높이는 낮춰 가며 (실기 11/03)
+    std::vector<V3> tries = {pts[i]};
+    const auto lower = [&](const V3 & base, const std::array<double, 3> & hs) {
+      for (double h : hs) tries.push_back({base[0], base[1], base[2] + h});
+    };
+    if (i == 0) lower(pts[1], {0.03, 0.02, 0.01});
+    else if (i == away_i) lower(pts[i - 1], {0.06, 0.04, 0.03});
     Q5 q;
-    if (!ik_down(pt, close_yaw, near, q)) { why = "stand_ik_unreachable"; qs.clear(); return false; }
+    bool ok = false;
+    for (const auto & pt : tries)
+      if ((ok = ik_down(pt, close_yaw, near, q))) break;
+    if (!ok || (i >= 2 && i < away_i && linf(q, near) > MAX_JUMP)) { why = "stand_ik_unreachable"; qs.clear(); return false; }
     qs.push_back(q);
     near = q;
   }
@@ -179,8 +215,13 @@ double move_s(double t, double dur) {
   return x * x * (3 - 2 * x);
 }
 
+int up_segments(const Params & p) {
+  if (p.drag_m > 0.0) return std::max(1, static_cast<int>(std::ceil(p.drag_m / 0.01 - 1e-9)));
+  return static_cast<int>(std::lround(p.arc_end_deg / p.arc_step_deg));
+}
+
 std::vector<std::pair<int, int>> arc_groups(const Params & p, int n_seg) {
-  const int n = static_cast<int>(std::lround(p.arc_end_deg / p.arc_step_deg));
+  const int n = up_segments(p);
   return {{0, n}, {n, n + 1}, {n + 1, n_seg}};
 }
 

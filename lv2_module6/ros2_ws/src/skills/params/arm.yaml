@@ -4,5 +4,4 @@ contact_mode: "sim"      # sim: 퍽·칸에 닿는 구간은 시뮬과 같은 �
 # 잡기 판정 (닫은 뒤 gripper_left_joint 위치 + 전류) — 실기에서 다시 맞출 값. grasp_check는 bringup 인자 (faker는 false)
 grip_current_a: 0.35     # [A] 닫을 때 쥐는 힘 (goal effort → Goal Current) — 팀 결정 0.3~0.4 A
 grasp_min_pos_m: 0.003   # [m] 이보다 더 닫히면 빈손
-grasp_min_effort: 0.25   # [A] 이보다 전류가 작으면 빈손 (원기둥 실측 0.33~0.42 A)
 server_wait_s: 30.0      # [s] MoveIt · Nav2 서버가 뜰 때까지 기다림

@@ -32,6 +32,11 @@ namespace skills {
 
 // 잡기 판정 — 위치(손가락이 퍽에 걸려 덜 닫힘) ≥ min_pos · 전류 |effort| ≥ min_effort (effort가 NaN이면 위치만)
 bool grasp_held(double pos, double effort, double min_pos, double min_effort);
+// 위치형 쥐기 판정 (손가락 위치·전류, 50 ms마다): 1 쥠 (0.2 s 안 움직임 · 전류 ≥ min_current) · 0 빈손 (0.2 s 안 움직임 · 위치 < empty_m)
+//   −1 timeout_s 넘음 · 2 아직. 그리퍼 액션 결과는 덜 닫혀 멈춰도 성공이라 안 믿음 (실기 11/03)
+// 위→아래 손 자세 Rz(ψ)·Rx(π) = (cos ψ/2, sin ψ/2, 0, 0)에서 ψ를 꺼냄. 그 꼴이 아니면 false
+bool hand_yaw(const geometry_msgs::msg::Quaternion & q, double & psi);
+int grip_state(double pos, double current, double still_s, double t, double min_current, double empty_m, double timeout_s);
 
 constexpr double GRIPPER_OPEN_M = 0.0265;   // URDF 한계
 constexpr double GRIPPER_CLOSED_M = 0.0;
@@ -51,9 +56,10 @@ public:
   double grip_current_a() const { return grip_current_a_; }
   // 진행 중 MoveIt·그리퍼 goal 취소 · 늦은 결과 버림 · 보정 끔 (skill 취소 · 새 goal 전)
   void stop();
-  void clear_flags() { contact_ = false; grasp_empty_ = false; }
+  void clear_flags() { contact_ = false; grasp_empty_ = false; grip_fail_.clear(); }
   bool contact() const { return contact_; }          // 이번 실행 중 /arm_safety_event (과전류 접촉)
   bool grasp_empty() const { return grasp_empty_; }  // 마지막 잡기 판정이 빈손
+  const std::string & grip_fail() const { return grip_fail_; }  // grip_settle_step 실패 이유
 
   // ---------- MoveIt: 손끝(end_effector_link) 목표 — 손은 늘 아래를 봄, yaw를 주면 손 방향도 고정 (±0.15 rad)
   //   계획이 실패하면 같은 목표로 arm_plan_tries번까지 (IK·OMPL이 무작위라 닿는 곳도 가끔 못 찾음)
@@ -71,6 +77,9 @@ public:
   Step traj_step(std::function<std::vector<Q5>(const Q5 &)> make);  // 지금 관절값 + 샘플(TRAJ_DT 간격) → /execute_trajectory
   Step grip_timed_step(double joint_m, double effort_a, double secs);  // 보내고 secs 뒤 다음 (가볍게 쥐면 '도착'을 안 할 수 있음)
   Step wait_step(double secs);
+  // grip_state가 정해질 때까지 기다림 — 빈손 stand_no_grip · 시간 초과 stand_grip_timeout으로 실패 (grasp_check 끄면 통과)
+  Step grip_stop_step(double timeout_s);  // 손가락이 멈출 때까지 기다림 (시간이 넘어도 다음으로 — 판정은 held_step)
+  Step grip_settle_step(double min_current, double empty_m, double timeout_s);
   Step contact_step(const SkillModel & policy, std::function<bool(Q5 &, Q5 &)> plan, bool close);
 
   // ---------- 보정 · 입력
@@ -82,6 +91,8 @@ public:
   bool arm_now(Q5 & q) const;  // /joint_states joint1~5
   // map(등) 손끝 목표 → 손 아래 해석 IK (near의 손목 방향 그대로) — base_footprint 기준
   bool ik_ee(const geometry_msgs::msg::PoseStamped & ee, const Q5 & near, Q5 & out);
+  // 손 방향 ψ까지 정한 해 — 손가락 닫는 축 = ψ − 90° (ee 좌표계). MoveIt pick_ik는 위치만 맞춰 손 방향을 보장 못 함
+  bool ik_ee_yaw(const geometry_msgs::msg::PoseStamped & ee, double psi, const Q5 & near, Q5 & out);
   bool joint(const std::string & name, double & pos) const;
   tf2_ros::Buffer & tf() { return *tf_buffer_; }
 
@@ -93,7 +104,7 @@ private:
   int arm_plan_tries_ = 3;
   double grip_current_a_ = 0.35, grasp_min_pos_m_ = 0.003, grasp_min_effort_ = 0.25;
   bool grasp_check_ = true, contact_ = false, grasp_empty_ = false, sag_warned_ = false;
-  std::string contact_mode_ = "sim";
+  std::string contact_mode_ = "sim", grip_fail_;
   uint64_t gen_ = 0;
   uint32_t run_ = 0;
   std::map<std::string, double> pos_, effort_;

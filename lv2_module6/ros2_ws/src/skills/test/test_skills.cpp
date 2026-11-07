@@ -57,3 +57,26 @@ TEST(GraspHeld, PositionAndCurrent) {
   EXPECT_TRUE(skills::grasp_held(0.006, -0.4, 0.003, 0.25));   // 부호 상관없음
   EXPECT_TRUE(skills::grasp_held(0.006, std::nan(""), 0.003, 0.25));  // 전류 모름 → 위치만
 }
+
+TEST(ArmIo, GripState) {  // 위치형 쥐기 판정
+  using skills::grip_state;
+  EXPECT_EQ(grip_state(0.007, 0.009, 0.3, 1.0, 0.007, 0.003, 4.0), 1);   // 멈춤 + 전류 = 쥠
+  EXPECT_EQ(grip_state(0.002, 0.009, 0.3, 1.0, 0.007, 0.003, 4.0), 0);   // 다 닫힘 = 빈손 (전류와 무관)
+  EXPECT_EQ(grip_state(0.007, 0.009, 0.1, 1.0, 0.007, 0.003, 4.0), 2);   // 아직 움직임
+  EXPECT_EQ(grip_state(0.007, 0.002, 0.3, 1.0, 0.007, 0.003, 4.0), 2);   // 전류 부족
+  EXPECT_EQ(grip_state(0.007, 0.002, 0.3, 4.1, 0.007, 0.003, 4.0), -1);  // 시간 초과
+}
+
+TEST(ArmIo, HandYaw) {  // ψ ↔ 위→아래 손 쿼터니언 (grasp_scorer top_down)
+  geometry_msgs::msg::Quaternion q;
+  q.x = std::cos(0.3);
+  q.y = std::sin(0.3);
+  q.z = 0.0;
+  q.w = 0.0;
+  double psi;
+  ASSERT_TRUE(skills::hand_yaw(q, psi));
+  EXPECT_NEAR(psi, 0.6, 1e-9);
+  q.x = q.y = 0.0;
+  q.w = 1.0;  // 단위 쿼터니언 — 손 방향 아님
+  EXPECT_FALSE(skills::hand_yaw(q, psi));
+}

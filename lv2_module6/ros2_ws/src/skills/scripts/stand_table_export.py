@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""세우기(stand) 경유점 표(방법 A) 내보내기 — 팀원 isaac/lab/right_env.py 표와 같은 것을 skills 표 yaml로 (skill_stand가 launch에서 받음).
+"""세우기(stand) 경유점 표(방법 A) 내보내기 — 팀원 isaac/rl/bee_isaac/tasks/right_env.py 표와 같은 것을 skills 표 yaml로 (skill_stand가 launch에서 받음).
 
 right_env.RightEnv가 학습 때 푸는 표(모양 × 퍽 축 방향 YAW_BINS × 옆 위치 YCS, 다시 잡기 2개 포함)를 그대로 만든다.
 right_env.plan_waypoints · contact_h와 상수를 소스에서 그대로 꺼내 쓰므로 Isaac Lab 없이 numpy + pinocchio만 있으면 된다.
@@ -19,8 +19,13 @@ import numpy as np
 
 
 def load_right_env(lab):
-    sys.path.insert(0, str(lab))
-    import bee_common as bc  # numpy + pinocchio
+    lab = Path(lab)  # 옛 브랜치 isaac/lab 또는 지금 isaac/rl/bee_isaac/tasks
+    if (lab / "bee_common.py").exists():
+        sys.path.insert(0, str(lab))
+        import bee_common as bc  # numpy + pinocchio
+    else:
+        sys.path.insert(0, str(lab.parents[1]))
+        from bee_isaac import common as bc  # numpy + pinocchio
     import pinocchio as pin
 
     ns = {"np": np, "math": math, "bc": bc, "pin": pin}

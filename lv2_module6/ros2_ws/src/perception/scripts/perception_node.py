@@ -116,15 +116,15 @@ def same_object(tr, d):
     return a in NO_COLOR or b in NO_COLOR or a == b
 
 
-def expected_visible(p, rot, trans, fx, fy, cx, cy, depth_m, max_range, edge_px, occlusion_m):
+def expected_visible(p, rot, trans, fx, fy, cx, cy, depth_m, max_range, edge_px, occlusion_m, min_range=0.1):
     """추적 좌표의 점 p가 이 카메라 영상에 '가려지지 않고 보였어야' 하는가 — 기억한 물체가 사라졌는지 판정할 때만 씀.
     rot·trans = 카메라 → 추적 좌표 (lookup_tf) · depth_m = 그 프레임 깊이 영상 [m].
     아니라고 보는 경우 (= 못 봤다고 셀 수 없음):
-      카메라 뒤 · 0.1m보다 가까움 · max_range보다 멂 / 화면 밖 · 가장자리 edge_px 안 /
+      카메라 뒤 · min_range(기본 0.1m)보다 가까움 · max_range보다 멂 / 화면 밖 · 가장자리 edge_px 안 /
       그 픽셀 둘레(5×5)에 깊이가 없음 (D435는 약 17cm 안쪽을 못 잼) / 그 픽셀 깊이가 점까지 거리보다 occlusion_m 넘게 가까움 (앞에 다른 물체·팔)"""
     pc = rot.T @ (np.asarray(p, float) - trans)  # 카메라 광학 좌표 (x 오른쪽 · y 아래 · z 앞)
     z = float(pc[2])
-    if z < 0.1 or z > max_range:
+    if z < max(min_range, 0.1) or z > max_range:
         return False
     u, v = fx * pc[0] / z + cx, fy * pc[1] / z + cy
     h, w = depth_m.shape[:2]
@@ -306,6 +306,42 @@ def puck_shape(name):
     if not name.startswith("puck"):
         return ""
     return next((t for t in name.split("_")[1:] if t in ("box", "cyl")), "")
+
+
+def model_posture(name):
+    """퍽 클래스 이름의 자세 — 자세를 배운 모델(OBB 합성 데이터 puck_<색>_<모양>[_lying], isaac-synthetic v8)만 앎:
+    puck_red_box → 'standing' · puck_red_cyl_lying → 'lying' · 모양 없는 이름(puck_red · puck) → ''"""
+    if not puck_shape(name):
+        return ""
+    return "lying" if name.endswith("_lying") else "standing"
+
+
+def lying_yaw(corners, fx, fy, cx, cy, rot, trans, z_plane, min_aspect=1.3):
+    """누운 퍽의 OBB 꼭짓점 4개 [px] → 퍽 축 방향 yaw [rad, −π/2~π/2) (추적 좌표) · 모르면 None (isaac-synthetic 6d01b04).
+    OBB 장축 양끝(짧은 변 가운데) 두 픽셀에서 시선을 쏴 퍽 중심 높이 z_plane 평면과 만나는 두 점의 방향.
+    장축÷단축 < min_aspect면 끝면이 카메라를 향한 것 → 축을 못 믿어 None. rot·trans = 카메라 광학 → 추적 좌표"""
+    c = np.asarray(corners, float).reshape(4, 2)
+    e0, e1 = np.linalg.norm(c[1] - c[0]), np.linalg.norm(c[2] - c[1])
+    if min(e0, e1) <= 0 or max(e0, e1) / min(e0, e1) < min_aspect:
+        return None
+    ends = [(c[1] + c[2]) / 2, (c[3] + c[0]) / 2] if e0 >= e1 else [(c[0] + c[1]) / 2, (c[2] + c[3]) / 2]
+    pts = []
+    for u, v in ends:
+        d = rot @ np.array([(u - cx) / fx, (v - cy) / fy, 1.0])
+        if abs(d[2]) < 1e-6 or (z_plane - trans[2]) / d[2] <= 0:
+            return None  # 시선이 평면과 나란하거나 카메라 뒤에서 만남
+        pts.append(trans + d * (z_plane - trans[2]) / d[2])
+    dx, dy = pts[1][:2] - pts[0][:2]
+    return wrap_yaw(float(np.arctan2(dy, dx)), np.pi)
+
+
+def box_long_px(b, xyxy):
+    """검출 박스의 긴 변 [px] — OBB면 회전 박스 변, 아니면 축 정렬 박스 변"""
+    if hasattr(b, "xyxyxyxy"):
+        c = np.asarray(b.xyxyxyxy[0].tolist(), float).reshape(4, 2)
+        return float(max(np.linalg.norm(c[1] - c[0]), np.linalg.norm(c[2] - c[1])))
+    x0, y0, x1, y1 = xyxy
+    return float(max(x1 - x0, y1 - y0))
 
 
 def tag_shape(face, posture):
@@ -683,6 +719,11 @@ class PerceptionNode(Node):
         # 기억하는 물체(REMEMBER_PREFIXES) 지우기 기준 — expected_visible
         self.declare_parameter("miss_count", 3)            # 잘 보이는 자리에서 연속 못 찾은 횟수 — 이만큼이면 지움
         self.declare_parameter("miss_max_range", 3.0)      # 이보다 먼 자리는 못 찾아도 세지 않음 [m]
+        self.declare_parameter("agnostic_nms", False)       # True면 클래스가 달라도 겹친 박스는 하나만 (v8: 한 퍽에 서있음·누움 박스를 같이 냄)
+        self.declare_parameter("trust_model_posture", False)  # True면 퍽 자세를 모델 이름(puck_red_box_lying — OBB v8)으로 (크기 판정 대신)
+        self.declare_parameter("yaw_min_aspect", 1.3)       # OBB 장축÷단축이 이보다 작으면 끝면이 보이는 것 — 누운 퍽 축 yaw 안 냄
+        self.declare_parameter("fine_min_px", 30)           # 퍽 박스 긴 변이 이보다 작으면(멂) 모양·모델 자세는 안 냄 [px]
+        self.declare_parameter("miss_min_range", 0.1)      # 이보다 가까운 자리도 안 셈 [m] — 팔 테스트(stand_test)는 0.7: 다가가면 YOLO가 못 잡는 가까운 퍽을 지우지 않게
         self.declare_parameter("miss_edge_px", 40)         # 화면 가장자리 이만큼 안은 세지 않음 [px]
         self.declare_parameter("miss_occlusion_m", 0.10)   # 그 자리 깊이가 이만큼 넘게 가까우면 가려짐 [m]
         self.declare_parameter("remember_min_hits", 3)     # 같은 자리에서 이만큼 잡혀야 기억 (그 전엔 2초 규칙 — 유령 퍽 방지)
@@ -693,6 +734,11 @@ class PerceptionNode(Node):
         self.remember_min_hits = int(self.get_parameter("remember_min_hits").value)
         self.long_memory = bool(self.get_parameter("long_memory").value)
         self.miss_max_range = float(self.get_parameter("miss_max_range").value)
+        self.miss_min_range = float(self.get_parameter("miss_min_range").value)
+        self.trust_model_posture = bool(self.get_parameter("trust_model_posture").value)
+        self.agnostic_nms = bool(self.get_parameter("agnostic_nms").value)
+        self.yaw_min_aspect = float(self.get_parameter("yaw_min_aspect").value)
+        self.fine_min_px = float(self.get_parameter("fine_min_px").value)
         self.miss_edge_px = int(self.get_parameter("miss_edge_px").value)
         self.miss_occlusion_m = float(self.get_parameter("miss_occlusion_m").value)
         # 퍽 판단 (judge_puck) — 기준값은 test/puck_tag_check.py 실물 측정 (~/yolo_puck test_results_20261021.md · 10/22 bee_v3ft)
@@ -908,7 +954,7 @@ class PerceptionNode(Node):
         for cam, s in cams:
             t_start = time.time()
             try:
-                res = self.model.predict(s["bgr"], imgsz=self.imgsz, conf=self.conf_th,
+                res = self.model.predict(s["bgr"], imgsz=self.imgsz, conf=self.conf_th, agnostic_nms=self.agnostic_nms,
                                          device=self.device, verbose=False)[0]
             except Exception as e:  # noqa: BLE001
                 self.get_logger().warning(f"추론 실패: {e}", throttle_duration_sec=5.0)
@@ -922,28 +968,32 @@ class PerceptionNode(Node):
         depth_m = s["depth_mm"].astype(np.float32) / 1000.0
         now_stamp = s["stamp"]
         tf = self.lookup_tf(s["frame_id"], now_stamp)
+        obb = getattr(res, "obb", None)  # OBB 모델(v8)은 res.obb — xyxy·cls·conf는 같고 회전 꼭짓점 xyxyxyxy가 더 있음 · 보통 모델은 res.boxes
+        boxes_in = obb if obb is not None else res.boxes
         if tf is None:  # 위치는 못 구해도 QR 판 박스는 남김 — QR은 위치 없이 읽힘 (TF·지도가 아직 없을 때도)
-            boxes = [tuple(max(0, int(v)) for v in b.xyxy[0].tolist()) for b in res.boxes
+            boxes = [tuple(max(0, int(v)) for v in b.xyxy[0].tolist()) for b in boxes_in
                      if self.names.get(int(b.cls[0])) == "qr_board"]
             with self.lock:
                 self.frames[cam]["qr_boxes"] = boxes
             return
         rot, trans = tf
         tags = detect_tags(self.tag_det, s["bgr"])
-        body = self.robot_body(now_stamp) if self.self_filter and len(res.boxes) else None
+        body = self.robot_body(now_stamp) if self.self_filter and len(boxes_in) else None
         # 영상에서 팔 판정: 박스 일부만 팔이면 depth 중앙값이 팔 뒤 바닥·벽까지라 3D 판정(is_self)을 빠져나갔음
         # (실측: 스캔 자세 팔을 obstacle 0.5~0.7로 잡고 위치는 팔 뒤 바닥 (0.42, 0.20, −0.03)) → 팔을 화면에 투영해 박스 안에 있으면 버림
         arm_px = (arm_pixels(body[1], rot, trans, s["fx"], s["fy"], s["cx"], s["cy"])
                   if body is not None and self.self_arm_hits > 0 else np.zeros((0, 2)))
         dets = []
         qr_boxes = []
-        for b in res.boxes:
+        for b in boxes_in:
             tag = None
             shape, yaw, yaw_period = "", None, 0.0  # 퍽만 채움
             name = self.names.get(int(b.cls[0]))
             if name is None:
                 continue
             cls, model_color = split_class(name)  # 모델 이름(puck_red) → 설계 이름(puck) + 이름에 든 색
+            if cls == "box":
+                continue  # OBB 모델의 상자 클래스 — 상자는 depth 윗면(start_box · location_box)으로 따로 찾음
             x0, y0, x1, y1 = (int(v) for v in b.xyxy[0].tolist())
             x0, y0 = max(x0, 0), max(y0, 0)
             x1, y1 = min(x1, w - 1), min(y1, h - 1)
@@ -964,6 +1014,11 @@ class PerceptionNode(Node):
                 wcm = (x1 - x0) * zm / s["fx"] * 100 if zm > 0 else -1.0
                 hcm = (y1 - y0) * zm / s["fy"] * 100 if zm > 0 else -1.0
                 ok, _, posture = self.judge_puck(wcm, hcm, color, clipped, "", near)  # 색은 위에서 정함 → 크기·깊이·자세만
+                fine = box_long_px(b, (x0, y0, x1, y1)) >= self.fine_min_px  # 멀어 작으면 모양·자세를 픽셀로 못 가림
+                m_posture = model_posture(name) if fine else ""
+                if self.trust_model_posture:
+                    # 크기는 퍽인지 거르는 데만 · 자세는 모델 (OBB 모델은 누운 퍽 박스가 돌아가 있어 가로÷세로로는 못 봄)
+                    posture = m_posture
                 if not ok or zm <= 0:
                     # 퍽 아님 → 버림 · 퍽인데 깊이 없음(너무 가까움) → 위치를 몰라 이번엔 갱신 안 함 = 트랙은 마지막 위치 유지
                     # (그 자리는 깊이가 없어 expected_visible이 '못 봄'으로 세지 않음 → 기억도 안 지워짐)
@@ -973,8 +1028,14 @@ class PerceptionNode(Node):
                 tag, corners = tag_in_box(tags, (x0, y0, x1, y1), self.puck_tag_ids)  # 번호만 붙임 — 색은 위에서 영상으로 정한 그대로
                 tag_y, face = (tag_yaw(corners, self.puck_tag_size, s["fx"], s["fy"], s["cx"], s["cy"], rot)
                                if corners is not None else (None, ""))
-                shape = tag_shape(face, posture) or puck_shape(name)  # 몸통 면 태그가 보이면 YOLO 모양보다 우선
-                yaw, yaw_period = self.puck_yaw(s, depth_m, (x0, y0, x1, y1), color, shape, posture, tag_y, face, rot, trans)
+                shape = tag_shape(face, posture) or (puck_shape(name) if fine else "")  # 몸통 면 태그가 보이면 YOLO 모양보다 우선
+                yaw, yaw_period = None, 0.0
+                if posture == "lying" and hasattr(b, "xyxyxyxy"):  # OBB 모델: 회전 박스 장축 → 누운 퍽 축 (depth 점보다 먼저)
+                    c3 = rot @ np.array([((x0 + x1) / 2 - s["cx"]) * zm / s["fx"], ((y0 + y1) / 2 - s["cy"]) * zm / s["fy"], zm]) + trans
+                    yaw = lying_yaw(b.xyxyxyxy[0].tolist(), s["fx"], s["fy"], s["cx"], s["cy"], rot, trans, c3[2], self.yaw_min_aspect)
+                    yaw_period = np.pi if yaw is not None else 0.0
+                if yaw is None:
+                    yaw, yaw_period = self.puck_yaw(s, depth_m, (x0, y0, x1, y1), color, shape, posture, tag_y, face, rot, trans)
             else:
                 region = depth_m[y0:y1, x0:x1]
                 valid = region[(region > 0.05) & (region < 6.0)]
@@ -1393,7 +1454,7 @@ class PerceptionNode(Node):
                 continue
             if tid in matched:
                 continue
-            if expected_visible(tr["p"], *view, self.miss_max_range, self.miss_edge_px, self.miss_occlusion_m):
+            if expected_visible(tr["p"], *view, self.miss_max_range, self.miss_edge_px, self.miss_occlusion_m, self.miss_min_range):
                 tr["miss"] = tr.get("miss", 0) + 1
                 if tr["miss"] >= self.miss_count:
                     del self.tracks[tid]

@@ -1,10 +1,17 @@
 # faker 패키지 파라미터 — faker.launch.py가 노드에 넘긴다. fail_count·debug_dir은 launch 인자가 덮어쓴다
-pole_front_cam:                    # fake_camera (realsense2_camera 대역) — 시뮬레이터가 live_dir에 쓴 프레임만 낸다 (없으면 아무것도 안 냄)
+pole_front_cam:                    # fake_camera (realsense2_camera 대역) — 시뮬레이터 live_dir 프레임. 실제 프레임을 한 번이라도 받으면 더미 없음
   ros__parameters:
     width: 640               # 출력 크기 (렌더가 더 작으면 확대 — 깊이는 보간 없이)
     height: 480
     poll_s: 0.02             # 메타(<이름>.json) 확인 주기 — 발행은 새 프레임마다 (렌더 속도 = 약 5Hz). 화각은 메타의 hfov_deg
     cloud_step: 4            # 점구름: depth 4픽셀마다 한 점
+    dummy_timeout_s: 2.0     # 시뮬레이터 프레임을 한 번도 못 받았을 때 더미 발행까지 대기 [초] (0 = 끔 — 시뮬레이터만 쓸 때)
+    dummy_depth_mm: 0        # map_depth:=false일 때 더미 깊이 [mm] — 0 = 측정 없음
+    # 시뮬레이터 없을 때 코스 지도 ray-casting depth — costmap·collision_monitor·body_filter 입력 (fake_camera.hpp)
+    #   CPU: 광선 수 = (640/render_step)×(480/render_step)×dummy_rate_hz — step 2·15Hz면 이 노드만 코어 0.7개(실측)
+    #   → Nav2 서비스 응답이 밀려 BT error 107. 점구름(cloud_step 4)보다 촘촘할 필요 없음
+    dummy_rate_hz: 10.0
+    render_step: 4
     live_dir: /debug/input/hardware/camera
 gripper_cam:
   ros__parameters:
@@ -12,6 +19,10 @@ gripper_cam:
     height: 480
     poll_s: 0.02
     cloud_step: 4
+    dummy_timeout_s: 2.0
+    dummy_depth_mm: 0
+    dummy_rate_hz: 5.0       # 지도 depth는 perception(팔 끝 시점)만 씀 — 주행·costmap엔 안 들어감
+    render_step: 8
     live_dir: /debug/input/hardware/camera
 fake_opencr:                 # OpenCR 대역 (C→물리→S, 유일한 OpenCR) — 아래 환경 값은 실행 중 변경 가능 (시뮬레이터 버튼)
   ros__parameters:

@@ -483,7 +483,7 @@ class Renderer:
     def render(self, T_world_cam, pucks, body=(), meshes=(), body_key=None):
         """meshes: [(T_world 4x4, 삼각형 (N,3,3) 링크 좌표 numpy, BGR)] — 로봇 몸 메시 (BodyModel.meshes에 관절값 반영)
         body_key: 카메라에 보이는 자기 몸이 같은 동안 같은 값 (카메라·관절값) — 주면 몸 광선 추적 결과를 재사용.
-          카메라가 로봇에 달려 있어 몸은 카메라 기준으로 관절값에만 달렸다. pole_cam이 몸을 내려다보면 메시 광선 추적이
+          카메라가 로봇에 달려 있어 몸은 카메라 기준으로 관절값에만 달렸다. pole_front_cam이 몸을 내려다보면 메시 광선 추적이
           프레임당 ~1초(MPS 실측)라 매번 하면 카메라가 ~2Hz로 떨어지고 collision_monitor가 점구름 끊김으로 멈췄다"""
         if self.dev.type == 'cpu':  # CPU는 카메라별 스레드 병렬 그대로
             return self._render(T_world_cam, pucks, body, meshes, body_key)

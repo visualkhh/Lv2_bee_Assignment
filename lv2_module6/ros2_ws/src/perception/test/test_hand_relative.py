@@ -8,7 +8,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 import hand_geom as hg  # noqa: E402
 
-DOWN = np.diag([1.0, -1.0, -1.0])  # 손끝 z 아래 (isaac/lab bee_common.DOWN = x축 180°)
+DOWN = np.diag([1.0, -1.0, -1.0])  # 손끝 z 아래 (isaac/rl/bee_isaac/tasks bee_common.DOWN = x축 180°)
 
 
 def rz(a):

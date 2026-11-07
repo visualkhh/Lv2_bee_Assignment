@@ -61,6 +61,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-lyrical-robot-localization \
     ros-lyrical-rosx-introspection \
     ros-lyrical-onnxruntime-vendor \
+    fonts-noto-cjk \
     ros-lyrical-cv-bridge \
     libopencv-dev \
     rapidjson-dev \
@@ -181,6 +182,9 @@ COPY docker/build-ws.sh /usr/local/bin/build-ws
 COPY docker/ros-restart.sh /usr/local/bin/ros-restart
 COPY docker/ros-faker-restart.sh /usr/local/bin/ros-faker-restart
 COPY docker/ros-kill.sh /usr/local/bin/ros-kill
+COPY docker/test-ab-nav-policy.sh /usr/local/bin/test-ab-nav-policy
+# run-cli·A/B 도구 — Jetson 실기에서도 같은 경로(/ws/tool)로 동작 (개발 컨테이너는 compose 마운트로 덮어씀)
+COPY lv2_module6/tool /ws/tool
 RUN chmod +x /entrypoint.sh /usr/local/bin/test-* /usr/local/bin/build-ws /usr/local/bin/ros-restart /usr/local/bin/ros-faker-restart /usr/local/bin/ros-kill \
     && echo "source /opt/ros/lyrical/setup.bash" >> /root/.bashrc \
     && echo "if [ -f /ws/install/setup.bash ]; then source /ws/install/setup.bash; fi" >> /root/.bashrc

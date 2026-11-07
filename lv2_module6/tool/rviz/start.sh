@@ -4,6 +4,7 @@
 #   ./start.sh
 #   ROS_DOMAIN_ID=42 ./start.sh
 #   ROS_DOMAIN_ID=42 RVIZ_CONFIG=light ./start.sh     # Wi-Fi 너머 PC: 지도·TF·로봇 모델만 (light.rviz)
+#   RVIZ_CONFIG=ab ./start.sh                         # A/B 경로 지정 — 2D Goal Pose가 /ab/goal_pose (로봇 안 움직임, ab.rviz)
 set -eo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"

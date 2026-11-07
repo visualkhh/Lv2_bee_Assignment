@@ -6,13 +6,17 @@
 ```text
 tool/
 ├── README.md
+├── setting-venv.sh  # tool/.venv 만들기 + requirements.txt (처음 한 번)
+├── requirements.txt # ROS 밖 파이썬 의존성 (numpy · matplotlib · PyYAML)
 ├── run-cli          # 메뉴(기본) · start|stop|restart = 로봇 스택(bringup) · 그 밖은 CLI 명령
 ├── run-rviz         # start|stop|restart 실행기 (기본 start)
 ├── rviz/
-│   ├── start.sh
+│   ├── start.sh     # RVIZ_CONFIG=operator(기본)·light·ab
 │   ├── stop.sh
 │   ├── restart.sh
-│   └── operator.rviz
+│   ├── operator.rviz
+│   ├── light.rviz   # Wi-Fi 너머 PC용 (지도·TF·로봇 모델만)
+│   └── ab.rviz      # A/B 경로 지정 — 2D Goal Pose가 /ab/goal_pose (Nav2가 안 들음 → 찍어도 로봇 안 움직임)
 ├── log/                 # 실행 결과 (raw.csv 등 · gitignore)
 └── cli/
     ├── start.sh
@@ -24,8 +28,13 @@ tool/
         ├── defs.py        # 메뉴 내비게이션 상수
         ├── consts.py      # 로봇 상수 + 파라미터/인자 변환
         ├── state.py       # StateStore — ROS 상태 보관
-        ├── dialogs.py     # 키 읽기 · 확인/입력/결과창 · 메뉴 루프 (키 규약)
-        ├── ui.py          # Ui — 4분할 프레임 + 상태바 + 다이얼로그 진입점
+        ├── keys.py        # 키 읽기 (cbreak · 방향키 · UTF-8)
+        ├── component.py   # Component — 화면 부품 최상위 부모
+        ├── window/        # 화면 틀 — Window (조합·키 루프·신호 · 키 규약)
+        ├── menu_bar/      # 메뉴 막대 — MenuBar → LeftSideMenuBar · ChoiceItem
+        ├── dialog/        # 창 — Dialog 최상위 부모 + Input·Key·Pager·Busy·Teleop·RouteRviz (한 파일에 한 클래스)
+        ├── state_bar/     # 상단 상태바 — State 칸들 + StateBar + TopStateBar
+        ├── ui.py          # Ui — 창 진입점 · 터미널 모드 · ui.window
         ├── bus.py         # Bus — 발행·전송·대기·명령 실행
         └── pages/         # Page → Menu → 각 메뉴 화면 (MenuItem)
 ```
@@ -53,6 +62,18 @@ cd tool
 ```
 
 로그를 터미널에서 직접 보려면 `ros2_ws/start.sh`로 앞에서 띄워도 된다.
+
+## 처음 셋팅 (venv)
+
+```bash
+cd tool
+./setting-venv.sh      # tool/.venv 만들기 + requirements.txt (numpy · matplotlib · PyYAML)
+```
+
+- ROS와 같은 파이썬으로 `--system-site-packages` — rclpy·메시지(ROS setup.bash)와 apt 패키지는 그대로 보고, 없는 것만 venv에 깐다.
+- `run-cli`·`run-cli-test`가 `.venv`가 있으면 쓴다 (없으면 시스템 python3). `run-rviz`는 파이썬을 안 써서 무관.
+- `.venv`는 git에 안 올라간다 (`.gitignore`). requirements가 바뀌면 다시 실행.
+- 도커 개발 컨테이너는 `/ws/tool`이 읽기 전용 마운트라 venv를 안 만든다 — 이미지에 이미 설치돼 있음.
 
 ## 실행
 
@@ -84,11 +105,12 @@ cd tool
   q) 종료
 ```
 
-모든 화면이 같은 키 규약을 씁니다 (`cli/op/dialogs.py` 맨 위에 정리):
+모든 화면이 같은 키 규약을 씁니다 (`cli/op/window/window.py` 맨 위에 정리):
 
 | 화면 | 키 |
 |---|---|
 | 메뉴 | `↑↓` 이동 · `Enter` 실행 · 항목 키(숫자·글자)로 포커스 · `Esc`/`◀`/`b` 뒤로(한 단계) · `m` 메인 · `r` 새로고침 · `q` 종료 |
+| 상단 상태바 | `Tab` 들어가기 · `←→` 칸 이동 · `Enter` 열기(예: 진단 칸 → 진단 화면) · `Tab`/`Esc` 메뉴로 |
 | 확인창 | `y` 예 · `n`/`Esc` 아니오 · `Enter` 기본값 |
 | 입력창 | `Enter` 확인 · `Esc`/`◀` 취소. 값이 틀리면 창이 닫히지 않고 사유를 보여 주므로 고쳐서 다시 Enter |
 | 결과창 | 실행 출력은 결과창에 모입니다. `↑↓`/`PgUp`/`PgDn` 스크롤 · `Enter`/`Esc` 닫기(같은 메뉴로) |
@@ -277,9 +299,10 @@ cd tool
 정책(ONNX) vs inner DWB를 같은 주행·같은 goal로 비교한다. 기록은 bee 안에 쌓인다.
 
 - 자동: `./run-cli ab rl_nav_controller guide --label test1`
-  (`tool/cli/ab/rl_nav_controller/command.json`의 start·route대로 A(정책) → 복귀 → B(DWB) 주행)
+  (경로대로 A(정책) → 복귀 → B(DWB) 주행 — 경로는 TUI ① 경로 정하기(RViz·지금 위치·좌표)로 정하거나 기본 command.json)
+- 테스트베드 한 번에: 컨테이너에서 `test-ab-nav-policy` (faker 기동 → 위 guide → 정리)
 - 수동: `status` · `record --label` · `stop` · `report --last` (위 ab/README 참고)
-- 리포트는 `tool/node/rl_nav_controller/report.py`가 만든다
+- 리포트는 `tool/cli/op/pages/ab/rl_nav_controller/report.py`가 만든다
 
 ## RViz
 

@@ -14,8 +14,21 @@ bool grasp_held(double pos, double effort, double min_pos, double min_effort) {
   return std::isnan(effort) || std::abs(effort) >= min_effort;
 }
 
+bool hand_yaw(const geometry_msgs::msg::Quaternion & q, double & psi) {
+  if (std::abs(q.z) > 1e-6 || std::abs(q.w) > 1e-6 || std::hypot(q.x, q.y) < 0.5) return false;
+  psi = 2.0 * std::atan2(q.y, q.x);
+  return true;
+}
+
+int grip_state(double pos, double current, double still_s, double t, double min_current, double empty_m, double timeout_s) {
+  if (still_s > 0.2 && pos < empty_m) return 0;
+  if (still_s > 0.2 && current >= min_current) return 1;
+  return t > timeout_s ? -1 : 2;
+}
+
 namespace {
 constexpr double CONTACT_VS = 0.3;  // 팀 관절 한계 × (시뮬 vel_scale)
+constexpr double CONTACT_STOP_S = 3.0;  // 닫기 시작 뒤 손가락이 멈출 때까지 더 기다리는 상한 (실행 속도·그리퍼 속도가 시뮬과 달라도)
 constexpr double CONTACT_HOLD_S = 0.3, CONTACT_SETTLE_S = 0.3, CONTACT_CLOSE_S = 0.5, CONTACT_RELEASE_S = 0.4;
 const char * ARM[] = {"joint1", "joint2", "joint3", "joint4", "joint5"};
 }  // namespace
@@ -256,6 +269,50 @@ ArmIO::Step ArmIO::wait_step(double secs) {
   };
 }
 
+ArmIO::Step ArmIO::grip_stop_step(double timeout_s) {
+  return [this, timeout_s](Cb cb) {
+    const uint64_t gen = gen_;
+    const auto t0 = std::chrono::steady_clock::now();
+    auto still_from = std::make_shared<std::chrono::steady_clock::time_point>(t0);
+    auto last = std::make_shared<double>(-1.0);
+    timer_ = node_.create_wall_timer(std::chrono::milliseconds(50), [=, this]() {
+      if (gen != gen_) { timer_->cancel(); return; }
+      const auto p = pos_.find("gripper_left_joint");
+      const auto now = std::chrono::steady_clock::now();
+      if (p != pos_.end() && (*last < 0 || std::abs(p->second - *last) > 0.0002)) { *still_from = now; *last = p->second; }
+      if (std::chrono::duration<double>(now - *still_from).count() < 0.2 && std::chrono::duration<double>(now - t0).count() < timeout_s) return;
+      timer_->cancel();
+      cb(true);
+    });
+  };
+}
+
+ArmIO::Step ArmIO::grip_settle_step(double min_current, double empty_m, double timeout_s) {
+  return [this, min_current, empty_m, timeout_s](Cb cb) {
+    if (!grasp_check_) { cb(true); return; }
+    const uint64_t gen = gen_;
+    const auto t0 = node_.now();
+    auto still_from = std::make_shared<rclcpp::Time>(t0);
+    auto last = std::make_shared<double>(-1.0);
+    timer_ = node_.create_wall_timer(std::chrono::milliseconds(50), [=, this]() {
+      if (gen != gen_) { timer_->cancel(); return; }
+      const auto p = pos_.find("gripper_left_joint");
+      const auto e = effort_.find("gripper_left_joint");
+      if (p == pos_.end()) return;
+      const double pos = p->second, cur = e == effort_.end() ? 0.0 : std::abs(e->second);
+      const auto now = node_.now();
+      if (*last < 0 || std::abs(pos - *last) > 0.0002) *still_from = now;  // 움직이는 중
+      *last = pos;
+      const int r = grip_state(pos, cur, (now - *still_from).seconds(), (now - t0).seconds(), min_current, empty_m, timeout_s);
+      if (r == 2) return;
+      timer_->cancel();
+      RCLCPP_INFO(node_.get_logger(), "그리퍼 %s — 위치 %.4f m · 전류 %.1f mA", r == 1 ? "쥠" : r == 0 ? "빈손" : "판단 못 함", pos, 1000 * cur);
+      if (r != 1) grip_fail_ = r == 0 ? "stand_no_grip" : "stand_grip_timeout";
+      cb(r == 1);
+    });
+  };
+}
+
 void ArmIO::skill_ctx(const SkillModel * policy, uint8_t phase, bool holding, bool live, const Q5 & above, const Q5 & down) {
   ml::msg::SkillContext m;
   m.header.stamp = node_.now();  // 이 단계 시작 시각 (정책 입력 '진행'의 기준)
@@ -311,6 +368,21 @@ bool ArmIO::ik_ee(const geometry_msgs::msg::PoseStamped & ee, const Q5 & near, Q
   return stand::ik_down({p.x(), p.y(), p.z()}, std::atan2(axis[1], axis[0]), near, out);
 }
 
+bool ArmIO::ik_ee_yaw(const geometry_msgs::msg::PoseStamped & ee, double psi, const Q5 & near, Q5 & out) {
+  geometry_msgs::msg::TransformStamped tf;
+  try {
+    tf = tf_buffer_->lookupTransform("base_footprint", ee.header.frame_id, tf2::TimePointZero);
+  } catch (const std::exception &) {
+    return false;
+  }
+  const auto & r = tf.transform.rotation;
+  const auto & tr = tf.transform.translation;
+  const tf2::Transform t(tf2::Quaternion(r.x, r.y, r.z, r.w), tf2::Vector3(tr.x, tr.y, tr.z));
+  const tf2::Vector3 p = t * tf2::Vector3(ee.pose.position.x, ee.pose.position.y, ee.pose.position.z);
+  const double base_yaw = std::atan2(2 * (r.w * r.z + r.x * r.y), 1 - 2 * (r.y * r.y + r.z * r.z));
+  return stand::ik_down_sym({p.x(), p.y(), p.z()}, psi + base_yaw - M_PI / 2, near, out);
+}
+
 ArmIO::Step ArmIO::contact_step(const SkillModel & policy, std::function<bool(Q5 &, Q5 &)> plan, bool close) {
   return [this, policy, plan, close](Cb cb) {
     Q5 above{}, down{};
@@ -334,7 +406,10 @@ ArmIO::Step ArmIO::contact_step(const SkillModel & policy, std::function<bool(Q5
       ctx(3, true, false),                                // 3 쥐기 · 놓기 (보정 고정)
       close ? grip_timed_step(GRIPPER_CLOSED_M, grip_current_a_, CONTACT_CLOSE_S)
             : grip_timed_step(GRIPPER_OPEN_M, -1.0, CONTACT_RELEASE_S)});
-    if (close) steps->push_back(held_step());
+    if (close) {
+      steps->push_back(grip_stop_step(CONTACT_STOP_S));
+      steps->push_back(held_step());
+    }
     steps->push_back(ctx(4, false, false));               // 4 올리기
     steps->push_back(move(down, above));
     steps->push_back(ctx(5, !close, false));              // 5 대기

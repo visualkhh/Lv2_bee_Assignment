@@ -9,6 +9,7 @@
 #   ./start.sh learning_enabled:=false      # 학습 노드 끄고 (비교 기준)
 #   ./start.sh map:=slam                    # 지도 매핑 (새 폴더 map/<날짜_시각>/) — 기본 map:=saved = 저장 지도로 위치추정
 #   ./start.sh --build [launch 인자]        # 저장소에서 실행할 때 colcon build 후 실행
+#   LAUNCH_FILE=stand_test.launch.py ./start.sh  # 팔 테스트용 가벼운 실행 (= ./stand-test.sh)
 #
 # 두 가지 위치에서 동작한다.
 #   - 저장소 lv2_module6/ros2_ws/ : install/이 없거나 --build면 src/를 빌드
@@ -272,5 +273,7 @@ fi
 
 # 지도 폴더 기본 = 이 워크스페이스의 map/ (테스트베드 /ws/map 과 같은 자리) — map:=slam(새 폴더 매핑) · saved(저장 지도, 기본)
 case " $* " in *" map_dir:="*) ;; *) set -- "$@" "map_dir:=$HERE/map" ;; esac
-echo "=== ros2 launch bringup bringup.launch.py $*"
-exec ros2 launch bringup bringup.launch.py "$@"
+# 실행할 launch (기본 전체 bringup) — stand-test.sh가 LAUNCH_FILE=stand_test.launch.py로 가벼운 팔 테스트용을 고름
+LAUNCH_FILE="${LAUNCH_FILE:-bringup.launch.py}"
+echo "=== ros2 launch bringup $LAUNCH_FILE $*"
+exec ros2 launch bringup "$LAUNCH_FILE" "$@"

@@ -72,6 +72,7 @@ jobs:
         #   firmware/                      lv2_module6/firmware 폴더 전체 (스케치·upload.sh·README)
         #   firmware/build/<스케치>/*.bin  test-firmware가 컴파일한 결과 (/debug/firmware에서 복사 — OpenCR용이라 아키텍처 무관)
         #   *.sh                           lv2_module6/ros2_ws의 실행 스크립트 전부 + docker/*.sh (entrypoint.sh 제외)
+        #   tool/cli·tool/node·tool/rviz  run-cli · A/B · 리포트 (cli-test·log·bag·artifacts 제외)
         #   ARCH                           이 패키지의 아키텍처 (start.sh가 확인)
         #   TARGET                         이 패키지의 OS·아키텍처 (예: ubuntu-24.04-aarch64)
         # - install: test-bringup이 --symlink-install로 빌드 → cp -L로 링크 대상 실제 파일을 담음.
@@ -89,10 +90,15 @@ jobs:
           cp lv2_module6/ros2_ws/fastdds.xml lv2_module6/ros2_ws/fastdds_local_only.xml ros2_ws/   # _local = 실기 기기 안 격리 (SHM만)
           cp docker/*.sh ros2_ws/   # test-*.sh · build-ws.sh · ros-kill.sh · ros-restart.sh (entrypoint.sh 제외 — 컨테이너 전용)
           rm -f ros2_ws/entrypoint.sh
+          # tool/ (run-cli · A/B · 리포트) — 실기에서 wget 묶음으로 바로 실행. cli-test(venv)·log·bag·artifacts·__pycache__ 제외.
+          mkdir -p ros2_ws/tool && cp -r lv2_module6/tool/cli lv2_module6/tool/node lv2_module6/tool/rviz ros2_ws/tool/
+          [ -f lv2_module6/tool/README.md ] && cp lv2_module6/tool/README.md ros2_ws/tool/
+          find ros2_ws/tool -type d \( -name __pycache__ -o -name .venv \) -prune -exec rm -rf {} + 2>/dev/null || true
+          rm -rf ros2_ws/tool/log ros2_ws/tool/bag ros2_ws/tool/artifacts ros2_ws/tool/cli-test
           echo "${{ matrix.arch }}" > ros2_ws/ARCH
           echo "${{ matrix.target }}" > ros2_ws/TARGET
           tar -czf "$PACKAGE" -C ros2_ws .
-          ls -lh "$PACKAGE" && tar -tzf "$PACKAGE" | grep -E "^\./(ARCH|TARGET|firmware/build/)|\.sh$"
+          ls -lh "$PACKAGE" && tar -tzf "$PACKAGE" | grep -E "^\./(ARCH|TARGET|firmware/build/|tool/cli/operator_tool\.py)|\.sh$"
       - uses: actions/upload-artifact@v7
         with:
           path: ${{ env.PACKAGE }}   # archive: false면 파일 이름이 artifact 이름

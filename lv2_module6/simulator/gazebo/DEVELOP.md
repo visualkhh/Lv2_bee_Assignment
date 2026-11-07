@@ -354,7 +354,7 @@ xacro /ws/urdf/beebot_mesh/urdf.xacro mock_hardware:=true > /tmp/beebot.urdf && 
 
 ## 9. 지도 모드 (launch 인자)
 
-SIL 시뮬레이터(`simulator/`)는 더 이상 사용하지 않는다. 지도 관련 launch 인자만 남긴다:
+SIL 시뮬레이터(`simulator/vazebo/`)는 Isaac Sim 없이 통합 흐름을 확인할 때 쓴다 (맥·CPU 포함 — [README](../vazebo/README.md)). 지도 관련 launch 인자는 아래와 같다:
 
 | 시작 인자 | 뜨는 지도 노드 | `/state/map_mode` | 지도 DB |
 | --- | --- | --- | --- |

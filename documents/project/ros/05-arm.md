@@ -107,7 +107,7 @@ flowchart TB
 
 | 이름 | 관절값 joint1..5 [rad] | 쓰임 | 값 |
 |---|---|---|---|
-| `stow` | `[0, -1.91, 1.3701, 0.5952, 0]` | 기본·주행 자세. 기동 때 `initial_pose`도 이 값 | basket.yaml `pose_stow`, SRDF `stow`, plan.yaml `initial_pose` |
+| `stow` | `[0, -1.9024, 1.344, 0.9023, 0]` | 기본·주행 자세. 기동 때 `initial_pose`도 이 값 | basket.yaml `pose_stow`, SRDF `stow`, skills.yaml `initial_pose` |
 | `carry_left` | `[1.5708, -0.4650, 0.1023, 1.9334, 1.5708]` | 퍽을 들고 적재함 왼쪽 칸으로 가는 경유 | basket.yaml `pose_carry_left` |
 | `carry_right` | `[-1.5708, -0.4650, 0.1023, 1.9334, -1.5708]` | 퍽을 들고 적재함 오른쪽 칸으로 가는 경유 | basket.yaml `pose_carry_right` |
 | `scan` | `[2.618, 0.681, -1.414, 1.082, 0]` | 지도 만들 때 gripper_cam을 두 번째 카메라로 씀. coordinator가 알아서 감 | `ros_system/config/scan_pose.yaml` |
@@ -182,7 +182,7 @@ flowchart LR
 |---|---|---|
 | 퍽 위치 | `pose.position` | grasp_scorer 후보의 기준. 퍽이 `start_box` 위에 있으면 z가 상자 높이(약 0.07m)만큼 높은 그대로 씀 (고정 높이 아님) |
 | 모양 | `details.shape` (`box` · `cyl`) | 손에 든 퍽 모양으로 기억해 적재함 표를 고름 |
-| 방향 | `pose.orientation`(yaw) · `details.yaw_period` | **(예정)** 사각 퍽은 손 수직축 회전(joint5)을 퍽 yaw(90° 주기, 지금 손 방향에서 가장 가까운 것)에 맞춤. 지금은 수직축 회전을 풀어 둠 |
+| 방향 | `pose.orientation`(yaw) · `details.yaw_period` | grasp_scorer가 손 방향 ψ를 고름 (사각 퍽 면 · 옆 퍽 회피) → skill_pick이 ψ로 푼 해석 IK 관절값으로 퍽 위까지 감. 내려갈 때는 그 손목 유지 |
 | 자세 | `class_name` `puck` / `puck_lying`, `details.posture` | `puck_lying`이면 `pick` 대신 `stand` → (인지로 섰는지 확인) → `stand_pick` (mission_manager) |
 
 ### place: 상자 값
@@ -221,6 +221,7 @@ flowchart LR
 | `basket_table_missing` | basket.yaml 표가 안 들어옴 (launch 확인) |
 | `place_failed` · `place_no_target` · `inspect_no_target` · `inspect_failed` | 놓기·보기 실패, 대상 없음 |
 | `manual_*` · `explore_*` · `estop*` · `cancelled` | 모드 전환·비상정지·정지 요청 |
+| `stand_no_grip` · `stand_grip_timeout` | 위치형 쥐기: 손가락이 `stand_empty_m`보다 닫힘(빈손) · `stand_grip_timeout_s` 안에 판단 못 함 — 벌리고 실패 |
 | `stand_failed` · `stand_not_lying` · `stand_no_target` · `stand_no_yaw` · `stand_no_tf` | 세우기 실패 · 대상이 누운 퍽이 아님 · 대상 없음 · 긴 축 방향을 못 구함 · TF 없음 |
 | `stand_ik_unreachable` · `stand_table_missing` · `stand_table_out_of_limits` | 경유점 계산 실패 (ik) · 표 없음 · 표 값이 관절 한계 밖 (table) |
 | `stand_pick_no_stand` · `stand_pick_failed` · `hand_full` | 직전 stand 없음 · 다시 집기 실패 · 이미 손에 퍽 |
@@ -230,7 +231,7 @@ flowchart LR
 ## 6-1. 세우기 — stand · stand_pick
 
 세우기는 **두 skill**로 나눕니다. 팀원 스펙의 `right`·`right-pick`이고, 오른쪽(`carry_right`)과 헷갈리지 않게 `stand`·`stand_pick`으로 부릅니다.
-세우는 방법은 팀원 `feature/isaac-lab`의 `isaac/lab/right_env.py` **tilt 방식**이고, ROS로 실행해 보는 대역은 `isaac/sim/scripts/stand_dummy.py`입니다.
+세우는 방법은 팀원 `feature/isaac-lab`의 `isaac/lab/right_env.py` **tilt 방식**이고, ROS 실행은 `skill_stand`입니다.
 
 **동작 순서**
 
@@ -308,7 +309,9 @@ flowchart TB
    ```
 4. **팀원에게 확인할 것**: 세우기 성공률(보정 켬/끔), dock 자세 오차 허용 범위.
 
-**구현 (coordinator)**
+**실기 방식 (11/03~04, 기본값)**: 큰 호는 퍽을 너무 높이 들어, `stand_drag_m`이 0보다 크면 호 대신 먼 끝을 쥔 채 로봇 쪽으로 4cm 끌며 3.5cm 올린 뒤 2cm 눌러 놓습니다 (`stand_drag_lift_m` · `stand_set_dz_m`). 쥐기는 위치형입니다: 목표 `stand_pinch_m` 0.007을 `stand_close_current_a` 16.14mA로 닫고, 전류 7mA 이상 + 0.2초 멈춤으로 쥠을 확인한 뒤 `stand_pinch_current_a` 5.38mA로 낮춥니다. 대기·손 빼기 높이는 안 닿으면 낮춰 가며, 이웃 경유점이 0.8rad 넘게 튀면 실패합니다. `stand_waypoints: table`과 `stand_drag_m: 0`은 아래 호 방식입니다.
+
+**구현 (skill_stand)**
 
 | | 내용 |
 |---|---|
@@ -317,9 +320,9 @@ flowchart TB
 | A (`table`) | 가까운 방향 칸(5°) · 가까운 옆 칸 → `q = q_nom + P·(x − box_cx, y − yc, 0)` (`right_env._reset_idx` 그대로) |
 | 대조 (로컬) | B 경유점 = 팀원 `plan_waypoints` (수치 IK) 관절값과 최대 0.0025 rad 차이 (팀원 쪽 수렴 허용치 2e-3 rad). A 표 → 손끝: 격자점 0.2 mm · 격자 사이 평균 2.1 mm · 최대 6.5 mm (방향 5° 칸 포함) — B는 0 |
 | 실행 | 벌림 40mm → **MoveIt 계획으로** 먼 끝 위(어디서든 충돌 확인) → 0.3초 → 내려가기 → 가볍게 쥠 0.4초 → 호(0.02초 샘플 궤적) → 0.3초 → 벌림 0.3초 → 위로. 내려가기·호·위로는 지금 관절값을 시각 0으로 붙인 샘플 궤적을 `/execute_trajectory`로 (MoveIt 경유, 계획 없이) |
-| 그리퍼 | 가볍게 쥐기는 goal을 보내고 **결과를 기다리지 않고** 정해진 시간 뒤 다음 (가볍게 쥐면 목표에 '도착'하지 않을 수 있음 — 팀원 `stand_dummy.py`) |
+| 그리퍼 | 액션 결과를 믿지 않고 `/joint_states` 위치·전류로 쥠을 판정 (덜 닫혀 멈춰도 액션은 성공 — 실기 11/03). `grasp_check:=false`면 판정 생략 |
 | 시간 매기기 | 팀원과 같음: 이동 = 사다리꼴 시간 × smooth step (`stand_vel_scale` 0.3), 호 = [올라가기 · 멈춤 · 되돌려 놓기] 묶음마다 smooth step (`stand_arc_vel_scale` 0.5, 멈춤 0.5초) |
-| 파라미터 | `stand_waypoints` (ik · table) · `stand_box_top_m` 0.07 · `stand_pinch_current_a` 0.0055 · `stand_vel_scale` · `stand_arc_vel_scale` (plan.yaml) |
+| 파라미터 | skills.yaml `skill_stand` — `stand_waypoints` · `stand_box_top_m` · 쥐기 · 끌기 · 속도 |
 | 테스트 | `test_stand_plan` — FK(pinocchio 값) · IK 왕복 · 팀원 계획과 같음 · 경유점 기하 · 표 칸 고르기·선형 보정 · 시간 매기기 |
 
 **남은 일과 위험**
@@ -333,7 +336,6 @@ flowchart TB
 | 할 것 | 조건 |
 |---|---|
 | `stand`·`stand_pick` 실행 확인 | Isaac(`stand_dummy` 장면)과 실기에서 A·B 성공률 · 0.4N 쥐기 전류 실측 |
-| 사각 퍽 집을 때 손 방향을 yaw에 맞춤 | MoveIt 방향 제약에 90° 주기 후보 넣기 |
 | 손 안 퍽 위치 보정 (`P_*`) | 손 안 퍽 위치를 잴 수 있을 때 |
 | 세우기 0.4N 쥐기 전류 | mA ↔ N 실측 (PR #50으로 2.69mA까지 보낼 수 있음) |
 | 실기 확인 | 칸 12개 load·unload 실측, 잡기 판정 문턱, 상자 위 놓는 높이 |

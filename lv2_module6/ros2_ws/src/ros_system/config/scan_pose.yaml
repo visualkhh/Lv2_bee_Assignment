@@ -8,4 +8,4 @@
   ros__parameters:
     scan_pose_joints: [joint1, joint2, joint3, joint4, joint5]
     scan_pose: [2.618, 0.681, -1.414, 1.082, 0.0]   # [rad] 150° · 39° · −81° · 62° · 0°
-    scan_pose_tolerance: 0.05                       # [rad] 관절마다 이 안이면 스캔 자세
+    scan_pose_tolerance: 0.16                       # [rad] 관절마다 이 안이면 스캔 자세 — 앞먹임으로 엔코더 joint2가 약 0.13 벗어남

@@ -19,6 +19,10 @@
 // 부저: 토픽 /cmd/beep (std_msgs/Int32MultiArray — [] 기본음 · [Hz, ms]) → write()가 B 줄 (모드와 무관)
 // 팔 토크: 서비스 ~/set_arm_torque (std_srvs/SetBool) → write()가 T 줄 (joint1~5 + 그리퍼 — 바퀴는 그대로).
 //   끄면 손으로 자세를 잡을 수 있다(S로 각은 계속 읽힘). 켜기 전에 JTC 목표를 지금 각으로 맞춰야 안 튄다 — manual_control이 함.
+// 비틀림 상태 (twist_state, 기본 켜짐 — 강성 측정만 false): 서보 엔코더가 못 보는 joint2·3 중력 비틀림 d = c·τ(엔코더 각)를 상태 위치에 더해
+//   /joint_states·TF·MoveIt·JTC·rl_arm_correction이 실제 관절 각을 보게 한다. 명령(C 줄)은 그대로 엔코더 기준 —
+//   d는 앞먹임(rl_arm_correction gravity_enabled)이 빼고, rl_arm_correction twist_state도 같이 켠다 (ros_system launch가 함께 켬).
+//   모델·강성은 ml/rl_arm_correction.hpp gravity와 같은 값.
 // 상태: /diagnostics "BeebotSystem: OpenCR 연결" (mock · 마지막 S 수신 · 송수신 줄 수 · 해석 실패) — 컴포넌트 노드로 발행
 #include <fcntl.h>
 #include <termios.h>
@@ -98,6 +102,9 @@ private:
   bool mock_ = false;
   double mock_effort_ = 0.0;
   std::string port_, imu_;
+  bool twist_state_ = true;                     // 위 "비틀림 상태"
+  double twist_c2_ = 0.0817, twist_c3_ = 0.0532;  // [rad/Nm] joint2·3 = controllers.yaml gravity_compliance_j2·j3
+  std::array<double, 6> twist_{};               // ARM 순서, 마지막으로 상태에 더한 d — on_activate 명령을 엔코더 각으로
   std::map<std::string, double> offset_;  // 팔·그리퍼 영점 오프셋 (URDF <joint><param name="offset">) — 서보 값 = 관절값 + offset
   int fd_ = -1;
   std::string rx_;

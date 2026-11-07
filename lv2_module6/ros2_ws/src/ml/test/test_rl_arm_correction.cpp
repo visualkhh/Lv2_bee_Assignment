@@ -23,6 +23,34 @@ TEST(SagStep, Clamps) {
   EXPECT_DOUBLE_EQ(ml::sag_step(0.19, 0.0, 0.0, -10.0, 0.01, 4.2, 0.2), 0.2);
 }
 
+// 중력 토크 (팔 평면 점질량) — isaac/scripts/calib/arm_model.py(URDF 전체 FK)와 같은 값. grasp 자세 [deg] q2 29.78 q3 −11.31 q4 71.52
+TEST(Gravity, TorquesMatchUrdfModel) {
+  const double d2r = M_PI / 180.0;
+  const auto t = ml::gravity::torques(29.78 * d2r, -11.31 * d2r, 71.52 * d2r);
+  EXPECT_NEAR(t[0], 1.252, 0.01);
+  EXPECT_NEAR(t[1], 0.698, 0.01);
+  EXPECT_NEAR(t[2], 0.063, 0.005);
+  const auto n = ml::gravity::torques(-22.68 * d2r, 46.72 * d2r, 65.96 * d2r);  // 가까이 접은 자세
+  EXPECT_NEAR(n[0], 0.478, 0.01);
+  EXPECT_NEAR(n[1], 0.674, 0.01);
+}
+
+// 고정 높이 오차를 올리는 관절 변화: 손가락 끝면 중심이 dz만큼 올라가고 x·손 피치는 그대로
+TEST(Gravity, LiftMovesFaceCentreUpOnly) {
+  using namespace ml::gravity;
+  const double q2 = 0.3, q3 = 0.1, q4 = 1.1, dz = 0.005;  // 손이 거의 아래를 향한 자세
+  std::array<double, 3> dq{};
+  ASSERT_TRUE(lift(q2, q3, q4, dz, dq));
+  const auto mark = [](double a, double b, double c) {
+    const V2 p3 = rot(a, J3_X, J3_Z), p4 = rot(a + b, J4_X, 0.0), m = rot(a + b + c, HAND_X + MARK_X, 0.0);
+    return V2{p3.x + p4.x + m.x, p3.z + p4.z + m.z};
+  };
+  const V2 before = mark(q2, q3, q4), after = mark(q2 + dq[0], q3 + dq[1], q4 + dq[2]);
+  EXPECT_NEAR(after.z - before.z, dz, 1e-4);
+  EXPECT_NEAR(after.x - before.x, 0.0, 1e-4);
+  EXPECT_NEAR(dq[0] + dq[1] + dq[2], 0.0, 1e-9);  // 손 피치 그대로
+}
+
 // URDF 질량으로 낸 값 (팔을 앞으로 편 자세 · stow 근처) — 모델이 바뀌면 opencr_bridge.py도 함께 갱신
 TEST(Gravity, TorquesMatchUrdf) {
   const auto zero = ml::gravity::torques(0.0, 0.0, 0.0);

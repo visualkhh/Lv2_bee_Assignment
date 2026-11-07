@@ -25,11 +25,20 @@ public:
         at.pose.orientation = geometry_msgs::msg::Quaternion();
         const double yaw = g.values.empty() ? std::numeric_limits<double>::quiet_NaN() : g.values[0];
         stage("위에서 내려다보기");
-        arm_.move_arm(at, [this, done](bool ok) {
+        const auto look = [this, done](bool ok) {
           if (!ok) { done(false, "inspect_failed"); return; }
           stage("기다림");
           arm_.wait_step(wait_s_)([done](bool) { done(true, ""); });
-        }, yaw);
+        };
+        // 손을 아래로 향한 채 높이 못 가는 자리가 많음 — 해석 IK로 낮춰 가며 (시뮬 camera_look_down 0.08). 다 안 되면 MoveIt
+        ArmIO::Q5 now, q;
+        if (arm_.arm_now(now))
+          for (const double drop : {0.0, height_m_ - 0.10, height_m_ - 0.08}) {
+            auto p = at;
+            p.pose.position.z -= drop;
+            if (arm_.ik_ee(p, now, q)) { arm_.move_joints(std::vector<double>(q.begin(), q.end()), look); return; }
+          }
+        arm_.move_arm(at, look, yaw);
       });
     });
   }

@@ -141,7 +141,7 @@ float32 offset_m
 | `load` | 칸 `0`~`11` · `next` | 손의 퍽을 적재함 칸에 — carry(칸 방향) → 칸 위 → 내림 → 벌림 → 들어올림 → stow (12칸, 칸·퍽 모양별 관절값 basket.yaml) |
 | `unload` | 칸 `0`~`11` · `last` | 적재함 칸의 퍽 꺼내기 — carry → 벌림 → 칸 위 → 내림 → 닫기 → 잡기 판정 → 칸 위 → carry |
 | `inspect` | 퍽 id · `"x,y,z"` | 손끝을 퍽 윗면(좌표면 그 점) 위 `inspect_height_m`로 (좌표면 손 방향 = 로봇 → 점) → `inspect_wait_s` 기다림 — gripper_cam이 윗면 16mm AprilTag(번호)를 읽게. 못 읽어도 성공 (읽었는지는 `details.tag`) |
-| `stand` | 누운 퍽 id (`puck_lying`) | 누운 퍽 세우기 — 먼 끝을 가볍게 쥐고 가까운 아래 모서리 축으로 돌려 세운 뒤 벌리고 위로 (손은 빈 채 끝). 경유점 `stand_waypoints` ik(기본) · table |
+| `stand` | 누운 퍽 id (`puck_lying`) | 누운 퍽 세우기 — 먼 끝을 위치형으로 쥐고(`stand_pinch_m`, 닫는 전류 `stand_close_current_a` → 쥔 뒤 `stand_pinch_current_a`) 대각선으로 끌어(`stand_drag_m`, 실기 방식 · 0이면 호) 세운 뒤 벌리고 위로 (손은 빈 채 끝). 경유점 `stand_waypoints` ik(기본) · table |
 | `stand_pick` | 아무 값 (직전 `stand`의 퍽) | 세운 퍽 다시 집기 — 같은 손목으로 바로 아래로 → 닫기 → 잡기 판정 → 들어올림. 성공하면 그 퍽을 손에 든 것으로 장부에 |
 | `say` | 말할 내용 | `/robot/say`로 알림 |
 
@@ -196,7 +196,7 @@ string reason       # grasp_failed_all | nav_failed | arm_contact ...
 ```
 
 - 내는 쪽: coordinator → `/task/status` (reliable + transient_local). 받는 쪽: vlm_task_planner(자기 계획이 FAILED면 재계획) · mission_manager(자기 계획 결과로 다음 단계) · user_input(표시).
-- reason (coordinator.cpp): 이동 `nav_failed` · `approach_failed` / 집기 `no_grasp` · `grasp_failed_all` · `arm_contact` / 놓기 `place_failed` · `place_no_target` / 자세 `pose_failed` / 적재함 `slot_invalid` · `slot_full` · `slot_empty` · `load_failed` · `unload_failed` · `basket_table_missing` / 잡기 판정 `grasp_empty` / 세우기 `stand_failed` · `stand_not_lying` · `stand_no_yaw` · `stand_ik_unreachable` · `stand_table_missing` · `stand_pick_no_stand` · `stand_pick_failed` · `hand_full` / 보기 `inspect_no_target` · `inspect_failed` / 멈춤 `manual_override`·`manual_mode` · `explore_override`·`explore_mode` · `estop`·`estop_blocked` · `cancelled` — `manual`·`explore`·`estop`·`cancelled`로 시작하면 planner는 재계획하지 않음.
+- reason (coordinator.cpp): 이동 `nav_failed` · `approach_failed` / 집기 `no_grasp` · `grasp_failed_all` · `arm_contact` / 놓기 `place_failed` · `place_no_target` / 자세 `pose_failed` / 적재함 `slot_invalid` · `slot_full` · `slot_empty` · `load_failed` · `unload_failed` · `basket_table_missing` / 잡기 판정 `grasp_empty` / 세우기 `stand_failed` · `stand_no_grip` · `stand_grip_timeout` · `stand_not_lying` · `stand_no_yaw` · `stand_ik_unreachable` · `stand_table_missing` · `stand_pick_no_stand` · `stand_pick_failed` · `hand_full` / 보기 `inspect_no_target` · `inspect_failed` / 멈춤 `manual_override`·`manual_mode` · `explore_override`·`explore_mode` · `estop`·`estop_blocked` · `cancelled` — `manual`·`explore`·`estop`·`cancelled`로 시작하면 planner는 재계획하지 않음.
 - 주의: [노드 사전](project/ros/10-catalog.md)의 reason 예시(`nav_blocked`)와 파일(`nav_failed`)이 다릅니다 — 파일이 정본.
 
 <a id="api-msg-missionstate"></a>
@@ -237,7 +237,7 @@ string error            # ERROR 이유 (정지한 경우만)
 
 ### perception/msg/HandTarget · HandRelative ([파일](../lv2_module6/ros2_ws/src/perception/msg/HandRelative.msg))
 
-학습 보정 정책(시뮬 isaac/lab에서 학습)이 보던 "손 카메라로 잰 상대값"을 로봇에서 만든다 (2026-11-03 배포 결정: 퍽에 닿는 구간은 시뮬과 같은 기준 동작 + 학습 보정).
+학습 보정 정책(시뮬 isaac/rl/bee_isaac/tasks에서 학습)이 보던 "손 카메라로 잰 상대값"을 로봇에서 만든다 (2026-11-03 배포 결정: 퍽에 닿는 구간은 시뮬과 같은 기준 동작 + 학습 보정).
 
 | skill | `HandTarget.kind` | `HandRelative.rel` (base_link, m) | 그 밖에 쓰는 칸 |
 |---|---|---|---|
@@ -469,7 +469,7 @@ coordinator가 계획 단계마다 skill 노드 하나에 맡김 — 한 노드�
 | `/skills/approach` | skill_approach (base_skills) | `pose` (x, y, yaw) · `target` = 정책 `dock_box`(기본) \| `park_home` \| `drive_arc` \| `drive_straight` | 시뮬 기준 제어 + 정책 보정을 직접 계산 → `/cmd_vel_nav` (20 Hz) · 도착 판정은 정책 meta (tol_m · tol_deg · hold_s) |
 | `/skills/pose` | skill_pose (arm_skills) | `target` = stow \| carry_left \| carry_right \| scan | MoveIt 관절 목표 · 시작 자세 · 지도 만들 때 스캔 자세도 이 노드 |
 | `/skills/inspect` | skill_inspect | `pose` (볼 점) · `values[0]` 손 방향 yaw | 점 위 `inspect_height_m`에서 기다림 (태그 읽기) |
-| `/skills/pick` | skill_pick | `target` 물체 id · `tag` · `shape` | score_grasps → 퍽 위 5 cm (MoveIt) → 닿는 구간 `pick_standing_puck` |
+| `/skills/pick` | skill_pick | `target` 물체 id · `tag` · `shape` | score_grasps → 후보 손 방향 ψ로 푼 관절값으로 퍽 위 5 cm (MoveIt 관절 목표) → 닿는 구간 `pick_standing_puck` |
 | `/skills/place` | skill_place | `target` cell \| over · `pose` (놓을 면) · `values[0]` 다가가는 높이 | 닿는 구간 `place_cell` (cell) · 물체 위 MoveIt (over) |
 | `/skills/load` · `/skills/unload` | skill_load · skill_unload | `slot` · `shape` · `tag` | 적재함 칸 (장부는 coordinator) · `load_slot` · `unload_slot` |
 | `/skills/stand` · `/skills/stand_pick` | skill_stand | `pose` (누운 퍽) · `shape` · `tag` | 세우기 · 그 자리 다시 쥐기 · `regrasp_after_stand` (meta use: false — 로봇 입력 모양 없음) |

@@ -20,6 +20,7 @@
   <xacro:arg name="mock_hardware" default="false"/>
   <xacro:arg name="mock_effort" default="0.0"/>
   <xacro:arg name="port" default="/dev/opencr"/>
+  <xacro:arg name="twist_state" default="true"/>  <!-- true: joint2·3 상태 = 엔코더 + 중력 비틀림 (BeebotSystemHardware 헤더) · 강성 측정만 false -->
   <xacro:arg name="mesh_uri" default="package://ros_system/urdf/meshes"/>
   <link name="base_footprint"/>
   <joint name="base_joint" type="fixed">
@@ -29,9 +30,10 @@
   </joint>
   <link name="base_link">
     <inertial>
-      <origin rpy="0 0 0" xyz="-0.050770 -0.000171 0.080461"/>  <!-- x: real balance pose 2026-10-28 (was -0.085426 from build.py) -->
-      <mass value="2.400600"/>
-      <inertia ixx="2.8130e-02" ixy="-2.1613e-05" ixz="6.4439e-03" iyy="3.2644e-02" iyz="-1.4858e-06" izz="2.7766e-02"/>
+      <!-- storage_support ring x 12 merged in (estimate: 26.50 cm3 x PLA 1.24 x 50 % = 16.4 g each, parallel axis). Before: mass 2.4006, com -0.050770 -0.000171 0.080461  Com x -0.054874 -> -0.090 provisional (2026-11-06): the real robot did not tip at the furthest reach [0 80 -80 0 0] deg, so x < -0.0806; replace with the tip_balance.py payload result. -->
+      <origin rpy="0 0 0" xyz="-0.090000 -0.000158 0.082489"/>
+      <mass value="2.597760"/>
+      <inertia ixx="2.9371e-02" ixy="-1.9928e-05" ixz="6.7071e-03" iyy="3.3932e-02" iyz="-2.3183e-06" izz="3.0000e-02"/>
     </inertial>
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
@@ -844,6 +846,29 @@
     <child link="imu_link"/>
     <origin rpy="0 0 0" xyz="0.0178 0 0.0585"/>  <!-- x: waffle front edge 0.0688 - 0.051 (measured); z: OpenCR board top in base_link mesh -->
   </joint>
+  <!-- rear battery: ROBOTIS LB-012 (88x35x26 mm, 106 g), upright behind the pole, opposite the camera. Same as USD payloads/base.usda, Physics/physics.usda -->
+  <joint name="battery_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="battery_link"/>
+    <origin rpy="0 0 0" xyz="-0.2324 0 0.1062"/>
+  </joint>
+  <link name="battery_link">
+    <inertial>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+      <mass value="0.106"/>
+      <inertia ixx="7.9218e-05" ixy="0" ixz="0" iyy="7.4382e-05" iyz="0" izz="1.6793e-05"/>
+    </inertial>
+    <visual>
+      <geometry>
+        <box size="0.026 0.035 0.088"/>
+      </geometry>
+    </visual>
+    <collision>
+      <geometry>
+        <box size="0.026 0.035 0.088"/>
+      </geometry>
+    </collision>
+  </link>
   <!-- basket slots: cell floor center, 3 rows (x, pole -> arm) x 4 cols (y, -y -> +y) -->
   <joint name="basket_slot_0_joint" type="fixed">
     <parent link="base_link"/>
@@ -924,6 +949,9 @@
       <param name="mock">$(arg mock_hardware)</param>
       <param name="mock_effort">$(arg mock_effort)</param>
       <param name="port">$(arg port)</param>
+      <param name="twist_state">$(arg twist_state)</param>
+      <param name="twist_compliance_j2">0.0817</param>  <!-- [rad/Nm] = controllers.yaml gravity_compliance_j2 -->
+      <param name="twist_compliance_j3">0.0532</param>  <!-- [rad/Nm] = gravity_compliance_j3 -->
       <param name="baud_rate">1000000</param>
     </hardware>
     <joint name="wheel_left_joint">

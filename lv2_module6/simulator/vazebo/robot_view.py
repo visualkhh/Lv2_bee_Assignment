@@ -14,8 +14,8 @@ import numpy as np
 
 import scene
 
-URDF_DIR = Path(__file__).resolve().parent.parent / 'urdf'  # 소스 기준 (lv2_module6/urdf) — 모델 하나 = 폴더 하나 <이름>/urdf.xacro + meshes/
-INSTALL_DIR = Path(__file__).resolve().parent.parent / 'debug' / 'install'  # 컨테이너 install 실파일 복사본 (docker/build-ws.sh)
+URDF_DIR = Path(__file__).resolve().parents[2] / 'urdf'  # 소스 기준 (lv2_module6/urdf) — 모델 하나 = 폴더 하나 <이름>/urdf.xacro + meshes/
+INSTALL_DIR = Path(__file__).resolve().parents[2] / 'debug' / 'install'  # 컨테이너 install 실파일 복사본 (docker/build-ws.sh)
 CAMERA_MESH_CELL = 0.025  # 카메라 렌더용 간소화 격자 [m] — 광선 추적이라 미리보기보다 거칠게 (차체 7.8k → 약 3k 삼각형)
 MESH_CELL = 0.016  # 메시 간소화 격자 [m] — 3D 미리보기용. 0.008의 1/3 삼각형·3배속, 320px 미리보기엔 충분
 _mesh_cache = {}
@@ -44,7 +44,7 @@ SKELETON_BOX = {
     'gripper_link': (0.070, 0.050, 0.035),
     'finger_left_link': (0.030, 0.004, 0.025),
     'finger_right_link': (0.030, 0.004, 0.025),
-    'pole_cam_link': (0.025, 0.090, 0.025),
+    'pole_front_cam_link': (0.025, 0.090, 0.025),
     'gripper_cam_link': (0.025, 0.090, 0.025),
 }
 

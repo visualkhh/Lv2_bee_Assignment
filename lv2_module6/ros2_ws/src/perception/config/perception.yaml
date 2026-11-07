@@ -10,7 +10,7 @@ perception:
                             #   되돌리기: "bee_yolo11n_v3.pt" (11/02 오전) · "bee_yolo11n_v2.pt" (10/27, 14클래스) · "" (팀 기본 model.pt)
     confidence: 0.4         # 검출 신뢰도 하한
     imgsz: 416              # YOLO 입력 한 변 (도커 CPU용)
-    device: "cpu"           # 실기 GPU 있으면 cuda
+    # device: 코드 기본 "cpu" — 여기 두지 않음: 노드 이름 아래 값이 launch 덮어쓰기(/**)를 이겨 stand_test perception_device가 안 먹었다 (2026-11-06)
     cpu_threads: 2          # device=cpu일 때 torch 스레드 수 — 기본(코어 전부)이면 제어·Nav2가 밀림 (도커 7코어 중 5코어를 먹었음)
     track_frame: "odom"      # 추적·융합 좌표계 (끊김 없음) — /tracked_objects는 발행 순간의 map ← odom으로 바꿔 map 기준
     # 컬러·depth 동기화 · 두 카메라 융합 (scripts/perception_node.py 맨 위 설명)
@@ -51,7 +51,7 @@ perception:
     depth_min_valid: 0.5    # 박스 가운데 깊이 화소가 이 비율보다 적으면 깊이 없음 (배경 몇 화소로 엉뚱한 거리 안 냄)
 hand_relative:               # 손 카메라 상대값 → 학습 보정 정책 입력 (scripts/hand_relative.py · 2026-11-03 배포 결정)
   ros__parameters:
-    base_frame: "base_link"  # 시뮬 정책(isaac/lab)이 쓰던 좌표
+    base_frame: "base_link"  # 시뮬 정책(isaac/rl/bee_isaac/tasks)이 쓰던 좌표
     ee_frame: "end_effector_link"
     map_frame: "map"
     rate_hz: 20.0            # slot(적재함, 카메라 없이 TF만) 발행 주기 [Hz]

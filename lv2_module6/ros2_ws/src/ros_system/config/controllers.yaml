@@ -57,6 +57,7 @@ rl_arm_correction:
     enabled: true
     max_delta: 0.05
     sag_enabled: true          # 처짐 보정 적분 (reference가 멈춰 있을 때만)
+    gravity_enabled: true      # 중력 앞먹임 (관절 비틀림 d = c·τ를 미리 뺌 — 엔코더는 목표에서 d만큼 벗어나 보임)
     sag_gain: 4.2              # [1/s] 학습 env와 같은 감쇠율 (85 ms마다 오차 30 %)
     sag_max: 0.2               # [rad]
     still_rate: 0.005          # [rad/s] reference 변화율이 이보다 작으면 멈춤

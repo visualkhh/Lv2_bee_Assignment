@@ -2,7 +2,7 @@
 """YOLO 데이터셋 자동 생성 (호스트 — 도커 불필요) — documents/mission/README.md 장면.
 
 시뮬레이터의 미션 배치 코드(main.Sim: 미션 지역 · QR 판 · 누운 퍽 · B 지역 · 장애물 · 사람)로 장면을 깔고,
-pole_cam(멀리 1~3m · 가까이 0.4~1m)과 gripper_cam(집기 직전 자세) 시점으로 렌더 → 정답 위치를 투영해 YOLO 라벨.
+pole_front_cam(멀리 1~3m · 가까이 0.4~1m)과 gripper_cam(집기 직전 자세) 시점으로 렌더 → 정답 위치를 투영해 YOLO 라벨.
 장면마다 바닥·벽·배경 텍스처, 조명(0.55~1.45배), 카메라 잡음을 무작위로 (도메인 무작위화).
 클래스: 0 puck(서 있음) · 1 puck_lying(누움) · 2 goal_zone(B 지역) · 3 station_zone(미션 지역 판) · 4 qr_board · 5 obstacle · 6 person · 7 traffic_light
 퍽 색 · 신호등 상태(빨강·노랑·초록·꺼짐)는 클래스로 나누지 않는다 — perception이 박스 안 HSV로 판별.
@@ -126,7 +126,7 @@ def build_scene(sim, rng, bgs, floors, walls):
 
 
 def camera_views(sim, kin, labeled, rng, views):
-    """시점 목록 [(T_world_cam, 관절값)] — pole_cam 먼 · 가까운, gripper_cam 집기 직전"""
+    """시점 목록 [(T_world_cam, 관절값)] — pole_front_cam 먼 · 가까운, gripper_cam 집기 직전"""
     by_cls = {}
     for p, c in labeled:
         by_cls.setdefault(c, []).append(p)
@@ -145,7 +145,7 @@ def camera_views(sim, kin, labeled, rng, views):
         yaw = math.atan2(t["y"] - y, t["x"] - x) + rng.uniform(-0.3, 0.3)
         T_wb = scene.transform(scene.rpy_matrix(0, 0, yaw), (x, y, 0))
         q = {}
-        cam = "pole_cam"
+        cam = "pole_front_cam"
         if kind == "grip":  # 팔을 앞으로 뻗어 그리퍼 카메라가 바닥 앞을 내려다보는 자세 (무작위)
             cam = "gripper_cam"
             q = {"joint1": rng.uniform(-0.3, 0.3), "joint2": rng.uniform(0.3, 1.0),

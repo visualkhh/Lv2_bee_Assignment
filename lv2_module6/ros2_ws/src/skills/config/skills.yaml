@@ -19,10 +19,10 @@ skill_pose:
     initial_pose_enabled: true
     initial_pose_joints: [joint1, joint2, joint3, joint4, joint5]
     initial_pose: [0.0, -1.9024, 1.344, 0.9023, 0.0]
-    initial_pose_tolerance: 0.05   # [rad] 이 안이면 이미 그 자세 (이동 생략)
+    initial_pose_tolerance: 0.08   # [rad] 이 안이면 이미 그 자세 (이동 생략) — 앞먹임으로 엔코더 joint3가 약 0.054 벗어남
     initial_pose_move_s: 3.0       # [s] 궤적 시간 — 너무 짧으면 급정지·흔들림
     initial_pose_retries: 1        # 못 가면 다시 보낼 횟수 — 넘으면 지금 자세로 멈추고 ERROR (걸린 채 계속 밀면 과부하)
-    initial_gripper: 0.0           # [m] 시작 그리퍼 (손가락 하나 — 0 닫힘 · 0.0265 열림) · 음수면 안 건드림
+    initial_gripper: 0.011         # [m] (11/03 stow 패널 값 — 간격 42 mm) 시작 그리퍼 (손가락 하나 — 0 닫힘 · 0.0265 열림) · 음수면 안 건드림
     scan_pose_enabled: false       # 매핑 중 자동 scan 자세 이동 — 팔이 뒤로 가면 무게중심이 왼쪽으로 쏠려 기본 끔
                                    # (scan 자세 값은 ros_system/config/scan_pose.yaml 하나 — pose scan 액션은 항상 사용)
 skill_inspect:
@@ -47,6 +47,22 @@ skill_stand:
   ros__parameters:
     stand_waypoints: ik            # ik (해석 IK, 기본) | table (params/stand_table.yaml, scripts/stand_table_export.py)
     stand_box_top_m: 0.07          # 시작 박스 윗면 높이 (바닥 기준) — 누운 퍽 바닥
-    stand_pinch_current_a: 0.0055  # 세울 때 가볍게 쥐는 힘 [A] — 팀원 0.4 N(29 N @ 0.4 A 비례). 0.6 N부터 퍽이 안 돎 → mA↔N 실측 필요
-    stand_vel_scale: 0.3           # 내려가기·위로 × 팀 관절 한계
-    stand_arc_vel_scale: 0.5       # 호 × 팀 관절 한계 (팀원 실험: 0.3 → 63 %, 0.5 → 100 %)
+    # 위치형 쥐기 (실기 11/04): 목표 위치를 퍽 접촉 가까이 두고 전류 상한으로 힘을 정함 — 안 닿아 빠지면 stand_pinch_m 0.0065, 세면 0.0075
+    stand_open_m: 0.012            # [m] 벌림 (손가락 하나 — 간격 44 mm, 옆 퍽을 안 치게)
+    stand_pinch_m: 0.007           # [m] 쥐는 목표 (간격 34 mm)
+    stand_close_current_a: 0.01614 # [A] 목표까지 닫을 때 (6단위) — 10.76 mA는 안 닫힌 라운드가 있었고 5.38 mA로 바로 닫으면 안 움직임
+    stand_pinch_current_a: 0.00538 # [A] 쥠을 확인한 뒤 낮춰 쥐는 전류 (2단위, 환산 ≈ 0.39 N)
+    stand_grip_current_a: 0.007    # [A] 이 전류 이상 + 0.2 s 안 움직임 = 쥠 (실측: 퍽을 밀 때 8~10 mA)
+    stand_empty_m: 0.003           # [m] 이보다 닫히면 빈손 → stand_no_grip
+    stand_grip_timeout_s: 4.0      # [s] 넘으면 stand_grip_timeout
+    # 대각선 끌기 (실기 11/03~04 — 큰 호는 퍽을 너무 높이 듦, 수평 끌기는 퍽이 안 들림). stand_drag_m 0이면 호 (stand_arc_end_deg)
+    stand_drag_m: 0.04             # [m] 잡은 채 로봇 쪽으로 곧게 끎
+    stand_drag_lift_m: 0.035       # [m] 끌면서 올리는 양 — 약 41° 대각선
+    stand_arc_end_deg: 60.0        # [deg] 호 모드일 때 끝 각도
+    stand_set_dz_m: -0.020         # [m] 끝점에서 눌러 놓음
+    stand_above_m: 0.04            # [m] 대기 높이 (못 닿으면 3 → 2 → 1 cm)
+    stand_lift_away_m: 0.08        # [m] 손 빼기 높이 (못 닿으면 6 → 4 → 3 cm)
+    stand_contact_h_box_m: 0.030   # [m] 손가락 중심 높이 (상자 윗면 기준) — 실기는 두 모양 공통
+    stand_contact_h_cyl_m: 0.030
+    stand_vel_scale: 0.7           # 내려가기·위로 × 팀 관절 한계 (실기 11/04)
+    stand_arc_vel_scale: 0.7       # 끌기·호 × 팀 관절 한계 (실기 11/04 · 시뮬 호 실험: 0.3 → 63 %, 0.5 → 100 %)

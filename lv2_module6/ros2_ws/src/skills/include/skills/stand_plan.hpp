@@ -22,6 +22,8 @@ constexpr double PUCK_L = 0.060, PUCK_W = 0.030, PUCK_H = 0.060;
 constexpr double GRIP_DEPTH = 0.020, FINGER_TIP = 0.0206;
 constexpr double GRASP_Z = PUCK_H - GRIP_DEPTH + FINGER_TIP;  // 쥘 때 손끝(end_effector_link)이 퍽 바닥 위 0.0606
 constexpr double GRIP_STOP = 0.0062;                          // 30mm 퍽에서 손가락이 멈추는 gripper_left_joint
+// 서 있는 퍽을 쥘 손끝 높이 — 인지 z는 보이는 면 쪽이라 믿지 않고 받침만 가림 (상자 위 실측 0.10~0.15 · 바닥이면 0.09 아래)
+inline double standing_grasp_z(double perceived_z) { return (perceived_z > 0.09 ? 0.07 : 0.0) + GRASP_Z; }
 inline double gap_joint(double gap_m) { return GRIP_STOP + (gap_m - 0.030) / 2; }  // 손가락 사이 → gripper_left_joint
 
 struct Params {               // right_env RightEnvCfg 값 (tilt)
@@ -34,6 +36,8 @@ struct Params {               // right_env RightEnvCfg 값 (tilt)
   double arc_step_deg = 7.5;   // 경유점 간격 (관절 직선 보간이 원에서 0.5mm 안)
   double set_dz_m = -0.010;    // 90° 자리에서 이만큼 눌러 놓음
   double regrasp_lift_m = 0.05;
+  double drag_m = 0.0;         // > 0이면 호 대신 잡은 채 로봇 쪽으로 곧게 끌고 눌러 놓음 (실기 11/03~04 — 호는 너무 높이 듦)
+  double drag_lift_m = 0.0;    // 끌면서 끝까지 올리는 양 (0 = 수평 — 수평은 퍽이 안 들림)
 };
 
 // 팔 기구 (urdf/beebot_mesh/beebot.urdf) — FK: 손끝(end_effector_link) 위치 + 손가락 닫는 축(gripper_link y) 방향
@@ -41,6 +45,8 @@ V3 fk(const Q5 & q, V3 * close_axis = nullptr);
 // 손이 바로 아래를 향하고 손가락 닫는 축이 수평 방향 close_yaw [rad]인 손끝 위치 p → 관절값 (해석해, 관절 한계 안).
 // 해가 둘(팔꿈치 위·아래)이면 near에 가까운 것. 닿지 않거나 한계 밖이면 false
 bool ik_down(const V3 & p, double close_yaw, const Q5 & near, Q5 & out);
+// 손가락은 대칭이라 close_yaw와 close_yaw + π가 같은 파지 — 둘 중 near에 가까운 해
+bool ik_down_sym(const V3 & p, double close_yaw, const Q5 & near, Q5 & out);
 
 // 누운 퍽(가운데 xy·상자 윗면 z = centre, 축 방향 yaw: 가까운 끝 → 먼 끝)의 손끝 경유점 [위 · 시작 · 호 … · 내려놓기 · 위로 · 다시 잡기 · 들어올림]
 //   + 손가락 닫는 축 방향 (퍽 축과 직각)
@@ -67,7 +73,9 @@ bool plan_table(const Table & t, const V3 & centre, double yaw, bool is_box, std
 constexpr double VMAX = 3.0, AMAX = 5.0;  // 팀 관절 한계 [rad/s, rad/s²]
 double trapezoid_duration(double dist, double vel_scale);
 double move_s(double t, double dur);  // 0..1 smooth step
-// 호 구간을 [올라가기 · 멈춤 · 되돌려 놓기]로 묶음 (경유점 1 … W−2 사이 구간 번호)
+// 올라가는 구간 수 — 호: 경유점 간격 수 · 끌기: 1 cm마다
+int up_segments(const Params & p);
+// 호·끌기 구간을 [올라가기 · 멈춤 · 되돌려 놓기]로 묶음 (경유점 1 … W−2 사이 구간 번호)
 std::vector<std::pair<int, int>> arc_groups(const Params & p, int n_seg);
 // 샘플 궤적 — 시각 dt, 2dt, … 의 점 (from 자체는 빼고, 끝은 정확히 to). 실행할 때 지금 관절값을 시각 0으로 앞에 붙임
 std::vector<Q5> sample_move(const Q5 & from, const Q5 & to, double vel_scale, double dt);
