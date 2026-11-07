@@ -1,0 +1,10 @@
+pano_*.jpg: 360° equirectangular panoramas from Poly Haven (https://polyhaven.com), CC0 (public domain).
+Tonemapped JPG, resized to 4096x2048.
+  pano_unfinished_office.jpg        ← https://polyhaven.com/a/unfinished_office
+  pano_vintage_measuring_lab.jpg    ← https://polyhaven.com/a/vintage_measuring_lab
+  pano_photo_studio_loft_hall.jpg   ← https://polyhaven.com/a/photo_studio_loft_hall
+  pano_wooden_lounge.jpg            ← https://polyhaven.com/a/wooden_lounge
+  pano_industrial_wooden_attic.jpg  ← https://polyhaven.com/a/industrial_wooden_attic
+  pano_lebombo.jpg                  ← https://polyhaven.com/a/lebombo
+  pano_hospital_room.jpg            ← https://polyhaven.com/a/hospital_room
+All checked against perception HSV ranges (realsense.yaml): no blue regions large enough to be a target candidate.

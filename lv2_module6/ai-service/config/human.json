@@ -1,0 +1,12 @@
+{
+  "http": {
+    "host": "127.0.0.1",
+    "port": 8000
+  },
+  "ai": {
+    "backend": "human",
+    "timeout_s": 600,
+    "system_file": "system_prompt.md",
+    "system": ""
+  }
+}

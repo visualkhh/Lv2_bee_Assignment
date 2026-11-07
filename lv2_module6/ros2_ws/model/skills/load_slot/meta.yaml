@@ -1,0 +1,12 @@
+# skill 정책 폴더 — 이 skill 노드가 읽음 (skills/include/skills/model.hpp). 한 줄 "키: 값"
+
+skill: load_slot
+kind: arm            # arm (rl_arm_correction이 계산) | base (skill_approach가 계산)
+layout: place          # 정책 입력 모양 (ml/arm_obs.hpp place 39 · pick 41)
+use: true
+node: skill_load
+sim_baseline: 94.8      # [%] 학습 없이 기준 동작만 (1024판)
+sim_policy: 99.0        # [%] 학습 뒤
+irreversible: 0.49      # [%] 되돌릴 수 없는 실패 (놓침·넘어뜨림)
+source: isaac/lab slot_env LoadEnv · 재학습 w_fail 20 (feature/skill-envs 700a86f, 11-03)
+note: 놓침 5/1024

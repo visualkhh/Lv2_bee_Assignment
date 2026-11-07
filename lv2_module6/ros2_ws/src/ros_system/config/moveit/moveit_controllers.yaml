@@ -1,0 +1,14 @@
+# 궤적 실행 — ros2_control 컨트롤러와 연결 (controllers.yaml)
+#   arm_controller: JointTrajectoryController → /arm_controller/follow_joint_trajectory
+#   그리퍼는 ParallelGripperCommand 액션이라 moveit_simple_controller_manager의 GripperCommand 타입과 안 맞음 —
+#   plan 패키지가 /gripper_controller/gripper_cmd 를 직접 호출한다. 그래서 여기엔 arm만 둔다.
+/**:
+  ros__parameters:
+    moveit_controller_manager: moveit_simple_controller_manager/MoveItSimpleControllerManager
+    moveit_simple_controller_manager:
+      controller_names: [arm_controller]
+      arm_controller:
+        action_ns: follow_joint_trajectory
+        type: FollowJointTrajectory
+        default: true
+        joints: [joint1, joint2, joint3, joint4, joint5]

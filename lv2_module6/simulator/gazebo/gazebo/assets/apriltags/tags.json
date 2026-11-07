@@ -1,0 +1,208 @@
+{
+  "family": "tag36h11",
+  "tag_pixels": 512,
+  "canvas_pixels": 640,
+  "quiet_pixels": 32,
+  "colors": {
+    "red": {
+      "tag_id": 1,
+      "label": "빨강",
+      "rgb": [
+        0.82,
+        0.1,
+        0.1
+      ],
+      "bgr": [
+        34,
+        34,
+        210
+      ]
+    },
+    "orange": {
+      "tag_id": 2,
+      "label": "주황",
+      "rgb": [
+        0.95,
+        0.45,
+        0.05
+      ],
+      "bgr": [
+        20,
+        120,
+        245
+      ]
+    },
+    "green": {
+      "tag_id": 3,
+      "label": "초록",
+      "rgb": [
+        0.1,
+        0.65,
+        0.2
+      ],
+      "bgr": [
+        50,
+        165,
+        36
+      ]
+    }
+  },
+  "missions": {
+    "SORT_COLOR": {
+      "tag_id": 10,
+      "label": "색깔별 정리",
+      "text": "빨강·주황·초록 퍽을 색깔별 구역으로 정리",
+      "target": "color_bins",
+      "bgr": [
+        120,
+        70,
+        180
+      ]
+    },
+    "MOVE_TO_B": {
+      "tag_id": 11,
+      "label": "B 구역으로 옮기기",
+      "text": "퍽을 B 구역으로 옮겨 정리",
+      "target": "b_zone",
+      "bgr": [
+        220,
+        120,
+        20
+      ]
+    },
+    "STAND_UP": {
+      "tag_id": 12,
+      "label": "누운 퍽 세우기",
+      "text": "누워 있는 퍽을 모두 세우기",
+      "target": "cluster",
+      "bgr": [
+        200,
+        180,
+        20
+      ]
+    },
+    "LAY_DOWN": {
+      "tag_id": 13,
+      "label": "퍽 눕히기",
+      "text": "세워진 퍽을 모두 눕히기",
+      "target": "cluster",
+      "bgr": [
+        40,
+        180,
+        200
+      ]
+    }
+  },
+  "zone_tags": {
+    "B_ZONE": {
+      "tag_id": 20,
+      "label": "B 구역",
+      "bgr": [
+        220,
+        120,
+        20
+      ]
+    }
+  },
+  "tags": {
+    "1": {
+      "kind": "puck_color",
+      "name": "red",
+      "label": "빨강",
+      "rgb": [
+        0.82,
+        0.1,
+        0.1
+      ],
+      "bgr": [
+        34,
+        34,
+        210
+      ]
+    },
+    "2": {
+      "kind": "puck_color",
+      "name": "orange",
+      "label": "주황",
+      "rgb": [
+        0.95,
+        0.45,
+        0.05
+      ],
+      "bgr": [
+        20,
+        120,
+        245
+      ]
+    },
+    "3": {
+      "kind": "puck_color",
+      "name": "green",
+      "label": "초록",
+      "rgb": [
+        0.1,
+        0.65,
+        0.2
+      ],
+      "bgr": [
+        50,
+        165,
+        36
+      ]
+    },
+    "10": {
+      "kind": "mission",
+      "name": "SORT_COLOR",
+      "label": "색깔별 정리",
+      "text": "빨강·주황·초록 퍽을 색깔별 구역으로 정리",
+      "bgr": [
+        120,
+        70,
+        180
+      ]
+    },
+    "11": {
+      "kind": "mission",
+      "name": "MOVE_TO_B",
+      "label": "B 구역으로 옮기기",
+      "text": "퍽을 B 구역으로 옮겨 정리",
+      "bgr": [
+        220,
+        120,
+        20
+      ]
+    },
+    "12": {
+      "kind": "mission",
+      "name": "STAND_UP",
+      "label": "누운 퍽 세우기",
+      "text": "누워 있는 퍽을 모두 세우기",
+      "bgr": [
+        200,
+        180,
+        20
+      ]
+    },
+    "13": {
+      "kind": "mission",
+      "name": "LAY_DOWN",
+      "label": "퍽 눕히기",
+      "text": "세워진 퍽을 모두 눕히기",
+      "bgr": [
+        40,
+        180,
+        200
+      ]
+    },
+    "20": {
+      "kind": "zone",
+      "name": "B_ZONE",
+      "label": "B 구역",
+      "bgr": [
+        220,
+        120,
+        20
+      ]
+    }
+  }
+}

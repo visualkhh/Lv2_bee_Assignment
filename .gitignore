@@ -12,6 +12,11 @@ build/
 
 .venv/
 
+# cli-test 가짜 상태 저장 (모드 유지용 휘발성)
+lv2_module6/tool/cli-test/.fake_state.json
+# cli-test 실패한 시나리오의 화면 덤프
+lv2_module6/tool/cli-test/.scenario-*.bin
+
 # 컨테이너 디버그 덤프 (topic echo 로그 등 휘발성, 커밋 금지)
 lv2_module5/debug/
 lv2_module6/debug/
@@ -25,3 +30,29 @@ lv2_module6/debug/
 lv2_module5/firmware/build/
 lv2_module6/firmware/build/
 /temp/
+/lv2_module6/ros2_ws/debug/
+/lv2_module6/ros2_ws/firmware/
+/lv2_module6/ros2_ws/map/*
+!/lv2_module6/ros2_ws/map/default
+# 지도 정본(nvblox.nvblx)은 커서 커밋 안 함 — default 폴더도 미리보기(map.pgm·yaml)만
+/lv2_module6/ros2_ws/map/*/nvblox.nvblx
+
+# YOLO 가중치(model/yolo/model.pt, 약 5MB)는 커밋 — CI 인지 테스트에 필요. 나머지 학습 모델은 아직 제외
+/lv2_module6/ros2_ws/model/grasp_scorer/*.pt
+/lv2_module6/ros2_ws/model/skills/*/*.pt
+/lv2_module6/ros2_ws/model/*/*.pt
+/lv2_module6/ros2_ws/model/*/*.onnx
+/lv2_module6/ros2_ws/model/*/*.onnx.data
+/lv2_module6/simulator/yolo_job.log
+/log/
+/.playwright-mcp/
+/lv2_module6/simulator/dataset/
+
+# run-cli start 로그 (실행한 폴더에 생김)
+bringup.log
+
+# 칼리브레이션 결과 (tool/calibration/<시각>/raw.csv) — 계획 파일(wheel_square.json)만 커밋
+lv2_module6/tool/calibration/*/
+
+*.pt
+*.onnx

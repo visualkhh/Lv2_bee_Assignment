@@ -1,0 +1,6 @@
+# 빌드 컨텍스트 제외 — Dockerfile은 docker/ 스크립트만 COPY한다.
+# 대용량·재생성 가능 항목을 빼서 전송 시간을 줄인다.
+.venv/
+install/
+log/
+build/

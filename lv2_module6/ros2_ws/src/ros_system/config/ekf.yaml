@@ -1,5 +1,5 @@
 # robot_localization EKF — 바퀴 /odom + /imu 융합 → /odometry/filtered, odom→base_footprint TF
-# 설계: documents/ros2-design/06-base.md (odom TF는 EKF 하나만, diff_drive_controller는 enable_odom_tf: false)
+# 설계: documents/project/ros/06-base.md (odom TF는 EKF 하나만, diff_drive_controller는 enable_odom_tf: false)
 ekf_filter_node:
   ros__parameters:
     frequency: 50.0
@@ -11,11 +11,19 @@ ekf_filter_node:
     world_frame: odom
     # 속도 위주로 넣어 미끄러짐 영향을 줄인다 [x y z, roll pitch yaw, vx vy vz, vroll vpitch vyaw, ax ay az]
     odom0: /odom
+    # 바퀴는 vx·vy만 — yaw 회전속도는 IMU(자이로)만. 실측 (회전 시험 2026-10-19): diff_drive twist 회전속도는 40~90ms 늦고
+    # 80초 적분이 실제와 5~10° 어긋남 (pose는 맞음) — 분산을 크게 줘도 섞여 EKF yaw가 끝에 1.6~2.6° 틀어짐. IMU 적분은 0.2~0.8°
     odom0_config: [false, false, false, false, false, false,
-                   true,  true,  false, false, false, true,
+                   true,  true,  false, false, false, false,
                    false, false, false]
     imu0: /imu
     imu0_config: [false, false, false, false, false, false,
                   false, false, false, false, false, true,
                   false, false, false]
+    # cuVSLAM 시각 오도메트리 (cuvslam_slam — 안 나오면 바퀴·IMU만). 바퀴처럼 vx·vy만, yaw는 IMU 그대로
+    # 바퀴가 미끄러질 때(제자리 회전·턱) 카메라가 실제 이동을 잡아 줌. 분산은 cuvslam_slam의 linear_variance
+    odom1: /cuvslam/odom
+    odom1_config: [false, false, false, false, false, false,
+                   true,  true,  false, false, false, false,
+                   false, false, false]
     # TODO(권형중): 실기 공분산·imu0_remove_gravitational_acceleration 등 튜닝

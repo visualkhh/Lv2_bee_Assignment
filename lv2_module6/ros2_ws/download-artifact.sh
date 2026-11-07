@@ -1,17 +1,18 @@
 #!/bin/bash
-# CI 배포 패키지(ros2_ws-deploy.tar.gz) 내려받기 — wget만 사용, 로그인·gh 불필요
+# CI 배포 패키지(ros2_ws-deploy-*.tar.gz) 내려받기 — wget만 사용, 로그인·gh 불필요
 #
 #   ./download-artifact.sh                           # 받을 수 있는 RUN ID 목록
 #   ./download-artifact.sh 37416810439               # ./ros2_ws-37416810439/ 에 풀기
 #   ./download-artifact.sh 37416810439 -o ~/deploy   # 풀 위치 지정 (비어 있는 폴더여야 함)
 #   ./download-artifact.sh 37416810439 -t github_pat_...   # 토큰을 바로 넘김 (아래 '토큰 만들기')
 #   ./download-artifact.sh 37416810439 -a aarch64          # 다른 아키텍처용 받기 (기본: 이 장치 uname -m)
+#   Ubuntu 24.04 arm64(Jetson Orin Nano)는 ros2_ws-deploy-aarch64-noble.tar.gz를 자동 선택한다.
 #
 # 받는 곳 (둘 다 wget):
 #   1) 토큰이 있으면 → Actions artifact를 Authorization 헤더로 받음 (모든 성공 실행·브랜치, 7일 보관)
 #      Actions artifact는 공개 저장소여도 인증 없이는 401 → 토큰 필요
 #   2) 없으면 → GitHub Release(태그 run-<RUN ID>)에서 인증 없이 받음 (main에 병합된 실행만 올라감)
-#        https://github.com/<저장소>/releases/download/run-<RUN ID>/ros2_ws-deploy.tar.gz
+#        https://github.com/<저장소>/releases/download/run-<RUN ID>/ros2_ws-deploy-aarch64-noble.tar.gz
 #
 # ── 토큰 만들기 (최초 1회, GitHub 웹) ───────────────────────────────────────
 #   1. GitHub 오른쪽 위 프로필 사진 → Settings
@@ -40,12 +41,18 @@
 #
 # 풀린 결과: install/ · firmware/(build/*.bin 포함) · *.sh
 #   - firmware·스크립트는 Raspberry Pi에서 바로 사용 가능 (./firmware-upload.sh)
-#   - CI가 x86_64·aarch64용을 따로 만든다. 이 장치의 아키텍처(uname -m)에 맞는 것을 받는다 (-a로 지정 가능)
-#     파일: ros2_ws-deploy-x86_64.tar.gz (PC) · ros2_ws-deploy-aarch64.tar.gz (Raspberry Pi)
+#   - CI가 x86_64·aarch64용을 따로 만든다. 이 장치의 OS·아키텍처에 맞는 것을 받는다 (-a로 아키텍처 지정 가능)
+#     파일: ros2_ws-deploy-x86_64.tar.gz (PC) · ros2_ws-deploy-aarch64.tar.gz (Ubuntu 26.04 ARM)
+#           ros2_ws-deploy-aarch64-noble.tar.gz (Ubuntu 24.04 / Jetson Orin Nano)
 set -euo pipefail
 
 REPO="${REPO:-visualkhh/Lv2_bee_Assignment}"
 ARCH="$(uname -m)"
+# 패키지를 고를 때 쓰는 대상 OS. uname -r(커널)이 아니라 /etc/os-release의 Ubuntu 버전을 쓴다.
+OS_ID="$(. /etc/os-release 2>/dev/null && echo "${ID:-linux}")"
+OS_VERSION="$(. /etc/os-release 2>/dev/null && echo "${VERSION_ID:-unknown}")"
+OS_TARGET="${OS_ID}-${OS_VERSION}"
+TARGET_OVERRIDE="${TARGET:-}"
 TOKEN_FILE="${TOKEN_FILE:-$HOME/.config/lv2_bee/github_token}"
 # 응답이 없으면 무한 대기하지 않게: 30초 무응답이면 재시도 1번 후 실패
 WGET=(wget --timeout=30 --tries=2)
@@ -116,8 +123,19 @@ while (($#)); do
   esac
 done
 
-# 아키텍처별 패키지 이름. 예전 실행(아키텍처 구분 전)은 x86_64 빌드뿐이라 x86_64일 때만 예전 이름도 찾는다
-FILE="ros2_ws-deploy-$ARCH.tar.gz"
+# 아키텍처·OS별 패키지 이름. 예전 실행(아키텍처 구분 전)은 x86_64 빌드뿐이라 x86_64일 때만 예전 이름도 찾는다
+if [ -n "$TARGET_OVERRIDE" ]; then
+  TARGET_PACKAGE="$TARGET_OVERRIDE"
+elif [ "$ARCH" = aarch64 ] && [ "$OS_TARGET" = ubuntu-24.04 ]; then
+  TARGET_PACKAGE="ubuntu-24.04-aarch64"
+else
+  TARGET_PACKAGE="$OS_TARGET-$ARCH"
+fi
+
+case "$TARGET_PACKAGE" in
+  ubuntu-24.04-aarch64) FILE="ros2_ws-deploy-aarch64-noble.tar.gz" ;;
+  *) FILE="ros2_ws-deploy-$ARCH.tar.gz" ;;
+esac
 ARTIFACT_NAMES=("$FILE")
 [ "$ARCH" = x86_64 ] && ARTIFACT_NAMES+=(ros2_ws-deploy.tar.gz ros2_ws-deploy)
 
@@ -223,4 +241,9 @@ fi
 pkg_arch=$(cat "$dest/ARCH" 2>/dev/null || echo x86_64)   # ARCH 파일이 없으면 예전(x86_64) 패키지
 if [ "$pkg_arch" != "$(uname -m)" ]; then
   echo "NOTE: 이 패키지의 install/은 $pkg_arch 빌드 → 이 장치($(uname -m))에선 실행 불가 (펌웨어·스크립트는 사용 가능)"
+fi
+pkg_target=$(cat "$dest/TARGET" 2>/dev/null || true)
+if [ -n "$pkg_target" ] && [ "$pkg_target" != "$TARGET_PACKAGE" ]; then
+  echo "NOTE: 이 패키지의 TARGET은 $pkg_target → 이 장치($TARGET_PACKAGE)와 OS/ROS가 다를 수 있음"
+  echo "      Ubuntu 24.04 Jetson은 RUN ID를 새로 받아 ros2_ws-deploy-aarch64-noble.tar.gz를 선택해야 함"
 fi

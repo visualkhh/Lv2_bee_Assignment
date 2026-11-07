@@ -1,0 +1,10 @@
+{
+  "text": "MISSION:STAND_UP",
+  "name": "누운 퍽 세우기",
+  "pucks": 5,
+  "colors": 2,
+  "lying": [
+    1,
+    3
+  ]
+}

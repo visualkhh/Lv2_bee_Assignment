@@ -1,17 +1,106 @@
 // coordinator 구현 — 노드 설명·입출력·멤버 선언은 include/plan/coordinator.hpp, main은 coordinator_main.cpp
 #include "plan/coordinator.hpp"
 
+#include <algorithm>
+#include <cmath>
+#include <cstdlib>
+#include <fstream>
+#include <sstream>
+
 namespace plan {
 
-Coordinator::Coordinator()
-: rclcpp::Node("coordinator") {
-  max_grasp_tries_ = declare_parameter<int>("max_grasp_tries", 2);
+int basket_slot(const std::string & target, const std::vector<std::string> & filled, const std::vector<int> & order,
+                bool load, std::string & why, const std::vector<bool> & usable) {
+  const int n = static_cast<int>(filled.size());
+  int slot = -1;
+  if (target == (load ? "next" : "last") || target == "tray") {
+    if (load) {
+      for (int i = 0; i < n && slot < 0; ++i)
+        if (filled[i].empty() && (usable.empty() || (i < static_cast<int>(usable.size()) && usable[i]))) slot = i;
+      if (slot < 0) { why = "slot_full"; return -1; }
+    } else {
+      if (order.empty()) { why = "slot_empty"; return -1; }
+      slot = order.back();
+    }
+    return slot;
+  }
+  if (target.empty() || target.size() > 2 || target.find_first_not_of("0123456789") != std::string::npos ||
+      (slot = std::stoi(target)) >= n) {
+    why = "slot_invalid";
+    return -1;
+  }
+  if (load && !filled[slot].empty()) { why = "slot_full"; return -1; }
+  if (!load && filled[slot].empty()) { why = "slot_empty"; return -1; }
+  return slot;
+}
+
+std::pair<double, double> box_spread(int n, double spacing, double half_x, double half_y, double margin, double yaw) {
+  auto [dx, dy] = spread_offset(n, spacing);  // 상자 축 기준
+  const double lx = std::max(half_x - margin, 0.0), ly = std::max(half_y - margin, 0.0);
+  dx = std::clamp(dx, -lx, lx);
+  dy = std::clamp(dy, -ly, ly);
+  return {dx * std::cos(yaw) - dy * std::sin(yaw), dx * std::sin(yaw) + dy * std::cos(yaw)};
+}
+
+geometry_msgs::msg::Pose approach_pose(double ox, double oy, double rx, double ry, double standoff) {
+  double dx = ox - rx, dy = oy - ry;
+  const double d = std::hypot(dx, dy);
+  if (d < 1e-3) { dx = 1.0; dy = 0.0; } else { dx /= d; dy /= d; }  // 로봇 → 물체 방향
+  geometry_msgs::msg::Pose p;
+  p.position.x = ox - dx * standoff;
+  p.position.y = oy - dy * standoff;
+  const double yaw = std::atan2(dy, dx);  // 물체를 바라봄
+  p.orientation.z = std::sin(yaw / 2);
+  p.orientation.w = std::cos(yaw / 2);
+  return p;
+}
+
+std::pair<double, double> spread_offset(int n, double s) {
+  static const int k[][2] = {{0, 0}, {0, 1}, {0, -1}, {1, 0}, {-1, 0}, {1, 1}, {1, -1}, {-1, 1}, {-1, -1}};
+  const int i = n % 9, ring = n / 9 + 1;  // 9개 넘으면 한 칸 더 바깥으로
+  return {k[i][0] * s * ring, k[i][1] * s * ring};
+}
+
+
+Coordinator::Coordinator(const rclcpp::NodeOptions & options)
+: rclcpp::Node("coordinator", options) {
   max_step_failures_ = declare_parameter<int>("max_step_failures", 2);
   server_wait_s_ = declare_parameter<double>("server_wait_s", 30.0);
+  reach_m_ = declare_parameter<double>("reach_m", 0.30);
+  approach_m_ = declare_parameter<double>("approach_m", 0.24);
+  place_spacing_ = declare_parameter<double>("place_spacing", 0.08);
+  box_margin_m_ = declare_parameter<double>("box_margin_m", 0.03);
+  for (const auto & p : declare_parameter<std::vector<std::string>>("pose_names", {"stow", "carry_left", "carry_right", "scan"}))
+    pose_names_.insert(p);
+  basket_.assign(static_cast<size_t>(declare_parameter<int>("basket_slots", 12)), PuckInfo{});
+  {
+    const auto use = declare_parameter<std::vector<int64_t>>("basket_use", std::vector<int64_t>{});
+    basket_use_.assign(basket_.size(), use.empty());
+    for (const auto i : use) if (i >= 0 && i < static_cast<int64_t>(basket_use_.size())) basket_use_[i] = true;
+  }
+  basket_file_ = declare_parameter<std::string>("basket_file", "~/.ros/beebot_basket.txt");
+  if (basket_file_.rfind("~/", 0) == 0 && std::getenv("HOME")) basket_file_ = std::string(std::getenv("HOME")) + basket_file_.substr(1);
+  basket_pub_ = create_publisher<plan::msg::BasketState>("/coordinator/basket", rclcpp::QoS(1).reliable().transient_local());
+  basket_clear_srv_ = create_service<std_srvs::srv::Trigger>("/coordinator/basket_clear",
+    [this](const std::shared_ptr<std_srvs::srv::Trigger::Request>, std::shared_ptr<std_srvs::srv::Trigger::Response> res) {
+      std::fill(basket_.begin(), basket_.end(), PuckInfo{});
+      basket_order_.clear();
+      held_ = PuckInfo{};
+      basket_changed();
+      RCLCPP_WARN(get_logger(), "적재함 장부 비움 (basket_clear)");
+      res->success = true;
+      res->message = "적재함 장부를 비웠습니다";
+    });
+  basket_load();
+  basket_changed();
+  for (const char * a : {"navigate", "approach", "pose", "inspect", "pick", "place", "load", "unload", "stand", "stand_pick"})
+    skills_[a] = rclcpp_action::create_client<Skill>(this, std::string("/skills/") + a);
+  tf_buffer_ = std::make_unique<tf2_ros::Buffer>(get_clock());
+  tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
   const auto latched = rclcpp::QoS(10).reliable().transient_local();
-  status_pub_ = create_publisher<TaskStatus>("/task_status", latched);
-  say_pub_ = create_publisher<std_msgs::msg::String>("/robot_say", rclcpp::QoS(10).reliable());
-  goals_sub_ = create_subscription<SubGoalArray>("/sub_goals", latched,
+  status_pub_ = create_publisher<TaskStatus>("/task/status", latched);
+  say_pub_ = create_publisher<std_msgs::msg::String>("/robot/say", rclcpp::QoS(10).reliable());
+  goals_sub_ = create_subscription<SubGoalArray>("/task/sub_goals", latched,
     [this](SubGoalArray::ConstSharedPtr m) { on_plan(*m); });
   objects_sub_ = create_subscription<TrackedObjectArray>("/tracked_objects", rclcpp::QoS(5).reliable(),
     [this](TrackedObjectArray::ConstSharedPtr m) {
@@ -23,23 +112,25 @@ Coordinator::Coordinator()
         on_plan(plan);
       }
     });
-  safety_sub_ = create_subscription<ArmSafetyEvent>("/arm_safety_event", rclcpp::QoS(10).reliable(),
-    [this](ArmSafetyEvent::ConstSharedPtr m) {
-      RCLCPP_WARN(get_logger(), "팔 접촉 %s %.2fA", m->joint_name.c_str(), m->current_a);
-      arm_contact_ = true;  // 진행 중인 MTC 결과가 실패로 오면 reason을 arm_contact로
-    });
-  mode_sub_ = create_subscription<std_msgs::msg::String>("/operation_mode", rclcpp::QoS(1).reliable().transient_local(),
+  mode_sub_ = create_subscription<std_msgs::msg::String>("/state/operation_mode", rclcpp::QoS(1).reliable().transient_local(),
     [this](std_msgs::msg::String::ConstSharedPtr m) { on_mode(m->data); });
-  nav_ = rclcpp_action::create_client<NavigateToPose>(this, "/navigate_to_pose");
-  mtc_ = rclcpp_action::create_client<ExecuteTaskSolution>(this, "/execute_task_solution");
-  score_ = create_client<ScoreGrasps>("/score_grasps");
-  clear_octomap_ = create_client<std_srvs::srv::Empty>("/clear_octomap");
-  apply_scene_ = create_client<ApplyPlanningScene>("/apply_planning_scene");
+  estop_sub_ = create_subscription<std_msgs::msg::Bool>("/state/emergency", rclcpp::QoS(1).reliable().transient_local(),
+    [this](std_msgs::msg::Bool::ConstSharedPtr m) {
+      const bool e = m->data;
+      if (e == estop_) return;
+      estop_ = e;
+      RCLCPP_WARN(get_logger(), "비상정지 %s", e ? "ON — 진행 중 전부 취소" : "OFF");
+      if (e && running_) {
+        cancel_all();
+        running_ = false;
+        status(plan_.goals.empty() ? 0 : plan_.goals[idx_].step, TaskStatus::FAILED, "estop");
+      }
+    });
   diag_.setHardwareID("beebot");
   diag_.add("상태", [this](diagnostic_updater::DiagnosticStatusWrapper & s) {
     using diagnostic_msgs::msg::DiagnosticStatus;
-    if (mode_ == "MANUAL") s.summary(DiagnosticStatus::WARN, "수동 모드 — 자동 실행 멈춤");
-    else if (waited_s_ > 0) s.summary(DiagnosticStatus::WARN, "Nav2·MoveIt 서버 대기");
+    if (mode_ != "AUTO") s.summary(DiagnosticStatus::WARN, mode_ + " 모드 — 자동 실행 멈춤");
+    else if (waited_s_ > 0) s.summary(DiagnosticStatus::WARN, "skill 노드 대기 (" + active_action_ + ")");
     else if (running_) s.summary(DiagnosticStatus::OK, "실행 중: " + step_text());
     else s.summary(DiagnosticStatus::OK, "대기");
     s.add("모드", mode_);
@@ -47,6 +138,13 @@ Coordinator::Coordinator()
     s.add("단계", step_text());
     s.add("실행 중", running_);
     s.add("연속 실패", failures_.size());
+    std::string slots;
+    for (const auto & b : basket_) slots += b.shape.empty() ? "·" : (b.check ? "?" : b.shape.substr(0, 1));
+    s.add("적재함", std::to_string(basket_order_.size()) + "/" + std::to_string(basket_.size()) + " " + slots);
+    s.add("손", held_.shape.empty() ? "-" : held_.shape + " tag " + std::to_string(held_.tag));
+    std::string down;
+    for (const auto & [name, c] : skills_) if (!c->action_server_is_ready()) down += (down.empty() ? "" : " · ") + name;
+    s.add("skill 노드 없음", down.empty() ? "-" : down);
   });
 }
 
@@ -54,11 +152,11 @@ void Coordinator::on_mode(const std::string & mode) {
   if (mode == mode_) return;
   mode_ = mode;
   RCLCPP_WARN(get_logger(), "운영 모드: %s", mode.c_str());
-  if (mode == "MANUAL" && running_) {
-    nav_->async_cancel_all_goals();
-    mtc_->async_cancel_all_goals();
+  if (mode != "AUTO" && running_) {  // 수동 · 자동 탐사(EXPLORE) · TEACH — 작업 실행과 동시에 하면 안 됨
+    cancel_all();
     running_ = false;
-    status(idx_ < plan_.goals.size() ? plan_.goals[idx_].step : 0, TaskStatus::FAILED, "manual_override");
+    status(idx_ < plan_.goals.size() ? plan_.goals[idx_].step : 0, TaskStatus::FAILED,
+           mode == "MANUAL" ? "manual_override" : mode == "TEACH" ? "manual_teach_override" : "explore_override");
   }
 }
 
@@ -68,12 +166,38 @@ std::string Coordinator::step_text() const {
   return std::to_string(g.step) + " " + g.skill + "(" + g.target + ")";
 }
 
+namespace {
+bool same_goals(const SubGoalArray & a, const SubGoalArray & b) {
+  if (a.goals.size() != b.goals.size()) return false;
+  for (size_t i = 0; i < a.goals.size(); ++i) {
+    const auto & x = a.goals[i], & y = b.goals[i];
+    if (x.step != y.step || x.skill != y.skill || x.target != y.target || x.relation != y.relation || x.offset_m != y.offset_m)
+      return false;
+  }
+  return true;
+}
+}  // namespace
+
 void Coordinator::on_plan(const SubGoalArray & plan) {
-  if (plan.plan_id == plan_.plan_id && running_) return;  // transient_local 재수신
-  if (mode_ == "MANUAL") {
+  // transient_local 재수신은 무시 — 단, 같은 id에 내용이 다르면 다른 계획 (VLM 카운터와 sim 직접 발행 충돌 대비)
+  if (estop_) {
+    RCLCPP_WARN(get_logger(), "계획 %u 거부: 비상정지 중", plan.plan_id);
+    status(0, TaskStatus::FAILED, "estop_blocked");
+    return;
+  }
+  if (plan.plan_id == plan_.plan_id && running_ && same_goals(plan, plan_)) return;
+  if (plan.plan_id == 0 && plan.goals.empty()) {  // 명시적 정지 (sim 정지 버튼 · mission_manager abort)
+    if (running_) cancel_all();
+    running_ = false;
     plan_ = plan;
-    RCLCPP_WARN(get_logger(), "계획 %u 거부: 수동 모드", plan.plan_id);
-    status(0, TaskStatus::FAILED, "manual_mode");
+    RCLCPP_WARN(get_logger(), "정지 요청 — 진행 중 전부 취소");
+    status(0, TaskStatus::FAILED, "cancelled");
+    return;
+  }
+  if (mode_ != "AUTO") {
+    plan_ = plan;
+    RCLCPP_WARN(get_logger(), "계획 %u 거부: %s 모드", plan.plan_id, mode_.c_str());
+    status(0, TaskStatus::FAILED, mode_ == "MANUAL" ? "manual_mode" : mode_ == "TEACH" ? "manual_teach_mode" : "explore_mode");
     return;
   }
   if (!objects_) {  // 대상 id를 검증할 수 없음 — 첫 /tracked_objects까지 미룬다
@@ -89,24 +213,34 @@ void Coordinator::on_plan(const SubGoalArray & plan) {
     return;
   }
   RCLCPP_INFO(get_logger(), "계획 %u 수락 (%zu steps)", plan.plan_id, plan.goals.size());
+  if (running_) cancel_all();  // 진행 중 goal 취소 — 옛 결과가 새 계획을 건드리지 않게
   plan_ = plan;
   idx_ = 0;
+  approached_ = static_cast<size_t>(-1);
+  placed_.clear();
   running_ = true;
   run_step();
 }
 
 bool Coordinator::validate(const SubGoalArray & plan, std::string & why) const {
-  static const std::set<std::string> allowed = {"navigate", "pick", "place", "say"};
+  static const std::set<std::string> allowed = {"navigate", "approach", "pick", "place", "inspect", "say", "pose", "load", "unload",
+                                                "stand", "stand_pick"};
+  // target이 물체 id가 아님 (stand_pick은 직전 stand의 퍽 — 세운 사이 인지 id가 바뀌어도 됨)
+  static const std::set<std::string> not_object = {"say", "pose", "load", "unload", "stand_pick"};
   if (plan.goals.empty()) { why = "empty"; return false; }
   for (const auto & g : plan.goals) {
     if (!allowed.count(g.skill)) { why = "skill " + g.skill; return false; }
-    if (is_id(g.target) && !find(std::stoul(g.target))) { why = "target " + g.target + " not tracked"; return false; }
+    if (g.skill == "pose" && !pose_names_.count(g.target)) { why = "pose " + g.target; return false; }
+    if (!not_object.count(g.skill) && is_id(g.target) && !find(std::stoul(g.target))) {
+      why = "target " + g.target + " not tracked";
+      return false;
+    }
   }
   return true;
 }
 
 bool Coordinator::is_id(const std::string & s) {
-  return !s.empty() && s.find_first_not_of("0123456789") == std::string::npos;
+  return !s.empty() && s.size() < 10 && s.find_first_not_of("0123456789") == std::string::npos;
 }
 
 const perception::msg::TrackedObject * Coordinator::find(uint32_t id) const {
@@ -114,32 +248,81 @@ const perception::msg::TrackedObject * Coordinator::find(uint32_t id) const {
   return nullptr;
 }
 
+std::string Coordinator::shape_of(const perception::msg::TrackedObject & o) const {
+  for (const auto & kv : o.details) if (kv.key == "shape" && (kv.value == "box" || kv.value == "cyl")) return kv.value;
+  return "box";  // 모름 — 사각 퍽 표 (손 방향을 칸 벽에 맞춘 자세라 원기둥도 들어감)
+}
+
+int Coordinator::tag_of(const perception::msg::TrackedObject & o) const {
+  for (const auto & kv : o.details) if (kv.key == "tag" && is_id(kv.value)) return std::stoi(kv.value);
+  return -1;
+}
+
 void Coordinator::run_step() {
-  if (!running_ || mode_ == "MANUAL") return;
+  if (!running_ || mode_ != "AUTO" || estop_) return;
   if (idx_ >= plan_.goals.size()) {
     running_ = false;
     status(plan_.goals.back().step, TaskStatus::SUCCEEDED, "");
-    say("퍽을 옮겼어요");
+    const bool carried = std::any_of(plan_.goals.begin(), plan_.goals.end(), [](const SubGoal & s) { return s.skill == "place"; });
+    if (carried) say("퍽을 옮겼어요");  // inspect만 한 계획(퍽 번호 보기)은 말 없이 — planner가 이어서 계획
     return;
   }
   const auto & g = plan_.goals[idx_];
   status(g.step, TaskStatus::RUNNING, "");
   RCLCPP_INFO(get_logger(), "step %u: %s %s", g.step, g.skill.c_str(), g.target.c_str());
-  if (g.skill == "navigate") navigate(g);
-  else if (g.skill == "pick") pick(g);
-  else if (g.skill == "place") {
-    if (ready_or_retry(mtc_->action_server_is_ready(), "mtc_unavailable"))
-      execute_mtc("place:" + g.target, [this](bool ok) { ok ? next() : fail("place_failed"); });
-  } else { say(g.target); next(); }
+  if (g.skill == "say") { say(g.target); next(); }
+  else if (g.skill == "navigate") navigate(g);
+  else if (g.skill == "approach") approach(g);
+  else if (g.skill == "pick") g.target == "tray" ? unload(g) : pick(g);   // pick tray = unload last (호환)
+  else if (g.skill == "place") g.target == "tray" ? load(g) : place(g);   // place tray = load next (호환)
+  else if (g.skill == "inspect") inspect(g);
+  else if (g.skill == "load") load(g);
+  else if (g.skill == "unload") unload(g);
+  else if (g.skill == "stand") stand(g);
+  else if (g.skill == "stand_pick") stand_pick(g);
+  else if (g.skill == "pose") {
+    Skill::Goal sg;
+    sg.target = g.target;
+    send("pose", sg, [this](const Skill::Result &) { next(); });
+  }
 }
 
-bool Coordinator::ready_or_retry(bool ready, const std::string & reason) {
-  if (ready) { waited_s_ = 0; return true; }
-  if (waited_s_ >= server_wait_s_) { waited_s_ = 0; fail(reason); return false; }
-  RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 5000, "%s — 서버 대기 중", reason.c_str());
-  waited_s_ += 1.0;
-  retry_ = create_wall_timer(std::chrono::seconds(1), [this]() { retry_->cancel(); run_step(); });
-  return false;
+void Coordinator::send(const std::string & action, const Skill::Goal & goal, Ok ok, Fail on_fail) {
+  const auto & client = skills_.at(action);
+  active_action_ = action;
+  if (!client->action_server_is_ready()) {  // skill 노드가 아직 없음 (기동 중) — 1초 뒤 같은 단계를 다시
+    const bool base = action == "navigate" || action == "approach";
+    if (waited_s_ >= server_wait_s_) { waited_s_ = 0; fail(base ? "nav_unavailable" : action == "pick" ? "pick_unavailable" : "arm_unavailable"); return; }
+    RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 5000, "/skills/%s 대기 중", action.c_str());
+    waited_s_ += 1.0;
+    retry_ = create_wall_timer(std::chrono::seconds(1), [this]() { retry_->cancel(); run_step(); });
+    return;
+  }
+  waited_s_ = 0;
+  const uint64_t gen = gen_;
+  rclcpp_action::Client<Skill>::SendGoalOptions opt;
+  opt.goal_response_callback = [this, gen, action](const rclcpp_action::ClientGoalHandle<Skill>::SharedPtr & h) {
+    if (gen != gen_) return;
+    if (!h) { fail(action + "_busy"); return; }  // skill 노드가 다른 goal 실행 중
+    active_ = h;
+  };
+  opt.result_callback = [this, gen, action, ok, on_fail](const rclcpp_action::ClientGoalHandle<Skill>::WrappedResult & r) {
+    if (gen != gen_) return;  // 취소된 옛 goal의 늦은 결과
+    active_.reset();
+    if (r.code == rclcpp_action::ResultCode::SUCCEEDED && r.result->success) { ok(*r.result); return; }
+    if (r.code == rclcpp_action::ResultCode::CANCELED) return;  // 취소한 쪽(모드·비상정지·새 계획)이 이미 처리
+    const std::string why = r.result && !r.result->reason.empty() ? r.result->reason : action + "_failed";
+    if (on_fail) on_fail(why);
+    fail(why);
+  };
+  client->async_send_goal(goal, opt);
+}
+
+void Coordinator::cancel_all() {
+  ++gen_;
+  if (retry_) retry_->cancel();
+  if (active_) skills_.at(active_action_)->async_cancel_goal(active_);
+  active_.reset();
 }
 
 void Coordinator::next() {
@@ -149,6 +332,7 @@ void Coordinator::next() {
   run_step();
 }
 
+// 규칙 3: 같은 단계 max_step_failures회 연속 실패면 알리고 정지. 그 전엔 FAILED만 보내고 VLM 재계획을 기다린다
 void Coordinator::fail(const std::string & reason) {
   if (!running_) return;  // 이미 멈춤 (수동 전환으로 취소된 goal의 결과 등)
   const auto & g = plan_.goals[idx_];
@@ -164,66 +348,324 @@ void Coordinator::fail(const std::string & reason) {
 
 std::string Coordinator::key(const SubGoal & g) { return g.skill + ":" + g.target; }
 
-void Coordinator::navigate(const SubGoal & g) {
-  if (!ready_or_retry(nav_->action_server_is_ready(), "nav_unavailable")) return;
-  NavigateToPose::Goal goal;
-  goal.pose.header.frame_id = "map";
-  goal.pose.header.stamp = now();
-  goal.pose.pose.orientation.w = 1.0;
-  if (is_id(g.target)) {
-    // TODO: 대상 앞 offset + 로봇 반경만큼 떨어진 접근 자세 (통로 방향 고려 — 미로 벽에 붙지 않게)
-    const auto * o = find(std::stoul(g.target));
-    goal.pose.pose.position.x = o->pose.pose.position.x - o->size.x / 2 - g.offset_m - 0.1;
-    goal.pose.pose.position.y = o->pose.pose.position.y;
+bool Coordinator::robot_xy(double & x, double & y) const {
+  try {
+    const auto t = tf_buffer_->lookupTransform("map", "base_footprint", tf2::TimePointZero);
+    x = t.transform.translation.x;
+    y = t.transform.translation.y;
+    return true;
+  } catch (const std::exception &) {
+    return false;
   }
-  rclcpp_action::Client<NavigateToPose>::SendGoalOptions opt;
-  opt.result_callback = [this](const rclcpp_action::ClientGoalHandle<NavigateToPose>::WrappedResult & r) {
-    r.code == rclcpp_action::ResultCode::SUCCEEDED ? next() : fail("nav_failed");
-  };
-  nav_->async_send_goal(goal, opt);
+}
+
+namespace {
+geometry_msgs::msg::PoseStamped map_pose(double x, double y, double z, double yaw = 0.0) {
+  geometry_msgs::msg::PoseStamped p;
+  p.header.frame_id = "map";
+  p.pose.position.x = x;
+  p.pose.position.y = y;
+  p.pose.position.z = z;
+  p.pose.orientation.z = std::sin(yaw / 2);
+  p.pose.orientation.w = std::cos(yaw / 2);
+  return p;
+}
+}  // namespace
+
+bool Coordinator::approach_if_far(const SubGoal & g) {
+  if (approached_ == idx_ || !is_id(g.target)) return false;  // 이 단계는 이미 다가감 → 그대로 실행 (안 닿으면 그 단계가 실패)
+  const auto * o = find(std::stoul(g.target));
+  double rx, ry;
+  if (!o || !robot_xy(rx, ry)) return false;  // 로봇 위치를 모르면 판단 못 함 — 그대로 실행
+  const double ox = o->pose.pose.position.x, oy = o->pose.pose.position.y;
+  const double d = std::hypot(ox - rx, oy - ry);
+  if (d <= reach_m_) return false;
+  if (skills_.at("navigate")->action_server_is_ready()) approached_ = idx_;  // 서버를 기다리는 동안은 다시 이 길로
+  RCLCPP_INFO(get_logger(), "%s %s: 대상이 %.2fm — 팔이 닿게 %.2fm 앞까지 다가감", g.skill.c_str(), g.target.c_str(), d, approach_m_);
+  Skill::Goal sg;
+  sg.pose.header.frame_id = "map";
+  sg.pose.pose = approach_pose(ox, oy, rx, ry, approach_m_);
+  send("navigate", sg, [this](const Skill::Result &) { run_step(); },  // 같은 단계를 다시 (이번엔 다가가기를 건너뜀)
+       [this](const std::string &) {});
+  return true;
+}
+
+void Coordinator::navigate(const SubGoal & g) {
+  Skill::Goal sg;
+  sg.pose.header.frame_id = "map";
+  sg.pose.pose.orientation.w = 1.0;
+  if (is_id(g.target)) {
+    // 대상 앞 (물체 반 크기 + offset + 0.1) — 로봇이 있는 쪽에서 물체를 바라봄
+    const auto * o = find(std::stoul(g.target));
+    if (!o) { fail("nav_bad_target"); return; }
+    const double ox = o->pose.pose.position.x, oy = o->pose.pose.position.y;
+    double rx = ox - 1.0, ry = oy;  // 로봇 위치를 모르면 물체의 −x 쪽
+    robot_xy(rx, ry);
+    sg.pose.pose = approach_pose(ox, oy, rx, ry, std::max(o->size.x, o->size.y) / 2 + g.offset_m + 0.1);
+  } else {
+    const auto v = parse_numbers(g.target);  // "x,y" (시뮬레이터 지도 클릭) · "x,y,yaw" (mission_manager)
+    if (v.empty()) { fail("nav_bad_target"); return; }
+    sg.pose = map_pose(v[0], v[1], 0.0, v.size() >= 3 ? v[2] : 0.0);
+  }
+  send("navigate", sg, [this](const Skill::Result &) { next(); });
+}
+
+void Coordinator::approach(const SubGoal & g) {
+  const auto v = parse_numbers(g.target);
+  if (v.size() != 3) { fail("approach_bad_target"); return; }
+  Skill::Goal sg;
+  sg.target = g.relation;  // 주행 정책: dock_box(기본) · park_home · drive_arc · drive_straight
+  sg.pose = map_pose(v[0], v[1], 0.0, v[2]);
+  send("approach", sg, [this](const Skill::Result &) { next(); });
 }
 
 void Coordinator::pick(const SubGoal & g) {
-  if (!ready_or_retry(clear_octomap_->service_is_ready() && apply_scene_->service_is_ready() &&
-      score_->service_is_ready() && mtc_->action_server_is_ready(), "pick_unavailable")) return;
-  const uint32_t object_id = std::stoul(g.target);
-  clear_octomap_->async_send_request(std::make_shared<std_srvs::srv::Empty::Request>(),
-    [this, object_id](rclcpp::Client<std_srvs::srv::Empty>::SharedFuture) {
-      auto scene = std::make_shared<ApplyPlanningScene::Request>();
-      scene->scene.is_diff = true;  // TODO: 퍽·주변 장애물 CollisionObject 등록
-      apply_scene_->async_send_request(scene, [this, object_id](rclcpp::Client<ApplyPlanningScene>::SharedFuture) {
-        auto req = std::make_shared<ScoreGrasps::Request>();
-        req->object_id = object_id;
-        req->max_candidates = 3;
-        score_->async_send_request(req, [this](rclcpp::Client<ScoreGrasps>::SharedFuture f) {
-          const auto res = f.get();
-          if (!res->success || res->grasps.empty()) { fail("no_grasp"); return; }
-          try_grasp(res, 0);
-        });
-      });
-    });
+  if (!is_id(g.target) || !find(std::stoul(g.target))) { fail("pick_no_target"); return; }
+  if (approach_if_far(g)) return;  // 집을 퍽이 팔 밖이면 먼저 다가감 (VLM이 navigate를 빼먹어도)
+  const auto o = *find(std::stoul(g.target));
+  Skill::Goal sg;
+  sg.target = g.target;
+  sg.shape = shape_of(o);
+  sg.tag = tag_of(o);
+  send("pick", sg, [this, o](const Skill::Result &) {
+    held_ = PuckInfo{shape_of(o), o.color, tag_of(o), false};  // 집은 퍽 — 칸에 실을 때 장부에 그대로 적음
+    basket_changed();
+    next();
+  });
 }
 
-void Coordinator::try_grasp(const ScoreGrasps::Response::SharedPtr & cands, size_t i) {
-  if (i >= cands->grasps.size() || static_cast<int>(i) >= max_grasp_tries_) {
-    fail(arm_contact_ ? "arm_contact" : "grasp_failed_all");
+void Coordinator::place(const SubGoal & g) {
+  Skill::Goal sg;
+  if (const auto v = parse_numbers(g.target); v.size() == 3) {  // 좌표 place — 손 안 퍽 바닥이 z가 되게 (주사위 칸)
+    sg.target = "cell";
+    sg.pose = map_pose(v[0], v[1], v[2]);
+    if (double rx, ry; robot_xy(rx, ry))
+      RCLCPP_INFO(get_logger(), "place 점까지 수평 %.3fm (로봇 %.3f,%.3f)", std::hypot(v[0] - rx, v[1] - ry), rx, ry);
+    send("place", sg, [this](const Skill::Result &) {
+      held_ = PuckInfo{};  // 손 비움 — 장부 발행·저장
+      basket_changed();
+      next();
+    });
     return;
   }
-  RCLCPP_INFO(get_logger(), "파지 후보 %zu (score %.2f)", i, cands->scores[i]);
-  execute_mtc("pick:" + std::to_string(i), [this, cands, i](bool ok) { ok ? next() : try_grasp(cands, i + 1); });
+  if (!is_id(g.target) || !find(std::stoul(g.target))) { fail("place_no_target"); return; }
+  if (approach_if_far(g)) return;  // 내려놓을 곳이 팔 밖이면 먼저 다가감
+  const auto * o = find(std::stoul(g.target));
+  sg.target = "over";
+  sg.pose.header.frame_id = "map";
+  sg.pose.pose.position = o->pose.pose.position;  // 놓을 면 (물체 위치)
+  sg.pose.pose.orientation.w = 1.0;
+  if (o->class_name == "location_box") {
+    // 상자 윗면 — 윗면을 못 찾았으면(태그만) z가 태그 높이라 size.z(바닥~윗면)로. 여러 개면 상자 안·상자 축으로 비켜 놓음
+    sg.pose.pose.position.z = std::max(o->pose.pose.position.z, static_cast<double>(o->size.z));
+    const auto & q = o->pose.pose.orientation;
+    const double yaw = std::atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z));
+    const auto [dx, dy] = box_spread(placed_[g.target], place_spacing_, o->size.x / 2, o->size.y / 2, box_margin_m_, yaw);
+    sg.pose.pose.position.x += dx;
+    sg.pose.pose.position.y += dy;
+    sg.values = {0.0};
+  } else {
+    const auto [dx, dy] = spread_offset(placed_[g.target], place_spacing_);  // 같은 곳에 여러 개면 비켜서
+    sg.pose.pose.position.x += dx;
+    sg.pose.pose.position.y += dy;
+    sg.values = {0.10};
+  }
+  send("place", sg, [this, id = g.target](const Skill::Result &) {
+    ++placed_[id];
+    held_ = PuckInfo{};
+    basket_changed();
+    next();
+  });
 }
 
-void Coordinator::execute_mtc(const std::string & task_id, std::function<void(bool)> done) {
-  arm_contact_ = false;
-  ExecuteTaskSolution::Goal goal;
-  goal.solution.task_id = task_id;  // TODO: MTC 태스크를 계획해 solution 채우기
-  rclcpp_action::Client<ExecuteTaskSolution>::SendGoalOptions opt;
-  opt.result_callback = [done](const rclcpp_action::ClientGoalHandle<ExecuteTaskSolution>::WrappedResult & r) {
-    done(r.code == rclcpp_action::ResultCode::SUCCEEDED &&
-      r.result->error_code.val == moveit_msgs::msg::MoveItErrorCodes::SUCCESS);
-  };
-  mtc_->async_send_goal(goal, opt);
+void Coordinator::inspect(const SubGoal & g) {
+  Skill::Goal sg;
+  if (const auto v = parse_numbers(g.target); v.size() == 3) {  // 좌표 inspect — 그 점(퍽 윗면 등) 위
+    sg.pose = map_pose(v[0], v[1], v[2]);
+    if (double rx, ry; robot_xy(rx, ry)) {  // 손이 로봇 → 점 방향을 보게 (gripper_cam이 그 점을 화면 가운데에)
+      sg.values = {std::atan2(v[1] - ry, v[0] - rx)};
+      RCLCPP_INFO(get_logger(), "inspect 점까지 수평 %.3fm (로봇 %.3f,%.3f)", std::hypot(v[0] - rx, v[1] - ry), rx, ry);
+    }
+    send("inspect", sg, [this](const Skill::Result &) { next(); });
+    return;
+  }
+  if (!is_id(g.target) || !find(std::stoul(g.target))) { fail("inspect_no_target"); return; }
+  if (approach_if_far(g)) return;  // 팔 밖이면 먼저 다가감
+  const auto * o = find(std::stoul(g.target));
+  sg.pose.header.frame_id = "map";
+  sg.pose.pose.position = o->pose.pose.position;
+  sg.pose.pose.position.z += o->size.z / 2;  // 윗면 — 손가락 아래라 gripper_cam이 윗면을 봄
+  sg.pose.pose.orientation.w = 1.0;
+  send("inspect", sg, [this, id = g.target](const Skill::Result &) {
+    const auto * obj = find(std::stoul(id));
+    RCLCPP_INFO(get_logger(), "inspect %s: 태그 %s", id.c_str(), obj && tag_of(*obj) >= 0 ? "읽음" : "못 읽음");
+    next();
+  });
 }
+
+void Coordinator::load(const SubGoal & g) {
+  if (basket_.empty()) { fail("basket_table_missing"); return; }
+  std::string why;
+  const int slot = basket_slot(g.target, basket_shapes(), basket_order_, true, why, basket_use_);
+  if (slot < 0) { fail(why); return; }
+  Skill::Goal sg;
+  sg.slot = slot;
+  sg.shape = held_.shape.empty() ? "box" : held_.shape;
+  sg.tag = held_.tag;
+  send("load", sg, [this, slot, shape = sg.shape](const Skill::Result &) {
+    basket_[slot] = held_;
+    basket_[slot].shape = shape;
+    basket_[slot].check = false;
+    basket_order_.push_back(slot);
+    held_ = PuckInfo{};
+    basket_changed();
+    next();
+  });
+}
+
+void Coordinator::unload(const SubGoal & g) {
+  if (basket_.empty()) { fail("basket_table_missing"); return; }
+  std::string why;
+  const int slot = basket_slot(g.target, basket_shapes(), basket_order_, false, why);
+  if (slot < 0) { fail(why); return; }
+  Skill::Goal sg;
+  sg.slot = slot;
+  sg.shape = basket_[slot].shape;
+  sg.tag = basket_[slot].tag;
+  send("unload", sg, [this, slot](const Skill::Result &) {
+    held_ = basket_[slot];
+    held_.check = false;
+    basket_[slot] = PuckInfo{};
+    basket_order_.erase(std::remove(basket_order_.begin(), basket_order_.end(), slot), basket_order_.end());
+    basket_changed();
+    next();
+  }, [this, slot](const std::string & reason) {
+    if (reason == "grasp_empty") { basket_[slot].check = true; basket_changed(); }  // 빈손 — 칸은 비우지 않고 확인 필요로
+  });
+}
+
+void Coordinator::stand(const SubGoal & g) {
+  const auto * o = is_id(g.target) ? find(std::stoul(g.target)) : nullptr;
+  if (!o) { fail("stand_no_target"); return; }
+  if (o->class_name != "puck_lying") { fail("stand_not_lying"); return; }
+  if (!std::any_of(o->details.begin(), o->details.end(), [](const auto & kv) { return kv.key == "yaw_period"; })) {
+    fail("stand_no_yaw");  // 긴 축 방향을 못 구함 — 다른 자리에서 다시 보기
+    return;
+  }
+  if (approach_if_far(g)) return;
+  Skill::Goal sg;
+  sg.pose.header.frame_id = objects_->header.frame_id.empty() ? "map" : objects_->header.frame_id;
+  sg.pose.pose = o->pose.pose;  // 가운데 · 긴 축 = orientation
+  sg.shape = shape_of(*o);
+  sg.tag = tag_of(*o);
+  const PuckInfo puck{sg.shape, o->color, sg.tag, false};
+  send("stand", sg, [this, puck](const Skill::Result &) { stood_ = puck; next(); });
+}
+
+void Coordinator::stand_pick(const SubGoal &) {
+  if (!held_.shape.empty()) { fail("hand_full"); return; }
+  send("stand_pick", Skill::Goal(), [this](const Skill::Result &) {
+    held_ = stood_;
+    stood_ = PuckInfo{};
+    basket_changed();
+    next();
+  });
+}
+
+std::vector<double> parse_numbers(const std::string & target) {
+  std::vector<double> out;
+  size_t start = 0;
+  while (start <= target.size()) {
+    const size_t comma = std::min(target.find(',', start), target.size());
+    const std::string part = target.substr(start, comma - start);
+    try {
+      size_t used = 0;
+      out.push_back(std::stod(part, &used));
+      if (part.find_first_not_of(" ", used) != std::string::npos) return {};
+    } catch (const std::exception &) {
+      return {};
+    }
+    start = comma + 1;
+  }
+  return out.size() >= 2 ? out : std::vector<double>{};
+}
+
+std::vector<std::string> Coordinator::basket_shapes() const {
+  std::vector<std::string> v;
+  for (const auto & b : basket_) v.push_back(b.shape);
+  return v;
+}
+
+void Coordinator::basket_changed() {
+  plan::msg::BasketState m;
+  m.header.stamp = now();
+  auto fill = [](plan::msg::BasketSlot & s, int i, const PuckInfo & b) {
+    s.slot = i;
+    s.filled = !b.shape.empty();
+    s.shape = b.shape;
+    s.color = b.color;
+    s.tag = b.tag;
+    s.check = b.check;
+  };
+  for (size_t i = 0; i < basket_.size(); ++i) {
+    plan::msg::BasketSlot s;
+    fill(s, static_cast<int>(i), basket_[i]);
+    m.slots.push_back(s);
+  }
+  for (int o : basket_order_) m.order.push_back(o);
+  fill(m.held, -1, held_);
+  basket_pub_->publish(m);
+  basket_save();
+}
+
+// 파일 형식 (한 줄 = 칸 하나): "slot <칸> <모양> <색|-> <tag> <check 0|1>" · "order <칸> <칸> …" · "held <모양|-> <색|-> <tag>"
+void Coordinator::basket_save() const {
+  if (basket_file_.empty()) return;
+  std::ofstream f(basket_file_);
+  if (!f) return;  // 저장 실패는 진단에만 — 동작은 계속
+  for (size_t i = 0; i < basket_.size(); ++i)
+    if (!basket_[i].shape.empty())
+      f << "slot " << i << " " << basket_[i].shape << " " << (basket_[i].color.empty() ? "-" : basket_[i].color) << " "
+        << basket_[i].tag << " " << (basket_[i].check ? 1 : 0) << "\n";
+  f << "order";
+  for (int o : basket_order_) f << " " << o;
+  f << "\nheld " << (held_.shape.empty() ? "-" : held_.shape) << " " << (held_.color.empty() ? "-" : held_.color) << " " << held_.tag << "\n";
+}
+
+void Coordinator::basket_load() {
+  if (basket_file_.empty()) return;
+  std::ifstream f(basket_file_);
+  if (!f) return;
+  std::string line;
+  int n = 0;
+  while (std::getline(f, line)) {
+    std::istringstream in(line);
+    std::string kind;
+    in >> kind;
+    if (kind == "slot") {
+      int i = -1, check = 0;
+      PuckInfo b;
+      in >> i >> b.shape >> b.color >> b.tag >> check;
+      if (b.color == "-") b.color.clear();
+      b.check = check != 0;
+      if (i >= 0 && i < static_cast<int>(basket_.size()) && (b.shape == "box" || b.shape == "cyl")) { basket_[i] = b; ++n; }
+    } else if (kind == "order") {
+      int o;
+      while (in >> o) if (o >= 0 && o < static_cast<int>(basket_.size()) && !basket_[o].shape.empty()) basket_order_.push_back(o);
+    } else if (kind == "held") {
+      in >> held_.shape >> held_.color >> held_.tag;
+      if (held_.shape == "-") held_.shape.clear();
+      if (held_.color == "-") held_.color.clear();
+    }
+  }
+  for (size_t i = 0; i < basket_.size(); ++i)  // order에 빠진 칸은 뒤에 (파일이 손상돼도 꺼낼 수 있게)
+    if (!basket_[i].shape.empty() && std::find(basket_order_.begin(), basket_order_.end(), static_cast<int>(i)) == basket_order_.end())
+      basket_order_.push_back(static_cast<int>(i));
+  if (n > 0 || !held_.shape.empty())
+    RCLCPP_WARN(get_logger(), "적재함 장부 이어 감 (%s): 칸 %d개%s — 실제와 다르면 /coordinator/basket_clear", basket_file_.c_str(), n,
+                held_.shape.empty() ? "" : " · 손에 퍽");
+}
+
 
 void Coordinator::status(uint32_t step, uint8_t state, const std::string & reason) {
   TaskStatus s;

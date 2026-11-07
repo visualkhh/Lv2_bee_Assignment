@@ -1,0 +1,4 @@
+# OpenCR → /dev/opencr 고정 이름 (ttyACM 번호는 꽂는 순서로 바뀜). BeebotSystemHardware 기본 port (URDF).
+# 설치: sudo cp 99-opencr.rules /etc/udev/rules.d/ && sudo udevadm control --reload && sudo udevadm trigger
+# ID_MM_DEVICE_IGNORE: ModemManager가 CDC 포트를 모뎀으로 잡아 몇 초간 막는 것을 막음 (TurtleBot3 규칙과 같음)
+SUBSYSTEM=="tty", ATTRS{idVendor}=="0483", ATTRS{idProduct}=="5740", SYMLINK+="opencr", MODE="0666", ENV{ID_MM_DEVICE_IGNORE}="1"

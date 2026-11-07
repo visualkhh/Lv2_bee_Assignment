@@ -1,0 +1,13 @@
+# skill 정책 폴더 — 이 skill 노드가 읽음 (skills/include/skills/model.hpp). 한 줄 "키: 값"
+
+skill: regrasp_after_stand
+kind: arm            # arm (rl_arm_correction이 계산) | base (skill_approach가 계산)
+layout: stand          # 정책 입력 모양 (ml/arm_obs.hpp place 39 · pick 41)
+use: false
+why: rl_arm_correction에 stand 입력 모양이 아직 없음 · 합격 기준(97 % · 0.5 %) 못 넘음
+node: skill_stand
+sim_baseline: 74.6      # [%] 학습 없이 기준 동작만 (1024판)
+sim_policy: 78.2        # [%] 학습 뒤
+irreversible: 1.6      # [%] 되돌릴 수 없는 실패 (놓침·넘어뜨림)
+source: 송정혁 regrasp_stood (right_env regrasp=1, skill-all 21c40fb, 11-04) · 평가 pa27 1024판
+note: 세우기 + 다시 쥐기 한 에피소드 (입력 49)

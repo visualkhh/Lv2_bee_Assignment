@@ -10,7 +10,7 @@ namespace faker {
 
 ServiceActionMonitor::ServiceActionMonitor()
 : rclcpp::Node("service_action_monitor") {
-  debug_dir_ = declare_parameter<std::string>("debug_dir", "/ws/debug");
+  debug_dir_ = declare_parameter<std::string>("debug_dir", "/debug");
   const double period = declare_parameter<double>("period_s", 2.0);
   std::error_code ec;
   fs::create_directories(fs::path(debug_dir_) / "service", ec);
@@ -122,6 +122,7 @@ void ServiceActionMonitor::scan() {
       const fs::path dir = dir_of(debug_dir_ + "/service", name);
       write_text(dir / "type", type + "\n");
       write_text(dir / "info", definition_of(type));
+      ensure_proto(dir, type);
     }
     list += "]}\n";
     write_text(fs::path(debug_dir_) / "service" / "list.json", list);
@@ -138,6 +139,7 @@ void ServiceActionMonitor::scan() {
       const fs::path dir = dir_of(debug_dir_ + "/action", name);
       write_text(dir / "type", type + "\n");
       write_text(dir / "info", definition_of(type));
+      ensure_proto(dir, type);
     }
     list += "]}\n";
     write_text(fs::path(debug_dir_) / "action" / "list.json", list);
@@ -173,6 +175,17 @@ void ServiceActionMonitor::dump_interfaces() {
     for (const auto & [kind, text] : per_kind) {
       write_text(fs::path(debug_dir_) / "interface" / kind / "list", text);
     }
+    // 패키지 목록 (`ros2 interface packages`) — 어떤 패키지가 인터페이스를 가졌는지
+    {
+      std::string pkgs;
+      char pch[512];
+      FILE * pp = popen("ros2 interface packages 2>/dev/null", "r");
+      if (pp) {
+        while (fgets(pch, sizeof(pch), pp)) pkgs += pch;
+        pclose(pp);
+      }
+      if (!pkgs.empty()) write_text(fs::path(debug_dir_) / "interface" / "packages", pkgs);
+    }
     RCLCPP_INFO(get_logger(), "interface 목록 %zu줄 기록", std::count(out.begin(), out.end(), '\n'));
     // 프로젝트 타입은 폴더뎁스로 미리 생성 (perception·control·ml·plan)
     std::istringstream lines2(out);
@@ -194,9 +207,30 @@ void ServiceActionMonitor::ensure_interface_info(const std::string & type) {
   if (dir.empty()) return;
   const fs::path info = dir / "info";
   std::error_code ec;
-  if (fs::exists(info, ec)) return;  // 있으면 다시 안 만듦
+  if (fs::exists(info, ec)) {
+    ensure_proto(dir, type);  // 구버전이 info만 만든 경우 proto 보충
+    return;  // 있으면 다시 안 만듦
+  }
   write_text(info, definition_of(type));
+  ensure_proto(dir, type);
   RCLCPP_INFO(get_logger(), "interface info: %s", type.c_str());
+}
+
+void ServiceActionMonitor::ensure_proto(const fs::path & dir, const std::string & type) {
+  // 빈 메시지 틀 (`ros2 interface proto`) — request 파일 쓸 때 복사해서 쓴다. 없으면 한 번만 생성
+  const fs::path proto = dir / "proto";
+  std::error_code ec;
+  if (fs::exists(proto, ec)) return;
+  std::string cmd = "ros2 interface proto " + type + " 2>&1";
+  std::string out;
+  char buf[512];
+  FILE * p = popen(cmd.c_str(), "r");
+  if (p) {
+    while (fgets(buf, sizeof(buf), p)) out += buf;
+    pclose(p);
+  }
+  if (out.empty()) out = "# proto unavailable: empty output\n";
+  write_text(proto, out);
 }
 
 fs::path ServiceActionMonitor::iface_dir(const std::string & debug_dir, const std::string & type) {
@@ -236,6 +270,7 @@ void ServiceActionMonitor::poll_interface_requests() {
     if (known != iface_req_.end() && known->second == mtime) continue;
     iface_req_[type] = mtime;
     write_text(it->path().parent_path() / "info", definition_of(type));
+    ensure_proto(it->path().parent_path(), type);
     RCLCPP_INFO(get_logger(), "interface info 요청: %s", type.c_str());
   }
 }

@@ -1,0 +1,15 @@
+# skill 정책 폴더 — 이 skill 노드가 읽음 (skills/include/skills/model.hpp). 한 줄 "키: 값"
+
+skill: park_home
+kind: base            # arm (rl_arm_correction이 계산) | base (skill_approach가 계산)
+layout: nav          # ml/nav_obs.hpp 13
+use: true
+node: skill_approach
+sim_baseline: 81.1      # [%] 학습 없이 기준 동작만 (1024판)
+sim_policy: 96.5        # [%] 학습 뒤
+tol_m: 0.05           # [m] 도착 판정 (시뮬 drive_env TASKS)
+tol_deg: 10.0          # [deg]
+hold_s: 3.0          # [s] 그 안에 멈춰 있어야
+limit_s: 25.0         # [s] 시뮬 제한 시간 (정책 입력 시간 비율)
+source: isaac/lab drive_env task=park · 송정혁 학습 (skill-all 21c40fb, 11-04) · 평가 pa27 1024판
+note: 출발 구역 5 cm · 10° · 3 s 정지

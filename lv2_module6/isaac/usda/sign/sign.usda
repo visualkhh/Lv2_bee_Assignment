@@ -1,0 +1,559 @@
+#usda 1.0
+(
+    customLayerData = {
+        dictionary cameraSettings = {
+            dictionary Front = {
+                double3 position = (5, 0, 0)
+                double radius = 5
+            }
+            dictionary Perspective = {
+                double3 position = (-0.411569627192053, -0.10980843256382423, 0.21490586387323882)
+                double3 target = (-0.002036649369082766, 0.020012863869443606, 0.09370000161140918)
+            }
+            dictionary Right = {
+                double3 position = (-0.004052994552903479, -50000.0000000084, 0.09242621319883121)
+                double radius = 0.36469972133636475
+            }
+            dictionary Top = {
+                double3 position = (0, 0, 5)
+                double radius = 5
+            }
+            string boundCamera = "/OmniverseKit_Persp"
+        }
+        dictionary omni_layer = {
+            string authoring_layer = "./sign.usda"
+        }
+        dictionary renderSettings = {
+        }
+    }
+    defaultPrim = "sign"
+    endTimeCode = 1
+    framesPerSecond = 24
+    metersPerUnit = 1
+    startTimeCode = 1
+    subLayers = [
+        @./geo.usd@
+    ]
+    timeCodesPerSecond = 24
+    upAxis = "Z"
+)
+
+over "sign"
+{
+    float3 xformOp:rotateXYZ = (0, 0, 0)
+    float3 xformOp:scale = (1, 1, 1)
+    double3 xformOp:translate = (0, 0, 0)
+    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+
+    def Scope "PhysicsMaterials"
+    {
+        def Material "PLA" (
+            prepend apiSchemas = ["PhysicsMaterialAPI"]
+        )
+        {
+            float physics:dynamicFriction = 0.3
+            float physics:restitution = 0.4
+            float physics:staticFriction = 0.35
+        }
+    }
+
+    def Scope "Looks"
+    {
+        def Material "body"
+        {
+            token outputs:mdl:displacement.connect = </sign/Looks/body/Shader.outputs:out>
+            token outputs:mdl:surface.connect = </sign/Looks/body/Shader.outputs:out>
+            token outputs:mdl:volume.connect = </sign/Looks/body/Shader.outputs:out>
+
+            def Shader "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @OmniPBR.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "OmniPBR"
+                color3f inputs:diffuse_color_constant = (0.57915056, 0.5539835, 0.4606371)
+                token outputs:out
+            }
+        }
+
+        def Material "steel"
+        {
+            token outputs:mdl:displacement.connect = </sign/Looks/steel/Shader.outputs:out>
+            token outputs:mdl:surface.connect = </sign/Looks/steel/Shader.outputs:out>
+            token outputs:mdl:volume.connect = </sign/Looks/steel/Shader.outputs:out>
+
+            def Shader "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @OmniPBR.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "OmniPBR"
+                color3f inputs:diffuse_color_constant = (0.5173745, 0.51736933, 0.51736933)
+                float inputs:metallic_constant = 0.78
+                float inputs:reflection_roughness_constant = 0.48
+                token outputs:out
+            }
+        }
+
+        def Material "OmniPBR_black"
+        {
+            token outputs:mdl:displacement.connect = </sign/Looks/OmniPBR_black/Shader.outputs:out>
+            token outputs:mdl:surface.connect = </sign/Looks/OmniPBR_black/Shader.outputs:out>
+            token outputs:mdl:volume.connect = </sign/Looks/OmniPBR_black/Shader.outputs:out>
+
+            def Shader "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @OmniPBR.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "OmniPBR"
+                color3f inputs:diffuse_color_constant = (0.000001, 9.9999e-7, 9.9999e-7)
+                float inputs:reflection_roughness_constant = 0.3
+                token outputs:out (
+                    renderType = "material"
+                )
+            }
+        }
+
+        def Material "OmniPBR_blue"
+        {
+            token outputs:mdl:displacement.connect = </sign/Looks/OmniPBR_blue/Shader.outputs:out>
+            token outputs:mdl:surface.connect = </sign/Looks/OmniPBR_blue/Shader.outputs:out>
+            token outputs:mdl:volume.connect = </sign/Looks/OmniPBR_blue/Shader.outputs:out>
+
+            def Shader "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @OmniPBR.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "OmniPBR"
+                color3f inputs:diffuse_color_constant = (0.03529412, 0.16078432, 0.5372549)
+                float inputs:reflection_roughness_constant = 0.3
+                token outputs:out
+            }
+        }
+
+        def Material "yellow_light"
+        {
+            token outputs:mdl:displacement.connect = </sign/Looks/yellow_light/Shader.outputs:out>
+            token outputs:mdl:surface.connect = </sign/Looks/yellow_light/Shader.outputs:out>
+            token outputs:mdl:volume.connect = </sign/Looks/yellow_light/Shader.outputs:out>
+
+            def Shader "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @OmniGlass.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "OmniGlass"
+                float inputs:depth = 0.002
+                float inputs:frosting_roughness = 0.15
+                color3f inputs:glass_color = (1, 0.75, 0.02)
+                float inputs:glass_ior = 2
+                bool inputs:thin_walled = 0
+                token outputs:out
+            }
+        }
+
+        def Material "green_light"
+        {
+            token outputs:mdl:displacement.connect = </sign/Looks/green_light/Shader.outputs:out>
+            token outputs:mdl:surface.connect = </sign/Looks/green_light/Shader.outputs:out>
+            token outputs:mdl:volume.connect = </sign/Looks/green_light/Shader.outputs:out>
+
+            def Shader "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @OmniGlass.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "OmniGlass"
+                float inputs:depth = 0.002
+                float inputs:frosting_roughness = 0.15
+                color3f inputs:glass_color = (0.05, 0.8, 0.4090734)
+                float inputs:glass_ior = 2
+                bool inputs:thin_walled = 0
+                token outputs:out
+            }
+        }
+
+        def Material "red_light"
+        {
+            token outputs:mdl:displacement.connect = </sign/Looks/red_light/Shader.outputs:out>
+            token outputs:mdl:surface.connect = </sign/Looks/red_light/Shader.outputs:out>
+            token outputs:mdl:volume.connect = </sign/Looks/red_light/Shader.outputs:out>
+
+            def Shader "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @OmniGlass.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "OmniGlass"
+                float inputs:depth = 0.002
+                float inputs:frosting_roughness = 0.15
+                color3f inputs:glass_color = (1, 0.022988439, 0)
+                float inputs:glass_ior = 2
+                bool inputs:thin_walled = 0
+                token outputs:out
+            }
+        }
+    }
+
+    over "light"
+    {
+        quatf xformOp:orient = (1, 0, 0, 0)
+        float3 xformOp:scale = (1, 1, 1)
+        double3 xformOp:translate = (0, 0, 4.884981308350689e-15)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+
+        over "yellow"
+        {
+            over "pl" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </sign/Looks/yellow_light> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+            }
+
+            def CylinderLight "CylinderLight"
+            {
+                color3f inputs:color = (1, 1, 1)
+                bool inputs:enableColorTemperature = 0
+                float inputs:exposure = 1.1
+                float inputs:intensity = 30000
+                float inputs:length = 0.75
+                bool inputs:normalize = 0
+                float inputs:radius = 0.3
+                custom int omni:rtx:usdluxVersion = 2505
+                bool treatAsLine = 0
+                token visibility = "invisible"
+                quatd xformOp:orient = (0.7071067811865476, 0, 0.7071067811865476, 0)
+                double3 xformOp:scale = (0.04, 0.04, 0.04)
+                double3 xformOp:translate = (0, 0, 0.1131156)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+            }
+        }
+
+        over "green"
+        {
+            over "pl" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                uniform bool doubleSided = 0
+                rel material:binding = </sign/Looks/green_light> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+                bool singleSided = 0
+            }
+
+            def CylinderLight "CylinderLight"
+            {
+                rel collection:lightLink:excludes = None
+                rel collection:shadowLink:excludes = None
+                color3f inputs:color = (1, 1, 1)
+                bool inputs:enableColorTemperature = 0
+                float inputs:exposure = 0
+                float inputs:intensity = 30000
+                float inputs:length = 0.75
+                bool inputs:normalize = 0
+                float inputs:radius = 0.3
+                custom int omni:rtx:usdluxVersion = 2505
+                bool treatAsLine = 0
+                token visibility = "invisible"
+                quatd xformOp:orient = (0.7071067811865476, 0, 0.7071067811865476, 0)
+                double3 xformOp:scale = (0.04, 0.04, 0.04)
+                double3 xformOp:translate = (0, 0, 0.0771156)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+            }
+        }
+
+        over "red"
+        {
+            over "pl" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </sign/Looks/red_light> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+            }
+
+            def CylinderLight "CylinderLight"
+            {
+                color3f inputs:color = (1, 1, 1)
+                bool inputs:enableColorTemperature = 0
+                float inputs:exposure = 1.1
+                float inputs:intensity = 30000
+                float inputs:length = 0.75
+                bool inputs:normalize = 0
+                float inputs:radius = 0.3
+                custom int omni:rtx:usdluxVersion = 2505
+                bool treatAsLine = 0
+                token visibility = "invisible"
+                quatd xformOp:orient = (0.7071067811865476, 0, 0.7071067811865476, 0)
+                double3 xformOp:scale = (0.04, 0.04, 0.04)
+                double3 xformOp:translate = (0, 0, 0.1491156)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+            }
+        }
+    }
+
+    over "body"
+    {
+        quatf xformOp:orient = (1, 0, 0, 0)
+        float3 xformOp:scale = (1, 1, 1)
+        double3 xformOp:translate = (0, 0, 4.884981308350689e-15)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+
+        over "body" (
+            prepend apiSchemas = ["MaterialBindingAPI"]
+        )
+        {
+            rel material:binding = </sign/Looks/body> (
+                bindMaterialAs = "weakerThanDescendants"
+            )
+        }
+
+        over "pla" (
+            prepend apiSchemas = ["MaterialBindingAPI"]
+        )
+        {
+            rel material:binding = </sign/Looks/steel> (
+                bindMaterialAs = "weakerThanDescendants"
+            )
+
+            over "pla_0" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </sign/Looks/OmniPBR_black> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+            }
+
+            over "pla_1" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </sign/Looks/OmniPBR_blue> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
+            }
+        }
+
+        over "balt" (
+            prepend apiSchemas = ["MaterialBindingAPI"]
+        )
+        {
+            rel material:binding = </sign/Looks/OmniPBR_blue> (
+                bindMaterialAs = "weakerThanDescendants"
+            )
+        }
+    }
+
+    over "collision"
+    {
+        quatf xformOp:orient = (1, 0, 0, 0)
+        float3 xformOp:scale = (1, 1, 1)
+        double3 xformOp:translate = (2.1954369667956724, 1.6530903894894888, 4.884981308350689e-15)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+
+        over "geo_1" (
+            prepend apiSchemas = ["PhysicsCollisionAPI", "MaterialBindingAPI"]
+        )
+        {
+            rel material:binding:physics = </sign/PhysicsMaterials/PLA> (
+                bindMaterialAs = "weakerThanDescendants"
+            )
+            uniform token purpose = "guide"
+        }
+
+        over "geo_0" (
+            prepend apiSchemas = ["PhysicsCollisionAPI", "PhysicsMeshCollisionAPI", "MaterialBindingAPI"]
+        )
+        {
+            rel material:binding:physics = </sign/PhysicsMaterials/PLA> (
+                bindMaterialAs = "weakerThanDescendants"
+            )
+            uniform token physics:approximation = "none"
+            uniform token purpose = "guide"
+        }
+    }
+}
+
+def "Render" (
+    hide_in_stage_window = true
+    no_delete = true
+)
+{
+    def "OmniverseKit"
+    {
+        def "HydraTextures" (
+            hide_in_stage_window = true
+            no_delete = true
+        )
+        {
+            def RenderProduct "omni_kit_widget_viewport_ViewportTexture_0" (
+                prepend apiSchemas = ["OmniRtxSettingsCommonAdvancedAPI_1", "OmniRtxSettingsRtAdvancedAPI_1", "OmniRtxSettingsPtAdvancedAPI_1", "OmniRtxSettingsParticleFieldAPI_1", "OmniRtxPostColorGradingAPI_1", "OmniRtxPostChromaticAberrationAPI_1", "OmniRtxPostBloomPhysicalAPI_1", "OmniRtxPostMatteObjectAPI_1", "OmniRtxPostCompositingAPI_1", "OmniRtxPostDofAPI_1", "OmniRtxPostMotionBlurAPI_1", "OmniRtxPostTvNoiseAPI_1", "OmniRtxPostTonemapIrayReinhardAPI_1", "OmniRtxPostDebugSettingsAPI_1", "OmniRtxDebugSettingsAPI_1"]
+                hide_in_stage_window = true
+                no_delete = true
+            )
+            {
+                rel camera = </OmniverseKit_Persp>
+                token omni:rtx:ambientOcclusion:denoiserMode = "none"
+                token omni:rtx:background:source:texture:textureMode = "repeatMirrored"
+                token omni:rtx:background:source:type = "domeLight"
+                bool omni:rtx:debug:view:pixelDebug:enableFixedTextPos = 1
+                token omni:rtx:directLighting:sampledLighting:denoisingTechnique = "None"
+                bool omni:rtx:dlss:frameGeneration
+                bool omni:rtx:indirectDiffuse:denoiser:enabled = 0
+                bool omni:rtx:material:db:syncLoads = 1
+                token omni:rtx:post:dlss:execMode = "performance"
+                bool omni:rtx:post:registeredCompositing:invertColorCorrection = 1
+                bool omni:rtx:post:registeredCompositing:invertToneMap = 1
+                bool omni:rtx:pt:adaptiveSampling:filterError = 0
+                uint omni:rtx:pt:adaptiveSampling:fixedSppIterations = 2
+                uint omni:rtx:pt:maxSamplesPerLaunch = 2073600
+                uint omni:rtx:pt:mgpu:maxPixelsPerRegionExponent = 12
+                bool omni:rtx:reflections:denoiser:enabled = 0
+                token omni:rtx:rendermode = "RealTimePathTracing"
+                color3f omni:rtx:rt:ambientLight:color = (0.1, 0.1, 0.1)
+                bool omni:rtx:rt:demoire = 0
+                bool omni:rtx:rt:lightcache:spatialCache:dontResolveConflicts = 1
+                int omni:rtx:rt:sss:samples = 1
+                uint omni:rtx:rtpt:maxVolumeBounces = 15
+                float omni:rtx:rtpt:modulatingRoughnessThreshold = 0.08
+                bool omni:rtx:scene:hydra:materialSyncLoads = 1
+                bool omni:rtx:scene:hydra:mdlMaterialWarmup = 1
+                rel orderedVars = </Render/Vars/LdrColor>
+                custom bool overrideClipRange = 0
+                uniform int2 resolution = (1280, 720)
+            }
+        }
+    }
+
+    def RenderSettings "OmniverseGlobalRenderSettings" (
+        prepend apiSchemas = ["OmniRtxSettingsGlobalRtAdvancedAPI_1", "OmniRtxSettingsGlobalPtAdvancedAPI_1"]
+        no_delete = true
+    )
+    {
+        rel products = </Render/OmniverseKit/HydraTextures/omni_kit_widget_viewport_ViewportTexture_0>
+    }
+
+    def "Vars" (
+        hide_in_stage_window = true
+        no_delete = true
+    )
+    {
+        def RenderVar "LdrColor" (
+            hide_in_stage_window = true
+            no_delete = true
+        )
+        {
+            uniform string sourceName = "LdrColor"
+            uniform token sourceType = "raw"
+        }
+    }
+}
+
+over "OmniverseKit_Persp" (
+    prepend apiSchemas = ["OmniRtxCameraAutoExposureAPI_1", "OmniRtxCameraExposureAPI_1"]
+    customData = {
+        dictionary omni = {
+            dictionary kit = {
+                bool hide_in_stage_window = 1
+                bool no_delete = 1
+            }
+        }
+    }
+    hide_in_stage_window = true
+    kind = "component"
+    no_delete = true
+)
+{
+    float2 clippingRange = (0.01, 10000000)
+    float exposure:fStop = 5
+    float exposure:responsivity = 1.1026709
+    float exposure:time = 0.02
+    float focalLength = 18.147562
+    float focusDistance = 400
+    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -0.44638737658988226)
+    float3 xformOp:rotateXYZ = (74.244896, -1.5902774e-14, -72.41147)
+    float3 xformOp:scale = (1, 1, 1)
+    double3 xformOp:translate = (-0.411569627192053, -0.10980843256382423, 0.21490586387323882)
+    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
+}
+
+over "OmniverseKit_Front" (
+    customData = {
+        dictionary omni = {
+            dictionary kit = {
+                bool hide_in_stage_window = 1
+                bool no_delete = 1
+            }
+        }
+    }
+    hide_in_stage_window = true
+    kind = "component"
+    no_delete = true
+)
+{
+    float2 clippingRange = (1, 10000000)
+    float horizontalAperture = 50
+    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -5)
+    token projection = "orthographic"
+    float verticalAperture = 50
+    float3 xformOp:rotateXYZ = (90, -1.2722219e-14, 90)
+    float3 xformOp:scale = (1, 1, 1)
+    double3 xformOp:translate = (5, 0, 0)
+    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
+}
+
+over "OmniverseKit_Right" (
+    prepend apiSchemas = ["OmniRtxCameraAutoExposureAPI_1", "OmniRtxCameraExposureAPI_1"]
+    customData = {
+        dictionary omni = {
+            dictionary kit = {
+                bool hide_in_stage_window = 1
+                bool no_delete = 1
+            }
+        }
+    }
+    hide_in_stage_window = true
+    kind = "component"
+    no_delete = true
+)
+{
+    float2 clippingRange = (1, 10000000)
+    float exposure:fStop = 5
+    float exposure:responsivity = 1.1026709
+    float exposure:time = 0.02
+    float horizontalAperture = 3.6469972
+    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -50000.000000000015)
+    token projection = "orthographic"
+    float verticalAperture = 3.6469972
+    float3 xformOp:rotateXYZ = (90, -0, -1.2722219e-14)
+    float3 xformOp:scale = (1, 1, 1)
+    double3 xformOp:translate = (-0.004052994552903479, -50000.0000000084, 0.09242621319883121)
+    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
+}
+
+over "OmniverseKit_Top" (
+    customData = {
+        dictionary omni = {
+            dictionary kit = {
+                bool hide_in_stage_window = 1
+                bool no_delete = 1
+            }
+        }
+    }
+    hide_in_stage_window = true
+    kind = "component"
+    no_delete = true
+)
+{
+    float2 clippingRange = (1, 10000000)
+    float horizontalAperture = 50
+    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -5)
+    token projection = "orthographic"
+    float verticalAperture = 50
+    float3 xformOp:rotateXYZ = (1.2722219e-14, -7.016709e-15, -90)
+    float3 xformOp:scale = (1, 1, 1)
+    double3 xformOp:translate = (0, 0, 5)
+    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
+}
+

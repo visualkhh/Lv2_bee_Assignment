@@ -1,0 +1,8 @@
+floor_*.jpg: tileable (seamless) floor textures (Diffuse 1k JPG) from Poly Haven (https://polyhaven.com/textures), CC0 (public domain).
+1 tile = 1m x 1m (texture repeats every meter in the simulator).
+  floor_concrete.jpg  <- https://polyhaven.com/a/concrete_floor
+  floor_tiles.jpg     <- https://polyhaven.com/a/tiled_floor_001
+  floor_wood.jpg      <- https://polyhaven.com/a/wood_floor
+  floor_garage.jpg    <- https://polyhaven.com/a/garage_floor
+Direct files: https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/<asset>/<asset>_diff_1k.jpg (tiled_floor_001 uses _diffuse_1k).
+Checked against perception HSV ranges (realsense.yaml): no blue regions large enough to be a target candidate.

@@ -1,0 +1,15 @@
+# 관절 속도·가속도 한계 — 궤적 시간 붙이기(AddTimeOptimalParameterization)가 쓴다 (move_group robot_description_planning)
+# URDF <limit>에는 가속도가 없어서 여기서 준다. 값은 XM430-W350 기준 추정 (TODO 실측)
+#   max_velocity: URDF velocity(4.817 rad/s)보다 낮게 — 실제 팔 동작은 coordinator가 0.3배로 더 줄임
+/**:
+  ros__parameters:
+    default_velocity_scaling_factor: 0.3
+    default_acceleration_scaling_factor: 0.3
+    joint_limits:
+      joint1: {has_velocity_limits: true, max_velocity: 3.0, has_acceleration_limits: true, max_acceleration: 5.0}
+      joint2: {has_velocity_limits: true, max_velocity: 3.0, has_acceleration_limits: true, max_acceleration: 5.0}
+      joint3: {has_velocity_limits: true, max_velocity: 3.0, has_acceleration_limits: true, max_acceleration: 5.0}
+      joint4: {has_velocity_limits: true, max_velocity: 3.0, has_acceleration_limits: true, max_acceleration: 5.0}
+      joint5: {has_velocity_limits: true, max_velocity: 3.0, has_acceleration_limits: true, max_acceleration: 5.0}
+      gripper_left_joint: {has_velocity_limits: true, max_velocity: 0.07, has_acceleration_limits: true, max_acceleration: 0.5}
+      gripper_right_joint: {has_velocity_limits: true, max_velocity: 0.07, has_acceleration_limits: true, max_acceleration: 0.5}

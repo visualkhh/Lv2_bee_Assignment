@@ -1,0 +1,391 @@
+#!/usr/bin/env bash
+# run-vnc-server — Jetson 화면 공유 서버 (x11vnc)
+#
+# 이 스크립트는 Jetson에서 실행한다. PC에서는 run-vnc-client를 사용한다.
+# 기본값: DISPLAY=:0, 127.0.0.1:5900, VNC 비밀번호 ~/.vnc/passwd
+# 모니터 없이: --headless 한 번 (sudo) — X에 가상 모니터(가짜 EDID)를 꽂아 GNOME이 화면을 그리게 한다 (더미 플러그 대신)
+set -euo pipefail
+
+XDISPLAY="${X11VNC_DISPLAY:-:0}"
+VNC_PORT="${VNC_PORT:-5900}"
+VNC_PASSWD="${VNC_PASSWD:-$HOME/.vnc/passwd}"
+LOG_FILE="${X11VNC_LOG:-$HOME/.vnc/x11vnc.log}"
+PID_FILE="${X11VNC_PID:-$HOME/.vnc/x11vnc.pid}"
+AUTH="${X11VNC_AUTH:-guess}"
+WAIT_MS="${X11VNC_WAIT:-20}"
+DEFER_MS="${X11VNC_DEFER:-40}"
+# 저부하 프리셋 (x11vnc에 -quality 같은 색상 강제 옵션은 없음. 색상은 클라이언트가 정함)
+SPEEDS="${X11VNC_SPEEDS:-dsl}"
+WIREFRAME="${X11VNC_WIREFRAME:-1}"
+SB_SECS="${X11VNC_SB:-15}"
+# GNOME 애니메이션 (기본 off — 원격 화면 전송량 줄임). on이면 다시 켬, keep이면 안 건드림
+ANIMATIONS="${X11VNC_ANIMATIONS:-off}"
+# 저해상도 기본값: 전송량을 줄이기 위해 960x540으로 축소 전송한다.
+# 원래 해상도로 쓰려면 X11VNC_SCALE=off ./run-vnc-server 또는 --scale off
+SCALE="${X11VNC_SCALE:-960x540}"
+# 실제 X 출력 해상도 변경 (물리 모니터에도 같이 적용됨). 모니터가 없으면 화면(프레임버퍼) 크기만 이 값으로.
+# 기본 1280x720으로 자동 적용. 변경하지 않으려면 keep/off/none 또는 빈 값.
+# 예: ./run-vnc-server --restart --xrandr keep
+XRANDR_MODE="${X11VNC_XRANDR_MODE:-1280x720}"
+XRANDR_OUTPUT="${X11VNC_OUTPUT:-}"
+XRANDR_EXPLICIT=0
+[[ -n "${X11VNC_XRANDR_MODE+set}" ]] && XRANDR_EXPLICIT=1
+XA_FOUND=""   # apply_xrandr가 찾은 Xauthority — x11vnc -auth guess는 SSH에서 못 찾는다 (실측 10/26)
+ACTION=start
+FOREGROUND=0
+
+# --headless: 가상 모니터 — 모니터가 없으면 X(nvidia, AllowEmptyInitialConfiguration)는 640x480 빈 화면으로 뜨지만
+#   GNOME(mutter)은 모니터 0개라 아무것도 안 그린다 → VNC가 검은 화면 (실측 10/26: Monitors: 0, root 전부 0).
+#   xrandr --setmonitor(가상 모니터 객체)는 mutter가 무시함(실측). nvidia 드라이버의 ConnectedMonitor + CustomEDID로
+#   DP(DFP-0)에 모니터가 꽂힌 것처럼 한다 = 소프트웨어 더미 플러그. GPU로 그린 화면 그대로.
+XORG_CONF=/etc/X11/xorg.conf
+EDID_FILE=/etc/X11/edid-bee-virtual.bin
+HEADLESS_MARK="# run-vnc-server --headless"
+HEADLESS_OUTPUT="${X11VNC_HEADLESS_OUTPUT:-DFP-0}"
+# 가짜 모니터 EDID 128바이트 — 이름 BEE-VIRTUAL · 1920x1080@60(기본) · 1280x720@60 · 1920x1080@60
+VIRTUAL_EDID_HEX="00ffffffffffff0008a50100000000000124010380341d780aee91a3544c99260f505421080081c0d1c0010101010101010101010101023a801871382d40582c4500fd1e1100001e000000fc004245452d5649525455414c0a20000000fd00384b1e530f000a2020202020200000001000000000000000000000000000000084"
+RESTART_GDM=1
+
+usage() {
+  cat <<'EOF'
+사용법:
+  ./run-vnc-server [옵션]
+  ./run-vnc-server --start
+  ./run-vnc-server --status
+  ./run-vnc-server --stop
+  ./run-vnc-server --restart
+
+옵션:
+  -d, --display :N        X display (기본 :0)
+  -p, --port N            VNC 포트 (기본 5900)
+      --password FILE     VNC 비밀번호 파일 (기본 ~/.vnc/passwd)
+      --scale WxH         x11vnc 출력 축소 (기본 960x540, off면 축소 안 함)
+                        예: 960x540 / 1280x720 / 1024x600 / 1/2 / off
+      --xrandr MODE       Jetson 실제 출력 해상도 변경 후 시작 (기본 1280x720)
+                        keep면 변경 안 함. 물리 모니터에도 같이 적용됨
+      --speeds MODE       저속 링크 스케줄러 튜닝 (기본 dsl, off면 미사용)
+                        예: dsl / modem / lan / off
+      --sb SECS           무입력 시 폴링 간격 늦추기까지 대기 초 (기본 15, 0이면 끔)
+      --animations MODE   GNOME 애니메이션 (기본 off — 원격에서 가볍게, on: 다시 켬, keep: 안 건드림)
+      --wireframe         창 드래그 중 와이어프레임 표시 (기본 켜짐)
+      --no-wireframe      와이어프레임 끄기
+      --foreground        백그라운드 대신 현재 터미널에서 실행
+      --headless          모니터 없이 쓰기 — 가상 모니터 설치 (sudo, 한 번). GDM 재시작
+      --headless-undo     가상 모니터 제거 (진짜 모니터를 꽂아 쓸 때) — GDM 재시작
+      --no-gdm-restart    --headless(-undo) 뒤 GDM을 재시작하지 않음 (다음 부팅부터 적용)
+      --start             x11vnc 시작 (기본 동작, 이미 실행 중이면 유지)
+      --status            실행 상태만 확인
+      --stop              x11vnc 종료
+      --restart           종료 후 다시 시작 (설정 변경 적용용)
+  -h, --help              이 도움말
+
+환경변수:
+  X11VNC_DISPLAY, VNC_PORT, VNC_PASSWD, X11VNC_LOG, X11VNC_PID,
+  X11VNC_AUTH, X11VNC_WAIT, X11VNC_DEFER, X11VNC_SCALE,
+  X11VNC_XRANDR_MODE, X11VNC_OUTPUT, X11VNC_SPEEDS, X11VNC_WIREFRAME,
+  X11VNC_SB, X11VNC_ANIMATIONS
+
+보안:
+  항상 -localhost로 실행한다. PC는 SSH 터널을 통해서만 접속한다.
+EOF
+}
+
+die() {
+  echo "에러: $*" >&2
+  exit 1
+}
+
+need_value() {
+  [[ $# -ge 2 && -n "$2" ]] || die "$1 옵션에 값이 필요합니다."
+}
+
+port_in_use() {
+  ss -ltnH 2>/dev/null | awk -v port=":${VNC_PORT}" '$4 ~ port"$" { found = 1 } END { exit !found }'
+}
+
+listener_pids() {
+  ss -ltnpH "sport = :${VNC_PORT}" 2>/dev/null |
+    sed -n 's/.*pid=\([0-9][0-9]*\).*/\1/p' |
+    sort -u
+}
+
+show_status() {
+  echo "display : ${XDISPLAY}"
+  echo "address : 127.0.0.1:${VNC_PORT} (localhost only)"
+  echo "passwd  : ${VNC_PASSWD}"
+  echo "scale   : ${SCALE:-off (원본 해상도)}"
+  echo "speeds  : ${SPEEDS:-off}"
+  echo "wirefrm : ${WIREFRAME}"
+  echo "anim    : ${ANIMATIONS}"
+  echo "sb      : ${SB_SECS}"
+  echo "xrandr  : ${XRANDR_MODE:-keep (변경 안 함)}"
+  echo "log     : ${LOG_FILE}"
+  if port_in_use; then
+    echo "state   : LISTEN"
+    ss -ltnpH "sport = :${VNC_PORT}" 2>/dev/null || true
+    local pids
+    pids="$(listener_pids || true)"
+    [[ -n "$pids" ]] && echo "pid     : ${pids}"
+  else
+    echo "state   : stopped"
+  fi
+}
+
+stop_server() {
+  local pids=""
+  if [[ -f "$PID_FILE" ]]; then
+    local pid
+    pid="$(cat "$PID_FILE" 2>/dev/null || true)"
+    if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null &&
+       [[ "$(cat "/proc/${pid}/comm" 2>/dev/null || true)" == "x11vnc" ]]; then
+      pids="$pid"
+    fi
+  fi
+  if [[ -z "$pids" ]]; then
+    pids="$(listener_pids || true)"
+  fi
+
+  if [[ -z "$pids" ]]; then
+    echo "x11vnc가 실행 중이 아닙니다."
+    rm -f "$PID_FILE"
+    return 0
+  fi
+
+  echo "x11vnc 종료: ${pids}"
+  # shellcheck disable=SC2086
+  kill $pids 2>/dev/null || true
+  for _ in $(seq 1 20); do
+    if ! port_in_use; then
+      rm -f "$PID_FILE"
+      echo "종료됨."
+      return 0
+    fi
+    sleep 0.2
+  done
+
+  echo "정상 종료되지 않아 강제 종료합니다." >&2
+  # shellcheck disable=SC2086
+  kill -9 $pids 2>/dev/null || true
+  rm -f "$PID_FILE"
+}
+
+apply_xrandr() {
+  case "${XRANDR_MODE,,}" in
+    ""|keep|off|none) echo "xrandr 유지 (실제 해상도 변경 안 함)"; return 0 ;;
+  esac
+  command -v xrandr >/dev/null 2>&1 || die "xrandr가 없습니다. Jetson에서 'sudo apt install -y x11-xserver-utils' 실행"
+
+  # SSH에서도 동작하도록 XAUTHORITY 후보를 순서대로 시도
+  local cands=()
+  [[ -n "${XAUTHORITY:-}" ]] && cands+=("$XAUTHORITY")
+  cands+=("/run/user/$(id -u)/gdm/Xauthority" "$HOME/.Xauthority")
+  local xa="" c
+  for c in "${cands[@]}"; do
+    if [[ -r "$c" ]] && DISPLAY="$XDISPLAY" XAUTHORITY="$c" xrandr --current >/dev/null 2>&1; then
+      xa="$c"
+      break
+    fi
+  done
+  [[ -n "$xa" ]] || die "X 세션에 접근할 수 없습니다. Jetson 모니터에서 bee로 그래픽 로그인(또는 자동 로그인)되어 있는지 확인 — loginctl list-sessions"
+  XA_FOUND="$xa"
+
+  local out="$XRANDR_OUTPUT"
+  if [[ -z "$out" ]]; then
+    out="$(DISPLAY="$XDISPLAY" XAUTHORITY="$xa" xrandr --current | awk '$2=="connected"{print $1; exit}')"
+  fi
+  if [[ -z "$out" ]]; then
+    # 모니터 없음 — 화면(프레임버퍼)은 있어도 GNOME이 모니터 0개라 아무것도 안 그린다 → VNC가 검은 화면
+    die "연결된 모니터 없음 — 이대로면 VNC가 검은 화면입니다. 가상 모니터를 한 번 설치: ./run-vnc-server --headless (sudo)"
+  fi
+
+  local modes
+  modes="$(DISPLAY="$XDISPLAY" XAUTHORITY="$xa" xrandr --current | awk -v o="$out" '/^[^[:space:]]/{p=($1==o)} p && /^[[:space:]]+[0-9]+x[0-9]+/{print $1}')"
+  if ! printf '%s\n' "$modes" | grep -qx "$XRANDR_MODE"; then
+    if [[ "$XRANDR_EXPLICIT" -eq 1 ]]; then
+      echo "출력 ${out}에서 모드 ${XRANDR_MODE}를 지원하지 않습니다. 사용 가능:" >&2
+      printf '%s\n' "$modes" >&2
+      exit 1
+    fi
+    echo "경고: 출력 ${out}에서 기본 모드 ${XRANDR_MODE} 미지원. 실제 해상도는 그대로 둡니다. 사용 가능:" >&2
+    printf '%s\n' "$modes" >&2
+    return 0
+  fi
+
+  echo "xrandr 적용: ${out} -> ${XRANDR_MODE}"
+  DISPLAY="$XDISPLAY" XAUTHORITY="$xa" xrandr --output "$out" --mode "$XRANDR_MODE" \
+    || die "xrandr 적용 실패 (출력: ${out}, 모드: ${XRANDR_MODE})"
+}
+
+# GNOME 애니메이션 끄기 — 원격 화면은 바뀐 픽셀을 전부 보내야 해서 애니메이션이 곧 전송량·지연
+#   (xrdp 가상 화면은 GPU 없이 CPU로 그리기까지 함). 사용자 설정(dconf)이라 모니터 로그인·xrdp 세션 모두에 남는다.
+#   SSH에서도 되게 세션 버스(/run/user/UID/bus)를 찾아 쓴다. 다시 켜기: --animations on
+apply_animations() {
+  case "${ANIMATIONS,,}" in keep|"") return 0 ;; esac
+  local val=false
+  [[ "${ANIMATIONS,,}" =~ ^(on|true|1)$ ]] && val=true
+  if ! command -v gsettings >/dev/null 2>&1; then
+    echo "경고: gsettings 없음 — 애니메이션 설정 건너뜀" >&2
+    return 0
+  fi
+  local bus="${DBUS_SESSION_BUS_ADDRESS:-}"
+  [[ -z "$bus" && -S "/run/user/$(id -u)/bus" ]] && bus="unix:path=/run/user/$(id -u)/bus"
+  if DBUS_SESSION_BUS_ADDRESS="$bus" gsettings set org.gnome.desktop.interface enable-animations "$val" 2>/dev/null; then
+    echo "GNOME 애니메이션: ${val}"
+  else
+    echo "경고: GNOME 애니메이션 설정 실패 (세션 버스 없음?) — 건너뜀" >&2
+  fi
+}
+
+start_server() {
+  command -v x11vnc >/dev/null 2>&1 || die "x11vnc가 없습니다. Jetson에서 'sudo apt install -y x11vnc' 실행"
+
+  if [[ ! -f "$VNC_PASSWD" ]]; then
+    if [[ -t 0 && -t 1 ]]; then
+      echo "VNC 비밀번호 파일이 없어 새로 만듭니다: ${VNC_PASSWD}"
+      mkdir -p "$(dirname "$VNC_PASSWD")"
+      x11vnc -storepasswd
+    else
+      die "VNC 비밀번호 파일이 없습니다: ${VNC_PASSWD} (Jetson에서 x11vnc -storepasswd 실행)"
+    fi
+  fi
+
+  # 실제 해상도 변경이 요청되면 x11vnc 기동 전에 적용 (모니터+VNC 둘 다 영향)
+  apply_xrandr
+  apply_animations
+
+  if port_in_use; then
+    echo "이미 ${VNC_PORT} 포트에서 x11vnc가 실행 중입니다."
+    show_status
+    return 0
+  fi
+
+  mkdir -p "$(dirname "$LOG_FILE")" "$(dirname "$PID_FILE")"
+
+  local cmd=(
+    x11vnc
+    -display "$XDISPLAY"
+    -auth "$([[ "$AUTH" == guess && -n "$XA_FOUND" ]] && echo "$XA_FOUND" || echo "$AUTH")"
+    -forever
+    -shared
+    -rfbauth "$VNC_PASSWD"
+    -localhost
+    -rfbport "$VNC_PORT"
+    -wait "$WAIT_MS"
+    -defer "$DEFER_MS"
+  )
+  # SCALE=off/none/orig/1/1x1 이면 축소 없이 원본 해상도로 실행
+  if [[ -n "$SCALE" && ! "${SCALE,,}" =~ ^(off|none|orig|1|1x1)$ ]]; then
+    cmd+=(-scale "$SCALE")
+  fi
+  # 저속 링크 스케줄러 튜닝 (dsl/modem/lan 또는 rd,bw,lat)
+  if [[ -n "$SPEEDS" && ! "${SPEEDS,,}" =~ ^(off|none)$ ]]; then
+    cmd+=(-speeds "$SPEEDS")
+  fi
+  # 창 드래그 중 전체 다시 그리기 대신 와이어프레임 (저속 링크에서 체감 큼)
+  if [[ "${WIREFRAME,,}" =~ ^(1|on|yes|true)$ ]]; then
+    cmd+=(-wireframe)
+  else
+    cmd+=(-nowireframe)
+  fi
+  # 평소엔 -nap(기본값)으로 쉬고, 무입력 SB_SECS초 후 폴링을 더 늦춤
+  cmd+=(-nap -sb "$SB_SECS")
+
+  # 실제 기동 명령행을 로그에 남긴다 (적용 여부 증거용)
+  printf '=== %s CMD: %s\n' "$(date '+%F %T')" "${cmd[*]}" >>"$LOG_FILE"
+
+  if [[ "$FOREGROUND" -eq 1 ]]; then
+    echo "x11vnc를 foreground로 실행합니다. 종료: Ctrl-C"
+    exec "${cmd[@]}"
+  fi
+
+  nohup "${cmd[@]}" >"$LOG_FILE" 2>&1 &
+  local pid=$!
+  printf '%s\n' "$pid" >"$PID_FILE"
+  sleep 1
+
+  if ! kill -0 "$pid" 2>/dev/null; then
+    echo "x11vnc 시작 실패. 로그:" >&2
+    tail -30 "$LOG_FILE" >&2 || true
+    exit 1
+  fi
+
+  echo "x11vnc 시작됨 (pid ${pid})"
+  echo "주소: 127.0.0.1:${VNC_PORT} (SSH 터널 필요)"
+  echo "로그: ${LOG_FILE}"
+  show_status
+}
+
+# 가상 모니터 설치 — xorg.conf Device 섹션에 ConnectedMonitor·CustomEDID (원본: xorg.conf.run-vnc.bak)
+headless_install() {
+  sudo -v || die "sudo 권한이 필요합니다."
+  [[ -f "$XORG_CONF" ]] || die "${XORG_CONF} 없음"
+  grep -q '^[[:space:]]*Driver[[:space:]]*"nvidia"' "$XORG_CONF" || die "${XORG_CONF}에 nvidia Device 섹션이 없습니다"
+  printf '%b' "$(sed 's/../\\x&/g' <<<"$VIRTUAL_EDID_HEX")" | sudo tee "$EDID_FILE" >/dev/null
+  [[ "$(stat -c %s "$EDID_FILE")" -eq 128 ]] || die "EDID 파일 크기 오류: ${EDID_FILE}"
+  [[ -f "${XORG_CONF}.run-vnc.bak" ]] || sudo cp -a "$XORG_CONF" "${XORG_CONF}.run-vnc.bak"
+  if grep -qF "$HEADLESS_MARK" "$XORG_CONF"; then
+    echo "가상 모니터 설정이 이미 있습니다: ${XORG_CONF}"
+  else
+    # nvidia Device 섹션의 Driver 줄 바로 뒤에 넣는다
+    sudo sed -i "/^[[:space:]]*Driver[[:space:]]*\"nvidia\"/a\\
+    Option      \"ConnectedMonitor\" \"${HEADLESS_OUTPUT}\"  ${HEADLESS_MARK}\\
+    Option      \"CustomEDID\" \"${HEADLESS_OUTPUT}:${EDID_FILE}\"  ${HEADLESS_MARK}" "$XORG_CONF"
+  fi
+  echo "== ${XORG_CONF}"
+  grep -v '^[[:space:]]*#' "$XORG_CONF" | sed '/^$/d'
+  restart_gdm
+  echo "다음: ./run-vnc-server (모니터 = 가상 BEE-VIRTUAL). 진짜 모니터를 꽂아 쓸 때는 ./run-vnc-server --headless-undo"
+}
+
+headless_undo() {
+  sudo -v || die "sudo 권한이 필요합니다."
+  sudo sed -i "/${HEADLESS_MARK//\//\\/}/d" "$XORG_CONF"
+  sudo rm -f "$EDID_FILE"
+  echo "가상 모니터 제거: ${XORG_CONF}"
+  restart_gdm
+}
+
+# GDM 재시작 — 데스크톱(자동 로그인 세션)이 다시 뜬다. SSH에서 띄운 ROS는 그대로, 데스크톱 터미널에서 띄운 것은 꺼짐
+restart_gdm() {
+  [[ "$RESTART_GDM" -eq 1 ]] || { echo "GDM 재시작 생략 — 다음 부팅(또는 sudo systemctl restart gdm)부터 적용"; return 0; }
+  echo "GDM 재시작 (x11vnc도 같이 끝남 — 잠시 뒤 ./run-vnc-server)"
+  sudo systemctl restart gdm
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -d|--display)   need_value "$1" "${2:-}"; XDISPLAY="$2"; shift 2 ;;
+    -p|--port)      need_value "$1" "${2:-}"; VNC_PORT="$2"; shift 2 ;;
+    --password)     need_value "$1" "${2:-}"; VNC_PASSWD="$2"; shift 2 ;;
+    --scale)        need_value "$1" "${2:-}"; SCALE="$2"; shift 2 ;;
+    --xrandr)       need_value "$1" "${2:-}"; XRANDR_MODE="$2"; XRANDR_EXPLICIT=1; shift 2 ;;
+    --speeds)       need_value "$1" "${2:-}"; SPEEDS="$2"; shift 2 ;;
+    --sb)           need_value "$1" "${2:-}"; SB_SECS="$2"; shift 2 ;;
+    --animations)   need_value "$1" "${2:-}"; ANIMATIONS="$2"; shift 2 ;;
+    --wireframe)    WIREFRAME=1; shift ;;
+    --no-wireframe) WIREFRAME=0; shift ;;
+    --foreground)   FOREGROUND=1; shift ;;
+    --headless)     ACTION=headless; shift ;;
+    --headless-undo) ACTION=headless_undo; shift ;;
+    --no-gdm-restart) RESTART_GDM=0; shift ;;
+    --start)        ACTION=start; shift ;;
+    --status)       ACTION=status; shift ;;
+    --stop)         ACTION=stop; shift ;;
+    --restart)      ACTION=restart; shift ;;
+    -h|--help)      usage; exit 0 ;;
+    *)              die "알 수 없는 옵션: $1 (--help 참고)" ;;
+  esac
+done
+
+[[ "$VNC_PORT" =~ ^[0-9]+$ ]] || die "포트는 숫자여야 합니다: ${VNC_PORT}"
+(( VNC_PORT >= 1 && VNC_PORT <= 65535 )) || die "포트 범위 오류: ${VNC_PORT}"
+[[ "$SB_SECS" =~ ^[0-9]+$ ]] || die "--sb 값은 숫자(초)여야 합니다: ${SB_SECS}"
+
+case "$ACTION" in
+  status)  show_status ;;
+  stop)    stop_server ;;
+  restart) stop_server; start_server ;;
+  start)   start_server ;;
+  headless) headless_install ;;
+  headless_undo) headless_undo ;;
+esac

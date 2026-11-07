@@ -1,0 +1,5 @@
+wall_*.jpg: tileable wall textures (Diffuse 1k JPG) from Poly Haven (https://polyhaven.com/textures), CC0 (public domain).
+Horizontal repeat every 0.5m, vertical stretched to wall height in the simulator.
+  wall_concrete.jpg  <- https://polyhaven.com/a/concrete_wall_001
+  wall_painted.jpg   <- https://polyhaven.com/a/painted_concrete_02
+Direct files: https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/<asset>/<asset>_diff_1k.jpg

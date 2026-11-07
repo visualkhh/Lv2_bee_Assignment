@@ -1,0 +1,15 @@
+# skill 정책 폴더 — 이 skill 노드가 읽음 (skills/include/skills/model.hpp). 한 줄 "키: 값"
+
+skill: drive_straight
+kind: base            # arm (rl_arm_correction이 계산) | base (skill_approach가 계산)
+layout: nav          # ml/nav_obs.hpp 13
+use: true
+node: skill_approach
+sim_baseline: 61.4      # [%] 학습 없이 기준 동작만 (1024판)
+sim_policy: 100.0        # [%] 학습 뒤
+tol_m: 0.01           # [m] 도착 판정 (시뮬 drive_env TASKS)
+tol_deg: 1.0          # [deg]
+hold_s: 0.5          # [s] 그 안에 멈춰 있어야
+limit_s: 20.0         # [s] 시뮬 제한 시간 (정책 입력 시간 비율)
+source: isaac/lab drive_env task=straight · 2048 env × 500회 (11-03)
+note: approach target drive_straight

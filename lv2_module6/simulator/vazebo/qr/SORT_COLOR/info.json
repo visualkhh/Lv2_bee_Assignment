@@ -1,0 +1,10 @@
+{
+  "text": "MISSION:SORT_COLOR",
+  "name": "색깔별 정렬",
+  "pucks": 6,
+  "colors": 3,
+  "lying": [
+    0,
+    0
+  ]
+}
