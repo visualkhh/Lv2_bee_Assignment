@@ -1,7 +1,8 @@
 // RlNavController — Nav2 controller 플러그인 (ml 패키지) (ONNX 정책 + 기본 controller 바이패스).
-//   관측 51: 웨이포인트 5×2 + 가상 스캔 36 + v/w/gyro + 이전 행동 2
-//   가상 스캔: pole_front_cam 점구름(PointCloud2) → base_footprint 36방향 최소거리 (LiDAR 없음)
+//   관측 = 웨이포인트 5×2 + 가상 스캔 lidar_rays + v/w/gyro + 이전 행동 2
+//   가상 스캔: nvblox 2D ESDF height slice(PointCloud2) → base_footprint lidar_rays방향 최소거리 (LiDAR 없음)
 //   ~/<controller>/toggle (std_srvs/SetBool): false(기본)=inner controller, true=정책
+//   ~/<controller>/status: [rl_active, reason, …] — CLI 노드 상태가 RL/DWB를 판별한다.
 #pragma once
 
 #include <array>
@@ -50,6 +51,10 @@ public:
 private:
   void load_model(const std::string & path);
   void on_cloud(const sensor_msgs::msg::PointCloud2::SharedPtr cloud);
+  // RL/DWB 상태 — [rl_active, reason, policy_loaded, enable, cloud_ok, cloud_age, scan_min, v, w, inner_kind]
+  //   reason: 0=RL, 1=모델 없음/로드 실패, 2=enable=false, 3=센서 없음/stale, 4=추론 실패
+  //   inner_kind: 1=DWB, 2=MPPI, 3=RPP, 4=RotationShim, 0=기타
+  void publish_status(int rl_active, int reason, const geometry_msgs::msg::TwistStamped & cmd);
 
   nav2::LifecycleNode::WeakPtr node_;
   std::string name_;
@@ -63,12 +68,14 @@ private:
 
   nav2::ServiceServer<std_srvs::srv::SetBool>::SharedPtr toggle_srv_;
   rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr debug_pub_;
+  rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr status_pub_;
   nav2::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;
   nav2::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;
   nav2::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;
 
   std::mutex mtx_;
   bool enable_ = false;
+  bool enable_requested_ = false;  // YAML/toggle 의도 — 모델이 없어 enable_을 내려도 이유를 구분한다
   bool use_scan_ = false;
   sensor_msgs::msg::LaserScan::SharedPtr scan_;
   std::vector<float> ranges_;  // 가상 스캔 (m) — lidar_rays_개
@@ -82,16 +89,19 @@ private:
   float prev_a_[2] = {0.0f, 0.0f};
 
   // 파라미터 (기본값 = 학습 env와 같게; 모델이 다르면 yaml에서 맞춘다)
+  int inner_kind_ = 0;  // 1=DWB, 2=MPPI, 3=RPP, 4=RotationShim — status/CLI 표시용
   int lookahead_ = 5;
   double wp_step_ = 0.30, wp_scale_ = 2.0;
   int lidar_rays_ = 36;
   double lidar_max_ = 3.5;
+  double lidar_inflation_ = 0.02;  // [m] 사용자 안전 여유 — 기본 2 cm (학습 1~5 cm)
   double max_lin_ = 0.26, max_ang_ = 1.82, v_min_ratio_ = -0.2;
   double speed_ratio_ = 1.0;
   double extra_lin_vel_ = 0.0;  // [m/s] 정책 출력에 더하는 추가 선속도 (0~0.10, max_lin 상한 유지)
   double extra_ang_vel_ = 0.0;  // [rad/s] 정책 출력에 더하는 추가 각속도 (0~0.50, max_ang 상한 유지)
   int points_stride_ = 4;
   double z_min_ = 0.03, z_max_ = 1.2;
+  double esdf_max_distance_ = 0.20;  // nvblox ESDF intensity(장애물까지 거리) 필터 [m]
   double cloud_timeout_ = 0.5;
 };
 

@@ -17,7 +17,7 @@ if [ -n "$WS" ] && [ -f "$WS/install/setup.bash" ]; then
 fi
 
 exec ros2 bag record -o "$OUT" --topics \
-  /cmd_vel_nav \
+  /cmd_vel_nav /cmd_vel /cmd_vel_mux \
   /odometry/filtered /odom /imu \
   /plan /tf /tf_static \
   /controller_server/FollowPath/debug

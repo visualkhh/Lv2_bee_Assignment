@@ -11,7 +11,7 @@ tool/node/
 └── rl_nav_controller/              # Nav2 주행 컨트롤러 (정책 vs DWB)
     ├── run
     ├── record.sh
-    └── report.py                   # 횡오차·평균속도·정책 행동
+    └── (report.py는 ab/로 이동 → cli/op/pages/ab/rl_nav_controller/report.py)
 ```
 
 ## rl_nav_controller

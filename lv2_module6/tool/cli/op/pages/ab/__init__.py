@@ -11,9 +11,9 @@ import sys
 import time
 from pathlib import Path
 
-from ..ab import AB_NODES
-from ..defs import STAY
-from .base import GoMenu, Menu, MenuItem
+from ...defs import STAY
+from ..base import GoMenu, Menu, MenuItem
+from .core import AB_NODES
 
 
 class AbStatusItem(MenuItem):
@@ -62,7 +62,7 @@ class AbRecordItem(MenuItem):
             print('FAIL: 이미 녹화 중 — 4) 녹화 종료를 먼저 누르세요', file=sys.stderr)
             return STAY
         label = self.ui.modal_input(
-            'A/B 녹화', ['라벨 (예: A, B, on1, off1)', '저장: ~/bags/ab/<시각>_<라벨>'], '라벨>', default='A')
+            'A/B 녹화', ['라벨 (예: A, B, on1, off1)', '저장: tool/artifacts/ab/<시각>_<라벨>'], '라벨>', default='A')
         if label is None:
             return STAY
         try:

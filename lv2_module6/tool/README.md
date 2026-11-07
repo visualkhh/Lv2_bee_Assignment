@@ -279,7 +279,7 @@ cd tool
 - 자동: `./run-cli ab rl_nav_controller guide --label test1`
   (`tool/cli/ab/rl_nav_controller/command.json`의 start·route대로 A(정책) → 복귀 → B(DWB) 주행)
 - 수동: `status` · `record --label` · `stop` · `report --last` (위 ab/README 참고)
-- 리포트는 `tool/node/rl_nav_controller/report.py`가 만든다
+- 리포트는 `tool/cli/op/pages/ab/rl_nav_controller/report.py`가 만든다
 
 ## RViz
 

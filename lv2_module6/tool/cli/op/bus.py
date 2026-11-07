@@ -19,7 +19,7 @@ from geometry_msgs.msg import TwistStamped
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Bool, Empty, Int32MultiArray, String
 
-from .ab import AbTest
+from .pages.ab.core import AbTest
 from .consts import (ARM_JOINTS, DIAG_LEVELS, GRIPPER_CLOSE, GRIPPER_JOINT,
                     GRIPPER_OPEN, WHEEL_JOINTS)
 from .terminal import BOLD, DIM, GREEN, RED, YELLOW, Terminal
@@ -360,7 +360,7 @@ class Bus:
         return files[:n]
 
     def calibration_report(self, args) -> int:
-        script = Path(__file__).resolve().parents[1] / 'calibration' / 'wheel' / 'report.py'
+        script = Path(__file__).resolve().parent / 'pages' / 'calibration' / 'wheel' / 'report.py'
         if not script.is_file():
             print(f'FAIL: 리포트 스크립트 없음: {script}', file=sys.stderr)
             return 2
@@ -385,13 +385,13 @@ class Bus:
         return int(res.returncode)
 
     def cmd_calibrate(self, args) -> int:
-        """calibrate <부분> — wheel: 계획 파일을 /cmd/manual/cmd_vel로 재생하며 응답을 raw.csv로 기록 (op/calibrate.py). arm은 나중."""
+        """calibrate <부분> — wheel: 계획 파일을 /cmd/manual/cmd_vel로 재생하며 응답을 raw.csv로 기록 (op/pages/calibration/core.py). arm은 나중."""
         if args.part == 'report':
             return self.calibration_report(args)
         if args.part != 'wheel':
             print(f'거부: calibrate {args.part} — 아직 없음 (wheel만)', file=sys.stderr)
             return 2
-        from .calibrate import ensure_stow, load_plan, run
+        from .pages.calibration.core import ensure_stow, load_plan, run
         try:
             plan = load_plan(args.plan)
         except ValueError as exc:
@@ -1121,6 +1121,12 @@ class Bus:
         print(f'{name}: {self.lifecycle_state(name) or "?"}')
         return True
 
+    def node_feature_lines(self, name: str, summary: bool = False) -> list[str]:
+        """노드별 추가 상태 — op/pages/nodes/<node>.py의 NodeFeature."""
+        from .pages.nodes import feature_for
+        feature = feature_for(name)
+        return feature.status_lines(self, name, summary=summary) if feature else []
+
     def node_status_lines(self, name: str) -> list[str]:
         row = next((r for r in self.node_rows() if r['name'] == name), None)
         lines = [f'[{name}]']
@@ -1130,6 +1136,7 @@ class Bus:
                      f' · pid {row["pid"] or "-"}{"" if row["pid"] else " (state_manager 재시작 목록에 없음)"}')
         if row['lifecycle']:
             lines.append(f' 수명주기: {self.lifecycle_state(name) or "응답 없음"} (active가 아니면 3) 활성화)')
+        lines += self.node_feature_lines(name)
         try:
             ns = '/'
             pubs = self.node.get_publisher_names_and_types_by_node(name.split('/')[-1], ns)
@@ -1167,8 +1174,8 @@ class Bus:
         return 1
 
     def cmd_ab(self, args) -> int:
-        """A/B 테스트 — ab.py로 위임 (메뉴 14와 같은 구현)."""
-        from .ab import AbTest
+        """A/B 테스트 — op/pages/ab/core.py로 위임 (메뉴 14와 같은 구현)."""
+        from .pages.ab.core import AbTest
         return AbTest(self).cmd(args)
 
     def cmd_node(self, args) -> int:

@@ -4,11 +4,11 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from ..calibrate import load_plan
-from ..defs import STAY
-from .base import GoMenu, Menu, MenuItem
+from ...defs import STAY
+from ..base import GoMenu, Menu, MenuItem
+from .core import load_plan
 
-DEFAULT_PLAN = Path(__file__).resolve().parents[2] / 'calibration' / 'wheel' / 'command.json'   # tool/cli/calibration/wheel/ — sim과 같은 네모 54 s
+DEFAULT_PLAN = Path(__file__).resolve().parent / 'wheel' / 'command.json'   # op/pages/calibration/wheel/ — sim과 같은 네모 54 s
 
 
 class WheelState:

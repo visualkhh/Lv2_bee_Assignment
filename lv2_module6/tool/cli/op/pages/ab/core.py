@@ -3,10 +3,10 @@
 사용자 진입점은 `run-cli ab <노드> <동작>` / 메뉴 14 하나다. 이 파일은 UI 없이 동작만 담당한다.
   - ON/OFF: /controller_server/FollowPath/toggle (std_srvs/SetBool), 안 되면 파라미터 FollowPath.enable로 대체
   - 기록: ros2 bag record를 백그라운드로 띄우고 ~/.cache/beebot/ab.json에 pid·bag 경로를 남긴다
-  - 리포트: tool/node/rl_nav_controller/report.py (rosbag2 → report.png)
+  - 리포트: pages/ab/rl_nav_controller/report.py (rosbag2 → report.png)
 
 bee는 ROS_DOMAIN_ID=88 + fastdds_local_only.xml(SHM 전용)이라 PC에서 원격 기록할 수 없다.
-그래서 bag은 기본적으로 bee의 ~/bags/ab에 쌓는다.
+산출물(bag·리포트)은 tool/artifacts/ab/<노드> 아래에 쌓는다 (컨테이너: /debug/tool/artifacts).
 """
 from __future__ import annotations
 
@@ -23,9 +23,9 @@ from pathlib import Path
 
 import rclpy
 
-from .consts import _param_value_to_py
+from ...consts import _param_value_to_py
 
-# A/B 메뉴에 노출할 노드 — 새 노드가 생기면 여기와 pages/ab.py의 화면 매핑에 추가한다.
+# A/B 메뉴에 노출할 노드 — 새 노드가 생기면 여기와 pages/ab/__init__.py의 화면 매핑에 추가한다.
 AB_NODES = (
     ('rl_nav_controller', 'Nav2 주행 정책 (정책 vs DWB)'),
 )
@@ -33,14 +33,25 @@ AB_NODES = (
 NODE = 'rl_nav_controller'
 PARAM_NODE = 'controller_server'  # 플러그인이라 파라미터는 controller_server가 들고 있음 (FollowPath.*)
 TOGGLE = '/controller_server/FollowPath/toggle'
-BAG_DIR = Path.home() / 'bags' / 'ab'
+
+
+def _artifact_root() -> Path:
+    # run-cli 산출물 루트: 컨테이너(/debug 공유 볼륨 있음)면 debug 아래,
+    # 호스트 직접 실행이면 레포 tool/artifacts 아래. 둘 다 git 무시 대상.
+    if Path('/debug').is_dir():
+        return Path('/debug/tool/artifacts')
+    return Path(__file__).resolve().parents[4] / 'artifacts'
+
+
+ARTIFACT_ROOT = _artifact_root()
+BAG_DIR = ARTIFACT_ROOT / 'ab' / NODE  # 노드별 폴더: ab/rl_nav_controller/<bag> · report_<그룹>.png
 STATE = Path.home() / '.cache' / 'beebot' / 'ab.json'
 RECORD_LOG = Path.home() / '.cache' / 'beebot' / 'ab-record.log'
-REPORT = Path(__file__).resolve().parents[1] / 'node' / 'rl_nav_controller' / 'report.py'
-PLAN = Path(__file__).resolve().parents[1] / 'ab' / NODE / 'command.json'
+REPORT = Path(__file__).resolve().parent / NODE / 'report.py'  # command.json 옆
+PLAN = Path(__file__).resolve().parent / NODE / 'command.json'
 
 # controller 출력 + 실제 움직임 + 정책 디버그를 같이 본다.
-TOPICS = ('/cmd_vel_nav',
+TOPICS = ('/cmd_vel_nav', '/cmd_vel', '/cmd_vel_mux',  # nav 출력 · 모니터 통과 후 실제 · mux 출력
     '/odometry/filtered', '/odom', '/imu', '/plan', '/tf', '/tf_static',
     '/controller_server/FollowPath/debug',
 )
@@ -56,6 +67,7 @@ class AbTest:
         self.term = bus.term
         self._toggle_cli = None
         self._nav_cli = None
+        self._pub_reset = None
         self._param_cache = (0.0, None, None)  # (읽은 시각, enabled, model_path)
 
     # --------------------------------------------------------------- 상태 파일
@@ -447,6 +459,55 @@ class AbTest:
             self._nav_cli = ActionClient(self.node, NavigateToPose, '/navigate_to_pose')
         return self._nav_cli
 
+    def _reset_sim_pose(self, pose: dict, frame_id: str) -> None:
+        """시뮬 로봇을 leg 시작점으로 텔레포트 — A가 맵 밖으로 나가도 B는 기획 가능.
+        fake_opencr 있으면 /cmd/fake_opencr/set_pose(진짜 위치), mock이면
+        /diff_drive_controller/set_odometry(odom). 둘 다 쏜다 — 각 모드에서 하나씩만 먹는다."""
+        import math as _math
+        from geometry_msgs.msg import PoseStamped
+        yaw = _math.radians(float(pose.get('yaw_deg', 0.0)))
+        if self._pub_reset is None:
+            from std_msgs.msg import String as _S  # noqa — 임포트 순서 고정용 더미
+            self._pub_reset = self.node.create_publisher(PoseStamped, '/cmd/fake_opencr/set_pose', 10)
+        m = PoseStamped()
+        m.header.frame_id = frame_id
+        m.header.stamp = self.node.get_clock().now().to_msg()
+        m.pose.position.x = float(pose['x'])
+        m.pose.position.y = float(pose['y'])
+        m.pose.orientation.z = _math.sin(yaw / 2.0)
+        m.pose.orientation.w = _math.cos(yaw / 2.0)
+        for _ in range(3):
+            self._pub_reset.publish(m)
+            self.bus._poll(0.2)
+        try:
+            from control_msgs.srv import SetOdometry
+            cli = self.node.create_client(SetOdometry, '/diff_drive_controller/set_odometry')
+            if cli.wait_for_service(timeout_sec=2.0):
+                req = SetOdometry.Request()
+                req.x = float(pose['x'])
+                req.y = float(pose['y'])
+                req.yaw = yaw
+                fut = cli.call_async(req)
+                rclpy.spin_until_future_complete(self.node, fut, timeout_sec=5.0)
+        except Exception:
+            pass
+        self.bus._poll(1.0)  # TF·EKF가 점프를 따라잡을 시간
+
+    @staticmethod
+    def _write_plan_csv(bag: str, start: dict, plan: dict) -> None:
+        """leg 폴더에 plan.csv (route 웨이포인트, map 좌표).
+        bag의 /plan은 latched라 rosbag record가 놓치기 일쑤 — guide가 아는 route를 직접 쓴다."""
+        try:
+            import csv
+            pts = [(float(start['x']), float(start['y']))]
+            pts += [(float(p['x']), float(p['y'])) for p in plan.get('route', [])]
+            with open(Path(bag) / 'plan.csv', 'w', newline='') as f:
+                w = csv.writer(f)
+                w.writerow(['x', 'y'])
+                w.writerows(pts)
+        except Exception as exc:
+            print(f'WARN: plan.csv 기록 실패: {exc}', file=sys.stderr)
+
     def nav_goal(self, pose: dict, frame_id: str, timeout: float, what: str) -> None:
         """Nav2 NavigateToPose 한 점 — 도착/성공까지 기다린다. 실패는 RuntimeError."""
         from action_msgs.msg import GoalStatus
@@ -484,7 +545,12 @@ class AbTest:
                 self._progress(f'{what}: 주행 중 … {timeout - max(0.0, end - now):.0f}/{timeout:.0f}s')
                 next_tick = now + 2.0
         if not result_fut.done():
-            handle.cancel_goal_async()
+            # 취소가 처리되기 전에 다음 goal을 보내면 BT가 거부한다 — 결과 올 때까지 대기.
+            cancel = handle.cancel_goal_async()
+            rclpy.spin_until_future_complete(self.node, cancel, timeout_sec=5.0)
+            end2 = time.monotonic() + 5.0
+            while not result_fut.done() and time.monotonic() < end2 and rclpy.ok():
+                rclpy.spin_until_future_complete(self.node, result_fut, timeout_sec=0.5)
             raise RuntimeError(f'{what}: timeout ({timeout:.0f}s)')
         result = result_fut.result()
         status = getattr(result, 'status', None)
@@ -589,6 +655,10 @@ class AbTest:
             return 2
         # DDS 참여자가 굳은 상태에서 bag record를 띄우면 Fast DDS SHM 포트 lock으로 실패한다.
         # 상단 연결이 정상으로 돌아온 뒤에만 시작한다 (자동 재연결은 12초 뒤).
+        # 단발 실행에선 discovery 전에 체크하면 첫 수신 없이 inf로 실패한다 — 첫 /state까지 최대 10초 대기.
+        end = time.monotonic() + 10.0
+        while self.bus.state.state_last_update <= 0 and time.monotonic() < end and rclpy.ok():
+            self.bus._poll(0.2)
         age = (time.monotonic() - self.bus.state.state_last_update
                if self.bus.state.state_last_update > 0 else float('inf'))
         if age > 5.0:
@@ -606,6 +676,8 @@ class AbTest:
             print(f'FAIL: {exc}', file=sys.stderr)
             return 1
 
+        self._reset_sim_pose(start, plan['frame_id'])
+        self._progress(f'시작 자세 리셋: ({start["x"]:.2f}, {start["y"]:.2f}, {start["yaw_deg"]:.0f}°)')
         # 파라미터 읽기(status) 대신 토글 서비스로 확실히 ON을 보장한다.
         ok, msg = self.toggle(True)
         if not ok:
@@ -615,12 +687,21 @@ class AbTest:
         bags: list[str] = []
         labels: list[str] = []
         ok_all = True
+        # 그룹 폴더: ab/<노드>/<guide 시작시각>/ — leg bag + report.png를 한데 묶음.
+        group_dir = BAG_DIR / time.strftime('%Y%m%d_%H%M%S')
+        n = 1
+        while group_dir.exists():
+            n += 1
+            group_dir = BAG_DIR / f'{time.strftime("%Y%m%d_%H%M%S")}_{n}'
+        group_dir.mkdir(parents=True, exist_ok=True)
         try:
             for r in range(1, plan['repeats'] + 1):
                 if plan['start'] is not None and plan['move_to_start']:
                     self.nav_goal(start, plan['frame_id'], plan['goal_timeout_s'], f'{r}회차 시작 자세')
                 # A — 정책 ON
-                rec = self.start(f'{label}_r{r}_A')
+                rec = self.start(f'{label}_r{r}_A',
+                                 out=str(group_dir / f'{time.strftime("%Y%m%d_%H%M%S")}_A'))
+                self._write_plan_csv(rec['bag'], start, plan)
                 bags.append(rec['bag'])
                 labels.append(f'A{r}')
                 self._progress(f'A{r} 녹화: {rec["bag"]}')
@@ -637,13 +718,15 @@ class AbTest:
                     except RuntimeError as exc:
                         print(f'FAIL: {exc}', file=sys.stderr)
                         ok_all = False
-                        break
+                        self._reset_sim_pose(start, plan['frame_id'])  # 복귀 주행 실패 → 텔레포트로 B 시작점 보장
 
                 ok, msg = self.toggle(False)
                 if not ok:
                     raise RuntimeError(msg)
                 # B — 정책 OFF (inner DWB)
-                rec = self.start(f'{label}_r{r}_B')
+                rec = self.start(f'{label}_r{r}_B',
+                                 out=str(group_dir / f'{time.strftime("%Y%m%d_%H%M%S")}_B'))
+                self._write_plan_csv(rec['bag'], start, plan)
                 bags.append(rec['bag'])
                 labels.append(f'B{r}')
                 self._progress(f'B{r} 녹화: {rec["bag"]}')
@@ -670,8 +753,11 @@ class AbTest:
             if st2['enabled'] is not True:
                 self.toggle(True)
 
+        for bag, label in zip(bags, labels):
+            if self.report([bag], [label], str(Path(bag) / 'report.png')) != 0:
+                ok_all = False
         if len(bags) >= 2:
-            out = str(Path(bags[0]).parent / f'report_{time.strftime("%Y%m%d_%H%M%S")}.png')
+            out = str(group_dir / 'compare.png')
             if self.report(bags, labels, out) != 0:
                 ok_all = False
         return 0 if ok_all else 1

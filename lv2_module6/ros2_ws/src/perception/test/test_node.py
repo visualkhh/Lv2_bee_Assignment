@@ -84,7 +84,8 @@ def test_mission_qr():
         node.create_subscription(String, "/mission/qr", lambda m: got.append(m.data),
                                  node.qr_pub.qos_profile)
         node.on_frame("pole_front_cam", msg, depth_msg)  # 동기화된 컬러·depth 쌍
-        end = node.get_clock().now() + rclpy.duration.Duration(seconds=4)
+        # CI·도커처럼 CPU 다 걷어쓰면 타이머·discovery가 늦어질 수 있어서 여유를 둔다 (성공하면 바로 끝남)
+        end = node.get_clock().now() + rclpy.duration.Duration(seconds=15)
         while node.get_clock().now() < end and not got:
             rclpy.spin_once(node, timeout_sec=0.2)
         assert got == ["MISSION:STAND_UP"]

@@ -6,9 +6,10 @@
 // 데이터는 시뮬레이터(lv2_module6/simulator)가 로봇 카메라 시점으로 렌더한 것만 낸다 — 지어내지 않는다.
 //   <live_dir>/<이름>.json   메타 {seq, stamp(촬영 시각, 초), hfov_deg, color, depth} — 마지막에 쓰여 아래 두 파일을 가리킴
 //   <live_dir>/<color>       컬러 PNG
-//   <live_dir>/<depth>       16비트 depth PNG [mm], 0 = 측정 안 됨 (RealSense처럼 — 너무 가깝거나 멀거나 배경)
+//   <live_dir>/<depth>        16비트 depth PNG [mm], 0 = 측정 안 됨 (RealSense처럼 — 너무 가깝거나 멀거나 배경)
 // 메타의 seq가 바뀔 때만 그 컬러·깊이 쌍을 한 번 발행한다 (같은 순간의 쌍 · 같은 프레임 반복 없음 · 시각 = 촬영 시각).
-// 메타가 없으면(시뮬레이터 꺼짐 · 카메라 송출 끔) 아무것도 안 낸다 = 카메라 끊김.
+// 메타를 한 번이라도 받으면 시뮬레이터가 켜진 것 — 그 뒤로는 더미를 내지 않는다 (새 메타가 끊기면 침묵 = 카메라 끊김).
+// 메타가 한 번도 없으면(시뮬레이터 없이 headless 실행) dummy_timeout_s 뒤부터 더미(회색 영상 · 깊이 없음)를 낸다.
 // 내부 파라미터는 메타의 hfov_deg로 정한다 (시뮬레이터 렌더와 한 곳에서). 출력 크기는 width×height (깊이는 보간 없이 확대).
 // launch에서 노드 이름을 pole_front_cam / gripper_cam 으로 띄운다 (~/ 토픽이 /pole_front_cam/... 이 됨).
 #include <chrono>
@@ -47,8 +48,13 @@ private:
   bool read_meta(Frame & frame);
   void poll();
   void publish(const Frame & f, const cv::Mat & bgr, const cv::Mat & depth);
+  void publish_dummy();  // 시뮬레이터 없이 돌릴 때: 회색 영상 + 깊이 없음(0) 프레임 (장애물 없음 가정)
 
   int width_, height_, cloud_step_;
+  double dummy_timeout_s_ = 2.0;   // 새 메타가 이 시간[초] 안 오면 더미 발행 (0 이하면 끔)
+  uint16_t dummy_depth_mm_ = 0;    // 더미 깊이 [mm] — 0 = 측정 없음 (점구름 빔)
+  double dummy_hfov_deg_ = 87.0;   // 더미 camera_info 화각
+  bool dummy_on_ = false;          // 지금 더미 내보내는 중 (진짜 프레임 오면 false)
   std::string dir_, frame_, meta_path_;
   fs::file_time_type meta_mtime_{};
   long last_seq_ = -1;

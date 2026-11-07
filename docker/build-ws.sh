@@ -8,6 +8,7 @@
 # shellcheck disable=SC1091
 if [ -z "$BASH_VERSION" ]; then exec bash "$0" "$@"; fi   # sh(dash)로 실행해도 bash로 재실행
 source /opt/ros/lyrical/setup.bash
+[ -f /opt/nav2_common/setup.bash ] && source /opt/nav2_common/setup.bash  # nav2_common (ml이 find_package)
 BIN_DIR=$(dirname "${BASH_SOURCE[0]}")
 [ "$BIN_DIR" = . ] && BIN_DIR="$PWD"   # 형제 스크립트 탐색용 — 컨테이너(/usr/local/bin)·호스트(docker/) 모두 동작
 if [ -z "$WS" ]; then
@@ -22,5 +23,7 @@ if ls build/*/CMakeCache.txt >/dev/null 2>&1 && \
 fi
 colcon build --symlink-install --event-handlers console_direct- "$@" || { echo "FAIL: colcon build"; exit 1; }
 if [ -d /debug ]; then  # 컨테이너만: 호스트 공유 폴더에 install 실파일 복사
+  # 끊긴 심볼릭링크(지워진 모델 등) 정리 — 없으면 cp -rL이 통째로 실패해서 뒤 단계까지 막힘
+  find "$WS/install" -xtype l -delete 2>/dev/null
   rm -rf /debug/install && cp -rL "$WS/install" /debug/install && echo "install → /debug/install (호스트: lv2_module6/debug/install)"
 fi

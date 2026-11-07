@@ -9,7 +9,7 @@ nvblox_node:
     use_tf_transforms: true
     num_cameras: 2                 # camera_0 = pole_front_cam (늘) · camera_1 = gripper_cam (스캔 자세일 때만 — 아니면 depth 전부 0)
     voxel_size: 0.05               # [m] Nav2 costmap 해상도와 같게 (퍽 60 mm는 지도 대상 아님 — 인지가 따로)
-    mapping_type: "static_tsdf"
+    mapping_type: "dynamic"
     esdf_mode: "2d"
     publish_esdf_distance_slice: true
     use_depth: true
@@ -29,9 +29,9 @@ nvblox_node:
     workspace_height_bounds_visualization_attachment_frame_id: "base_footprint"
     static_mapper:
       # 2D 격자로 자르는 높이 (map z = 바닥) — Nav2 costmap(min 0.03 · max 0.6) · RTAB-Map Grid(0.03~0.6)와 같은 기준
-      esdf_slice_height: 0.3
+      esdf_slice_height: 0.1
       esdf_slice_min_height: 0.03
-      esdf_slice_max_height: 0.6
+      esdf_slice_max_height: 0.3
       # pole_front_cam 바닥은 화면 맨 아래도 0.59 m — 3 m 넘는 depth는 잡음이 커서 안 씀 (costmap raytrace 3.0과 같게)
       projective_integrator_max_integration_distance_m: 3.0
       workspace_bounds_type: "height_bounds"

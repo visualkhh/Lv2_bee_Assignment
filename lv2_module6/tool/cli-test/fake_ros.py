@@ -171,6 +171,11 @@ class Int32MultiArray(_Msg):
         self.data = list(data or [])
 
 
+class Float32MultiArray(_Msg):
+    def __init__(self, data=None):
+        self.data = list(data or [])
+
+
 class Odometry(_Msg):  # CLI는 수신 시각만 씀
     pass
 
@@ -404,7 +409,8 @@ def install():
     qos.QoSDurabilityPolicy = _QosEnum
     qos.QoSHistoryPolicy = _QosEnum
     qos.qos_profile_sensor_data = QoSProfile(depth=5)
-    _mod('std_msgs', msg=_mod('std_msgs.msg', String=String, Bool=Bool, Empty=Empty, Int32MultiArray=Int32MultiArray))
+    _mod('std_msgs', msg=_mod('std_msgs.msg', String=String, Bool=Bool, Empty=Empty,
+                              Int32MultiArray=Int32MultiArray, Float32MultiArray=Float32MultiArray))
     _mod('geometry_msgs', msg=_mod('geometry_msgs.msg', TwistStamped=TwistStamped,
                                   Twist=Twist, Vector3=Vector3))
     _mod('sensor_msgs', msg=_mod('sensor_msgs.msg', JointState=JointState, Header=Header, Imu=Imu, CameraInfo=CameraInfo))

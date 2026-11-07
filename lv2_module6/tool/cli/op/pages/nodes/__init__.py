@@ -4,9 +4,9 @@ from __future__ import annotations
 import argparse
 import time
 
-from ..defs import STAY
-from ..terminal import BOLD, DIM, GREEN, RED, YELLOW
-from .base import GoMenu, InfoItem, Menu, MenuItem
+from ...defs import STAY
+from ...terminal import BOLD, DIM, GREEN, RED, YELLOW
+from ..base import GoMenu, InfoItem, Menu, MenuItem
 
 
 class RestartAllItem(MenuItem):
@@ -178,5 +178,29 @@ class NodesMenu(Menu):
         lines.append(' ' + (self.term.paint('안 보임: ' + ', '.join(dead), RED) if dead else '안 보이는 노드 없음'))
         lines.append(' ' + (self.term.paint('active 아님: ' + ', '.join(idle), YELLOW) if idle
                             else '수명주기 노드 전부 active'))
-        lines += ['', f' 최근 재시작: {note}', ' a) 전체 재시작은 RESTART 입력 필요']
+        lines += ['', f' 최근 재시작: {note}']
+        if any(r['name'] == 'controller_server' for r in self._rows):
+            lines += self.bus.node_feature_lines('controller_server', summary=True)
+        lines.append(' a) 전체 재시작은 RESTART 입력 필요')
         return lines
+
+
+from .feature import NodeFeature
+from .controller_server import ControllerServerFeature
+
+FEATURES: tuple[NodeFeature, ...] = (ControllerServerFeature(),)
+
+
+def feature_for(name: str) -> NodeFeature | None:
+    """노드 이름(네임스페이스 포함 가능) → 추가 상태 feature."""
+    short = name.rstrip('/').split('/')[-1]
+    for feature in FEATURES:
+        if feature.node == short:
+            return feature
+    return None
+
+
+def wire_all(tool) -> None:
+    """OperatorTool 기동 시 각 feature의 ROS 구독을 만든다."""
+    for feature in FEATURES:
+        feature.wire(tool)

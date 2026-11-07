@@ -20,6 +20,9 @@ cli/
     ├── defs.py        # BACK/MAIN/QUIT/STAY/TIMEOUT · MENU_REFRESH_S
     ├── consts.py      # 관절 이름 · 파라미터 변환
     └── pages/         # Page → Menu → 각 화면 (MenuItem 객체)
+        ├── nodes/     # 노드별 추가 상태 (feature.py + <node>.py)
+        ├── ab/        # A/B 화면 + core.py + <node>/command.json
+        └── calibration/  # 칼리브레이션 화면 + core.py + wheel/
 ```
 
 `./run-cli status`처럼 인자가 있으면 `Bus.cmd_*`만 돌고 화면은 없습니다. 인자가 없고 TTY면 `MainMenu`가 뜹니다.

@@ -123,6 +123,9 @@ DONE=
   --qos-reliability reliable --qos-durability transient_local /task_status plan/msg/TaskStatus 2>/dev/null)
 ODOM=$(timeout 10 ros2 topic echo --once /odometry/filtered nav_msgs/msg/Odometry 2>/dev/null)
 sleep "$DUR"
+if [ "$MONITOR" = 1 ]; then  # monitor_manager의 그래프 발견이 늦으면 첫 파일까지 기다림 (기동 직후 flaky)
+  for _ in $(seq 100); do [ -s "$DEBUG_DIR/output/topic/joint_states/message" ] && break; sleep 0.2; done
+fi
 stop_all
 
 echo "--- 흐름 (faker.log) ---"

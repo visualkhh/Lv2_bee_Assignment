@@ -173,6 +173,9 @@ class OperatorTool(Node):
                 LATCHED)
         except Exception:
             pass
+        # 노드별 추가 상태·기능 (예: controller_server RL/DWB)
+        from op.pages.nodes import wire_all
+        wire_all(self)
 
     def _on_devices(self, msg: String):
         names = [n.strip() for n in msg.data.split(',') if n.strip()]
@@ -267,6 +270,7 @@ def build_parser() -> argparse.ArgumentParser:
   ./tool/run-cli gripper open
   ./tool/run-cli map status
   ./tool/run-cli map save
+  ./tool/run-cli node status controller_server   # RL/DWB 상태
   ./tool/run-cli ab nodes
   ./tool/run-cli ab rl_nav_controller status
   ./tool/run-cli ab rl_nav_controller record --label 정책
@@ -298,8 +302,8 @@ def build_parser() -> argparse.ArgumentParser:
     calibrate = sub.add_parser('calibrate', help='칼리브레이션 (메뉴: 13) — wheel: 계획을 수동 경로로 재생하며 응답을 raw.csv로 기록 (로봇이 움직임)')
     cal_sub = calibrate.add_subparsers(dest='part', required=True)
     cal_wheel = cal_sub.add_parser('wheel', help='바퀴 응답 (MANUAL 모드 — 계획 JSON 재생)')
-    cal_wheel.add_argument('plan', nargs='?', default=str(Path(__file__).resolve().parent / 'calibration' / 'wheel' / 'command.json'),
-                           help='계획 파일 {"dt": 0.05, "steps": [[v, w], ...]} (기본 tool/cli/calibration/wheel/command.json = sim과 같은 네모 54 s)')
+    cal_wheel.add_argument('plan', nargs='?', default=str(Path(__file__).resolve().parent / 'op' / 'pages' / 'calibration' / 'wheel' / 'command.json'),
+                           help='계획 파일 {"dt": 0.05, "steps": [[v, w], ...]} (기본 tool/cli/op/pages/calibration/wheel/command.json = sim과 같은 네모 54 s)')
     cal_wheel.add_argument('--out', default=None, help='raw.csv 경로 (기본: tool/log/calibration/<시각>_wheel/raw.csv)')
     cal_wheel.add_argument('--check-only', action='store_true', help='안 움직이고 준비만 확인')
     cal_wheel.add_argument('--force', action='store_true', help='MANUAL 상태 확인을 건너뜀 (위험)')
@@ -364,7 +368,7 @@ def build_parser() -> argparse.ArgumentParser:
     ab.add_argument('--out', default=None, help='record: 저장 폴더 · report: 출력 PNG')
     ab.add_argument('--last', action='store_true', help='report: 최근 녹화 2개 사용')
     ab.add_argument('--labels', nargs='*', default=None, help='report: 범례 이름 (예: 정책 DWB)')
-    ab.add_argument('--config', default=None, help='guide: command.json 경로 (기본 tool/cli/ab/<노드>/command.json)')
+    ab.add_argument('--config', default=None, help='guide: command.json 경로 (기본 tool/cli/op/pages/ab/<노드>/command.json)')
 
     restart = sub.add_parser('restart', help='state_manager에 재시작 요청 (위험) — all = bringup 전체')
     restart.add_argument('target', help='all 또는 노드 이름')

@@ -230,6 +230,7 @@ sudo apt-get install -y --no-install-recommends \
     ros-lyrical-robot-localization \
     ros-lyrical-rosx-introspection \
     ros-lyrical-onnxruntime-vendor \
+    ros-lyrical-nav2-common \
     ros-lyrical-cv-bridge \
     libopencv-dev \
     rapidjson-dev \

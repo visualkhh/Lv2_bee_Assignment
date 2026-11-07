@@ -191,7 +191,7 @@ def run(bus, plan: dict, out: Path, check_only: bool = False) -> int:
         rec.close()
 
 
-if __name__ == '__main__':   # 자체 확인 (ROS 없이 계획 검사만): python3 -m op.calibrate  (tool/cli에서)
+if __name__ == '__main__':   # 자체 확인 (ROS 없이 계획 검사만): python3 op/pages/calibration/core.py  (tool/cli에서)
     import tempfile
 
     def check(obj):

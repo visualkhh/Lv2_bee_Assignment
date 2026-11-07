@@ -13,7 +13,11 @@ FakeCamera::FakeCamera()
   width_ = declare_parameter<int>("width", 640);
   height_ = declare_parameter<int>("height", 480);
   cloud_step_ = declare_parameter<int>("cloud_step", 4);
+  dummy_timeout_s_ = declare_parameter<double>("dummy_timeout_s", 2.0);
+  dummy_depth_mm_ = static_cast<uint16_t>(declare_parameter<int>("dummy_depth_mm", 0));
+  dummy_hfov_deg_ = declare_parameter<double>("dummy_hfov_deg", 87.0);
   const double poll_s = declare_parameter<double>("poll_s", 0.02);  // 메타 확인 주기 (발행은 새 프레임마다)
+  last_frame_ = now();  // 시작 시각 — 실제 프레임을 한 번도 못 봤을 때 더미 대기 기준
   dir_ = declare_parameter<std::string>("live_dir", "/debug/input/hardware/camera");
   meta_path_ = dir_ + "/" + get_name() + ".json";
   frame_ = std::string(get_name()) + "_color_optical_frame";
@@ -51,6 +55,18 @@ bool FakeCamera::read_meta(Frame & f) {
 void FakeCamera::poll() {
   Frame f;
   if (!read_meta(f)) {
+    // 실제 프레임을 한 번도 못 받았을 때만 더미 (시뮬레이터 없이 headless 테스트용).
+    // 한 번이라도 받았으면 메타가 곧 '시뮬레이터 이미지를 써라' 신호 — 끊겨도 더미로 가리지 않는다 (카메라 끊김 진단).
+    const bool never_saw_sim = last_seq_ < 0;
+    if (dummy_timeout_s_ > 0.0 && never_saw_sim && (now() - last_frame_).seconds() > dummy_timeout_s_) {
+      if (!dummy_on_) {
+        RCLCPP_INFO(get_logger(), "시뮬레이터 프레임 없음 — 더미 발행 (회색 영상 · 깊이 없음)");
+        dummy_on_ = true;
+      }
+      publish_dummy();
+      return;
+    }
+    dummy_on_ = false;
     if (last_seq_ >= 0 && (now() - last_frame_).seconds() > 2.0) {
       RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000, "새 프레임 없음 — 시뮬레이터가 멈췄거나 카메라 송출 끔");
     } else if (last_seq_ < 0) {
@@ -70,6 +86,21 @@ void FakeCamera::poll() {
   }
   last_seq_ = f.seq;
   last_frame_ = now();
+  dummy_on_ = false;  // 진짜 프레임이 오면 더미 모드 해제
+  publish(f, bgr, depth);
+}
+
+void FakeCamera::publish_dummy() {
+  // 회색 영상 + 깊이 없음(0 → 점구름 빔) — 장애물 없음 가정. 헤더 시각은 지금 (TF 외삽 방지).
+  cv::Mat bgr(height_, width_, CV_8UC3, cv::Scalar(128, 128, 128));
+  cv::Mat depth(height_, width_, CV_16UC1, cv::Scalar(dummy_depth_mm_));
+  Frame f;
+  f.seq = last_seq_;
+  f.stamp = now().seconds();
+  f.hfov_deg = dummy_hfov_deg_;
+  // last_frame_은 건드리지 않는다 — 여길 갱신하면 다음 poll에서
+  // (now - last_frame_) > dummy_timeout_s가 다시 2초를 기다려 더미가 0.5Hz가 된다 (실측).
+  // 더미는 poll마다 나간다 (진짜 카메라 30Hz급 — collision_monitor source_timeout 1.0s 여유).
   publish(f, bgr, depth);
 }
 

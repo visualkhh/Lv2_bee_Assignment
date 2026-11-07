@@ -16,7 +16,7 @@
           velocity_smoother 입력을 /cmd_vel_nav로 고정해 twist_mux를 건너뛰므로 안 씀.
           속도 체인: controller·behavior → /cmd_vel_nav → twist_mux
                      → /cmd_vel_mux → velocity_smoother → /cmd_vel_smoothed → collision_monitor → /cmd_vel
-          map→odom·/map은 SLAM (faker는 map_server + fake_localizer)
+          map→odom·/map은 SLAM (faker는 map_server + fake_cuvslam)
 TODO(권형중) 아직 자리만 있는 것 — 설정 패키지가 필요:
   - move_group (+ MTC capability): config/moveit 으로 해소 (use_moveit:=true) — pick_ik·octomap 센서(pole_front_cam 점구름)는 아직
 테스트베드에서는 faker가 이 패키지들 대신 같은 토픽·액션을 낸다 (ros2 launch faker faker.launch.py).
