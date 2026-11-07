@@ -16,6 +16,11 @@ perception:
     # 컬러·depth 동기화 · 두 카메라 융합 (scripts/perception_node.py 맨 위 설명)
     sync_slop: 0.05         # 컬러·정렬 depth를 한 쌍으로 묶는 시각 차 한도 [s]
     match_dist: 0.4         # 같은 클래스 검출을 기존 트랙에 붙이는 거리 한도 [m] — 그 안에서 마할라노비스 거리 작은 쌍부터 1:1
+    det_merge_iou: 0.5      # 한 프레임에서 겹친(IoU ≥) 같은 퍽 박스를 하나로 (0 = 끔) — fuse가 1:1이라 두 번째 박스가 중복 트랙이 됐음 (11/07)
+    track_merge_m: 0.03     # 이 안의 같은 퍽 트랙 둘을 오래된 id 하나로 [m] (0 = 끔) — 퍽 폭 3 cm보다 작게 (붙은 다른 퍽은 안 합침)
+    puck_center_offset: 0.015  # [m] depth 점(보이는 표면) → 퍽 중심: 카메라 → 점 수평 방향으로 이만큼 (0 = 끔) — 안 하면 비스듬히 볼 때 중심보다 15 mm 카메라 쪽 (11/07 Isaac)
+    puck_center_full_deg: 45.0  # 이보다 얕게 내려다보면 offset 전부, 바로 위에서 보면 0 (cos 비례)
+    tag_center: true          # 태그를 읽은 서 있는 퍽은 태그 가운데 depth로 중심 (윗면 = 그대로 · 옆면 = 법선 반대로 puck_center_offset) — 위 표면 보정보다 먼저
     pixel_sigma: 4.0        # 박스 중심 픽셀 오차 [px] → 가로·세로 σ = pixel_sigma·z/f
     depth_sigma0: 0.005     # depth 오차 σz = depth_sigma0 + depth_sigma_k·z² [m] (RealSense: 거리² 비례)
     depth_sigma_k: 0.01     #   → 0.3m 0.6cm · 1m 1.5cm · 2m 4.5cm · 4m 17cm
@@ -27,6 +32,11 @@ perception:
     self_links: ["shoulder_link", "upper_arm_link", "forearm_link", "wrist_link", "gripper_link", "end_effector_link"]
     self_radius: 0.06       # 팔 링크를 잇는 선분에서 이 안이면 자기 몸 [m] (퍽은 마지막 선분 = 손가락 사이 제외)
     body_radius: 0.2        # 차체 원점에서 수평 이 안 · 높이 body_height 아래면 자기 몸 [m] (적재함·폴)
+    tag_gamma: 2.5          # AprilTag를 감마로 어둡게 편 영상에서 한 번 더 찾음 (0 = 끔) — 광택 반사로 회색이 된 검은 칸 (11/07 Isaac: 판독 9→14/16)
+    tag_half: true          # 반 크기 영상에서도 한 번 더 — 가까워 크게(한 변 70 px+) 찍힌 태그는 원본에서 테두리를 못 찾았음 (11/07 Isaac)
+    body_box: [-0.25, 0.08, 0.15]  # 차체 직사각형 [x_min, x_max, y_half] base_footprint 기준 [m] — 있으면 body_radius 대신
+                            #   URDF base_link 상자 x −0.2325~0.0688 · y ±0.133 + 여유 1~2 cm. 반경 0.2는 차체 앞 13 cm까지 지워
+                            #   inspect 자세에서 상자 앞쪽(차체에서 2~5 cm) 퍽을 자기 몸으로 버렸음 (11/07 Isaac 시험)
     body_height: 0.6
     self_arm_hits: 3        # 퍽이 아닌 검출 박스 안에 팔(TF 링크를 화면에 투영) 점이 이만큼 있으면 자기 팔 — 박스 일부만 팔이면 depth가 팔 뒤 바닥이라 위 3D 판정을 빠져나감 (0 = 안 봄)
     long_memory: false      # 11/04: 기억은 통합(판단) 쪽이 맡음 → 인지는 본 것만 (안 보이면 2초 뒤 지움) · true면 아래 규칙으로 안 보여도 기억

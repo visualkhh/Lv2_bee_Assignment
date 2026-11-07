@@ -261,6 +261,14 @@ def test_self_filter():
     assert not is_self("puck", np.array([2.75, 0.30, 0.02]), body, *args)       # 옆 바닥 퍽
     assert not is_self("puck", np.array([2.54, 0.0, 0.02]), body, *args)        # 범퍼 바로 앞 바닥 퍽 (차체 반경 안이지만 바닥)
     assert not is_self("obstacle", np.array([3.20, 0.0, 0.10]), body, *args)    # 앞 장애물
+    # body_box (차체 직사각형): 상자 위 차체 앞 퍽은 남기고 적재함 퍽은 버림 · 차체가 돌아 있어도 base_frame 기준
+    bb = [-0.25, 0.08, 0.15]
+    assert is_self("puck", np.array([2.54, 0.0, 0.15]), body, *args)                          # 반경 0.2 — 차체 앞 19 cm 상자 위 퍽도 지움
+    assert not is_self("puck", np.array([2.54, 0.0, 0.15]), (*body, np.eye(3)), *args, bb)    # 직사각형 — 남김
+    assert is_self("puck", np.array([2.25, 0.03, 0.12]), (*body, np.eye(3)), *args, bb)       # 적재함 안 퍽
+    yaw90 = np.array([[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
+    assert not is_self("puck", np.array([2.35, 0.19, 0.15]), (base, [], yaw90), *args, bb)    # 돌아 있는 차체 앞
+    assert is_self("puck", np.array([2.35, -0.19, 0.15]), (base, [], yaw90), *args, bb)       # 돌아 있는 차체 뒤 (적재함)
 
 
 
@@ -924,3 +932,139 @@ def test_capture_dice():
         assert len(got) == 1
     finally:
         rclpy.shutdown()
+
+
+def test_tag_gamma_glare():
+    """광택 반사로 검은 칸이 회색으로 뜬 원기둥 윗면 태그 (Isaac gripper_cam 11/07 실측 잘라낸 것, 태그 0):
+    감마로 어둡게 편 영상을 더하면 읽음 (원본만으로 읽히는지는 OpenCV 버전마다 달라 보지 않음 — 4.6은 못 읽음)"""
+    import cv2
+    from perception_node import detect_tags, tag_detector
+
+    img = cv2.imread(str(Path(__file__).parent / "data" / "glare_tag0.png"))
+    assert [t[0] for t in detect_tags(tag_detector(), img, 2.5)] == [0]
+
+
+def test_tag_in_overlapping_boxes():
+    """앞 퍽 윗면 태그가 뒤 퍽 박스 아래쪽에도 들 때 — 가운데에 더 가까운 앞 퍽 것 (11/07 Isaac seed 2010 실측 박스)"""
+    import numpy as np
+    from perception_node import tag_in_box
+
+    corners = np.zeros((4, 2))
+    tags = [(2, (1290.0, 200.0), None, corners)]
+    front, back = (1243, 160, 1316, 285), (1283, 97, 1350, 198)
+    ids = set(range(12))
+    assert tag_in_box(tags, front, ids, [front, back])[0] == 2
+    assert tag_in_box(tags, back, ids, [front, back]) == (None, None)
+    assert tag_in_box(tags, back, ids)[0] == 2  # others 없이는 예전처럼 붙음
+
+
+def test_tag_half_big():
+    """가까워 크게(한 변 약 75 px) 찍힌 원기둥 윗면 태그 7 — 반 크기 영상을 더하면 읽음
+    (원본만으로 읽히는지는 OpenCV 버전마다 다름 — 4.6은 못 읽고 CI의 새 버전은 읽음. 11/07 Isaac 디버그 영상에서 잘라 냄)"""
+    import cv2
+    from perception_node import detect_tags, tag_detector
+
+    img = cv2.imread(str(Path(__file__).parent / "data" / "big_tag7.png"))
+    tags = detect_tags(tag_detector(), img, half=True)
+    assert [t[0] for t in tags] == [7]
+    assert 60 < tags[0][2][2] - tags[0][2][0] < 120  # 꼭짓점은 원본 화소 (반 크기 좌표 × 2)
+
+
+def test_merge_duplicate_pucks():
+    """같은 퍽의 겹친 박스 둘 → 하나 (태그는 아는 쪽) · 3 cm 안 같은 퍽 트랙 둘 → 오래된 id 하나 · 태그·색이 다르면 안 합침"""
+    import numpy as np
+    from perception_node import merge_overlap_dets, merge_tracks
+
+    d = lambda box, conf, **kw: {"class_name": "puck", "box": box, "conf": conf, "color": "red", **kw}
+    out = merge_overlap_dets([d((100, 100, 140, 180), 0.6, tag=4), d((102, 98, 142, 175), 0.9), d((300, 100, 340, 180), 0.8)], 0.5)
+    assert len(out) == 2 and out[0]["conf"] == 0.9 and out[0]["tag"] == 4
+    assert len(merge_overlap_dets([d((100, 100, 140, 180), 0.6, tag=4), d((102, 98, 142, 175), 0.9, tag=5)], 0.5)) == 2  # 태그 다름
+    assert len(merge_overlap_dets([d((100, 100, 140, 180), 0.6), {**d((102, 98, 142, 175), 0.9), "color": "green"}], 0.5)) == 2
+
+    tr = lambda p, t, **kw: {"class_name": "puck", "p": np.array(p), "P": np.eye(3), "t": t, "color": "red", "hits": 3, "seen": {}, **kw}
+    tracks = {1: tr([0.257, 0.026, 0.13], 1.0), 2: tr([0.258, 0.034, 0.13], 2.0, tag=4), 3: tr([0.172, -0.03, 0.13], 2.0)}
+    assert merge_tracks(tracks, 0.03) == {2: 1}
+    assert sorted(tracks) == [1, 3] and tracks[1]["tag"] == 4 and tracks[1]["hits"] == 6 and tracks[1]["p"][1] == 0.034
+    tracks = {1: tr([0.25, 0.03, 0.13], 1.0, tag=4), 2: tr([0.26, 0.03, 0.13], 2.0, tag=10)}
+    assert merge_tracks(tracks, 0.03) == {} and len(tracks) == 2  # 태그가 다르면 다른 퍽
+
+
+def test_puck_center_from_surface():
+    """퍽 depth 점(앞 표면) → 중심: 비스듬히 보면 시선 수평 방향으로 15 mm 안쪽 · 바로 위에서 보면 그대로 · 옆으로는 안 움직임"""
+    import numpy as np
+    from perception_node import puck_center
+
+    cam = np.array([0.09, 0.03, 0.31])
+    surf = np.array([0.25, 0.03, 0.12])                       # 앞으로 0.16 · 아래로 0.19 → 약 50° 내려다봄
+    c = puck_center(surf, cam, 0.015, 45.0)
+    assert abs(c[1] - surf[1]) < 1e-9 and abs(c[2] - surf[2]) < 1e-9
+    assert 0.010 < c[0] - surf[0] < 0.015                     # cos 50° / cos 45° ≈ 0.91 → 13.6 mm
+    flat = puck_center(np.array([0.40, 0.03, 0.12]), cam, 0.015, 45.0)
+    assert abs(flat[0] - 0.415) < 1e-9                        # 얕게 보면 15 mm 전부
+    top = puck_center(np.array([0.09, 0.03, 0.12]), cam, 0.015, 45.0)
+    assert np.allclose(top, [0.09, 0.03, 0.12])               # 바로 위
+    assert np.allclose(puck_center(surf, cam, 0.0, 45.0), surf)  # 끔
+
+
+def test_tag_center_top_and_side():
+    """태그 꼭짓점 + depth → 퍽 중심: 윗면 태그는 태그 가운데 그대로 · 옆면 태그는 면 법선 반대로 반폭 15 mm 안쪽"""
+    import numpy as np
+    from perception_node import tag_center
+
+    fx = fy = 600.0
+    cx, cy = 320.0, 240.0
+
+    def view(cam, fwd, up):  # 카메라 → 추적 좌표 회전 (광학: x 오른쪽 · y 아래 · z 앞)
+        z = np.asarray(fwd, float) / np.linalg.norm(fwd)
+        x = np.cross(z, up)
+        x /= np.linalg.norm(x)
+        return np.stack([x, np.cross(z, x), z], 1), np.asarray(cam, float)
+
+    def corners_of(rot, trans, centre, ax, ay, hs=0.008):  # 태그 꼭짓점 화소 (aruco 순서: 왼위 오위 오아 왼아)
+        pts = [centre + (-hs) * ax + hs * ay, centre + hs * ax + hs * ay, centre + hs * ax - hs * ay, centre - hs * ax - hs * ay]
+        out = []
+        for p in pts:
+            c = rot.T @ (p - trans)
+            out.append([fx * c[0] / c[2] + cx, fy * c[1] / c[2] + cy])
+        return np.array(out), (rot.T @ (centre - trans))[2]
+
+    # 윗면: 위에서 비스듬히 · 퍽 윗면 중심 (0.25, 0.02, 0.13)
+    rot, trans = view([0.10, 0.02, 0.32], [0.15, 0.0, -0.19], [0, 0, 1])
+    top = np.array([0.25, 0.02, 0.13])
+    cs, z = corners_of(rot, trans, top, np.array([0, -1.0, 0]), np.array([1.0, 0, 0]))
+    depth = np.full((480, 640), z, np.float32)
+    c = tag_center(cs, depth, 0.016, 0.015, fx, fy, cx, cy, rot, trans)
+    assert c is not None and np.linalg.norm(c - top) < 0.002
+
+    # 옆면: 카메라를 향한 −x 면 (면 중심 (0.235, 0.02, 0.10)) → 퍽 중심 (0.25, 0.02, 0.10)
+    rot, trans = view([0.05, 0.02, 0.16], [0.18, 0.0, -0.06], [0, 0, 1])
+    face = np.array([0.235, 0.02, 0.10])
+    cs, z = corners_of(rot, trans, face, np.array([0, -1.0, 0]), np.array([0, 0, 1.0]))
+    depth = np.full((480, 640), z, np.float32)
+    c = tag_center(cs, depth, 0.016, 0.015, fx, fy, cx, cy, rot, trans)
+    assert c is not None and np.linalg.norm(c[:2] - [0.25, 0.02]) < 0.002
+
+    # depth 없음 (D435 Min-Z보다 가까움) → solvePnP 위치로 대신
+    c = tag_center(cs, np.zeros((480, 640), np.float32), 0.016, 0.015, fx, fy, cx, cy, rot, trans)
+    assert c is not None and np.linalg.norm(c[:2] - [0.25, 0.02]) < 0.002
+
+    # 손목 카메라로 집기 직전: 윗면 태그 8 cm 위에서 내려다봄, depth 없음
+    rot, trans = view([0.25, 0.02, 0.21], [0.0, 0.0, -1.0], [1.0, 0, 0])
+    cs, _ = corners_of(rot, trans, top, np.array([0, -1.0, 0]), np.array([1.0, 0, 0]))
+    c = tag_center(cs, np.zeros((480, 640), np.float32), 0.016, 0.015, fx, fy, cx, cy, rot, trans)
+    assert c is not None and np.linalg.norm(c - top) < 0.001
+
+
+def test_arm_near_drops_finger_depth():
+    """손가락(가까움)이 퍽 영역 일부를 가리면 그 depth만 빼고 퍽 depth로 · 손가락이 대부분이거나 마스크가 없으면 안 뺌"""
+    import numpy as np
+    from perception_node import arm_near, box_depth_m
+
+    d = np.full((90, 90), 0.25, np.float32)
+    d[30:60, 30:45] = 0.11                      # 손가락 (영역 가운데 1/3의 절반)
+    arm = np.zeros(d.shape, bool)
+    arm[:, :50] = True
+    assert abs(box_depth_m(d, (0, 0, 90, 90), 0.3, arm) - 0.25) < 1e-6
+    assert not arm_near(d[30:60, 30:60], None).any()
+    full = np.full((30, 30), 0.11, np.float32)
+    assert not arm_near(full, np.ones((30, 30), bool)).any()  # 전부 손가락처럼 가까움 → 기준도 그 값 → 안 뺌
