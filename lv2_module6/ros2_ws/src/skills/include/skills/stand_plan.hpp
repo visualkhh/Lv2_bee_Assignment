@@ -42,6 +42,8 @@ struct Params {               // right_env RightEnvCfg 값 (tilt)
 
 // 팔 기구 (urdf/beebot_mesh/beebot.urdf) — FK: 손끝(end_effector_link) 위치 + 손가락 닫는 축(gripper_link y) 방향
 V3 fk(const Q5 & q, V3 * close_axis = nullptr);
+// gripper_link 원점(joint5 축 위)과 축 방향(열: x 손가락 · y 닫는 축 · z) — base_footprint. inspect 카메라 자세(look_plan)가 씀
+void fk_gripper(const Q5 & q, V3 & origin, std::array<V3, 3> & axes);
 // 손이 바로 아래를 향하고 손가락 닫는 축이 수평 방향 close_yaw [rad]인 손끝 위치 p → 관절값 (해석해, 관절 한계 안).
 // 해가 둘(팔꿈치 위·아래)이면 near에 가까운 것. 닿지 않거나 한계 밖이면 false
 bool ik_down(const V3 & p, double close_yaw, const Q5 & near, Q5 & out);

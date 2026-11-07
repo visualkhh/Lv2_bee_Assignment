@@ -1,4 +1,4 @@
-// skill_pose — /skills/pose: 이름 있는 관절 자세로 (stow · carry_left · carry_right · scan) — MoveIt 관절 목표. 학습 정책 없음 (move_pose 기준선 100 %)
+// skill_pose — /skills/pose: 이름 있는 관절 자세로 (stow · carry_left · carry_right · look · scan) — MoveIt 관절 목표. 학습 정책 없음 (move_pose 기준선 100 %)
 //   팔을 맡는 기본 일도 이 노드 (예전 coordinator):
 //   - 시작 자세: bringup 직후 한 번 팔을 initial_pose로 — MoveIt 없이 /arm_controller/joint_trajectory 토픽.
 //     못 가면 initial_pose_retries번만 다시 보내고 지금 자세로 멈춤 (걸린 채 계속 밀면 과부하). initial_pose_enabled는 실행 중에도 바꿈
@@ -23,7 +23,7 @@ class PoseSkill : public SkillNode {
 public:
   explicit PoseSkill(const rclcpp::NodeOptions & options)
   : SkillNode("skill_pose", options), arm_(*this) {
-    for (const char * n : {"stow", "carry_left", "carry_right"})
+    for (const char * n : {"stow", "carry_left", "carry_right", "look"})  // look = inspect 상자 보기 1차 자세 (skill_inspect도 같은 pose_look)
       poses_[n] = declare_parameter<std::vector<double>>(std::string("pose_") + n, std::vector<double>{});
     // 값의 정본은 ros_system/config/scan_pose.yaml — skills.launch가 그 파일을 넘긴다.
     // 아래 기본값은 ros_system 없이 skill만 띄울 때의 fallback이다.

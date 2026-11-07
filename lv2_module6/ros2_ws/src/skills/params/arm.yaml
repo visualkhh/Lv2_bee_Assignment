@@ -5,3 +5,6 @@ contact_mode: "sim"      # sim: 퍽·칸에 닿는 구간은 시뮬과 같은 �
 grip_current_a: 0.35     # [A] 닫을 때 쥐는 힘 (goal effort → Goal Current) — 팀 결정 0.3~0.4 A
 grasp_min_pos_m: 0.003   # [m] 이보다 더 닫히면 빈손
 server_wait_s: 30.0      # [s] MoveIt · Nav2 서버가 뜰 때까지 기다림
+# inspect 상자 보기 1차 자세 (skill_inspect target box · skill_pose "look") — 상자 앞 퍽 둘을 gripper_cam 한 장에 (사용자 11/07: 0 · −96.4 · 18.6 · 110.4 · 0°)
+#   이 자세로 퍽이 모자라거나 태그를 못 읽으면 skill_inspect가 본 퍽을 담는 자세로 다시 봄 (look_plan)
+pose_look: [0.0, -1.682497, 0.324631, 1.926843, 0.0]
