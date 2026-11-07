@@ -482,6 +482,11 @@ void Coordinator::inspect(const SubGoal & g) {
   Skill::Goal sg;
   if (const auto v = parse_numbers(g.target); v.size() == 3) {  // 좌표 inspect — 그 점(퍽 윗면 등) 위
     sg.pose = map_pose(v[0], v[1], v[2]);
+    if (g.relation == "box") {  // 상자 보기 — 점 = 상자 가운데(퍽 윗면 높이): look 자세 → 퍽이 모자라면 다시 담기 (skill_inspect)
+      sg.target = "box";
+      send("inspect", sg, [this](const Skill::Result &) { next(); });
+      return;
+    }
     if (double rx, ry; robot_xy(rx, ry)) {  // 손이 로봇 → 점 방향을 보게 (gripper_cam이 그 점을 화면 가운데에)
       sg.values = {std::atan2(v[1] - ry, v[0] - rx)};
       RCLCPP_INFO(get_logger(), "inspect 점까지 수평 %.3fm (로봇 %.3f,%.3f)", std::hypot(v[0] - rx, v[1] - ry), rx, ry);

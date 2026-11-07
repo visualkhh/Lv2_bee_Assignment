@@ -316,9 +316,9 @@ void MissionManager::survey(size_t b) {
   note("시작 박스 " + str(static_cast<int>(b) + 1) + " 조사");
   go_near(box, box.x, box.y, [this, b, box](bool ok, const std::string & why) {
     if (!ok) { result("box " + str(static_cast<int>(b) + 1) + ": approach_failed " + why); survey(b + 1); return; }
-    std::vector<SubGoal> goals;
-    for (double dx : puck_dx_)
-      goals.push_back(SubGoal().set__skill("inspect").set__target(point(box.x + dx, box.y, box_top_z_ + puck_h_)));
+    // 상자 한 번 보기 (look 자세 → 퍽이 모자라거나 태그를 못 읽으면 본 퍽을 담는 자세로 다시) — 퍽 자리마다 따로 보던 것 (11/07)
+    const std::vector<SubGoal> goals = {
+      SubGoal().set__skill("inspect").set__target(point(box.x, box.y, box_top_z_ + puck_h_)).set__relation("box")};
     run_retry(goals, [this, b, box](bool ok2, const std::string & why2) {
       if (!ok2) RCLCPP_WARN(get_logger(), "시작 박스 %zu inspect 실패 (%s) — 본 것만", b + 1, why2.c_str());
       snap("box" + str(static_cast<int>(b) + 1));
