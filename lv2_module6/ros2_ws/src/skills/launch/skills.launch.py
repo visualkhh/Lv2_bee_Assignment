@@ -50,7 +50,7 @@ def launch_setup(context):
             composable_node_descriptions=[
                 skill('PoseSkill', 'skill_pose', arm, basket, *scan_pose),
                 skill('InspectSkill', 'skill_inspect', arm),
-                skill('PickSkill', 'skill_pick', arm),
+                skill('PickSkill', 'skill_pick', arm, basket),  # basket: pose_carry_* (적재함 쪽에서 퍽으로 갈 때 경유)
                 skill('PlaceSkill', 'skill_place', arm),
                 skill('LoadSkill', 'skill_load', arm, basket),
                 skill('UnloadSkill', 'skill_unload', arm, basket),

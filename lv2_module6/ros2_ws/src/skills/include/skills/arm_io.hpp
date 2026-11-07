@@ -54,6 +54,7 @@ public:
   bool gripper_ready() const;
   bool sim_contact() const { return contact_mode_ == "sim"; }
   double grip_current_a() const { return grip_current_a_; }
+  double velocity_scale() const;  // arm_velocity_scale 파라미터 (MoveIt 속도·가속도 비율)
   // 진행 중 MoveIt·그리퍼 goal 취소 · 늦은 결과 버림 · 보정 끔 (skill 취소 · 새 goal 전)
   void stop();
   void clear_flags() { contact_ = false; grasp_empty_ = false; grip_fail_.clear(); }
@@ -80,14 +81,18 @@ public:
   // grip_state가 정해질 때까지 기다림 — 빈손 stand_no_grip · 시간 초과 stand_grip_timeout으로 실패 (grasp_check 끄면 통과)
   Step grip_stop_step(double timeout_s);  // 손가락이 멈출 때까지 기다림 (시간이 넘어도 다음으로 — 판정은 held_step)
   Step grip_settle_step(double min_current, double empty_m, double timeout_s);
-  Step contact_step(const SkillModel & policy, std::function<bool(Q5 &, Q5 &)> plan, bool close);
+  // open_m: close=false일 때 놓으며 여는 gripper_left_joint [m] (load는 간격 38 mm)
+  Step contact_step(const SkillModel & policy, std::function<bool(Q5 &, Q5 &)> plan, bool close,
+                    double open_m = GRIPPER_OPEN_M);
 
   // ---------- 보정 · 입력
   void skill_ctx(const SkillModel * policy, uint8_t phase, bool holding, bool live, const Q5 & above, const Q5 & down);
   void ctx_off();
   // hand_relative에 무엇을 잴지 (puck: 퍽 태그 · cell: 칸 가운데 map · slot: 적재함 칸 · none)
   void hand_target(const std::string & kind, int puck_tag, int slot, double x = 0.0, double y = 0.0, double z = 0.0);
-  void reset_sag();  // /rl_arm_correction/reset_sag — 팔 skill 시작 때 한 번 (없으면 WARN 한 번)
+  // /rl_arm_correction/reset_sag — 팔 skill 시작 때 한 번 (없으면 WARN 한 번).
+  //   보정이 0이 되면 팔이 처졌다 다시 올라옴 → 다음 move_arm·move_joints·traj_step은 팔이 멈출 때까지 기다린 뒤 계획 (settle)
+  void reset_sag();
   bool arm_now(Q5 & q) const;  // /joint_states joint1~5
   // map(등) 손끝 목표 → 손 아래 해석 IK (near의 손목 방향 그대로) — base_footprint 기준
   bool ik_ee(const geometry_msgs::msg::PoseStamped & ee, const Q5 & near, Q5 & out);
@@ -116,10 +121,12 @@ private:
   rclcpp::Publisher<perception::msg::HandTarget>::SharedPtr hand_pub_;
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joints_sub_;
   rclcpp::Subscription<control::msg::ArmSafetyEvent>::SharedPtr safety_sub_;
-  rclcpp::TimerBase::SharedPtr timer_;
+  rclcpp::TimerBase::SharedPtr timer_, settle_timer_;
+  bool settle_ = false;  // reset_sag 뒤 아직 안 기다림
   std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
   void execute(const moveit_msgs::msg::RobotTrajectory & traj, Cb done);
+  void settle(std::function<void()> go);
 };
 
 }  // namespace skills

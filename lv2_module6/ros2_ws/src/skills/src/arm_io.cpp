@@ -36,6 +36,8 @@ const char * ARM[] = {"joint1", "joint2", "joint3", "joint4", "joint5"};
 ArmIO::ArmIO(rclcpp::Node & node)
 : node_(node) {
   arm_plan_tries_ = node.declare_parameter<int>("arm_plan_tries", 3);
+  // MoveIt 계획 속도·가속도 비율 (0~1] — 계획할 때마다 읽음 → `ros2 param set /skill_<이름> arm_velocity_scale 1.0`으로 바로 바뀜
+  node.declare_parameter<double>("arm_velocity_scale", 0.3);
   grip_current_a_ = node.declare_parameter<double>("grip_current_a", 0.35);  // 닫을 때 쥐는 힘 [A] — 팀 결정 0.3~0.4 A (22~29 N)
   grasp_check_ = node.declare_parameter<bool>("grasp_check", true);
   grasp_min_pos_m_ = node.declare_parameter<double>("grasp_min_pos_m", 0.003);
@@ -101,7 +103,41 @@ void ArmIO::execute(const moveit_msgs::msg::RobotTrajectory & traj, Cb done) {
   exec_->async_send_goal(goal, opt);
 }
 
+// reset_sag 직후: 처짐 보정이 0이 돼 팔이 처졌다가(퍽을 들면 ~0.04 rad) 다시 올라옴 (~0.4 s). 그 사이 MoveIt이 계획하면
+// 실행 시작 검사(allowed_start_tolerance 0.01 rad)에서 거부 — 11/07 Isaac unload → place 5번 중 3번.
+// 최소 SETTLE_MIN_S 기다리고(보정 0이 실제로 들어갈 때까지), 50 ms 간격 관절 변화가 SETTLE_RAD 안으로 3번 연속이면 go (상한 SETTLE_MAX_S)
+void ArmIO::settle(std::function<void()> go) {
+  if (!settle_) { go(); return; }
+  settle_ = false;
+  constexpr double SETTLE_MIN_S = 0.25, SETTLE_MAX_S = 1.5, SETTLE_RAD = 0.004, DT = 0.05;
+  const uint64_t gen = gen_;
+  auto last = std::make_shared<Q5>();
+  auto have = std::make_shared<bool>(false);
+  auto still = std::make_shared<int>(0), ticks = std::make_shared<int>(0);
+  settle_timer_ = node_.create_wall_timer(std::chrono::duration<double>(DT), [this, go, gen, last, have, still, ticks]() {
+    if (gen != gen_) { settle_timer_->cancel(); return; }
+    Q5 q;
+    if (arm_now(q)) {
+      bool moved = !*have;
+      for (int i = 0; i < 5 && !moved; ++i) moved = std::abs(q[i] - (*last)[i]) > SETTLE_RAD;
+      *still = moved ? 0 : *still + 1;
+      *last = q;
+      *have = true;
+    }
+    const double t = ++*ticks * DT;
+    if ((t >= SETTLE_MIN_S && *still >= 3) || t >= SETTLE_MAX_S) {
+      settle_timer_->cancel();
+      go();
+    }
+  });
+}
+
+double ArmIO::velocity_scale() const {
+  return std::clamp(node_.get_parameter("arm_velocity_scale").as_double(), 0.01, 1.0);
+}
+
 void ArmIO::move_arm(const geometry_msgs::msg::PoseStamped & target, Cb done, double yaw, int tries_left) {
+  if (settle_) { settle([this, target, done, yaw, tries_left]() { move_arm(target, done, yaw, tries_left); }); return; }
   if (tries_left < 0) tries_left = arm_plan_tries_ - 1;
   auto req = std::make_shared<GetMotionPlan::Request>();
   auto & r = req->motion_plan_request;
@@ -109,8 +145,7 @@ void ArmIO::move_arm(const geometry_msgs::msg::PoseStamped & target, Cb done, do
   r.start_state.is_diff = true;
   r.num_planning_attempts = 3;
   r.allowed_planning_time = 5.0;
-  r.max_velocity_scaling_factor = 0.3;
-  r.max_acceleration_scaling_factor = 0.3;
+  r.max_velocity_scaling_factor = r.max_acceleration_scaling_factor = velocity_scale();
   moveit_msgs::msg::Constraints goal;
   moveit_msgs::msg::PositionConstraint pc;
   pc.header = target.header;
@@ -156,14 +191,14 @@ void ArmIO::move_arm(const geometry_msgs::msg::PoseStamped & target, Cb done, do
 
 void ArmIO::move_joints(const std::vector<double> & q5, Cb done) {
   if (q5.size() != 5) { done(false); return; }
+  if (settle_) { settle([this, q5, done]() { move_joints(q5, done); }); return; }
   auto req = std::make_shared<GetMotionPlan::Request>();
   auto & r = req->motion_plan_request;
   r.group_name = "arm";
   r.start_state.is_diff = true;
   r.num_planning_attempts = 3;
   r.allowed_planning_time = 5.0;
-  r.max_velocity_scaling_factor = 0.3;
-  r.max_acceleration_scaling_factor = 0.3;
+  r.max_velocity_scaling_factor = r.max_acceleration_scaling_factor = velocity_scale();
   moveit_msgs::msg::Constraints c;
   for (int i = 0; i < 5; ++i) {
     moveit_msgs::msg::JointConstraint jc;
@@ -231,6 +266,7 @@ ArmIO::Step ArmIO::held_step() {
 
 ArmIO::Step ArmIO::traj_step(std::function<std::vector<Q5>(const Q5 &)> make) {
   return [this, make](Cb cb) {
+    if (settle_) { settle([this, make, cb]() { traj_step(make)(cb); }); return; }
     Q5 now;
     if (!arm_now(now)) { cb(false); return; }
     const auto samples = make(now);
@@ -346,6 +382,7 @@ void ArmIO::hand_target(const std::string & kind, int puck_tag, int slot, double
 void ArmIO::reset_sag() {
   if (reset_sag_->service_is_ready()) {
     reset_sag_->async_send_request(std::make_shared<std_srvs::srv::Trigger::Request>());
+    settle_ = true;
   } else if (!sag_warned_) {
     sag_warned_ = true;
     RCLCPP_WARN(node_.get_logger(), "/rl_arm_correction/reset_sag 없음 — 처짐 보정 초기화 없이 계속 (rl_arm_correction 확인)");
@@ -383,8 +420,9 @@ bool ArmIO::ik_ee_yaw(const geometry_msgs::msg::PoseStamped & ee, double psi, co
   return stand::ik_down_sym({p.x(), p.y(), p.z()}, psi + base_yaw - M_PI / 2, near, out);
 }
 
-ArmIO::Step ArmIO::contact_step(const SkillModel & policy, std::function<bool(Q5 &, Q5 &)> plan, bool close) {
-  return [this, policy, plan, close](Cb cb) {
+ArmIO::Step ArmIO::contact_step(const SkillModel & policy, std::function<bool(Q5 &, Q5 &)> plan, bool close,
+                                double open_m) {
+  return [this, policy, plan, close, open_m](Cb cb) {
     Q5 above{}, down{};
     if (!plan(above, down)) {
       RCLCPP_WARN(node_.get_logger(), "%s: 닿는 구간 자세를 못 구함 (IK·TF)", policy.name.c_str());
@@ -405,7 +443,7 @@ ArmIO::Step ArmIO::contact_step(const SkillModel & policy, std::function<bool(Q5
       ctx(2, true, true), wait_step(CONTACT_SETTLE_S),    // 2 안정
       ctx(3, true, false),                                // 3 쥐기 · 놓기 (보정 고정)
       close ? grip_timed_step(GRIPPER_CLOSED_M, grip_current_a_, CONTACT_CLOSE_S)
-            : grip_timed_step(GRIPPER_OPEN_M, -1.0, CONTACT_RELEASE_S)});
+            : grip_timed_step(open_m, -1.0, CONTACT_RELEASE_S)});
     if (close) {
       steps->push_back(grip_stop_step(CONTACT_STOP_S));
       steps->push_back(held_step());

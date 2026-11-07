@@ -235,6 +235,34 @@ std::vector<std::pair<int, int>> arc_groups(const Params & p, int n_seg) {
   return {{0, n}, {n, n + 1}, {n + 1, n_seg}};
 }
 
+std::vector<Q5> sample_via(const Q5 & from, const Q5 & via, const Q5 & to, double vel_scale, double dt) {
+  Q5 c;
+  for (int j = 0; j < 5; ++j) c[j] = 2 * via[j] - 0.5 * (from[j] + to[j]);
+  const auto at = [&](double s) {
+    Q5 q;
+    for (int j = 0; j < 5; ++j) q[j] = (1 - s) * (1 - s) * from[j] + 2 * s * (1 - s) * c[j] + s * s * to[j];
+    return q;
+  };
+  constexpr int N = 200;  // 길이 · 한계 확인용 촘촘한 표본
+  double len = 0;
+  Q5 prev = from;
+  for (int i = 1; i <= N; ++i) {
+    const Q5 q = at(static_cast<double>(i) / N);
+    if (!in_limits(q)) {  // 곡선이 한계 밖 — via에서 꺾음
+      auto a = sample_move(from, via, vel_scale, dt), b = sample_move(via, to, vel_scale, dt);
+      a.insert(a.end(), b.begin(), b.end());
+      return a;
+    }
+    len += linf(prev, q);
+    prev = q;
+  }
+  const double t = trapezoid_duration(len, vel_scale);
+  const int n = std::max(1, static_cast<int>(std::ceil(t / dt - 1e-9)));
+  std::vector<Q5> out;
+  for (int k = 1; k <= n; ++k) out.push_back(at(move_s(std::min(k * dt, t), t)));
+  return out;
+}
+
 std::vector<Q5> sample_move(const Q5 & from, const Q5 & to, double vel_scale, double dt) {
   const double t = trapezoid_duration(linf(from, to), vel_scale);
   const int n = std::max(1, static_cast<int>(std::ceil(t / dt - 1e-9)));

@@ -55,7 +55,7 @@ hand_relative:               # 손 카메라 상대값 → 학습 보정 정책 
     ee_frame: "end_effector_link"
     map_frame: "map"
     rate_hz: 20.0            # slot(적재함, 카메라 없이 TF만) 발행 주기 [Hz]
-    max_age_s: 1.0           # 이보다 오래된 손 카메라 검출은 안 씀 [s]
+    max_age_s: 0.35          # 이보다 오래된 손 카메라 검출은 안 씀 [s] — 검출 간격 0.25 s + 지연 (rl_arm_correction max_cam_age_s, 시뮬 meas_age_max)
 signal_decoder:              # 신호등 12회 점멸 (발제 v5 §02) — /tracked_objects 신호등 상태 → 사이클(12번)마다 → /mission/signal (→ 통합)
   ros__parameters:           #   한 번 = 1초 켜짐 + 1초 꺼짐 · 12번 뒤 3초 꺼짐 후 반복 (사용자 10/28)
     min_on_s: 0.3            # [s] 켜진 구간이 이보다 짧으면 잡음 (진짜 켜짐 1초)

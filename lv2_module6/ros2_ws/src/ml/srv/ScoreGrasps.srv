@@ -1,5 +1,6 @@
 uint32 object_id
 uint8 max_candidates
+perception/TrackedObject[] objects   # 비어 있지 않으면 첫째가 대상, 나머지는 옆 물체 (지금 /tracked_objects에 없는 기억한 퍽 — coordinator) · 비면 object_id를 /tracked_objects에서
 ---
 geometry_msgs/PoseStamped[] grasps   # IK 통과한 것만, 점수 높은 순
 float32[] scores                     # 0~1, grasps와 같은 순서

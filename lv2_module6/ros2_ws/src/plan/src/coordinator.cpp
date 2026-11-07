@@ -67,6 +67,7 @@ Coordinator::Coordinator(const rclcpp::NodeOptions & options)
   max_step_failures_ = declare_parameter<int>("max_step_failures", 2);
   server_wait_s_ = declare_parameter<double>("server_wait_s", 30.0);
   reach_m_ = declare_parameter<double>("reach_m", 0.30);
+  remember_s_ = declare_parameter<double>("remember_s", 120.0);  // [s] 안 보이게 된 퍽을 이만큼 기억 (0 = 안 함) — remembered_
   approach_m_ = declare_parameter<double>("approach_m", 0.24);
   place_spacing_ = declare_parameter<double>("place_spacing", 0.08);
   box_margin_m_ = declare_parameter<double>("box_margin_m", 0.03);
@@ -106,6 +107,7 @@ Coordinator::Coordinator(const rclcpp::NodeOptions & options)
     [this](TrackedObjectArray::ConstSharedPtr m) {
       const bool first = !objects_;
       objects_ = m;
+      remember(*m);
       if (first && waiting_plan_) {  // 물체 목록보다 계획이 먼저 왔으면 지금 검증
         auto plan = *waiting_plan_;
         waiting_plan_.reset();
@@ -245,7 +247,27 @@ bool Coordinator::is_id(const std::string & s) {
 
 const perception::msg::TrackedObject * Coordinator::find(uint32_t id) const {
   if (objects_) for (const auto & o : objects_->objects) if (o.id == id) return &o;
+  if (const auto it = remembered_.find(id); it != remembered_.end()) return &it->second.o;  // 지금은 안 보이는 퍽
   return nullptr;
+}
+
+void Coordinator::remember(const TrackedObjectArray & m) {
+  const rclcpp::Time t = now();
+  // 믿을 만한 관측만 기억에 씀: 계획이 없을 때(팔 멈춤) · inspect 단계. pick·load 중에는 팔이 빨리 움직여(TF 시각 어긋남)
+  //   트랙이 엉뚱한 자리로 끌려갔음 (11/07 Isaac: 적재 중 옆 퍽 트랙이 14 cm 밀려 그 자리로 pick → IK 실패)
+  const bool trust = !running_ || (idx_ < plan_.goals.size() && plan_.goals[idx_].skill == "inspect");
+  for (auto it = remembered_.begin(); it != remembered_.end();) {  // 오래됨 · 같은 자리(3 cm)에 다른 id 트랙이 다시 생김 → 잊음
+    bool replaced = (t - it->second.t).seconds() > remember_s_;
+    for (const auto & o : m.objects)
+      if (trust && !replaced && o.id != it->first && o.class_name.rfind("puck", 0) == 0 &&
+          std::hypot(o.pose.pose.position.x - it->second.o.pose.pose.position.x,
+                     o.pose.pose.position.y - it->second.o.pose.pose.position.y) < 0.03)
+        replaced = true;
+    it = replaced ? remembered_.erase(it) : std::next(it);
+  }
+  if (remember_s_ <= 0 || !trust) return;
+  for (const auto & o : m.objects)
+    if (o.class_name.rfind("puck", 0) == 0) remembered_[o.id] = {o, t};
 }
 
 std::string Coordinator::shape_of(const perception::msg::TrackedObject & o) const {
@@ -427,7 +449,17 @@ void Coordinator::pick(const SubGoal & g) {
   sg.target = g.target;
   sg.shape = shape_of(o);
   sg.tag = tag_of(o);
+  const bool visible = objects_ && std::any_of(objects_->objects.begin(), objects_->objects.end(),
+                                               [&o](const auto & x) { return x.id == o.id; });
+  if (!visible) {  // 기억한 퍽 — 대상과 그 옆 퍽(기억한 것)을 실어 보냄: grasp_scorer가 지금 인지 대신 씀
+    sg.objects.push_back(o);
+    for (const auto & [id, s] : remembered_)
+      if (id != o.id) sg.objects.push_back(s.o);
+    RCLCPP_INFO(get_logger(), "pick %s: 지금 안 보임 — 기억한 자리 (%.3f, %.3f)로", g.target.c_str(),
+                o.pose.pose.position.x, o.pose.pose.position.y);
+  }
   send("pick", sg, [this, o](const Skill::Result &) {
+    remembered_.erase(o.id);  // 손에 있음
     held_ = PuckInfo{shape_of(o), o.color, tag_of(o), false};  // 집은 퍽 — 칸에 실을 때 장부에 그대로 적음
     basket_changed();
     next();

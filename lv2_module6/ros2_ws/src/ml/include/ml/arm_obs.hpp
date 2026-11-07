@@ -6,18 +6,27 @@
 //     · 100·카메라 (칸 − 손 안 퍽, x y [cm]) (2) · 10·처짐 적분 (5)
 //   pick 모양 (pick_env, slot_env.UnloadEnv) 41개: place 모양에서 카메라 2개 뒤에 면 방향·사각 퍽 2개를 끼움
 //     … · 100·카메라 (퍽 − 손, x y) (2) · 면 방향 오차·is_box (1) · is_box (1) · 10·처짐 적분 (5)
+//   pick_box 모양 (pick_env 설계 환경, train.py --task pick) 67개: pick 41개 뒤에
+//     측정 유효 (1) · 측정 나이 / max_cam_age_s, 0~4 (1) · 10·|퍽 − 손| [dm] (1) · 100·(계획이 겨냥한 퍽 − 손) [cm] (3)
+//     · 100·(퍽 − 손) [cm] (3) · 2·3스텝 전 행동 (5+5) · 그리퍼 위치 / 0.02 (1) · 그리퍼 부하 비 (1) · 관절 부하 비 0~3 (5)
+//   unload_slot 모양 (slot_env.UnloadEnv scenario_v2, 카메라 대신 칸 TF) 58개: pick 41개 뒤에
+//     2·3스텝 전 행동 (5+5) · 50·그리퍼 위치 (1) · 그리퍼 부하 비 (1) · 관절 부하 비 0~3 (5)
+//   부하 비 = |effort| / 한계 (시뮬: 토크 / 토크 한계 · 실기: 전류 / 전류 한계, rl_arm_correction 파라미터)
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <string>
 
 namespace ml {
 
-enum class ArmLayout { Place, Pick };
+enum class ArmLayout { Place, Pick, PickBox, UnloadSlot };
 
 inline bool arm_layout_from(const std::string & s, ArmLayout & out) {
   if (s == "place") { out = ArmLayout::Place; return true; }
   if (s == "pick") { out = ArmLayout::Pick; return true; }
+  if (s == "pick_box") { out = ArmLayout::PickBox; return true; }
+  if (s == "unload_slot") { out = ArmLayout::UnloadSlot; return true; }
   return false;
 }
 
@@ -30,10 +39,28 @@ struct ArmObsIn {
   double cam_x = 0.0, cam_y = 0.0;  // [m] hand_relative rel x y
   double face_yaw = 0.0;            // [rad]
   bool is_box = false;
+  // pick_box · unload_slot
+  J5 act1{}, act2{};                // 2·3스텝 전 행동 (prev_act가 1스텝 전)
+  double grip_pos = 0.0;            // 그리퍼 관절 [m] (gripper_left_joint, 시뮬과 같은 관절)
+  double grip_load = 0.0;           // |그리퍼 effort| / 한계
+  J5 load{};                        // |관절 effort| / 한계
+  // pick_box
+  bool meas_valid = false;          // 손 카메라 값이 max_cam_age_s 안
+  double meas_age = 0.0;            // 측정 나이 / max_cam_age_s
+  double cam_z = 0.0;               // [m] hand_relative rel z
+  double insp_x = 0.0, insp_y = 0.0, insp_z = 0.0;  // [m] hand_relative insp_rel
 };
 
-inline size_t arm_obs_size(ArmLayout l) { return l == ArmLayout::Place ? 39 : 41; }
-constexpr size_t ARM_OBS_MAX = 41;  // 가장 큰 모양 (버퍼 크기)
+inline size_t arm_obs_size(ArmLayout l) {
+  switch (l) {
+    case ArmLayout::Place: return 39;
+    case ArmLayout::Pick: return 41;
+    case ArmLayout::PickBox: return 67;
+    case ArmLayout::UnloadSlot: return 58;
+  }
+  return 0;
+}
+constexpr size_t ARM_OBS_MAX = 67;  // 가장 큰 모양 (버퍼 크기)
 
 // out[arm_obs_size(l)]에 채움
 inline size_t arm_obs(ArmLayout l, const ArmObsIn & in, double * out) {
@@ -48,11 +75,33 @@ inline size_t arm_obs(ArmLayout l, const ArmObsIn & in, double * out) {
   out[k++] = std::clamp(in.prog_s, 0.0, 2.0);
   out[k++] = 100.0 * in.cam_x;
   out[k++] = 100.0 * in.cam_y;
-  if (l == ArmLayout::Pick) {
+  if (l != ArmLayout::Place) {
     out[k++] = in.is_box ? in.face_yaw : 0.0;
     out[k++] = in.is_box ? 1.0 : 0.0;
   }
   for (int i = 0; i < 5; ++i) out[k++] = 10.0 * in.corr[i];
+  if (l == ArmLayout::PickBox) {
+    out[k++] = in.meas_valid ? 1.0 : 0.0;
+    out[k++] = std::clamp(in.meas_age, 0.0, 4.0);
+    out[k++] = 10.0 * std::sqrt(in.cam_x * in.cam_x + in.cam_y * in.cam_y + in.cam_z * in.cam_z);
+    out[k++] = 100.0 * in.insp_x;
+    out[k++] = 100.0 * in.insp_y;
+    out[k++] = 100.0 * in.insp_z;
+    out[k++] = 100.0 * in.cam_x;
+    out[k++] = 100.0 * in.cam_y;
+    out[k++] = 100.0 * in.cam_z;
+    for (int i = 0; i < 5; ++i) out[k++] = in.act1[i];
+    for (int i = 0; i < 5; ++i) out[k++] = in.act2[i];
+    out[k++] = in.grip_pos / 0.02;
+    out[k++] = in.grip_load;
+    for (int i = 0; i < 5; ++i) out[k++] = std::min(in.load[i], 3.0);
+  } else if (l == ArmLayout::UnloadSlot) {
+    for (int i = 0; i < 5; ++i) out[k++] = in.act1[i];
+    for (int i = 0; i < 5; ++i) out[k++] = in.act2[i];
+    out[k++] = 50.0 * in.grip_pos;
+    out[k++] = in.grip_load;
+    for (int i = 0; i < 5; ++i) out[k++] = std::min(in.load[i], 3.0);
+  }
   return k;
 }
 

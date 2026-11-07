@@ -7,8 +7,12 @@
 #include "skills/arm_io.hpp"
 #include "skills/basket_table.hpp"
 #include "skills/skill_node.hpp"
+#include "skills/stand_plan.hpp"
 
 namespace skills {
+
+// 칸에서 꺼낼 때 손가락 사이 (시뮬 UnloadEnv open_gap_range 45~50 mm 가운데) — 최대 53 mm면 칸 벽에 가까움
+constexpr double UNLOAD_OPEN_GAP_M = 0.0475;
 
 class UnloadSkill : public SkillNode {
 public:
@@ -27,11 +31,11 @@ public:
         arm_.reset_sag();
         const auto q5 = [](const std::vector<double> & v) { ArmIO::Q5 q{}; std::copy_n(v.begin(), 5, q.begin()); return q; };
         const auto a = q5(over), d = q5(grasp);
-        const int tag = g.tag;
         auto steps = std::make_shared<std::vector<ArmIO::Step>>(arm_.sim_contact()
           ? std::vector<ArmIO::Step>{
-            arm_.joints_step(carry), arm_.gripper_step(GRIPPER_OPEN_M), arm_.joints_step(over),
-            [this, tag](ArmIO::Cb c) { arm_.hand_target("puck", tag, -1); c(true); },
+            arm_.joints_step(carry), arm_.gripper_step(stand::gap_joint(UNLOAD_OPEN_GAP_M)), arm_.joints_step(over),
+            // 칸 TF (slot_puck): 손 카메라는 못 씀 — perception이 적재함 안 퍽을 자기 몸으로 지움 (시뮬 UnloadEnv slot_tf)
+            [this, slot = g.slot](ArmIO::Cb c) { arm_.hand_target("slot_puck", -1, slot); c(true); },
             arm_.contact_step(policy_, [a, d](ArmIO::Q5 & x, ArmIO::Q5 & y) { x = a; y = d; return true; }, true),
             arm_.joints_step(carry)}
           : std::vector<ArmIO::Step>{

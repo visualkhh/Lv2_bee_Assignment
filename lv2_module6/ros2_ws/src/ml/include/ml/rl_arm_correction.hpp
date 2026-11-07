@@ -15,7 +15,8 @@
 //     정책은 skill 노드가 갖고 관리 (model/skills/<skill>/) — 처음 받은 경로는 구독 콜백(실시간 루프 밖)에서 읽고 검산해 둠 (경로별 한 번)
 //   - 정책: policy_hz(50)로 arm_obs(…) → MlpPolicy → a ∈ [−1, 1] → residual_live면 Δ = residual_rad·a (아니면 마지막 Δ 유지)
 //   - run_id가 바뀌면 corr·Δ·이전 행동을 0부터 (시뮬 에피소드 시작)
-//   - 손 카메라 값(/hand_relative)이 max_cam_age_s보다 오래되거나 valid가 아니면 Δ를 바꾸지 않음
+//   - 손 카메라 값(/hand_relative)이 max_cam_age_s보다 오래되거나 valid가 아니면 정책을 안 돌림: Δ·행동 기록 그대로
+//   - 입력 모양 place 39 · pick 41 · pick_box 67 · unload_slot 58 (arm_obs.hpp). pick_box·unload_slot은 관절·그리퍼 effort도 읽음
 // 중력 앞먹임 (gravity_enabled, 기본 켜짐 · 실행 중 ros2 param set 가능): 서보 엔코더가 못 보는 관절 비틀림 d = c·τ 를 미리 뺀다
 //   command = q_ref + corr + Δ − d. c = 1/강성 (실측 feature/isaac-setup isaac/sim/R2S/sag_fit.py: j2 12.2 · j3 18.8 Nm/rad).
 //   τ는 현재 엔코더 각의 팔 평면 점질량 모델(gravity::torques, URDF 값). 처짐 적분 오차에도 넣어 적분이 지우지 않는다.
@@ -177,7 +178,7 @@ private:
   ml::msg::SkillContext ctx_;            // 마지막으로 받은 것 (실시간 쪽 복사본)
   perception::msg::HandRelative hand_;
   uint32_t run_id_ = 0;
-  J5 corr_{}, delta_{}, prev_act_{}, prev_ref_{};
+  J5 corr_{}, delta_{}, prev_act_{}, act1_{}, act2_{}, prev_ref_{};
   std::array<SagJoint, 5> sag_{};
   rclcpp::Publisher<ml::msg::ArmCorrectionDebug>::SharedPtr debug_pub_;
   std::unique_ptr<realtime_tools::RealtimePublisher<ml::msg::ArmCorrectionDebug>> debug_rt_;
@@ -198,7 +199,9 @@ private:
   bool enabled_ = true, sag_enabled_ = true;
   double max_delta_ = 0.05, residual_rad_ = 0.05, sag_gain_ = 4.2, sag_max_ = 0.2, still_rate_ = 0.005;
   double rest_tol_ = 0.03, windup_s_ = 2.0;
-  double policy_dt_ = 0.02, max_cam_age_s_ = 1.0;
+  double policy_dt_ = 0.02, max_cam_age_s_ = 0.45;
+  std::string gripper_joint_ = "gripper_left_joint";
+  double arm_effort_limit_ = 2.3, gripper_effort_limit_ = 0.35;
 };
 
 }  // namespace ml
