@@ -1,10 +1,11 @@
 """Basket slot table: load / unload joint poses for the 12 slots, solved once offline (no Isaac app).
 
-    ~/pa-course/IsaacLab-6.1/.venv/bin/python slot_table.py      -> slot_table.npz (demo_cycle.py), slot_table.yaml (ROS)
+    ~/pa-course/IsaacLab-6.1/.venv/bin/python slot_table.py [--low-z-mm 12,15,15] [--out-dir DIR]
+                                                                 -> slot_table.npz (demo_cycle.py), slot_table.yaml (ROS)
 
 The basket is fixed on the robot, so carry -> slot -> carry is the same every time. Per puck kind (box: tool yaw on the
 slot walls; cylinder: any yaw) and slot:
-  load    q_over -> q_low (puck bottom 3 mm over the slot floor) -> release -> q_lift -> stow, from the carry pose
+  load    q_over -> q_low (puck bottom --low-z-mm over the slot floor: the drop distance) -> release -> q_lift -> stow, from the carry pose
   unload  q_over -> q_grasp -> close -> q_over -> carry
 Load poses are solved for the nominal puck in the hand (bottom GRASP_Z under the end effector); P_* (5 x 3) turn a
 measured offset e of the puck bottom in the end effector frame into the joint step  q = q_nom + P @ (-R @ e),
@@ -14,6 +15,7 @@ offset could flip it). All poses: joint1..5 [rad], targets in the robot root fra
 Check printed per slot: IK error, and the held puck's clearance to the basket walls along the joint-interpolated moves.
 """
 
+import argparse
 import glob
 import math
 from pathlib import Path
@@ -38,10 +40,31 @@ STOW = np.array([0.0, -1.9024, 1.344, 0.9023, 0.0])
 CARRY = {1: np.array([math.pi / 2, -0.465027, 0.102271, 1.933412, math.pi / 2]),
          -1: np.array([-math.pi / 2, -0.465027, 0.102271, 1.933412, -math.pi / 2])}
 D_NOM = np.array([0.0, 0.0, bc.GRASP_Z])  # puck bottom in the end effector frame, nominal grasp
-POLE_SIDE = (1, 2)  # unload grasps away from the pole: box 8 mm, cylinder 5 mm (slot 1 test, 96 runs per kind: 100 %;
-# cylinder at 8 mm 85 %, box at 5 mm 80 %)
+# Slots 1, 2 sit in front of the rear pole (base_link_4: 20 x 20 mm at x -209 mm, y 0). With the hand turned like the
+# other far-row slots (closing axis along x) the pole-side finger top corner cuts the pole on the way down (URDF meshes,
+# 11-07: -1.5..-6.3 mm for load and unload; unload cylinder 5 mm shift: 75 % misses at slot 2). So these slots turn the
+# hand 90 deg (closing axis along y, joint5 about +-171 deg) and the unload grasp moves POLE_SHIFT toward the robot (+x)
+# along the finger pads: path clearance 5.1 mm (unload, 40..50 mm open), 9.6 mm (load, 15 mm drop with the hand at -5 deg).
+POLE_SIDE = (1, 2)
+# Near-row inner slots 9, 10: with the closing axis along x the front finger reaches the basket front structure
+# (base_link_3, x about -5 mm) once the unload opening is over ~43 mm (-1.7 mm at 50 mm). Turned 90 deg: 5.3 mm at 40..50 mm.
+NEAR_INNER = (9, 10)
 PUCK_W, PUCK_H = 0.030, bc.PUCK_H
 TOL_P, TOL_A = 2e-3, math.radians(2.0)
+
+ap = argparse.ArgumentParser()
+ap.add_argument("--low-z-mm", default="15,15,15",
+                help="q_low: puck bottom height over the slot floor = drop distance at the release, one value or one per row "
+                     "(far, middle, near). 3 = old (nearly the floor); slot depth 35 mm, so 15 = 20 mm inside the slot. The far "
+                     "row needs a -5 deg pitch above ~12 mm")
+ap.add_argument("--pole-shift-mm", type=float, default=5.0,
+                help="unload grasp shift toward the robot (+x, along the finger pads) at the pole slots 1, 2 [mm]")
+ap.add_argument("--out-dir", default=str(DATA_DIR))
+ARGS = ap.parse_args()
+_z = [float(v) / 1000 for v in ARGS.low_z_mm.split(",")]
+LOW_Z = _z * 3 if len(_z) == 1 else _z  # per slot row
+OUT_DIR = Path(ARGS.out_dir)
+POLE_SHIFT = ARGS.pole_shift_mm / 1000
 
 
 def rot_tool(heading, pitch_deg, yaw):
@@ -91,14 +114,18 @@ def slot_rows(slot, is_box):
     sx, sy, sz = SLOTS[slot]
     hd = math.atan2(sy - JOINT1_XY[1], sx - JOINT1_XY[0])
     yaw = wall_yaw(hd + (-WRIST if sy > 0 else WRIST)) if (is_box or slot in POLE_SIDE) else hd + (-WRIST if sy > 0 else WRIST)
+    if slot in POLE_SIDE:  # closing axis along y, away from the rear pole (see POLE_SIDE)
+        yaw -= math.copysign(math.pi / 2, sy)
+    elif slot in NEAR_INNER:  # closing axis along y, clear of the basket front (joint5 about +-20 deg)
+        yaw += math.copysign(math.pi / 2, sy)
     h_over, pitch = OVER[slot // 4]
-    seeds = [np.array([hd, j2, j3, j4, hd - yaw]) for j2 in (-0.3, 0.3, 0.8) for j3 in (0.7, -0.5) for j4 in (1.0, 1.9)]
+    seeds = [np.array([hd, j2, j3, j4, math.remainder(hd - yaw, 2 * math.pi)]) for j2 in (-0.3, 0.3, 0.8) for j3 in (0.7, -0.5) for j4 in (1.0, 1.9)]
     r_over = rot_tool(hd, pitch, yaw)
     q_over, ok = solve(np.array([sx, sy, sz + h_over]) - r_over @ D_NOM, r_over, seeds)
     assert ok, f"slot {slot}: over pose"
     for tilt in SET_TILTS:
         r_low = rot_tool(hd, tilt, yaw)
-        q_low, ok = solve(np.array([sx, sy, sz + 0.003]) - r_low @ D_NOM, r_low, [q_over])
+        q_low, ok = solve(np.array([sx, sy, sz + LOW_Z[slot // 4]]) - r_low @ D_NOM, r_low, [q_over])
         if ok:
             break
     assert ok, f"slot {slot}: low pose"
@@ -108,10 +135,10 @@ def slot_rows(slot, is_box):
         if ok:
             q_lift, lift_up = q_try, up
             break
-    gy = sy + (math.copysign(0.008 if is_box else 0.005, sy) if slot in POLE_SIDE else 0.0)
+    gx = sx + (POLE_SHIFT if slot in POLE_SIDE else 0.0)
     for g_tilt in SET_TILTS:
         r_g = rot_tool(hd, g_tilt, yaw)
-        q_grasp, ok = solve(np.array([sx, gy, sz]) - r_g @ D_NOM, r_g, [q_over])
+        q_grasp, ok = solve(np.array([gx, sy, sz]) - r_g @ D_NOM, r_g, [q_over])
         if ok:
             break
     assert ok, f"slot {slot}: unload grasp pose"
@@ -119,12 +146,13 @@ def slot_rows(slot, is_box):
     return {
         "carry": carry, "q_over": q_over, "q_low": q_low, "q_lift": q_lift, "q_grasp": q_grasp,
         "P_over": ik.jac_pos(q_over), "P_low": ik.jac_pos(q_low), "P_lift": ik.jac_pos(q_lift),
+        "P_grasp": ik.jac_pos(q_grasp),  # unload: aim error -> joint step at the grasp pose (P_low is now above the floor)
         "rot_over": r_over, "rot_low": r_low,
         "tilt_deg": tilt, "lift_up_m": lift_up, "grasp_tilt_deg": g_tilt,
         "clear_load": clearance([(carry, q_over), (q_over, q_low)], is_box),
         "clear_load_deep": clearance([(carry, q_over), (q_over, q_low)], is_box, D_NOM - [0, 0, 0.006]),  # pick holds ~6 mm deeper
-        # unload: the puck stays on the slot centre, the fingers close 8 mm off it on the pole side
-        "clear_unload": clearance([(q_grasp, q_over), (q_over, carry)], is_box, D_NOM + r_g.T @ np.array([0.0, sy - gy, 0.0])),
+        # unload: the puck stays on the slot centre, the fingers close POLE_SHIFT off it toward the robot at the pole slots
+        "clear_unload": clearance([(q_grasp, q_over), (q_over, carry)], is_box, D_NOM + r_g.T @ np.array([sx - gx, 0.0, 0.0])),
     }
 
 
@@ -137,7 +165,7 @@ for kind, rows in table.items():
               f"{1000 * r['clear_load']:+5.1f}, {1000 * r['clear_load_deep']:+5.1f}, {1000 * r['clear_unload']:+5.1f}")
 
 keys = [k for k in table["box"][0] if not k.startswith("clear")]
-np.savez(DATA_DIR / "slot_table.npz", d_nom=D_NOM, stow=STOW,
+np.savez(OUT_DIR / "slot_table.npz", d_nom=D_NOM, stow=STOW,
          **{f"{kind}_{k}": np.array([r[k] for r in rows]) for kind, rows in table.items() for k in keys})
 doc = {
     "description": "BEE basket slot table from isaac/scripts/tools/slot_table.py. Joint values joint1..5 [rad]. Load: carry -> "
@@ -149,5 +177,5 @@ doc = {
                       "carry": "left" if SLOTS[s][1] >= 0 else "right"} for s, r in enumerate(rows)]
               for kind, rows in table.items()},
 }
-(DATA_DIR / "slot_table.yaml").write_text(yaml.safe_dump(doc, sort_keys=False, default_flow_style=None, width=160))
-print(f"wrote {DATA_DIR / 'slot_table.npz'} and {DATA_DIR / 'slot_table.yaml'}")
+(OUT_DIR / "slot_table.yaml").write_text(yaml.safe_dump(doc, sort_keys=False, default_flow_style=None, width=160))
+print(f"wrote {OUT_DIR / 'slot_table.npz'} and {OUT_DIR / 'slot_table.yaml'} (q_low: puck bottom {ARGS.low_z_mm} mm over the slot floor, per row)")
