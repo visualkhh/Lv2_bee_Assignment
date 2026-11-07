@@ -58,6 +58,16 @@ V3 fk(const Q5 & q, V3 * close_axis) {
   return add(p5, rg, EE, 0);
 }
 
+void fk_gripper(const Q5 & q, V3 & origin, std::array<V3, 3> & axes) {
+  const V3 p2 = {ARM_BASE[0], ARM_BASE[1], ARM_BASE[2] + D1 + D2};
+  const M3 r2 = mul(rz(q[0]), ry(q[1]));
+  const M3 r3 = mul(r2, ry(q[2]));
+  const M3 r4 = mul(r3, ry(q[3]));
+  const M3 rg = mul(r4, rx(q[4]));
+  origin = add(add(add(p2, r2, L1X, L1Z), r3, L2, 0), r4, L3, 0);
+  for (int j = 0; j < 3; ++j) axes[j] = col(rg, j);
+}
+
 bool ik_down(const V3 & p, double close_yaw, const Q5 & near, Q5 & out) {
   // 손이 아래를 보면 gripper x = −z → joint4 = 손끝 + (0, 0, EE + L3). joint1이 그 점을 바라보고, joint2~3이 팔 평면의 2링크,
   // joint4 = π/2 − joint2 − joint3 (손을 수직으로), joint5 = 닫는 축 방향 (gripper y 수평각 = joint1 + π/2 − joint5)
