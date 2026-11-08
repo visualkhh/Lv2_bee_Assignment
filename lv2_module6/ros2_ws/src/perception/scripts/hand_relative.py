@@ -7,7 +7,8 @@
   출력: /hand_relative (perception/HandRelative, base_link 기준) — rl_arm_correction이 정책 관측으로 씀
   왜: 시뮬 학습 정책(isaac/rl/bee_isaac/tasks)은 "손 카메라로 잰 퍽 − 손 / 칸 − 손 안 퍽"을 보고 보정함 (2026-11-03 배포 결정:
       닿는 구간은 시뮬과 같은 기준 동작 + 학습 보정 → 그 입력을 로봇에서 만들어야 함).
-  주기: cell·puck은 손 카메라 검출이 올 때마다 (≤ 4Hz), slot은 rate_hz (카메라 없이 TF만 — 적재함은 로봇에 고정).
+  주기: 모두 rate_hz. slot·slot_puck은 카메라 없이 TF만 (적재함은 로봇에 고정 · 적재함 안 퍽은 perception이 자기 몸으로 지움). cell·puck은 마지막 검출(≤ 4Hz)을 map 기준으로 들고,
+        발행 때마다 지금 손 위치로 다시 뺌 (hand_geom.held_relative — 시뮬 pick_env와 같은 정의, 11/07) · stamp = 그 검출의 영상 시각.
 """
 import math
 
@@ -45,14 +46,15 @@ class HandRelativeNode(Node):
         self.declare_parameter("base_frame", "base_link")  # 시뮬 정책 입력 좌표 (isaac/rl/bee_isaac/tasks: base_link)
         self.declare_parameter("ee_frame", "end_effector_link")
         self.declare_parameter("map_frame", "map")
-        self.declare_parameter("rate_hz", 20.0)  # slot (카메라 없음) 발행 주기
-        self.declare_parameter("max_age_s", 1.0)  # 이보다 오래된 검출은 안 씀
+        self.declare_parameter("rate_hz", 20.0)  # 발행 주기 (slot · 들고 있는 cell·puck 검출)
+        self.declare_parameter("max_age_s", 0.45)  # 이보다 오래된 검출은 안 씀 — 간격 0.25 + 지연 0.15 + 0.05 (rl_arm_correction max_cam_age_s, 시뮬 meas_age_max)
         g = lambda k: self.get_parameter(k).value
         self.base, self.ee, self.map = g("base_frame"), g("ee_frame"), g("map_frame")
         self.max_age = float(g("max_age_s"))
         self.tf = Buffer()
         self.tfl = TransformListener(self.tf, self)
         self.target = HandTarget(kind="none")
+        self.held = None  # (stamp, hand_geom.held_relative 입력, neighbour_rel 또는 None) — 마지막 cell·puck 검출
         latched = QoSProfile(depth=1, reliability=QoSReliabilityPolicy.RELIABLE, durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
         self.create_subscription(HandTarget, "/hand_relative/target", self.on_target, latched)
         self.create_subscription(TrackedObjectArray, "/perception/gripper_cam/detections", self.on_dets, 5)
@@ -85,6 +87,7 @@ class HandRelativeNode(Node):
 
     def on_target(self, msg):
         self.target = msg
+        self.held = None
         self.get_logger().info(f"target {msg.kind} puck_tag {msg.puck_tag} box_tag {msg.box_tag} slot {msg.slot}")
 
     def frames(self, stamp):
@@ -115,15 +118,48 @@ class HandRelativeNode(Node):
 
     def on_timer(self):
         t = self.target
-        if t.kind != "slot":
+        if t.kind in ("puck", "cell"):
+            self.publish_held()
+            return
+        if t.kind not in ("slot", "slot_puck"):
             return
         fr = self.frames(None)
-        m = self.base_msg(self.get_clock().now().to_msg(), "slot")
+        m = self.base_msg(self.get_clock().now().to_msg(), t.kind)
         if fr is not None and 0 <= t.slot < len(SLOTS):
             (_, _), (ee_t, ee_R) = fr
-            rel = np.array(SLOTS[t.slot]) - hg.bottom_in_hand(ee_t, ee_R)
+            rel = (np.array(SLOTS[t.slot]) - hg.bottom_in_hand(ee_t, ee_R) if t.kind == "slot"
+                   else hg.slot_puck_rel(SLOTS[t.slot], ee_t))
             m.rel.x, m.rel.y, m.rel.z = (float(v) for v in rel)
             m.valid = True
+        self.publish(m)
+
+    def publish_held(self):
+        """마지막 검출을 지금 손 기준으로 · 없거나 max_age_s보다 오래되면 보내지 않음 (on_dets가 invalid를 이미 보냄)."""
+        if self.held is None:
+            return
+        stamp, h, nb = self.held
+        age = (self.get_clock().now() - Time.from_msg(stamp)).nanoseconds * 1e-9
+        fr = self.frames(None)
+        m = self.base_msg(stamp, h["kind"])
+        m.age = float(max(age, 0.0))
+        if fr is None or age > self.max_age:
+            self.held = None
+            self.publish(m)
+            return
+        (base_t, base_R), (ee_t, ee_R) = fr
+        rel, fy, ax = hg.held_relative(h, base_t, base_R, ee_t, ee_R)
+        m.rel.x, m.rel.y, m.rel.z = (float(v) for v in rel)
+        m.face_yaw = fy
+        m.axis.x, m.axis.y, m.axis.z = (float(v) for v in ax)
+        m.is_box = bool(h.get("is_box", False))
+        if h["kind"] == "puck":  # 계획이 겨냥한 퍽 − 지금 손 (HandTarget.point, map)
+            p = self.target.point
+            ins = hg.to_base(hg.aimed_centre((p.x, p.y, p.z)), base_t, base_R) - ee_t
+            m.insp_rel.x, m.insp_rel.y, m.insp_rel.z = (float(v) for v in ins)
+        if nb is not None:
+            m.neighbour = True
+            m.neighbour_rel.x, m.neighbour_rel.y, m.neighbour_rel.z = (float(v) for v in nb)
+        m.valid = True
         self.publish(m)
 
     def on_dets(self, msg):
@@ -134,8 +170,9 @@ class HandRelativeNode(Node):
         fr = self.frames(msg.header.stamp)
         age = (self.get_clock().now() - Time.from_msg(msg.header.stamp)).nanoseconds * 1e-9
         m.age = float(max(age, 0.0))
-        if fr is None or age > self.max_age:
-            self.publish(m)
+        if fr is None or age > self.max_age:  # 못 쓰는 검출: 들던 값이 있으면 그대로 (타이머가 max_age_s로 끝냄)
+            if self.held is None:
+                self.publish(m)
             return
         (base_t, base_R), (ee_t, ee_R) = fr
         base_yaw = math.atan2(base_R[1, 0], base_R[0, 0])
@@ -147,38 +184,32 @@ class HandRelativeNode(Node):
                     box = (p.x, p.y, p.z)
             pt = (t.point.x, t.point.y, t.point.z)
             plan = (t.box_point.x, t.box_point.y, t.box_point.z) if t.box_tag >= 0 else None
-            cell_b = hg.to_base(hg.cell_now(pt, plan, box), base_t, base_R)
-            rel = cell_b - hg.bottom_in_hand(ee_t, ee_R)
-            m.rel.x, m.rel.y, m.rel.z = (float(v) for v in rel)
-            m.valid = True  # 상자를 못 봐도 계획 칸으로 (손 위치는 TF로 앎)
-            self.publish(m)
+            # 상자를 못 봐도 계획 칸으로 (손 위치는 TF로 앎)
+            self.held = (msg.header.stamp, {"kind": "cell", "c_map": hg.cell_now(pt, plan, box)}, None)
+            self.publish_held()
             return
-        pucks = []  # (tag, centre_b, standing, yaw_b, is_box)
+        pucks = []  # (tag, centre_b, standing, yaw_b, is_box, centre_map, yaw_map)
         for o in msg.objects:
             if o.class_name not in ("puck", "puck_lying"):
                 continue
             standing = o.class_name == "puck"
             p = o.pose.pose.position
-            c = hg.to_base(hg.puck_centre((p.x, p.y, p.z), standing), base_t, base_R)
+            c_map = hg.puck_centre((p.x, p.y, p.z), standing)
+            c = hg.to_base(c_map, base_t, base_R)
             known_yaw = bool(detail(o, "yaw_period"))
-            yaw_b = hg.wrap(yaw_of_quat(o.pose.pose.orientation) - base_yaw, 2 * math.pi) if known_yaw else None
+            yaw_map = yaw_of_quat(o.pose.pose.orientation) if known_yaw else None
+            yaw_b = hg.wrap(yaw_map - base_yaw, 2 * math.pi) if known_yaw else None
             tag = int(detail(o, "tag")) if detail(o, "tag").lstrip("-").isdigit() else -1
-            pucks.append((tag, c, standing, yaw_b, detail(o, "shape") == "box"))
-        k = hg.pick_target(pucks, ee_t, t.puck_tag)
-        if k is not None:
-            tag, c, standing, yaw_b, is_box = pucks[k]
-            rel = c - ee_t
-            m.rel.x, m.rel.y, m.rel.z = (float(v) for v in rel)
-            m.is_box = is_box
-            m.face_yaw = float(hg.face_yaw(yaw_b, hg.tool_yaw(ee_R), is_box))
-            ax = hg.puck_axis(standing, yaw_b, c)
-            m.axis.x, m.axis.y, m.axis.z = (float(v) for v in ax)
-            nb = hg.neighbour(pucks, k)
-            if nb is not None:
-                m.neighbour = True
-                m.neighbour_rel.x, m.neighbour_rel.y, m.neighbour_rel.z = (float(v) for v in nb)
-            m.valid = True
-        self.publish(m)
+            pucks.append((tag, c, standing, yaw_b, detail(o, "shape") == "box", c_map, yaw_map))
+        k = hg.pick_target([q[:5] for q in pucks], ee_t, t.puck_tag)
+        if k is None:  # 목표 퍽이 이 영상에 없음 (태그가 화면 밖 · 너무 가까워 위치 없음) → 들던 값은 max_age_s까지 계속 보냄
+            if self.held is None:
+                self.publish(m)
+            return
+        _, _, standing, _, is_box, c_map, yaw_map = pucks[k]
+        held = {"kind": "puck", "c_map": c_map, "standing": standing, "yaw_map": yaw_map, "is_box": is_box}
+        self.held = (msg.header.stamp, held, hg.neighbour([q[:5] for q in pucks], k))
+        self.publish_held()
 
 
 def main():

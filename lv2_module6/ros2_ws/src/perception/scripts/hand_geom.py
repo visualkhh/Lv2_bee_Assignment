@@ -98,3 +98,26 @@ def neighbour(pucks, k, radius=0.12):
         if np.hypot(*d[:2]) < radius and (best is None or np.hypot(*d[:2]) < np.hypot(*best[:2])):
             best = d
     return best
+
+
+def held_relative(held, base_t, base_R, ee_t, ee_R):
+    """Last detection (map frame) seen from the hand NOW → (rel, face_yaw, axis) in base_link — the sim policy input:
+    the measured puck / cell stays where it was seen, the hand keeps moving (isaac pick_env: last_m − current hand).
+    held: kind 'puck' (c_map = puck centre, standing, yaw_map or None, is_box) or 'cell' (c_map = cell point)."""
+    c_b = to_base(held["c_map"], base_t, base_R)
+    if held["kind"] == "cell":
+        return c_b - bottom_in_hand(ee_t, ee_R), 0.0, np.array([0.0, 0.0, 1.0])
+    base_yaw = math.atan2(base_R[1, 0], base_R[0, 0])
+    yaw_b = None if held["yaw_map"] is None else wrap(held["yaw_map"] - base_yaw, 2 * math.pi)
+    return (c_b - ee_t, float(face_yaw(yaw_b, tool_yaw(ee_R), held["is_box"])),
+            puck_axis(held["standing"], yaw_b, c_b))
+
+
+def aimed_centre(grasp_ee_map):
+    """pick_skill 손끝 목표(서 있는 퍽을 위에서 집는 자세) → 계획이 겨냥한 퍽 가운데 (map) — 시뮬 pick_env tgt_insp_b."""
+    return np.asarray(grasp_ee_map, float) - np.array([0.0, 0.0, GRASP_Z - PUCK_H / 2])
+
+
+def slot_puck_rel(slot_floor_b, ee_t):
+    """unload: 칸 안 퍽 공칭 가운데 (칸 바닥 + 반 높이) − 손끝 (base_link) — 시뮬 UnloadEnv slot_tf."""
+    return np.asarray(slot_floor_b, float) + np.array([0.0, 0.0, PUCK_H / 2]) - ee_t

@@ -57,3 +57,25 @@ if __name__ == "__main__":
         if name.startswith("test_"):
             f()
             print("ok", name)
+
+
+def test_held_relative_follows_the_hand():
+    """마지막 검출(map)은 그 자리 · 손이 내려가면 rel이 그만큼 줄어듦 (시뮬 pick_env: last_m − 지금 손)"""
+    base_t, base_R = np.array([1.0, 2.0, 0.0]), rz(math.pi / 2)
+    c_map = base_t + base_R @ np.array([0.20, 0.01, 0.10])  # base_link (0.20, 0.01, 0.10)의 퍽 가운데
+    held = {"kind": "puck", "c_map": c_map, "standing": True, "yaw_map": math.pi / 2 + 0.1, "is_box": True}
+    ee_R = DOWN
+    rel0, fy, ax = hg.held_relative(held, base_t, base_R, np.array([0.20, 0.0, 0.20]), ee_R)
+    rel1, _, _ = hg.held_relative(held, base_t, base_R, np.array([0.20, 0.0, 0.15]), ee_R)
+    assert np.allclose(rel0, [0.0, 0.01, -0.10]) and np.allclose(rel1, [0.0, 0.01, -0.05])
+    assert abs(fy - 0.1) < 1e-9 and np.allclose(ax, [0, 0, 1])
+    cell = hg.held_relative({"kind": "cell", "c_map": c_map}, base_t, base_R, np.array([0.20, 0.0, 0.20]), ee_R)[0]
+    assert np.allclose(cell, np.array([0.20, 0.01, 0.10]) - hg.bottom_in_hand(np.array([0.20, 0.0, 0.20]), ee_R))
+
+
+def test_aimed_centre_and_slot_puck():
+    """pick 손끝 목표 → 겨냥한 퍽 가운데 (시뮬 tgt_insp_b) · unload 칸 안 퍽 − 손 (시뮬 UnloadEnv slot_tf)"""
+    bottom = np.array([0.3, 0.1, 0.07])
+    assert np.allclose(hg.aimed_centre(bottom + [0, 0, hg.GRASP_Z]), bottom + [0, 0, hg.PUCK_H / 2])
+    floor = np.array([-0.10484, 0.0325, 0.09125])
+    assert np.allclose(hg.slot_puck_rel(floor, np.array([-0.1, 0.03, 0.2])), [-0.00484, 0.0025, 0.09125 + 0.03 - 0.2])
