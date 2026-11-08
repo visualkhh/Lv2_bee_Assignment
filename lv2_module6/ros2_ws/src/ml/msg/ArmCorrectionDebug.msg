@@ -1,11 +1,13 @@
 # rl_arm_correction이 매 debug_hz(기본 20 Hz)로 내는 상태 — 실기 디버깅 (rosbag · PlotJuggler)
-#   보낸 명령 = ref + corr + delta
+#   보낸 명령 = ref + corr + delta + grav
 std_msgs/Header header
 string skill            # /skill_context skill ("" = 보정 꺼짐)
 uint32 run_id
 float64[5] ref          # 들어온 목표 관절각 (JTC) [rad]
 float64[5] q            # 실제 관절각 [rad]
 float64[5] corr         # 처짐 적분 [rad]
+float64[5] grav         # 중력 앞먹임 [rad] (관절 비틀림 −c·τ · gravity_scale 곱한 값 — j2~j4만)
+float64 grav_scale      # 앞먹임 켜고 끌 때 0→1 (gravity_ramp_s)
 float64[5] delta        # 학습 정책 Δ [rad]
 bool[5] sag_blocked     # 상한에 붙어 풀고 쉬는 관절 (닿아서 못 감)
 bool still              # reference 멈춤 → 처짐 적분 도는 중

@@ -197,7 +197,7 @@ private:
   std::vector<double> obs_, act_;
   // 파라미터 (on_configure에서 읽음 — 실시간 루프에서 get_parameter 안 함)
   bool enabled_ = true, sag_enabled_ = true;
-  double max_delta_ = 0.05, residual_rad_ = 0.05, sag_gain_ = 4.2, sag_max_ = 0.2, still_rate_ = 0.005;
+  double max_delta_ = 0.05, residual_rad_ = 0.05, max_delta_step_ = 0.0, sag_gain_ = 4.2, sag_max_ = 0.2, still_rate_ = 0.005;
   double rest_tol_ = 0.03, windup_s_ = 2.0;
   double policy_dt_ = 0.02, max_cam_age_s_ = 0.45;
   std::string gripper_joint_ = "gripper_left_joint";

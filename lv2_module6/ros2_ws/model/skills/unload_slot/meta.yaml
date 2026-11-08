@@ -2,10 +2,10 @@
 
 skill: unload_slot
 kind: arm            # arm (rl_arm_correction이 계산) | base (skill_approach가 계산)
-layout: pick          # 정책 입력 모양 (ml/arm_obs.hpp place 39 · pick 41)
-use: true
+layout: unload_slot   # 정책 입력 모양 (ml/arm_obs.hpp place 39 · pick 41 · unload_slot 58) — 이전 pick(41)은 hand_target slot_puck과 안 맞아 실기에서 안 돌았음
+use: false            # 11-08: v03도 시뮬 앞먹임 조건 학습 (pick 새벽본처럼 처짐 적분 범위 밖 가능) — 첫 실기 시험은 정책 없이
 node: skill_unload
-sim_baseline: 93.7      # [%] 학습 없이 기준 동작만 (1024판)
-sim_policy: 98.1        # [%] 학습 뒤
-irreversible: 0.1      # [%] 되돌릴 수 없는 실패 (놓침·넘어뜨림)
-source: isaac/lab slot_env UnloadEnv (11-03)
+sim_baseline: 32.5      # [%] 잔차 0 (5단계 전부 켠 평가 조건, 1024판)
+sim_policy: 97.0        # [%] 5단계 (중심 오차 p90 5.8 mm)
+irreversible: 0.0      # [%] 떨어뜨림 0/1024
+source: isaac/policies/v03/unload_slot.pt (slot_env UnloadEnv scenario_v2 커리큘럼 5단계, 11-08 새벽) · 이전 11-03본

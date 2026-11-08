@@ -12,6 +12,7 @@ CallbackReturn RlArmCorrection::on_init() {
   auto_declare<bool>("enabled", true);
   auto_declare<double>("max_delta", 0.05);          // Δ 상한 [rad] (안전)
   auto_declare<double>("residual_rad", 0.05);       // 행동 1 = 이만큼 [rad] (시뮬 residual_rad)
+  auto_declare<double>("max_delta_step", 0.0);      // 정책 한 스텝에 Δ가 움직이는 상한 [rad] (시뮬 delta_step_rad) — 0 = 바로 (11-08 이전 정책) · 재학습본은 0.004
   auto_declare<bool>("sag_enabled", true);
   auto_declare<double>("sag_gain", 4.2);            // [1/s] 학습: 85 ms마다 오차 30 % 제거 = −ln(0.7)/0.085 (송정혁)
   auto_declare<double>("sag_max", 0.2);             // [rad]
@@ -46,6 +47,7 @@ CallbackReturn RlArmCorrection::on_configure(const rclcpp_lifecycle::State &) {
   enabled_ = node->get_parameter("enabled").as_bool();
   max_delta_ = node->get_parameter("max_delta").as_double();
   residual_rad_ = node->get_parameter("residual_rad").as_double();
+  max_delta_step_ = node->get_parameter("max_delta_step").as_double();
   sag_enabled_ = node->get_parameter("sag_enabled").as_bool();
   sag_gain_ = node->get_parameter("sag_gain").as_double();
   sag_max_ = node->get_parameter("sag_max").as_double();
@@ -287,7 +289,10 @@ return_type RlArmCorrection::update_and_write_commands(const rclcpp::Time & time
       act1_ = prev_act_;  // 행동 기록은 정책이 돈 스텝에만 (시뮬 pick_env와 같음)
       for (int i = 0; i < 5; ++i) {
         const double a = std::clamp(act_[i], -1.0, 1.0);
-        if (ctx_.residual_live) delta_[i] = std::clamp(residual_rad_ * a, -max_delta_, max_delta_);
+        if (ctx_.residual_live) {
+          const double want = std::clamp(residual_rad_ * a, -max_delta_, max_delta_);
+          delta_[i] = max_delta_step_ > 0.0 ? delta_[i] + std::clamp(want - delta_[i], -max_delta_step_, max_delta_step_) : want;
+        }
         prev_act_[i] = a;
       }
     }
@@ -312,9 +317,11 @@ return_type RlArmCorrection::update_and_write_commands(const rclcpp::Time & time
       debug_.ref[i] = ref[i];
       debug_.q[i] = q[i];
       debug_.corr[i] = corr_[i];
+      debug_.grav[i] = grav[i];
       debug_.delta[i] = delta_[i];
       debug_.sag_blocked[i] = sag_[i].blocked;
     }
+    debug_.grav_scale = gravity_scale_;
     debug_.still = still;
     debug_.rest = rest;
     debug_.policy_on = it != nullptr;

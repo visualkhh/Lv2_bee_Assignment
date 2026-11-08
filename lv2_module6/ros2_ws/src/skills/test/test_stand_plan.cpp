@@ -192,3 +192,21 @@ TEST(StandPlan, SampleViaPassesCarryWithoutStopping) {
   EXPECT_LT(jump, 0.05);   // 20 ms 사이 관절 변화 — 튀지 않음
   for (int j = 0; j < 5; ++j) EXPECT_NEAR(qs.back()[j], to[j], 1e-9);
 }
+
+TEST(StandPlan, SampleViaStaysInLimitsAndArrivesGently) {
+  // 최소 저크: 관절 속도 ≤ 팀 한계 × vel_scale × 1.25 (사다리꼴 시간 그대로라 ~17 % 넘음), 끝 두 표본 사이 속도 변화(가속도)가 거의 0
+  const Q5 from = {0.0, -0.9, 0.6, 1.2, 0.0}, via = {-1.570796, -0.698132, 0.349066, 1.047198, -1.570796},
+           to = {-2.721611, 0.102129, -0.282709, 1.402190, -1.150814};
+  const double dt = 0.02, vs = 1.0;
+  auto qs = sample_via(from, via, to, vs, dt);
+  qs.insert(qs.begin(), from);
+  double vmax = 0;
+  for (size_t i = 1; i < qs.size(); ++i)
+    for (int j = 0; j < 5; ++j) vmax = std::max(vmax, std::abs(qs[i][j] - qs[i - 1][j]) / dt);
+  EXPECT_LT(vmax, VMAX * vs * 1.25);
+  const size_t n = qs.size();
+  for (int j = 0; j < 5; ++j) {
+    const double v1 = (qs[n - 1][j] - qs[n - 2][j]) / dt, v2 = (qs[n - 2][j] - qs[n - 3][j]) / dt;
+    EXPECT_LT(std::abs(v1 - v2) / dt, 0.2 * AMAX);  // 도착 직전 가속도 작음
+  }
+}
