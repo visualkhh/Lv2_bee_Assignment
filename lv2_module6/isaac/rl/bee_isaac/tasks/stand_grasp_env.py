@@ -105,6 +105,7 @@ class StandGraspEnvCfg(rt.RightEnvCfg):
     yaw_min_deg, yaw_max_deg = -180.0, 180.0
     cam_bias_m, cam_noise_m, cam_yaw_noise = 0.002, 0.001, math.radians(3.0)
     cam_period_s, cam_age_max = 0.25, 0.45
+    face_zero = False  # eval: face yaw input always 0 (real hand camera often gives no axis for a lying puck, 11-08 bag)
     cam_min_up_m = 0.015  # no new capture when the hand is less than this above the pinch height (puck too close)
 
     # reward
@@ -226,6 +227,8 @@ class StandGraspEnv(rt.RightEnv):
         start = torch.where(ph == 0, self.t_tr, start)
         prog = (self.t - start).clamp(0, 2)
         face = torch.remainder(self.yaw_meas + self.face_bias - self._tool_yaw() + math.pi / 4, math.pi / 2) - math.pi / 4
+        if self.cfg.face_zero:
+            face = torch.zeros_like(face)
         obs = torch.cat([
             q - self.q_ref, self.wp[:, 1] - self.q_ref, 0.1 * qd, self.q_ref - self.wp[:, 0], self.prev_act,  # 25
             onehot, prog[:, None],                                                                             # 7
