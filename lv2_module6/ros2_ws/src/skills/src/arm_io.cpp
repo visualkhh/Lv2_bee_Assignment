@@ -36,10 +36,16 @@ const char * ARM[] = {"joint1", "joint2", "joint3", "joint4", "joint5"};
 ArmIO::ArmIO(rclcpp::Node & node)
 : node_(node) {
   arm_plan_tries_ = node.declare_parameter<int>("arm_plan_tries", 3);
-  grip_current_a_ = node.declare_parameter<double>("grip_current_a", 0.35);  // 닫을 때 쥐는 힘 [A] — 팀 결정 0.3~0.4 A (22~29 N)
+  // MoveIt 계획 속도·가속도 비율 (0~1] — 계획할 때마다 읽음 → `ros2 param set /skill_<이름> arm_velocity_scale 1.0`으로 바로 바뀜
+  node.declare_parameter<double>("arm_velocity_scale", 0.3);
+  grip_current_a_ = node.declare_parameter<double>("grip_current_a", 0.1);  // 닫을 때 쥐는 힘 상한 [A] — 실기 11/08: gap 26 mm와 같이 0.1 A (약 7 N)
   grasp_check_ = node.declare_parameter<bool>("grasp_check", true);
   grasp_min_pos_m_ = node.declare_parameter<double>("grasp_min_pos_m", 0.003);
   grasp_min_effort_ = node.declare_parameter<double>("grasp_min_effort", 0.25);
+  // 닫는 목표 손가락 사이 [m] — 퍽 30 mm보다 조금 좁게 (실기 11/08: 손가락이 퍽에 닿는 곳 ≈ gap 29 mm). 쥐는 힘 = 그 깊이만큼의 위치 오차
+  node.declare_parameter<double>("grip_close_gap_m", 0.026);
+  // 잡기 판정: 손가락이 닫는 목표보다 이만큼 넘게 못 들어가고 멈췄으면 쥠 (빈손이면 목표까지 감) [m]
+  node.declare_parameter<double>("grasp_stop_margin_m", 0.0005);
   // sim: 닿는 구간은 시뮬과 같은 기준 동작 + 학습 보정 (2026-11-03 배포 결정) · moveit: 예전처럼 MoveIt만
   contact_mode_ = node.declare_parameter<std::string>("contact_mode", "sim");
   plan_ = node.create_client<GetMotionPlan>("/plan_kinematic_path");
@@ -101,7 +107,47 @@ void ArmIO::execute(const moveit_msgs::msg::RobotTrajectory & traj, Cb done) {
   exec_->async_send_goal(goal, opt);
 }
 
+// reset_sag 직후: 처짐 보정이 0이 돼 팔이 처졌다가(퍽을 들면 ~0.04 rad) 다시 올라옴 (~0.4 s). 그 사이 MoveIt이 계획하면
+// 실행 시작 검사(allowed_start_tolerance 0.01 rad)에서 거부 — 11/07 Isaac unload → place 5번 중 3번.
+// 최소 SETTLE_MIN_S 기다리고(보정 0이 실제로 들어갈 때까지), 최근 SETTLE_N틱(0.2 s) 동안 관절마다 최대 − 최소가 SETTLE_SPREAD 안이면 go
+// (상한 SETTLE_MAX_S). 예전 기준(기준 자세에서 4 mrad 안 3번 연속)은 실기 joint1이 멈춰서도 ±4.5 mrad로 떨어(헌팅) 3 s 상한까지
+// 기다림 (11/08 pick_loop bag: 퍽 위 3.0 s · pick 뒤 1.9 s). 12 mrad / 0.2 s = 0.06 rad/s보다 빠르게 움직이는 팔은 여전히 기다림
+// — 실행 시작 검사(allowed_start_tolerance 0.01 rad)까지 ~0.1 s면 6 mrad (11/08 실기 첫 unload: 천천히 움직이는 팔에 joint3 start point deviates)
+void ArmIO::settle(std::function<void()> go) {
+  if (!settle_) { go(); return; }
+  settle_ = false;
+  constexpr double SETTLE_MIN_S = 0.25, SETTLE_MAX_S = 3.0, SETTLE_SPREAD = 0.012, DT = 0.05;
+  constexpr size_t SETTLE_N = 4;
+  const uint64_t gen = gen_;
+  auto hist = std::make_shared<std::vector<Q5>>();
+  auto ticks = std::make_shared<int>(0);
+  settle_timer_ = node_.create_wall_timer(std::chrono::duration<double>(DT), [this, go, gen, hist, ticks]() {
+    if (gen != gen_) { settle_timer_->cancel(); return; }
+    Q5 q;
+    if (arm_now(q)) {
+      hist->push_back(q);
+      if (hist->size() > SETTLE_N) hist->erase(hist->begin());
+    }
+    bool still = hist->size() == SETTLE_N;
+    for (int i = 0; i < 5 && still; ++i) {
+      double lo = (*hist)[0][i], hi = lo;
+      for (const auto & h : *hist) { lo = std::min(lo, h[i]); hi = std::max(hi, h[i]); }
+      still = hi - lo <= SETTLE_SPREAD;
+    }
+    const double t = ++*ticks * DT;
+    if ((t >= SETTLE_MIN_S && still) || t >= SETTLE_MAX_S) {
+      settle_timer_->cancel();
+      go();
+    }
+  });
+}
+
+double ArmIO::velocity_scale() const {
+  return std::clamp(node_.get_parameter("arm_velocity_scale").as_double(), 0.01, 1.0);
+}
+
 void ArmIO::move_arm(const geometry_msgs::msg::PoseStamped & target, Cb done, double yaw, int tries_left) {
+  if (settle_) { settle([this, target, done, yaw, tries_left]() { move_arm(target, done, yaw, tries_left); }); return; }
   if (tries_left < 0) tries_left = arm_plan_tries_ - 1;
   auto req = std::make_shared<GetMotionPlan::Request>();
   auto & r = req->motion_plan_request;
@@ -109,8 +155,7 @@ void ArmIO::move_arm(const geometry_msgs::msg::PoseStamped & target, Cb done, do
   r.start_state.is_diff = true;
   r.num_planning_attempts = 3;
   r.allowed_planning_time = 5.0;
-  r.max_velocity_scaling_factor = 0.3;
-  r.max_acceleration_scaling_factor = 0.3;
+  r.max_velocity_scaling_factor = r.max_acceleration_scaling_factor = velocity_scale();
   moveit_msgs::msg::Constraints goal;
   moveit_msgs::msg::PositionConstraint pc;
   pc.header = target.header;
@@ -156,14 +201,14 @@ void ArmIO::move_arm(const geometry_msgs::msg::PoseStamped & target, Cb done, do
 
 void ArmIO::move_joints(const std::vector<double> & q5, Cb done) {
   if (q5.size() != 5) { done(false); return; }
+  if (settle_) { settle([this, q5, done]() { move_joints(q5, done); }); return; }
   auto req = std::make_shared<GetMotionPlan::Request>();
   auto & r = req->motion_plan_request;
   r.group_name = "arm";
   r.start_state.is_diff = true;
   r.num_planning_attempts = 3;
   r.allowed_planning_time = 5.0;
-  r.max_velocity_scaling_factor = 0.3;
-  r.max_acceleration_scaling_factor = 0.3;
+  r.max_velocity_scaling_factor = r.max_acceleration_scaling_factor = velocity_scale();
   moveit_msgs::msg::Constraints c;
   for (int i = 0; i < 5; ++i) {
     moveit_msgs::msg::JointConstraint jc;
@@ -181,6 +226,12 @@ void ArmIO::move_joints(const std::vector<double> & q5, Cb done) {
     if (res->motion_plan_response.error_code.val != moveit_msgs::msg::MoveItErrorCodes::SUCCESS) { done(false); return; }
     execute(res->motion_plan_response.trajectory, done);
   });
+}
+
+double ArmIO::grip_current_a() const { return node_.get_parameter("grip_current_a").as_double(); }
+
+double ArmIO::grip_close_m() const {
+  return std::max(stand::gap_joint(node_.get_parameter("grip_close_gap_m").as_double()), GRIPPER_CLOSED_M);
 }
 
 void ArmIO::set_gripper(double width_m, Cb done, double effort_a) {
@@ -222,7 +273,12 @@ ArmIO::Step ArmIO::held_step() {
     const auto e = effort_.find("gripper_left_joint");
     const double pos = p == pos_.end() ? 0.0 : p->second;
     const double eff = e == effort_.end() ? std::nan("") : e->second;
-    const bool ok = grasp_held(pos, eff, grasp_min_pos_m_, grasp_min_effort_);
+    // 쥠 = 손가락이 닫는 목표 앞에서 멈춤 (약한 전류) 또는 전류가 하한 이상 (센 전류면 퍽이 눌려 목표 근처까지 들어감 —
+    //   11/08 실기 0.35 A: 30 mm 퍽에서 4.7 mm까지 · 0.34 A, 목표 4.2 mm). 빈손은 목표까지 가고 전류 ~0
+    const bool stopped = grasp_held(pos, eff, std::max(grasp_min_pos_m_, grip_close_m() + node_.get_parameter("grasp_stop_margin_m").as_double()), 0.0);
+    // 전류 기준은 쥐는 전류 상한의 절반까지 낮춤 — grasp_min_effort 0.25 A는 0.35 A로 쥘 때 값. 0.1 A로 쥐면 쥔 퍽도 0.09 ~ 0.10 A라
+    // 위치 기준(목표 + 0.5 mm, 0.1 mm 차)만 남아 쥔 퍽을 빈손으로 판정 (11/08 실기 unload 칸 2: 0.0047 m · 0.09 A). 빈손은 목표까지 가고 전류 ~0
+    const bool ok = stopped || grasp_held(pos, eff, grasp_min_pos_m_, std::min(grasp_min_effort_, 0.5 * grip_current_a()));
     RCLCPP_INFO(node_.get_logger(), "잡기 판정 %s — 그리퍼 %.4fm · %.2fA", ok ? "쥠" : "빈손", pos, eff);
     grasp_empty_ = !ok;
     cb(ok);
@@ -231,6 +287,7 @@ ArmIO::Step ArmIO::held_step() {
 
 ArmIO::Step ArmIO::traj_step(std::function<std::vector<Q5>(const Q5 &)> make) {
   return [this, make](Cb cb) {
+    if (settle_) { settle([this, make, cb]() { traj_step(make)(cb); }); return; }
     Q5 now;
     if (!arm_now(now)) { cb(false); return; }
     const auto samples = make(now);
@@ -346,6 +403,7 @@ void ArmIO::hand_target(const std::string & kind, int puck_tag, int slot, double
 void ArmIO::reset_sag() {
   if (reset_sag_->service_is_ready()) {
     reset_sag_->async_send_request(std::make_shared<std_srvs::srv::Trigger::Request>());
+    settle_ = true;
   } else if (!sag_warned_) {
     sag_warned_ = true;
     RCLCPP_WARN(node_.get_logger(), "/rl_arm_correction/reset_sag 없음 — 처짐 보정 초기화 없이 계속 (rl_arm_correction 확인)");
@@ -383,14 +441,19 @@ bool ArmIO::ik_ee_yaw(const geometry_msgs::msg::PoseStamped & ee, double psi, co
   return stand::ik_down_sym({p.x(), p.y(), p.z()}, psi + base_yaw - M_PI / 2, near, out);
 }
 
-ArmIO::Step ArmIO::contact_step(const SkillModel & policy, std::function<bool(Q5 &, Q5 &)> plan, bool close) {
-  return [this, policy, plan, close](Cb cb) {
+ArmIO::Step ArmIO::contact_step(const SkillModel & policy, std::function<bool(Q5 &, Q5 &)> plan, bool close,
+                                double open_m, bool lift_on_empty) {
+  return [this, policy, plan, close, open_m, lift_on_empty](Cb cb) {
     Q5 above{}, down{};
     if (!plan(above, down)) {
       RCLCPP_WARN(node_.get_logger(), "%s: 닿는 구간 자세를 못 구함 (IK·TF)", policy.name.c_str());
       cb(false);
       return;
     }
+    // 빠른 이동(load carry → 칸 위, vel_scale 1.0) 끝에 팔이 아직 따라오는 중(11/08 실기: 관절 오차 최대 5° · 떨림)이면
+    // 위에서 0.3 s만 멈추고 내려가 칸을 빗나감 → 팔이 멈출 때까지 기다린 뒤 닿는 구간 시작
+    settle_ = true;
+    settle([this, policy, plan, close, open_m, lift_on_empty, above, down, cb]() {
     ++run_;
     const auto p = std::make_shared<SkillModel>(policy);
     const auto ctx = [this, p, above, down](uint8_t phase, bool holding, bool live) -> Step {
@@ -404,22 +467,33 @@ ArmIO::Step ArmIO::contact_step(const SkillModel & policy, std::function<bool(Q5
       ctx(1, false, true), move(above, down),             // 1 내려가기
       ctx(2, true, true), wait_step(CONTACT_SETTLE_S),    // 2 안정
       ctx(3, true, false),                                // 3 쥐기 · 놓기 (보정 고정)
-      close ? grip_timed_step(GRIPPER_CLOSED_M, grip_current_a_, CONTACT_CLOSE_S)
-            : grip_timed_step(GRIPPER_OPEN_M, -1.0, CONTACT_RELEASE_S)});
+      close ? grip_timed_step(grip_close_m(), grip_current_a(), CONTACT_CLOSE_S)
+            : grip_timed_step(open_m, -1.0, CONTACT_RELEASE_S)});
     if (close) {
       steps->push_back(grip_stop_step(CONTACT_STOP_S));
-      steps->push_back(held_step());
+      if (lift_on_empty) {  // 빈손이어도 칸 위로 올린 뒤 실패를 알림 (내려간 채 끝나면 다음 이동이 칸을 긁으며 감 — 11/08 실기 unload)
+        auto judged = held_step();
+        steps->push_back([judged](Cb c) { judged([c](bool) { c(true); }); });
+      } else {
+        steps->push_back(held_step());
+      }
     }
     steps->push_back(ctx(4, false, false));               // 4 올리기
     steps->push_back(move(down, above));
-    steps->push_back(ctx(5, !close, false));              // 5 대기
-    steps->push_back(wait_step(close ? 0.3 : 0.5));
+    // 5 대기 (시뮬 판정 구간) — 실기에선 안 기다림: 보정이 고정돼(live false) 하는 일이 없고 다음 이동만 늦춤 (11/08 사용자 — pick 0.3 · load 0.5 s)
+    steps->push_back(ctx(5, !close, false));
     RCLCPP_INFO(node_.get_logger(), "%s: 닿는 구간 (시뮬 기준 동작 + %s) run %u", policy.name.c_str(),
                 policy.use ? "학습 보정" : "보정 없음", run_);
-    run_steps(steps, 0, [this, cb](bool ok) {
+    run_steps(steps, 0, [this, cb, close, use = policy.use](bool ok) {
+      ok = ok && !(close && grasp_empty_);
       ctx_off();  // 보정 끔
       hand_target("none", -1, -1);
+      // 보정 Δ가 0으로 빠지면 팔이 0.1 s쯤 움직임 (11/08 실기 load: joint1 −0.035 · joint5 +0.06 rad) — 바로 MoveIt을 부르면
+      // 출발 자세가 0.01 rad 넘게 어긋나 실행 거부 (Invalid Trajectory: start point deviates) → 다음 동작은 멈춘 뒤 (settle).
+      // 정책이 꺼져 있으면 Δ가 늘 0이라 빠질 게 없음 — 바로 다음 동작
+      if (use) settle_ = true;
       cb(ok);
+    });
     });
   };
 }

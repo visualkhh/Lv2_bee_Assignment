@@ -183,6 +183,7 @@ def generate_launch_description():
         flag('pole_front_cam_pointcloud', 'true', 'pole_front_cam PointCloud2 발행 (body_filter/Nav2용)'),
         flag('gripper_cam_pointcloud', 'false', 'gripper_cam PointCloud2 발행 (grasp_scorer용, 필요할 때만 true)'),
         flag('use_ekf', 'true', 'robot_localization EKF'),
+        flag('ekf_imu', 'true', 'EKF yaw 회전속도 = IMU 자이로 · false면 바퀴 (자이로 영점이 틀어지면 서 있어도 yaw가 돎 — 11/08 실기 0.2~2.3°/s)'),
         flag('use_slam', 'true', 'SLAM(cuVSLAM + nvblox) — false면 map→odom·/map 없음 (테스트베드 faker map:=course는 map_server가 대신)'),
         flag('localization', 'true', 'true=위치추정 모드(운영, 저장 지도로), false=매핑 모드(지도를 새로 만듦)'),
         flag('nvblox_map', '~/.ros/nvblox.nvblx', 'nvblox 지도 파일 — 매핑이면 끌 때 여기에 저장, 위치추정이면 시작할 때 여기서 불러옴'),
@@ -217,10 +218,13 @@ def generate_launch_description():
         camera('gripper_cam', 'gripper_cam_serial', 'gripper_cam_profile',
                'gripper_cam_pointcloud', 'use_gripper_cam'),
 
-        Node(
+        *[Node(
             package='robot_localization', executable='ekf_node', name='ekf_filter_node', output='screen',
-            condition=IfCondition(LaunchConfiguration('use_ekf')),
-            parameters=[share('config', 'ekf.yaml')]),
+            condition=IfCondition(PythonExpression(["'", LaunchConfiguration('use_ekf'), "' == 'true' and '",
+                                                    LaunchConfiguration('ekf_imu'), f"' == '{imu}'"])),
+            parameters=[share('config', 'ekf.yaml')] + ([] if imu == 'true' else [  # 바퀴 vx·vy + yaw 회전속도, IMU 안 씀
+                {'imu0_config': [False] * 15, 'odom0_config': [False] * 6 + [True, True, False, False, False, True] + [False] * 3}]))
+          for imu in ('true', 'false')],
 
         # SLAM = cuVSLAM(위치 · map→odom) + nvblox(지도 · /map) — cuvslam_nvblox_nodes() 설명
         *slam_nodes(),

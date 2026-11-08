@@ -86,6 +86,12 @@ TEST(MissionSolver, DiceAndGeometry) {
   EXPECT_EQ(dice_cells(5).front(), 4);
   EXPECT_EQ(dice_cells(6).size(), 6u);
   EXPECT_TRUE(dice_cells(7).empty());
+  // 놓는 순서: 로봇 기준 뒤 → 앞, 같은 줄은 왼 → 오 (남쪽에서 북쪽을 보고 서면 북쪽 줄이 뒤, 서쪽 칸이 왼쪽)
+  EXPECT_EQ(dice_cells_ordered(6, M_PI / 2), (std::vector<int>{0, 2, 3, 5, 6, 8}));
+  EXPECT_EQ(dice_cells_ordered(6, -M_PI / 2), (std::vector<int>{8, 6, 5, 3, 2, 0}));  // 북쪽에서 남쪽을 봄
+  EXPECT_EQ(dice_cells_ordered(6, 0.0), (std::vector<int>{2, 5, 8, 0, 3, 6}));  // 서쪽에서 동쪽을 봄: 동쪽 열이 뒤
+  EXPECT_EQ(dice_cells_ordered(5, M_PI / 2), (std::vector<int>{0, 2, 4, 6, 8}));  // 가운데도 순서대로
+  EXPECT_EQ(dice_cells_ordered(5, M_PI / 2).size(), dice_cells(5).size());
   auto [dx, dy] = cell_offset(0);
   EXPECT_DOUBLE_EQ(dx, -0.06);  // 북서
   EXPECT_DOUBLE_EQ(dy, 0.06);

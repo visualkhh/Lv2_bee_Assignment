@@ -139,6 +139,12 @@ private:
   uint64_t gen_ = 0;  // 새 계획·취소 때마다 증가 — 옛 goal 결과가 새 단계를 건드리지 않게
   std::map<std::string, int> failures_;
   TrackedObjectArray::ConstSharedPtr objects_;
+  // 기억한 퍽 — perception은 안 보이면 2초 뒤 지우므로(long_memory false, 11/04 "기억은 통합 쪽") 마지막으로 본 모습을 remember_s 동안
+  //   (적재 뒤 팔이 상자를 안 보는 자세여도 다음 퍽을 그 자리로 바로 pick). 집으면 지움 · 같은 자리에 새 트랙이 생기면 지움
+  struct Seen { perception::msg::TrackedObject o; rclcpp::Time t; };
+  std::map<uint32_t, Seen> remembered_;
+  double remember_s_ = 120.0;
+  void remember(const TrackedObjectArray & m);
   std::shared_ptr<SubGoalArray> waiting_plan_;
   rclcpp::Publisher<TaskStatus>::SharedPtr status_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr say_pub_;

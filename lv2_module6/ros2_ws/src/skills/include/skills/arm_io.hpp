@@ -53,7 +53,11 @@ public:
   bool moveit_ready() const;
   bool gripper_ready() const;
   bool sim_contact() const { return contact_mode_ == "sim"; }
-  double grip_current_a() const { return grip_current_a_; }
+  double grip_current_a() const;  // 닫을 때마다 읽음 — ros2 param set /skill_<이름> grip_current_a 0.2
+  // 닫는 목표 gripper_left_joint — 끝(0)까지가 아니라 퍽 폭만큼 (grip_close_gap_m · 실행 중 ros2 param set으로 바뀜).
+  //   끝까지 닫으면 퍽에 막힌 채 grip_current_a로 계속 누름 (11/08 실기: 30 mm 퍽에서 3.25 mm까지 · 0.36 A)
+  double grip_close_m() const;
+  double velocity_scale() const;  // arm_velocity_scale 파라미터 (MoveIt 속도·가속도 비율)
   // 진행 중 MoveIt·그리퍼 goal 취소 · 늦은 결과 버림 · 보정 끔 (skill 취소 · 새 goal 전)
   void stop();
   void clear_flags() { contact_ = false; grasp_empty_ = false; grip_fail_.clear(); }
@@ -80,14 +84,22 @@ public:
   // grip_state가 정해질 때까지 기다림 — 빈손 stand_no_grip · 시간 초과 stand_grip_timeout으로 실패 (grasp_check 끄면 통과)
   Step grip_stop_step(double timeout_s);  // 손가락이 멈출 때까지 기다림 (시간이 넘어도 다음으로 — 판정은 held_step)
   Step grip_settle_step(double min_current, double empty_m, double timeout_s);
-  Step contact_step(const SkillModel & policy, std::function<bool(Q5 &, Q5 &)> plan, bool close);
+  // open_m: close=false일 때 놓으며 여는 gripper_left_joint [m] (load는 간격 38 mm)
+  // lift_on_empty: 빈손 판정이어도 위로 올린 뒤 실패 (unload — 칸 안에 남지 않게). false면 내려간 채 실패 (pick — 잘못 판정해도 퍽을 박스 위에서 놓음)
+  Step contact_step(const SkillModel & policy, std::function<bool(Q5 &, Q5 &)> plan, bool close,
+                    double open_m = GRIPPER_OPEN_M, bool lift_on_empty = false);
 
   // ---------- 보정 · 입력
   void skill_ctx(const SkillModel * policy, uint8_t phase, bool holding, bool live, const Q5 & above, const Q5 & down);
   void ctx_off();
   // hand_relative에 무엇을 잴지 (puck: 퍽 태그 · cell: 칸 가운데 map · slot: 적재함 칸 · none)
   void hand_target(const std::string & kind, int puck_tag, int slot, double x = 0.0, double y = 0.0, double z = 0.0);
-  void reset_sag();  // /rl_arm_correction/reset_sag — 팔 skill 시작 때 한 번 (없으면 WARN 한 번)
+  // /rl_arm_correction/reset_sag — 팔 skill 시작 때 한 번 (없으면 WARN 한 번).
+  //   보정이 0이 되면 팔이 처졌다 다시 올라옴 → 다음 move_arm·move_joints·traj_step은 팔이 멈출 때까지 기다린 뒤 계획 (settle)
+  void reset_sag();
+  // 다음 move_arm·move_joints·traj_step은 팔이 멈출 때까지 기다린 뒤 (settle) — 앞 skill이 끝나며 보정 Δ가 0으로 빠져
+  //   팔이 ~0.1 s 움직이는 동안 궤적을 보내면 start point deviates. 처짐 적분은 안 건드림 (닿는 구간 시작에서 rl_arm_correction이 0으로)
+  void settle_next() { settle_ = true; }
   bool arm_now(Q5 & q) const;  // /joint_states joint1~5
   // map(등) 손끝 목표 → 손 아래 해석 IK (near의 손목 방향 그대로) — base_footprint 기준
   bool ik_ee(const geometry_msgs::msg::PoseStamped & ee, const Q5 & near, Q5 & out);
@@ -102,7 +114,7 @@ private:
   using Gripper = control_msgs::action::ParallelGripperCommand;
   rclcpp::Node & node_;
   int arm_plan_tries_ = 3;
-  double grip_current_a_ = 0.35, grasp_min_pos_m_ = 0.003, grasp_min_effort_ = 0.25;
+  double grip_current_a_ = 0.1, grasp_min_pos_m_ = 0.003, grasp_min_effort_ = 0.25;
   bool grasp_check_ = true, contact_ = false, grasp_empty_ = false, sag_warned_ = false;
   std::string contact_mode_ = "sim", grip_fail_;
   uint64_t gen_ = 0;
@@ -116,10 +128,12 @@ private:
   rclcpp::Publisher<perception::msg::HandTarget>::SharedPtr hand_pub_;
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joints_sub_;
   rclcpp::Subscription<control::msg::ArmSafetyEvent>::SharedPtr safety_sub_;
-  rclcpp::TimerBase::SharedPtr timer_;
+  rclcpp::TimerBase::SharedPtr timer_, settle_timer_;
+  bool settle_ = false;  // reset_sag 뒤 아직 안 기다림
   std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
   void execute(const moveit_msgs::msg::RobotTrajectory & traj, Cb done);
+  void settle(std::function<void()> go);
 };
 
 }  // namespace skills

@@ -2,6 +2,7 @@
 //   점 보기 (target 비움): goal.pose(map) 점 위 inspect_height_m에 손끝을 두고 inspect_wait_s 기다림 (camera_look_down).
 //     퍽 윗면 16mm AprilTag는 gripper_cam이 위에서 봐야 읽힘. values[0] = 손 방향 yaw (로봇 → 점) — 없으면 자유
 //   상자 보기 (target "box"): goal.pose = 상자 위 퍽 윗면 높이의 상자 가운데 (map), values[0] = 기대 퍽 수 (없으면 2)
+//     ⓪ 지금 자세에서 이미 기대 수만큼 보이고 태그도 다 읽었으면 끝 (팔 안 움직임)
 //     ① pose_look 관절 자세(arm.yaml — skill_pose "look"과 같은 값)로 → inspect_look_wait_s 기다림
 //     ② 상자 가운데에서 inspect_box_radius_m 안 퍽 트랙이 기대 수 이상이고 모두 태그를 읽었으면 끝
 //     ③ 아니면 본 퍽(모자라면 상자 가운데도)을 한 장에 담는 자세(look_plan)로 → 기다림 → 다시 셈. 모자라면 inspect_partial
@@ -105,6 +106,16 @@ private:
     const auto c = g.pose;
     const size_t want = g.values.empty() ? 2 : static_cast<size_t>(std::max(1.0, g.values[0]));
     if (look_q_.size() != 5) { done(false, "inspect_no_look_pose"); return; }
+    {  // 지금 자세(보통 stow — gripper_cam이 상자 쪽)에서 이미 퍽이 다 보이고 태그도 읽었으면 팔을 안 움직임
+      //   11/07 Isaac 6배치: stow에서 둘 다 태그까지 1/6 (태그 중심이라 위치 1 mm 안) · 태그 없이 본 퍽은 19~39 mm 틀려 이 조건으로만
+      std::vector<look::V3> tops;
+      int tagged = 0;
+      if (box_pucks(c, tops, tagged) && tops.size() >= want && tagged >= static_cast<int>(tops.size())) {
+        stage("이미 보임 — 자세 그대로");
+        done(true, "");
+        return;
+      }
+    }
     stage("look 자세");
     arm_.move_joints(look_q_, [this, c, want, done](bool ok) {
       if (!ok) { done(false, "inspect_failed"); return; }

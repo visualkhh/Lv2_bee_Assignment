@@ -40,6 +40,8 @@ skill_place:
 skill_load:
   ros__parameters:
     server_wait_s: 30.0
+    load_lift_m: 0.03        # [m] 박스 앞에서 시작하면 손을 곧게 이만큼 올린 뒤 carry로 · 0 = 안 올림
+                             #   pick 끝 손 안 퍽 바닥 = 박스 위 5 cm (pick_above_m) → +3 cm = 8 cm, 옆 퍽 윗면(6 cm)보다 2 cm 위 (11/08 5 cm는 너무 높음)
 skill_unload:
   ros__parameters:
     server_wait_s: 30.0
@@ -49,16 +51,18 @@ skill_stand:
     stand_box_top_m: 0.07          # 시작 박스 윗면 높이 (바닥 기준) — 누운 퍽 바닥
     # 위치형 쥐기 (실기 11/04): 목표 위치를 퍽 접촉 가까이 두고 전류 상한으로 힘을 정함 — 안 닿아 빠지면 stand_pinch_m 0.0065, 세면 0.0075
     stand_open_m: 0.012            # [m] 벌림 (손가락 하나 — 간격 44 mm, 옆 퍽을 안 치게)
-    stand_pinch_m: 0.007           # [m] 쥐는 목표 (간격 34 mm)
+    stand_pinch_m: 0.0062          # [m] 쥐는 목표 — 간격 30 mm (stand_plan GRIP_STOP, 11/08 사용자) · 이전 0.007
     stand_close_current_a: 0.01614 # [A] 목표까지 닫을 때 (6단위) — 10.76 mA는 안 닫힌 라운드가 있었고 5.38 mA로 바로 닫으면 안 움직임
     stand_pinch_current_a: 0.00538 # [A] 쥠을 확인한 뒤 낮춰 쥐는 전류 (2단위, 환산 ≈ 0.39 N)
     stand_grip_current_a: 0.007    # [A] 이 전류 이상 + 0.2 s 안 움직임 = 쥠 (실측: 퍽을 밀 때 8~10 mA)
     stand_empty_m: 0.003           # [m] 이보다 닫히면 빈손 → stand_no_grip
     stand_grip_timeout_s: 4.0      # [s] 넘으면 stand_grip_timeout
     # 대각선 끌기 (실기 11/03~04 — 큰 호는 퍽을 너무 높이 듦, 수평 끌기는 퍽이 안 들림). stand_drag_m 0이면 호 (stand_arc_end_deg)
-    stand_drag_m: 0.04             # [m] 잡은 채 로봇 쪽으로 곧게 끎
+    stand_drag_m: 0.0              # [m] 잡은 채 로봇 쪽으로 곧게 끎 — 0 = 호 (11/08 사용자: 끌기 안 씀 · 이전 0.04)
     stand_drag_lift_m: 0.035       # [m] 끌면서 올리는 양 — 약 41° 대각선
-    stand_arc_end_deg: 60.0        # [deg] 호 모드일 때 끝 각도
+    stand_arc_end_deg: 100.0       # [deg] 호 끝 각도 (11/08 사용자 · 이전 60)
+    stand_tilt_over_m: 0.030       # [m] 호를 돌며 끝까지 더 올림 (시뮬 0.010)
+    stand_arc_return: false        # 호 끝에서 90°로 되돌리지 않고 바로 벌림
     stand_set_dz_m: -0.020         # [m] 끝점에서 눌러 놓음
     stand_above_m: 0.04            # [m] 대기 높이 (못 닿으면 3 → 2 → 1 cm)
     stand_lift_away_m: 0.08        # [m] 손 빼기 높이 (못 닿으면 6 → 4 → 3 cm)
