@@ -24,7 +24,7 @@ def place(stage, path, asset, x, y=0.0, z=0.0, rot=(0.0, 0.0, 0.0)):
     return prim
 
 
-def build(stage, pucks):
+def build(stage, pucks, box=(BOX_X, 0.0, 0.0), trial=None):
     UsdGeom.SetStageUpAxis(stage, UsdGeom.Tokens.z)
     UsdGeom.SetStageMetersPerUnit(stage, 1.0)
     stage.SetDefaultPrim(UsdGeom.Xform.Define(stage, "/World").GetPrim())
@@ -63,13 +63,40 @@ def build(stage, pucks):
     camera.AddOrientOp(UsdGeom.XformOp.PrecisionDouble).Set(view_quat(-72.259, 24.084, 172.562))
 
     robot = place(stage, "/World/beebot", "beebot/beebot.usda", 0.0)
-    place(stage, "/World/start_box", "shelf/shelf.usda", BOX_X)
-    for p in pucks:
-        place(stage, f"/World/{p.name}", p.asset, p.pos[0], y=p.pos[1], z=p.pos[2], rot=p.rot)
+    place(stage, "/World/start_box", "shelf/shelf.usda", box[0], y=box[1], rot=(0.0, 0.0, box[2]))
     with Usd.EditContext(stage, stage.GetSessionLayer()):
         robot.GetVariantSet("Physics").SetVariantSelection("physx")
-    for p in pucks:  # 윗면 AprilTag 번호 = 텍스처 (scene_sim과 같은 override)
-        texture = stage.GetPrimAtPath(f"/World/{p.name}/{p.shape}/Looks/mtlximage5")
+    put_pucks(stage, pucks, trial)
+
+
+def put_pucks(stage, pucks, trial=None):
+    """(Re)create the pucks: remove the old ones, place the new ones, AprilTag texture, and for a random trial mass · friction."""
+    for old in [c for c in stage.GetPrimAtPath("/World").GetChildren() if c.GetName().startswith("puck_")]:
+        stage.RemovePrim(old.GetPath())
+    for k, p in enumerate(pucks):
+        place(stage, f"/World/{p.name}", p.asset, p.pos[0], y=p.pos[1], z=p.pos[2], rot=p.rot)
+        texture = stage.GetPrimAtPath(f"/World/{p.name}/{p.shape}/Looks/mtlximage5")  # 윗면 AprilTag 번호 = 텍스처 (scene_sim과 같은 override)
         if not texture:
             raise RuntimeError(f"{p.name}: 텍스처 prim 없음")
         texture.GetAttribute("inputs:file").Set(Sdf.AssetPath(str(SOURCE_DIR / "texture" / "puck" / f"puck_{p.shape}_basecolor_id{p.tag}.png")))
+        if trial:
+            mass = stage.GetPrimAtPath(f"/World/{p.name}").GetAttribute("physics:mass")
+            mass.Set(mass.Get() * trial.mass[k])
+            pla = stage.GetPrimAtPath(f"/World/{p.name}/PhysicsMaterials/PLA")
+            for attr in ("physics:dynamicFriction", "physics:staticFriction"):
+                pla.GetAttribute(attr).Set(pla.GetAttribute(attr).Get() * trial.friction[k])
+
+
+def move(stage, path, x, y=0.0, z=0.0, rot=(0.0, 0.0, 0.0)):
+    """Set the translate / rotate ops that place() made."""
+    ops = UsdGeom.Xformable(stage.GetPrimAtPath(path)).GetOrderedXformOps()  # 실행 중엔 물리가 op를 바꿔 놓을 수 있어 종류로 찾음
+    by = {o.GetOpType(): o for o in ops}
+    by[UsdGeom.XformOp.TypeTranslate].Set(Gf.Vec3d(x, y, z))
+    if UsdGeom.XformOp.TypeRotateXYZ in by:
+        by[UsdGeom.XformOp.TypeRotateXYZ].Set(Gf.Vec3f(*rot))
+    elif UsdGeom.XformOp.TypeOrient in by:  # 회전이 쿼터니언 op로 바뀐 경우
+        q = (Gf.Rotation(Gf.Vec3d.ZAxis(), rot[2]) * Gf.Rotation(Gf.Vec3d.YAxis(), rot[1]) * Gf.Rotation(Gf.Vec3d.XAxis(), rot[0])).GetQuat()
+        op = by[UsdGeom.XformOp.TypeOrient]
+        op.Set(Gf.Quatf(q) if op.GetPrecision() == UsdGeom.XformOp.PrecisionFloat else q)
+    else:
+        raise RuntimeError(f"{path}: 회전 op 없음 {[o.GetOpName() for o in ops]}")

@@ -3,6 +3,9 @@
 #   isaac/scripts/demo/pick_load_demo.sh · 시연: python3 -u isaac/scripts/demo/pick_load_play.py --clear-basket · 리셋: isaac/scripts/standalone/reset.sh
 #   인자는 manipulator_env.py로 (--headless 등) · --no-policy만 여기서: 그 skill 정책을 끔 (기준 동작만)
 #     --no-policy pick_standing_puck,load_slot  (이름 = ros2_ws/model/skills/ 폴더 · all = 전부)
+#   --truth-perception: YOLO 인식 대신 Isaac 참값 (standalone/truth_perception.py) — 순수 pick 시험용 (pick_test.py)
+#   --truth-noise "--bias-mm 5 --jitter-mm 1": 참값 인식에 오차를 얹음 (truth_perception.py 옵션: bias-mm · bias-x-mm · jitter-mm · yaw-bias-deg · yaw-jitter-deg)
+#   --perception-only 0,-96.4,18.6,110.4,0 | box: 팔을 그 자세(joint1~5 deg · box = 시행마다 상자 가운데를 보는 자세)로 시작하고 ROS는 perception + 카메라 + TF만 (inspect_test.py --modes static)
 #   --no-twist-state: joint2·3 상태 = 엔코더 그대로 (기본은 엔코더 + 중력 비틀림 = 실제 각, BeebotSystemHardware twist_state)
 STANDALONE=$(dirname "$(realpath "$0")")/../standalone
 # YOLO: ~/.venv-yolo의 torch·ultralytics만 얹음 — numpy·cv2는 시스템 것 (cv_bridge가 numpy 1.x, isaac_sim.sh YOLO_VENV 주석)
@@ -19,7 +22,7 @@ if [ ! -d "$OVERLAY" ] && [ -d "$VENV" ]; then
 fi
 export YOLO_VENV=$OVERLAY
 export ISAACSIM_VENV=${MANIPULATOR_DEMO_ISAAC_VENV:-$HOME/pa-course/.venv-isaacsim}  # ~/.bashrc의 ISAACSIM_VENV는 Isaac Lab용 — 지금까지 시연은 이 venv
-export ISAAC_ROS_LAUNCH=isaac_manipulator_demo.launch.py
+export ISAAC_ROS_LAUNCH=isaac_manipulator_demo.launch.py  # --perception-only가 바꿈
 export ISAAC_STANDALONE="$STANDALONE/manipulator_env.py"
 ARGS=()
 NO_POLICY=
@@ -27,6 +30,9 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --no-policy) NO_POLICY=$2; shift 2 ;;
     --no-twist-state) export BEEBOT_TWIST_STATE=0; shift ;;
+    --truth-perception) export BEEBOT_TRUTH_PERCEPTION=1; shift ;;
+    --truth-noise) export BEEBOT_TRUTH_ARGS=$2; shift 2 ;;
+    --perception-only) export ISAAC_ROS_LAUNCH=isaac_perception_only.launch.py BEEBOT_ARM_Q=$2; ARGS+=(--arm-q "$2"); shift 2 ;;
     *) ARGS+=("$1"); shift ;;
   esac
 done

@@ -8,8 +8,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "rl"))
-from bee_isaac.constants import PUCK_XY, PUCK_Z  # noqa: E402
-from bee_isaac.scenes.manipulator_layout import layout  # noqa: E402
+from bee_isaac.constants import BOX_HALF, PUCK_XY, PUCK_Z  # noqa: E402
+from bee_isaac.scenes.manipulator_layout import CHASSIS_FRONT, MARGIN, MIN_SEP, layout, random_layout  # noqa: E402
 
 a, b = layout()  # default stays scene_sim start_1
 assert (a.name, a.asset, a.rot[2]) == ("puck_box_red_0", "puck/box/puck_box_red_1.usda", 165.7)
@@ -37,4 +37,15 @@ for bad in (["red"], ["a:box", "red"], ["red:x", "red"], ["red:box:up", "red"], 
     except ValueError:
         continue
     raise AssertionError(bad)
+for seed in range(500):  # random_layout: box 2-12 cm in front of the chassis, standing pucks on the box top, apart
+    t = random_layout(seed)
+    assert random_layout(seed) == t and 0.02 <= t.gap <= 0.12
+    assert abs(t.box[0] - BOX_HALF - CHASSIS_FRONT - t.gap) < 1e-9
+    assert all(p.posture == "stand" for p in t.pucks) and t.pucks[0].tag != t.pucks[1].tag
+    assert math.dist(t.pucks[0].pos[:2], t.pucks[1].pos[:2]) >= MIN_SEP - 1e-9
+    c, s_ = math.cos(math.radians(-t.box_yaw)), math.sin(math.radians(-t.box_yaw))
+    for p in t.pucks:
+        dx, dy = p.pos[0] - t.box[0], p.pos[1] - t.box[1]
+        assert max(abs(c * dx - s_ * dy), abs(s_ * dx + c * dy)) <= BOX_HALF - MARGIN + 1e-9
+    assert t.reachable == [d <= 0.30 for d in t.dist]
 print("ok")

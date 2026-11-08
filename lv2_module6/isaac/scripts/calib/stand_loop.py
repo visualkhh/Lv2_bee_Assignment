@@ -23,6 +23,11 @@ After each stand: one gripper-cam depth look from where the hand ended (no YOLO)
 (cam_h_mm / cam_verdict in the CSV, next to your y/n). --pick: if the depth says standing, /skills/pick picks it
 (pick_standing_puck policy) at the depth-measured spot; you take it out of the hand, Enter opens the gripper.
 
+--auto --slot S: no questions, every lying puck on the box: inspect -> stand -> depth check; lying again -> inspect and
+stand again (--retries); standing -> pick -> /skills/load into slot S, S+1, ...; gone (off the box) -> stop. A puck that
+already stands is picked straight away. Ends when inspect finds no puck at the spot. logs/stand_auto_<ts>.csv, one bag per puck.
+    ROS_DOMAIN_ID=88 python3 stand_loop.py --auto --slot 0 --x 0.22 --y 0.0
+
 One bag per round (./manipulator-record.sh, --bag cam|nocam|off) -> logs/stand_loop_<ts>_bags/round_NN/: starts when the
 round starts, stops a little after the result (putting the puck back is not recorded).
 logs/stand_loop_<ts>.csv: per round the skill result, whether the puck really stands (you answer y/n after putting it
@@ -72,11 +77,16 @@ parser.add_argument("--perception", action="store_true",
 parser.add_argument("--match-m", type=float, default=0.08, help="--perception: tracked lying puck must be this close to --x/--y [m]")
 parser.add_argument("--pick", action="store_true",
                     help="after a stand the depth calls standing: /skills/pick it (demo stand -> pick)")
+parser.add_argument("--auto", action="store_true", help="stand -> (retry) -> pick -> load every lying puck, no questions")
+parser.add_argument("--slot", type=int, default=0, help="--auto: first basket slot 0-11")
+parser.add_argument("--retries", type=int, default=3, help="--auto: stand attempts per puck after the first")
 parser.add_argument("--ask", action=argparse.BooleanOptionalAction, default=True,
                     help="after each round ask whether the puck stands (the answer starts the next round)")
 parser.add_argument("--bag", choices=["cam", "nocam", "off"], default="cam",
                     help="one manipulator-record.sh bag per round; nocam = no images")
 args = parser.parse_args()
+if args.auto:
+    args.perception, args.pick, args.ask = True, True, False
 
 PUCK_ID = 99
 PUCK_W = 0.030
@@ -216,7 +226,7 @@ def stand_params():
     return dict(zip(PARAMS, vals))
 
 
-skill_cli = {k: ActionClient(node, Skill, f"/skills/{k}") for k in ("pose", "inspect")}
+skill_cli = {k: ActionClient(node, Skill, f"/skills/{k}") for k in ("pose", "inspect", "load")}
 
 
 def run_skill(skill, goal, timeout=60.0):
@@ -256,8 +266,8 @@ def inspect_spot():
     spin(0.5)
 
 
-def real_puck(timeout=5.0):
-    """--perception: (id, x, y, axis yaw in base_footprint) of the tracked lying puck nearest the spot, or None"""
+def real_puck(timeout=5.0, posture_want="lying"):
+    """--perception: (id, x, y, axis yaw in base_footprint) of the tracked puck in this posture nearest the spot, or None"""
     end = time.time() + timeout
     while time.time() < end:
         spin(0.2)
@@ -274,7 +284,8 @@ def real_puck(timeout=5.0):
         best = None
         for o in m.objects:
             posture = next((kv.value for kv in o.details if kv.key == "posture"), "")
-            if o.class_name != "puck_lying" and posture != "lying":
+            lying = o.class_name == "puck_lying" or posture == "lying"
+            if not o.class_name.startswith("puck") or lying != (posture_want == "lying"):
                 continue
             ox, oy = o.pose.pose.position.x, o.pose.pose.position.y
             bx = t.transform.translation.x + c * ox - s * oy
@@ -335,14 +346,12 @@ def depth_points(after_ns, frames=3, timeout=3.0):
 def stand_verdict(after_ns, cx, cy, yaw, save=None):
     """depth height above the box top where the stood puck should be (pivot side, see stand_plan waypoints)
     → (verdict, p95 height mm, standing-puck xy or None)"""
-    u = (math.cos(yaw), math.sin(yaw))
-    if u[0] * cx + u[1] * cy < 0:  # away_yaw: axis points from the near end (robot side) to the far end
-        u = (-u[0], -u[1])
-    ex, ey = cx - u[0] * (PUCK_L + PUCK_W) / 2, cy - u[1] * (PUCK_L + PUCK_W) / 2  # stood puck centre = pivot − u·W/2
+    # the stood puck lands 45 mm from the lying puck's centre on either side (skill_stand stand_end_margin_m may pinch the
+    # other end), so look at a 65 mm disc around the centre: the height tells standing (~60 mm) from lying (~30 mm)
     p = depth_points(after_ns)
     if len(p) == 0:
         return "no_depth", "", None
-    near = p[np.hypot(p[:, 0] - ex, p[:, 1] - ey) < 0.04]
+    near = p[np.hypot(p[:, 0] - cx, p[:, 1] - cy) < 0.065]
     if len(near) < 20:
         return "unseen", "", None
     if save is not None:
@@ -405,9 +414,119 @@ def open_gripper():
     spin(1.5)
 
 
+def stand_goal(target, n):
+    """stand through the coordinator (/task/sub_goals) → (ok, reason, seconds)"""
+    plan_id = int(time.time()) % 1000000 + n
+    spin(0.5)  # 코디네이터가 새 퍽 위치를 받은 뒤에 goal
+    g = SubGoal(step=0, skill="stand", target=str(target), relation="preview" if args.preview else "", offset_m=0.0)
+    goal_pub.publish(SubGoalArray(plan_id=plan_id, goals=[g]))
+    t0 = time.time()
+    while plan_id not in status or status[plan_id].state == TaskStatus.RUNNING:
+        spin(0.1)
+        if time.time() - t0 > 120.0:
+            print("  timeout waiting for /task/status")
+            break
+    st = status.get(plan_id)
+    return bool(st and st.state == TaskStatus.SUCCEEDED), (st.reason if st else "timeout"), round(time.time() - t0, 1)
+
+
+def look_verdict(n, cx, cy, yaw_b, tag):
+    """inspect look pose → depth verdict (see stand_verdict)"""
+    ok, why = run_skill("pose", Skill.Goal(target="look"))
+    if not ok:
+        print(f"  pose look: {why} — depth from where the hand is")
+    spin(0.5)
+    BAG_DIR.mkdir(parents=True, exist_ok=True)
+    v = stand_verdict(node.get_clock().now().nanoseconds, cx, cy, yaw_b, save=BAG_DIR / f"{tag}_depth.npy")
+    print(f"  depth: {v[0]}  (p95 {v[1]} mm above the box)")
+    return v
+
+
+def auto_run():
+    """--auto: every lying puck at the spot → stand (retries) → pick → load, slots from --slot"""
+    path = BAG_SH.parent / "logs" / f"stand_auto_{STAMP}.csv"
+    fields = ["puck", "attempt", "puck_id", "seen_x_m", "seen_y_m", "stand", "stand_reason", "stand_s", "cam_h_mm", "cam_verdict",
+              "pick", "pick_reason", "slot", "load", "load_reason"] + PARAMS
+    fa = open(path, "w", newline="")
+    wa = csv.DictWriter(fa, fieldnames=fields)
+    wa.writeheader()
+    print(f"log {path}")
+    input("\nauto: lying puck(s) on the box at --x/--y, basket slots from --slot empty, hands clear. Enter = start ")
+    slot, k, rb = args.slot, 0, None
+    try:
+        while slot <= 11:
+            k += 1
+            rb = RoundBag(k)
+            done = None
+            for attempt in range(1, args.retries + 2):
+                row = dict(puck=k, attempt=attempt, **stand_params())
+                inspect_spot()
+                lying = real_puck(timeout=3.0)
+                if lying is None:
+                    up = real_puck(timeout=2.0, posture_want="standing")
+                    if up is None:
+                        print(f"[puck {k}] no puck at the spot — done" if attempt == 1 else f"[puck {k}] puck lost")
+                        done = "none" if attempt == 1 else "lost"
+                        wa.writerow({**row, "stand": "none"})
+                        break
+                    pid, bx, by, yb = up
+                    print(f"[puck {k}] attempt {attempt}: puck {pid} already standing at ({bx:.3f}, {by:.3f})")
+                    row.update(puck_id=pid, seen_x_m=round(bx, 4), seen_y_m=round(by, 4), cam_verdict="perception_standing")
+                    verdict, top = "standing", (bx, by)
+                else:
+                    pid, cx, cy, yb = lying
+                    print(f"[puck {k}] attempt {attempt}: lying puck {pid} at ({cx:.3f}, {cy:.3f}) -> stand")
+                    ok, why, secs = stand_goal(pid, k * 10 + attempt)
+                    print(f"  stand: {'ok' if ok else 'FAIL ' + why} ({secs} s)")
+                    row.update(puck_id=pid, seen_x_m=round(cx, 4), seen_y_m=round(cy, 4), stand="ok" if ok else "fail",
+                               stand_reason=why, stand_s=secs)
+                    verdict, h_mm, top = look_verdict(k, cx, cy, yb, f"puck{k:02d}_try{attempt}")
+                    row.update(cam_h_mm=h_mm, cam_verdict=verdict)
+                    if verdict == "gone":
+                        print(f"[puck {k}] puck not at the stand spot any more — stop")
+                        done = "gone"
+                        wa.writerow(row)
+                        break
+                    if verdict != "standing" or top is None:
+                        wa.writerow(row)
+                        continue  # lying again: inspect and stand again
+                pok, pwhy = pick_standing(k * 10 + attempt, top[0], top[1], yb)
+                row.update(pick="ok" if pok else "fail", pick_reason=pwhy)
+                print(f"  pick: {'ok' if pok else 'FAIL ' + pwhy}")
+                if not pok:
+                    open_gripper()
+                    wa.writerow(row)
+                    continue
+                lok, lwhy = run_skill("load", Skill.Goal(slot=slot, shape="box", tag=-1), timeout=90.0)
+                row.update(slot=slot, load="ok" if lok else "fail", load_reason=lwhy)
+                print(f"  load slot {slot}: {'ok' if lok else 'FAIL ' + lwhy}")
+                wa.writerow(row)
+                fa.flush()
+                done = "loaded" if lok else "load_failed"
+                break
+            fa.flush()
+            rb.stop()
+            if done == "loaded":
+                slot += 1
+                continue
+            if done is None:
+                print(f"[puck {k}] not stood up after {args.retries + 1} attempts — stop")
+            break
+    except KeyboardInterrupt:
+        pass
+    finally:
+        if rb:
+            rb.stop()
+        fa.close()
+    print("done")
+
+
 if not args.perception:
     node.create_timer(0.1, lambda: obj_pub.publish(fake_objects()))
 spin(1.0)
+if args.auto:
+    auto_run()
+    raise SystemExit(0)
 
 n = 0
 bag = None

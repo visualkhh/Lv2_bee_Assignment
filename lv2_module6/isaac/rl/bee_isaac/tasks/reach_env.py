@@ -103,7 +103,7 @@ class ReachEnv(pe.PlaceEnv):
 
     def _get_observations(self) -> dict:
         ph = self._phase()
-        q = self.robot.data.joint_pos.torch[:, self.arm_ids]
+        q = self.arm_corr.q_seen()
         qd = self.robot.data.joint_vel.torch[:, self.arm_ids]
         onehot = torch.nn.functional.one_hot(ph.clamp(max=5), 6).float()
         prog = (self.t / self.t_ph[:, 5].clamp(min=1e-3)).clamp(0, 1)

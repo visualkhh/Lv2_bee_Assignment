@@ -400,6 +400,21 @@ void ArmIO::hand_target(const std::string & kind, int puck_tag, int slot, double
   hand_pub_->publish(t);
 }
 
+void ArmIO::hand_target_end(int puck_tag, double px, double py, double pz, double cx, double cy, double cz) {
+  perception::msg::HandTarget t;
+  t.kind = "puck";
+  t.puck_tag = puck_tag;
+  t.box_tag = -2;
+  t.point.x = px;
+  t.point.y = py;
+  t.point.z = pz;
+  t.box_point.x = cx;
+  t.box_point.y = cy;
+  t.box_point.z = cz;
+  t.slot = -1;
+  hand_pub_->publish(t);
+}
+
 void ArmIO::reset_sag() {
   if (reset_sag_->service_is_ready()) {
     reset_sag_->async_send_request(std::make_shared<std_srvs::srv::Trigger::Request>());

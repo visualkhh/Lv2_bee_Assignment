@@ -20,6 +20,7 @@
 #include "ml/mlp_policy.hpp"
 #include "ml/stand_c_obs.hpp"
 #include "perception/msg/hand_relative.hpp"
+#include "perception/msg/tracked_object_array.hpp"
 #include "rclcpp_components/register_node_macro.hpp"
 #include "skills/arm_io.hpp"
 #include "skills/skill_node.hpp"
@@ -31,6 +32,8 @@ namespace skills {
 namespace {
 constexpr double STAND_HOLD_S = 0.3, STAND_PINCH_S = 0.3, STAND_SETTLE_S = 0.3, STAND_OPEN_S = 0.3, REGRASP_CLOSE_S = 0.5;
 constexpr double STAND_HANG_S = 0.5;  // 호 안 멈춤
+// stand_grasp 정책 구간 — isaac stand_grasp_env와 같은 값 (hold_s 0.5 · 내려가기 vel_scale 0.3 = arm_io CONTACT_VS)
+constexpr double STAND_GRASP_HOLD_S = 0.5, STAND_GRASP_VS = 0.3;
 // 방식 C (isaac/rl/bee_isaac/tasks/stand_c_env.py StandCEnvCfg · RightEnvCfg)
 constexpr double C_DT = 0.02, C_STEP_M = 0.012, C_VMAX = 3.0, C_HOLD_S = 0.3, C_CLOSE_S = 0.4, C_SETTLE_S = 0.3, C_OPEN_S = 0.3;
 constexpr double C_LIFT_M = 0.05, C_LIFT_S = 0.5, C_WAIT_S = 0.5, C_T_APPROACH_S = 4.0, C_T_STAND_S = 6.0, C_EPISODE_S = 16.0;
@@ -78,11 +81,15 @@ public:
       RCLCPP_WARN(get_logger(), "stand_waypoints table인데 표가 없음 (params/stand_table.yaml) — stand는 stand_table_missing으로 실패");
     policy_ = load_model("regrasp_after_stand");
     c_model_ = load_model("stand_lying_c");
+    grasp_model_ = load_model("stand_grasp");  // 누운 퍽 모서리 쥐기 보정 (isaac stand_grasp_env, layout pick)
     if (c_model_.use && (!c_net_.load(c_model_.policy, why) || c_net_.obs_dim() != ml::STAND_C_OBS || c_net_.act_dim() != 3)) {
       RCLCPP_ERROR(get_logger(), "stand_lying_c: 정책을 못 씀 — %s (호로)", why.c_str());
       c_model_.use = false;
     }
     traj_pub_ = create_publisher<trajectory_msgs::msg::JointTrajectory>("/arm_controller/joint_trajectory", rclcpp::QoS(10));
+    declare_parameter<double>("stand_end_margin_m", 0.03);   // [m] 선 퍽 가장자리가 상자 가장자리에서 이보다 가까우면 반대 끝을 잡아 반대로 세움 (0 = 안 바꿈)
+    objects_sub_ = create_subscription<perception::msg::TrackedObjectArray>("/tracked_objects", rclcpp::QoS(5).reliable(),
+      [this](perception::msg::TrackedObjectArray::ConstSharedPtr m) { objects_ = m; });
     declare_parameter<double>("stand_puck_dx_m", -0.010);      // [m] inspect 퍽 위치에 더함 (base_footprint x) — 실기 11/08 inspect가 손 카메라보다 10 mm 앞
     declare_parameter<double>("stand_arc_k", 1.0);           // 호의 퍽 축 방향 배율 (1 원 · 0 그대로 위로)
     // 호 방식: 내려가기 전 멈춰 손 카메라로 퍽을 다시 재고 경유점을 다시 풂 — 쥐는 높이 근처는 카메라–퍽 10 cm 안이라 depth가 비어서
@@ -134,14 +141,15 @@ private:
     const auto & q = g.pose.pose.orientation;
     const tf2::Vector3 c = t * tf2::Vector3(pp.x, pp.y, pp.z);
     const tf2::Vector3 ax = t.getBasis() * tf2::Vector3(1.0 - 2 * (q.y * q.y + q.z * q.z), 2 * (q.x * q.y + q.w * q.z), 0.0);
-    const double yaw = stand::away_yaw(std::atan2(ax.y(), ax.x()));
+    double yaw = stand::away_yaw(std::atan2(ax.y(), ax.x()));
     const stand::V3 centre = {c.x() + get_parameter("stand_puck_dx_m").as_double(), c.y(), box_top_m_};
     const bool is_box = g.shape != "cyl";
     std::vector<stand::Q5> qs;
     std::string why;
     const bool ok = waypoints_ == "table" ? stand::plan_table(table_, centre, yaw, is_box, qs, why)
                                           : stand::plan_ik(centre, yaw, is_box, sp_, qs, why);
-    if (!ok) { done(false, why); return; }
+    if (waypoints_ == "ik" && !c_model_.use) choose_end(centre, is_box, ok, yaw, qs);
+    if (qs.empty()) { done(false, why); return; }
     if (waypoints_ == "table" && std::abs(centre[0] - table_.box_cx) > 0.02)
       RCLCPP_WARN(get_logger(), "stand 표: 퍽이 표 기준 x에서 %.0fmm — dock 자리 확인", (centre[0] - table_.box_cx) * 1000);
     stage(std::string(is_box ? "사각" : "원기둥") + " 퍽 (" + std::to_string(centre[0]).substr(0, 5) + ", " +
@@ -179,20 +187,111 @@ private:
       st.push_back(arm_.traj_step([run, vs](const stand::Q5 & now) { return stand::sample_move(now, run->qs.front(), vs, TRAJ_DT); }));
     }
     auto steps = std::make_shared<std::vector<ArmIO::Step>>(st);
+    // stand_grasp 정책 (model/skills/stand_grasp, use: true): 위 멈춤·내려가기만 학습 보정 (isaac stand_grasp_env) — 시뮬과
+    // 같은 단계 신호 (0 위 · 1 내려가기 · 3 쥐기 · 4 원호 · 5 그 뒤), 내려가기는 contact 속도, 쥐는 순간부터 Δ 고정 (원호 내내 유지)
+    const bool learned = grasp_model_.use && waypoints_ == "ik";
+    const auto gm = std::make_shared<SkillModel>(grasp_model_);
+    const auto ctx = [this, run, gm](uint8_t phase, bool holding, bool live) -> ArmIO::Step {
+      return [this, run, gm, phase, holding, live](ArmIO::Cb c) { arm_.skill_ctx(gm.get(), phase, holding, live, run->qs[0], run->qs[1]); c(true); };
+    };
+    if (learned) {
+      // hand_relative rel = 계획한 쥘 끝 − 손 (= 본 퍽 가운데 − 손 + 계획한 (쥘 끝 − 가운데)): map 좌표로 넘김
+      const tf2::Transform inv = t.inverse();
+      const tf2::Vector3 pc = inv * tf2::Vector3(centre[0], centre[1], box_top_m_ + stand::PUCK_W / 2);
+      const tf2::Vector3 pe = inv * tf2::Vector3(centre[0] + std::cos(yaw) * stand::PUCK_L / 2, centre[1] + std::sin(yaw) * stand::PUCK_L / 2,
+                                                 box_top_m_ + stand::PUCK_W / 2);
+      const int tag = g.tag;
+      steps->insert(steps->end(), {
+        [this, tag, pc, pe](ArmIO::Cb c) { arm_.hand_target_end(tag, pe.x(), pe.y(), pe.z(), pc.x(), pc.y(), pc.z()); c(true); },
+        ctx(0, true, true), arm_.wait_step(STAND_GRASP_HOLD_S),
+        ctx(1, false, true),
+        arm_.traj_step([run](const stand::Q5 & now) { return stand::sample_move(now, run->qs[1], STAND_GRASP_VS, TRAJ_DT); }),
+        ctx(3, true, false)});
+    } else {
+      steps->push_back(arm_.traj_step([run, vs](const stand::Q5 & now) { return stand::sample_move(now, run->qs[1], vs, TRAJ_DT); }));
+    }
     steps->insert(steps->end(), {
-      arm_.traj_step([run, vs](const stand::Q5 & now) { return stand::sample_move(now, run->qs[1], vs, TRAJ_DT); }),
       arm_.grip_timed_step(pinch, close_a_, 0.0),
       arm_.grip_settle_step(grip_a_, empty_m_, grip_timeout_s_),
-      arm_.grip_timed_step(pinch, pinch_a_, STAND_PINCH_S),  // 퍽이 손가락 사이에서 돌 만큼 낮춤
-      arm_.traj_step([wp, sp, avs](const stand::Q5 &) { return stand::sample_arc(wp(), sp, avs, STAND_HANG_S, TRAJ_DT); }),
+      arm_.grip_timed_step(pinch, pinch_a_, STAND_PINCH_S)});  // 퍽이 손가락 사이에서 돌 만큼 낮춤
+    if (learned) steps->push_back(ctx(4, false, false));
+    steps->push_back(arm_.traj_step([wp, sp, avs](const stand::Q5 &) { return stand::sample_arc(wp(), sp, avs, STAND_HANG_S, TRAJ_DT); }));
+    if (learned) steps->push_back(ctx(5, true, false));
+    steps->insert(steps->end(), {
       arm_.wait_step(STAND_SETTLE_S),
       arm_.grip_timed_step(open, -1.0, STAND_OPEN_S),
       arm_.traj_step([wp, vs](const stand::Q5 & now) { return stand::sample_move(now, wp().back(), vs, TRAJ_DT); })});
-    arm_.run_steps(steps, 0, [this, run, done](bool ok2) {
+    if (learned) stage("stand_grasp 정책: 위·내려가기 학습 보정");
+    arm_.run_steps(steps, 0, [this, run, done, learned](bool ok2) {
+      if (learned) {  // 보정 끔 — Δ가 0으로 빠지며 팔이 조금 움직임: 다음 MoveIt 전에 멈출 때까지 (contact_step과 같음)
+        arm_.ctx_off();
+        arm_.hand_target("none", -1, -1);
+        arm_.settle_next();
+      }
       if (ok2) { done_qs_ = run->qs; done(true, ""); return; }
       const std::string why2 = !arm_.grip_fail().empty() ? arm_.grip_fail() : arm_.contact() ? "arm_contact" : "stand_failed";
       arm_.set_gripper(open_m_, [done, why2](bool) { done(false, why2); });  // 잡은 채 멈추지 않게 벌리고 실패
     });
+  }
+
+  // ---------- 쥘 끝 고르기 (11-08 실기: 상자 가장자리 쪽으로 누운 퍽은 세우다 상자 밖으로 떨어짐)
+  // 선 퍽 자리 = 피벗(가까운 끝 바닥 모서리) − u·W/2. 그 자리가 상자 가장자리에 stand_end_margin_m보다 가까우면
+  // 반대 끝(yaw + π)을 잡아 반대로 세우는 경로를 풀어 보고, 여유가 더 크고 풀리면 그쪽으로. 상자를 못 보면 그대로 (먼 끝)
+  bool start_box(double cx, double cy, double & bx, double & by, double & byaw) {
+    const auto m = objects_;
+    if (!m) return false;
+    tf2::Transform t;
+    try {
+      const auto tr = arm_.tf().lookupTransform("base_footprint", m->header.frame_id.empty() ? "map" : m->header.frame_id,
+                                                tf2::TimePointZero).transform;
+      t = tf2::Transform(tf2::Quaternion(tr.rotation.x, tr.rotation.y, tr.rotation.z, tr.rotation.w),
+                         tf2::Vector3(tr.translation.x, tr.translation.y, tr.translation.z));
+    } catch (const std::exception &) {
+      return false;
+    }
+    double best = 0.2;  // 퍽 가운데에서 이 안의 시작 상자만
+    for (const auto & o : m->objects) {
+      if (o.class_name != "start_box") continue;
+      const auto & p = o.pose.pose.position;
+      const auto & q = o.pose.pose.orientation;
+      const tf2::Vector3 b = t * tf2::Vector3(p.x, p.y, p.z);
+      const double d = std::hypot(b.x() - cx, b.y() - cy);
+      if (d >= best) continue;
+      best = d;
+      bx = b.x();
+      by = b.y();
+      const tf2::Vector3 a = t.getBasis() * tf2::Vector3(1.0 - 2 * (q.y * q.y + q.z * q.z), 2 * (q.x * q.y + q.w * q.z), 0.0);
+      byaw = std::atan2(a.y(), a.x());
+    }
+    return best < 0.2;
+  }
+
+  void choose_end(const stand::V3 & centre, bool is_box, bool ok, double & yaw, std::vector<stand::Q5> & qs) {
+    const double need = get_parameter("stand_end_margin_m").as_double();
+    double bx, by, byaw;
+    if (need <= 0.0 || !start_box(centre[0], centre[1], bx, by, byaw)) return;
+    constexpr double BOX_HALF = 0.205 / 2;
+    const auto margin = [&](double yw) {  // 선 퍽 가장자리 ~ 상자 가장자리 [m] (상자 좌표에서, 퍽 반폭만큼 안쪽)
+      const double sx = centre[0] - std::cos(yw) * (stand::PUCK_L + stand::PUCK_W) / 2 - bx;
+      const double sy = centre[1] - std::sin(yw) * (stand::PUCK_L + stand::PUCK_W) / 2 - by;
+      const double c = std::cos(byaw), s = std::sin(byaw);
+      return BOX_HALF - stand::PUCK_W / 2 - std::max(std::abs(c * sx + s * sy), std::abs(-s * sx + c * sy));
+    };
+    const double y2 = std::remainder(yaw + M_PI, 2 * M_PI);
+    const double m1 = ok ? margin(yaw) : -1.0, m2 = margin(y2);
+    char buf[160];
+    if (ok && m1 >= need) return;
+    std::vector<stand::Q5> q2;
+    std::string w2;
+    if (m2 > m1 && stand::plan_ik(centre, y2, is_box, sp_, q2, w2)) {
+      std::snprintf(buf, sizeof buf, "쥘 끝: 반대 끝 (선 자리 여유 %.0f → %.0f mm)", m1 * 1000, m2 * 1000);
+      yaw = y2;
+      qs = q2;
+    } else {
+      std::snprintf(buf, sizeof buf, "쥘 끝: 먼 끝 그대로 (선 자리 여유 %.0f mm · 반대 %.0f mm%s)", m1 * 1000, m2 * 1000,
+                    m2 > m1 ? " 경로 없음" : "");
+    }
+    stage(buf);
   }
 
   // ---------- 호 방식: 내려가기 전 손 카메라로 다시 재기
@@ -496,12 +595,14 @@ private:
   }
 
   ArmIO arm_;
-  SkillModel policy_, c_model_;
+  SkillModel policy_, c_model_, grasp_model_;
   ml::MlpPolicy c_net_;
   rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr traj_pub_;
   rclcpp::TimerBase::SharedPtr c_timer_, cam_timer_;
   rclcpp::Subscription<perception::msg::HandRelative>::SharedPtr hr_sub_;
   perception::msg::HandRelative::ConstSharedPtr hr_;
+  rclcpp::Subscription<perception::msg::TrackedObjectArray>::SharedPtr objects_sub_;
+  perception::msg::TrackedObjectArray::ConstSharedPtr objects_;
   std::string waypoints_ = "ik";
   double box_top_m_ = 0.07, vs_ = 0.3, arc_vs_ = 0.5;
   double open_m_ = 0.012, pinch_m_ = 0.007, close_a_ = 0.01614, pinch_a_ = 0.00538, grip_a_ = 0.007, empty_m_ = 0.003, grip_timeout_s_ = 4.0;

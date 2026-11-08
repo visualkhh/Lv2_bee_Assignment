@@ -553,7 +553,7 @@
   <joint name="pole_front_cam_joint" type="fixed">
     <parent link="base_link"/>
     <child link="pole_front_cam_link"/>
-    <origin rpy="0.000000 0.314159 0.000000" xyz="-0.137869 0.000185 0.434932"/>
+    <origin rpy="0.000000 0.331613 0.000000" xyz="-0.137869 0.000185 0.434932"/>
   </joint>
   <link name="pole_front_cam_link">
     <inertial>
@@ -784,7 +784,7 @@
   <joint name="gripper_cam_joint" type="fixed">
     <parent link="gripper_link"/>
     <child link="gripper_cam_link"/>
-    <origin rpy="-0.00014947924188481 0.3106124436433518 -0.0010995446528302402" xyz="0.08168099999994151 -0.0002730000175021933 0.04032500000000001"/>
+    <origin rpy="-0.00014947924188481 0.3490658503988659 -0.0010995446528302402" xyz="0.08168099999994151 -0.0002730000175021933 0.04032500000000001"/>
   </joint>
   <link name="gripper_cam_link">
     <inertial>

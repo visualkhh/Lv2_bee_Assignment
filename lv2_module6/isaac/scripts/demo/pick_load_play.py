@@ -53,7 +53,7 @@ def parse_storage(text):
 
 def in_slots(rows):
     """{퍽: {slot, dxy, dz}} → 칸 안에 든 퍽 {퍽: 칸}"""
-    return {n: r['slot'] for n, r in rows.items() if r['dxy'] <= SLOT_XY_M and abs(r['dz']) <= SLOT_Z_M}
+    return {n: r['slot'] for n, r in rows.items() if not n.startswith('_') and r['dxy'] <= SLOT_XY_M and abs(r['dz']) <= SLOT_Z_M}
 
 
 def read_slots():
@@ -255,7 +255,7 @@ def main(args):
                 print(f"  puck {tag}: 칸 {', '.join(map(str, new.values()))} 안 (Isaac 위치)")
                 loaded += 1
             else:
-                near = ', '.join(f"{n} 칸 {r['slot']} xy {r['dxy'] * 100:.1f} cm z {r['dz'] * 100:+.1f} cm" for n, r in rows.items())
+                near = ', '.join(f"{n} 칸 {r['slot']} xy {r['dxy'] * 100:.1f} cm z {r['dz'] * 100:+.1f} cm" for n, r in rows.items() if not n.startswith('_'))
                 print(f'  puck {tag}: load_slot_miss — skill은 성공 보고, 칸 안 퍽 없음 ({near})')
         elif run(('place', f'{p[0]:.4f},{p[1]:.4f},0.07', '')):  # mission_manager load — 박스 제자리에 되돌림
             print(f'  puck {tag}: load_tray_failed (박스에 되돌림)')

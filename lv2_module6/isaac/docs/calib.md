@@ -26,6 +26,7 @@
 | [앞먹임 시험](#11-앞먹임-시험--강성-값-검증) | 강성 값 검증 | `arm_cam.launch.py` | `python3 sag_measure.py --sag off` (앞먹임 켬 · 끔 비교) |
 | [퍽 회전 전류](#12-pivot_test--퍽-회전-전류) | 세우기용 그리퍼 전류 | `arm_cam.launch.py` | `python3 pivot_test.py --shape box` |
 | [세우기 반복](#13-stand_loop--세우기-반복) | `stand` skill 실기 확인 | `stand_test.launch.py` | `python3 stand_loop.py` |
+| [집기 오차](#14-pick_loop--집기-오차) | 인식·파지 오차 (실제 YOLO) | `./manipulator-launcher.sh` | `python3 pick_loop.py --box-x 0.22` |
 
 ## 구성
 
@@ -270,6 +271,22 @@ python3 stand_loop.py --x 0.22 --y 0.0 --rounds 0        # 0 = Ctrl+C까지
 ```
 
 라운드 사이 `--pause`(기본 6초) 동안 표시한 자리에 퍽을 다시 눕혀 둔다.
+
+### 14. pick_loop — 집기 오차
+
+stow → inspect box → pick을 실제 인식(YOLO)으로 반복하고, 라운드마다 인식 오차와 파지 오차를 `logs/pick_loop_<시각>.csv`에 남긴다.
+`manipulator-launcher.sh`는 `stand_test.launch.py` 스택(팔·카메라 2대·인지·MoveIt·coordinator·skill 노드, SLAM·Nav2 없음)을 띄운다.
+
+```bash
+./manipulator-launcher.sh perception_device:=cuda                              # 터미널 1
+python3 pick_loop.py --box-x 0.22 --box-y 0.0 --rounds 0                       # 터미널 2 (0 = q · Ctrl+C까지)
+./manipulator-record.sh                                                        # 터미널 3 (선택): 팔 전용 bag → logs/bag_<시각>/ (nocam = 영상 뺌)
+```
+
+- 상자 가운데를 로봇 중심(base_footprint)에서 `--box-x`·`--box-y` 자리에 둔다. 퍽은 로봇 중심 0.30 m 안이어야 한다.
+- 인식 뒤 스크립트가 퍽 위치(로봇 기준 mm)를 보여 주면, 자로 잰 퍽 가운데 `x y`를 넣는다 → `perc_err_mm`.
+- pick 중 손 카메라가 마지막으로 본 퍽 − 손끝(`/hand_relative`)을 `hand_rel_*`로 남기고, 쥔 뒤 손 안 어긋남(닫힘 방향 · 손가락 방향 mm)을 넣는다.
+- 정책 켜고 끄기는 여기서 하지 않는다: `ros2_ws/model/skills/pick_standing_puck/meta.yaml`의 `use:` + `colcon build`.
 
 ### 움직이지 않는 관절의 자세 유지 기준
 `allow_partial_joints_goal: false` 라 궤적마다 6 개 관절 값을 모두 보낸다. 움직이지 않는 관절에는 **측정값(`/joint_states`)이 아니라

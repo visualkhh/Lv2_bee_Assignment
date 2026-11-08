@@ -60,6 +60,7 @@ skill_stand:
     # 대각선 끌기 (실기 11/03~04 — 큰 호는 퍽을 너무 높이 듦, 수평 끌기는 퍽이 안 들림). stand_drag_m 0이면 호 (stand_arc_end_deg)
     stand_drag_m: 0.0              # [m] 잡은 채 로봇 쪽으로 곧게 끎 — 0 = 호 (11/08 사용자: 끌기 안 씀 · 이전 0.04)
     stand_drag_lift_m: 0.035       # [m] 끌면서 올리는 양 — 약 41° 대각선
+    stand_end_margin_m: 0.03       # [m] 선 퍽 가장자리–상자 가장자리가 이보다 가까우면 반대 끝을 잡아 반대로 세움 (start_box 인식 필요 · 0 = 끔)
     stand_puck_dx_m: -0.010        # [m] inspect 퍽 위치 x 오프셋 (11/08 실기: inspect가 손 카메라보다 10~13 mm 앞, 사용자 −10)
     stand_arc_k: 1.0               # 호의 퍽 축 방향 배율 — 1 원 · 0.5 반 · 0 쥔 점 그대로 위로 (11/08 실기: 호 끝 전에 퍽이 매달림)
     # 내려가기 전 손 카메라로 다시 재기 (호 방식, stand_waypoints ik) — 쥐는 높이 근처는 카메라–퍽 10 cm 안이라 depth가 빔

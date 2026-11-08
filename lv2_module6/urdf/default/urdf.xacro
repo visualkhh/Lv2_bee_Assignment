@@ -554,7 +554,7 @@
   <joint name="pole_front_cam_joint" type="fixed">
     <parent link="base_link"/>
     <child link="pole_front_cam_link"/>
-    <origin rpy="0.000000 0.314159 0.000000" xyz="-0.137869 0.000185 0.434932"/>
+    <origin rpy="0.000000 0.331613 0.000000" xyz="-0.137869 0.000185 0.434932"/>
   </joint>
   <link name="pole_front_cam_link">
     <inertial>
@@ -785,7 +785,7 @@
   <joint name="gripper_cam_joint" type="fixed">
     <parent link="gripper_link"/>
     <child link="gripper_cam_link"/>
-    <origin rpy="0.003448 -1.260182 1.567371" xyz="0.000273 -0.040325 0.081681"/>
+    <origin rpy="0.003065 -1.221729 1.567775" xyz="0.000273 -0.040325 0.081681"/>
   </joint>
   <link name="gripper_cam_link">
     <inertial>
@@ -967,7 +967,8 @@
       <state_interface name="effort"/>  <!-- 바퀴 모터 전류 [A] (S 맨 끝) -->
     </joint>
     <joint name="joint1">
-      <param name="offset">0.0</param>  <!-- [rad] 영점 오프셋: 서보 값 = 관절값 + offset (실측) -->
+      <!-- [rad] 영점 오프셋: 서보 값 = 관절값 + offset (실측) — 11/08: joint1 0에서 손끝(축에서 0.20 m)이 왼쪽 10 mm → +2.86° -->
+      <param name="offset">-0.050</param>
       <command_interface name="position"/>
       <state_interface name="position"/>
       <state_interface name="velocity"/>

@@ -37,6 +37,7 @@ from isaaclab.utils import configclass
 from bee_isaac import common as bc
 from bee_isaac.assets.beebot import robot_cfg
 from bee_isaac.constants import CUMOTION_DIR
+from bee_isaac.correction import ArmCorrection
 
 BOX_NEAR_X = 0.08  # box near edge in the robot root frame (robot front at 0.069)
 BOX_CX = BOX_NEAR_X + bc.BOX_HALF
@@ -65,28 +66,9 @@ def randomize_mass_synced(env, env_ids, asset_cfg: SceneEntityCfg, scale_range: 
     wp.copy(asset.data._body_inertia, wp.from_torch(inertia.contiguous()))
 
 
-# gravity::torques of ros2_ws/src/ml/include/ml/rl_arm_correction.hpp (planar arm, masses and centres of mass from the URDF)
-_G = 9.81
-_M_UA, _UA_X, _UA_Z = 0.128865, 0.008487, 0.104997
-_M_FA, _FA_X = 0.117300, 0.093796
-_M_WR, _WR_X, _WR_Z = 0.090152, 0.043623, 0.011449
-_M_HD, _HD_X, _HD_Z = 0.371242, 0.052686, 0.014472
-_J3_X, _J3_Z, _J4_X, _HAND_X = 0.024, 0.128, 0.124, 0.0629
-
-
-def _rotx(th, x, z):  # x of the vector (x, z) turned by pitch th
-    return x * torch.cos(th) + z * torch.sin(th)
-
-
-def _gravity_torques(q2, q3, q4):
-    """Gravity torque [Nm] about joints 2 and 3 (forward sag +), shape [n, 2]."""
-    t23, t234 = q2 + q3, q2 + q3 + q4
-    ua, p3 = _rotx(q2, _UA_X, _UA_Z), _rotx(q2, _J3_X, _J3_Z)
-    p4x = p3 + _rotx(t23, _J4_X, 0.0)
-    fax = p3 + _rotx(t23, _FA_X, 0.0)
-    wr, hd = p4x + _rotx(t234, _WR_X, _WR_Z), p4x + _rotx(t234, _HAND_X + _HD_X, _HD_Z)
-    return torch.stack([_G * (_M_UA * ua + _M_FA * fax + _M_WR * wr + _M_HD * hd),
-                        _G * (_M_FA * (fax - p3) + _M_WR * (wr - p3) + _M_HD * (hd - p3))], dim=1)
+def step_delta(cur, want, step):
+    """Delta towards the policy's want, at most step per policy step (0: jump)."""
+    return want if step <= 0 else cur + (want - cur).clamp(-step, step)
 
 
 @configclass
@@ -153,6 +135,13 @@ class PlaceEnvCfg(DirectRLEnvCfg):
     sag_scale_range: tuple | None = None  # (lo, hi): per episode, sag x U(lo, hi) by arm joint stiffness / U
     obs_corr = True  # policy also sees the sag integral (last 5 observations; older policies: --obs_dim)
     ff_gain, ff_max = 1.0, 0.2  # gravity feed-forward as rl_arm_correction (gravity_enabled): delta_j = -c_j x tau_j, joints 2-3 (0: off)
+    # real twist + feed-forward pair (correction.py): drive sag = servo error the encoder sees, hidden twist cancelled by
+    # the feed-forward with the nominal twist_c (rl_arm_correction gravity_compliance_j2/j3); true twist = twist_c x U(1 -+ twist_dr)
+    twist = False
+    # Delta moves at most this much per policy step [rad] (rl_arm_correction max_delta_step; 0: off). The 11-08 load policy
+    # jumped Delta to the 0.05 limit in one step and the real arm kicked; the 11-03 one moved it gradually
+    delta_step_rad = 0.004
+    twist_c, servo_c, twist_dr = (0.0817, 0.0532), (0.022, 0.033), 0.2  # [rad/Nm]; servo_c measured 11-08 (sag integral / tau)
 
     # reward
     w_track, w_tilt, w_rate, w_act = 0.1, 0.2, 0.05, 0.002
@@ -216,9 +205,8 @@ class PlaceEnv(DirectRLEnv):
         # ---- per-env episode state
         z = lambda *s: torch.zeros(n, *s, device=dev)
         self.cell = torch.zeros(n, dtype=torch.long, device=dev)
-        self.q_above, self.q_down, self.corr, self.delta = z(5), z(5), z(5), z(5)
-        self.corr_k = torch.full((n,), cfg.corr_gain, device=dev)
-        self.k_arm0 = self.robot.data.joint_stiffness.torch[:, self.arm_ids].clone()
+        self.q_above, self.q_down, self.delta = z(5), z(5), z(5)
+        self.arm_corr = ArmCorrection(cfg, n, dev, self.robot, self.arm_ids)
         self.t_ph = z(6)  # phase end times: hold, down, settle, release, up, wait
         self.t = z()
         self.cam_bias = z(3)
@@ -283,46 +271,19 @@ class PlaceEnv(DirectRLEnv):
         """0 hold, 1 down, 2 settle, 3 release, 4 up, 5 wait, 6 done."""
         return (self.t[:, None] >= self.t_ph).sum(dim=1)
 
-    def _gravity_ff(self):
-        """Feed-forward joint offsets [n, 5]: -tau_j / k_j (nominal stiffness) for joints 2 and 3, as the real controller
-        (joint4 compliance is 0 there). tau from gravity::torques of rl_arm_correction.hpp, torch port."""
-        if self.cfg.ff_gain == 0.0:
-            return torch.zeros_like(self.delta)
-        q = self.robot.data.joint_pos.torch[:, self.arm_ids]
-        tau = _gravity_torques(q[:, 1], q[:, 2], q[:, 3])
-        ff = torch.zeros_like(self.delta)
-        ff[:, 1:3] = (-self.cfg.ff_gain * tau[:, :2] / self.k_arm0[:, 1:3]).clamp(-self.cfg.ff_max, self.cfg.ff_max)
-        return ff
-
     def _sag_step(self, q_ref, holding):
-        """Arm target q_ref + corr + delta + gravity ff. While holding, every corr_dt the integral moves corr by corr_k x
-        (q_ref + delta - q): it takes out the sag that the feed-forward left, not the residual. (The real controller puts the
-        feed-forward into the error too: its twist hides behind the encoder. Here joint_pos is the drooped joint itself.)"""
-        dt = self.physics_dt
-        tick = (torch.round(self.t / dt).long() % max(1, round(self.cfg.corr_dt / dt))) == 0
-        q_err = q_ref + self.delta - self.robot.data.joint_pos.torch[:, self.arm_ids]
-        new = (self.corr + self.corr_k[:, None] * q_err).clamp(-self.cfg.corr_max, self.cfg.corr_max)
-        self.corr = torch.where((holding & tick)[:, None], new, self.corr)
-        return q_ref + self.corr + self.delta + self._gravity_ff()
+        return self.arm_corr.step(q_ref, self.delta, holding, self.t, self.physics_dt)
 
     def _sample_sag(self, env_ids):
-        """Per episode: corr = 0, integral gain and sag size (arm stiffness k0 / s: sag under gravity ~ 1 / k)."""
-        cfg, m, dev = self.cfg, len(env_ids), self.device
-        self.corr[env_ids] = 0.0
-        g = 1.0 if cfg.corr_gain_range is None else torch.empty(m, device=dev).uniform_(*cfg.corr_gain_range)
-        self.corr_k[env_ids] = cfg.corr_gain * g
-        if cfg.sag_scale_range is not None:
-            s = torch.empty(m, 1, device=dev).uniform_(*cfg.sag_scale_range)
-            self.robot.write_joint_stiffness_to_sim_index(stiffness=self.k_arm0[env_ids] / s, joint_ids=self.arm_ids, env_ids=env_ids)
+        self.arm_corr.reset(env_ids)
 
     def _corr_obs(self, obs):
-        return torch.cat([obs, 10.0 * self.corr], dim=1) if self.cfg.obs_corr else obs
+        return self.arm_corr.obs(obs)
 
-    # ------------------------------------------------------------------ stepping
     def _pre_physics_step(self, actions: torch.Tensor) -> None:
         a = actions.clamp(-1.0, 1.0)
         live = (self._phase() < 3) & (self.t >= self.t_tr)  # residual active until the fingers open, frozen after
-        self.delta = torch.where(live[:, None], self.cfg.residual_rad * a, self.delta)
+        self.delta = torch.where(live[:, None], step_delta(self.delta, self.cfg.residual_rad * a, self.cfg.delta_step_rad), self.delta)
         self.act_rate = ((a - self.prev_act) ** 2).sum(dim=1) * live
         self.act_mag = (a ** 2).sum(dim=1) * live
         self.prev_act = a.clone()
@@ -411,7 +372,7 @@ class PlaceEnv(DirectRLEnv):
 
     def _get_observations(self) -> dict:
         ph = self._phase()
-        q = self.robot.data.joint_pos.torch[:, self.arm_ids]
+        q = self.arm_corr.q_seen()
         qd = self.robot.data.joint_vel.torch[:, self.arm_ids]
         onehot = torch.nn.functional.one_hot(ph.clamp(max=5), 6).float()
         prog = ((self.t - torch.cat([torch.zeros_like(self.t[:, None]), self.t_ph[:, :-1]], 1).gather(1, ph.clamp(max=5)[:, None])[:, 0])

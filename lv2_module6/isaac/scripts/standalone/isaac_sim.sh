@@ -24,6 +24,12 @@ export OPENCR_TWIST_SCALE="${OPENCR_TWIST_SCALE:-1}"
 # spawner가 실패 → joint_states 없음 → nvblox가 gripper_cam TF를 못 구한 depth에 막혀 지도가 멈췄다 (2026-10-30 실측)
 export FASTDDS_DEFAULT_PROFILES_FILE="$HERE/../../../ros2_ws/fastdds_local_only.xml"
 source /opt/ros/lyrical/setup.bash   # Isaac도 이 환경(ROS_DISTRO=lyrical, ROS_DOMAIN_ID)을 물려받는다 — 카메라 토픽은 Isaac 안 bridge가 냄
+# 이 터미널에 Isaac venv가 켜져 있으면(isaacsim 별칭 등) ROS 노드의 `#!/usr/bin/env python3`가 그 venv python(numpy 2)으로 떠
+# perception_node가 cv_bridge에서 segfault(exit −11)로 죽었음 (11/07). Isaac은 아래에서 venv를 따로 켜므로 여기선 끔
+if [ -n "$VIRTUAL_ENV" ]; then
+  PATH=$(tr ':' '\n' <<<"$PATH" | grep -vxF "$VIRTUAL_ENV/bin" | paste -sd:)
+  unset VIRTUAL_ENV
+fi
 
 # --- 지난 실행 찌꺼기 정리 (2026-10-30: 남은 노드·같은 도메인의 다른 실행과 이름이 겹쳐 컨트롤러·TF가 꼬였다)
 # 1) 지난 isaac_system launch와 그 노드  2) 부모가 죽어 고아가 된 ROS 노드(--ros-args, 부모 = init/systemd --user)
@@ -115,7 +121,8 @@ trap 'RESET_WANTED=1' USR1
 echo $$ > "$PID_FILE"
 trap cleanup EXIT INT TERM HUP  # HUP: 터미널 창을 닫을 때 — setsid로 띄운 launch는 터미널의 HUP을 못 받는다
 while kill -0 $ISAAC_PID 2>/dev/null; do
-  wait $ISAAC_PID       # USR1이 오면 여기서 깨어남
+  # USR1이 오면 wait에서 깨어남 · 리셋 도중(reset_sim)에 온 USR1은 플래그만 남으니 기다리지 않고 바로 한 번 더
+  [ "$RESET_WANTED" = 1 ] || wait $ISAAC_PID
   if [ "$RESET_WANTED" = 1 ]; then
     RESET_WANTED=0
     reset_sim

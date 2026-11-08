@@ -8,13 +8,16 @@
 cd "$(dirname "$(realpath "$0")")/.." || exit 1  # isaac/: logs/ · policies/ 기준
 PY=${PY:-$HOME/pa-course/IsaacLab-6.1/.venv/bin/python}
 ITERS=${ITERS:-1500}; ENVS=${ENVS:-512}; EVAL=${EVAL:-1024}
-XARGS=${XARGS:-}  # extra train.py args for every run, e.g. XARGS=--sag_dr
+XARGS=${XARGS:-}  # extra train.py args for every run, e.g. XARGS="--sag_dr --cfg twist=1" (--cfg adds to the per-skill cfg)
 SUB=${SUB:-}  # policy subfolder under policies/, e.g. SUB=v02 (queue summary goes to logs/queue_summary_$SUB.tsv)
 [ -n "$SUB" ] && SUB="$SUB/"
 declare -A TASK=(  # skills.yaml name -> train.py task and cfg
   [place_cell]="pip -" [pick_standing_puck]="pick -" [dock_box]="drive task=dock" [drive_straight]="drive task=straight" [park_home]="drive task=park" [drive_arc]="drive task=arc"
   [load_slot]="load -" [unload_slot]="unload -" [pregrasp]="reach target=above" [regrasp_after_stand]="stand regrasp=1" [stand_lying_puck]="stand -" [pick_standing_puck]="pick -"
   [regrasp_stood]="stand regrasp=1"  # old name (already sent to a colleague)
+  # 11-04 pick_residual_sag recipe (worked on the real arm): legacy pick env (41 obs, layout pick, no curriculum), sag DR,
+  # plus the real twist + feed-forward pair; compare on the robot against the staged pick_box policy
+  [pick_simple]="pick design=0,twist=1,sag_scale_range=0.5:1.5,corr_gain_range=0.5:1.5"
 )
 ORDER=(dock_box drive_straight load_slot unload_slot pregrasp park_home drive_arc regrasp_after_stand)
 [ $# -gt 0 ] && ORDER=("$@")

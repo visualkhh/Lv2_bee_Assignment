@@ -94,6 +94,8 @@ public:
   void ctx_off();
   // hand_relative에 무엇을 잴지 (puck: 퍽 태그 · cell: 칸 가운데 map · slot: 적재함 칸 · none)
   void hand_target(const std::string & kind, int puck_tag, int slot, double x = 0.0, double y = 0.0, double z = 0.0);
+  // 누운 퍽 세우기 (stand_grasp 정책): box_tag −2, point = 계획한 쥘 끝 · box_point = 계획한 퍽 가운데 (map) → hand_relative rel = 쥘 끝 − 손
+  void hand_target_end(int puck_tag, double px, double py, double pz, double cx, double cy, double cz);
   // /rl_arm_correction/reset_sag — 팔 skill 시작 때 한 번 (없으면 WARN 한 번).
   //   보정이 0이 되면 팔이 처졌다 다시 올라옴 → 다음 move_arm·move_joints·traj_step은 팔이 멈출 때까지 기다린 뒤 계획 (settle)
   void reset_sag();

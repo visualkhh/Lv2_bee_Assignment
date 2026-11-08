@@ -489,7 +489,7 @@ over "beebot"
             append rel physics:body1 = </beebot/Geometry/base_footprint/base_link/pole_front_cam_link>
             point3f physics:localPos0 = (-0.137869, 0.000185, 0.434932)
             point3f physics:localPos1 = (0, 0, 0)
-            quatf physics:localRot0 = (0.98768836, 0, 0.15643433, 0)
+            quatf physics:localRot0 = (0.9862856, 0, 0.16504761, 0)
             quatf physics:localRot1 = (1, 0, 0, 0)
         }
 
@@ -525,7 +525,7 @@ over "beebot"
             append rel physics:body1 = </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link/gripper_cam_link>
             point3f physics:localPos0 = (0.081681, -0.000273, 0.040325)
             point3f physics:localPos1 = (0, 0, 0)
-            quatf physics:localRot0 = (0.9879641, 0.0000111908, 0.15468265, -0.000531599)
+            quatf physics:localRot0 = (0.98480761, 0.0000218628, 0.17364819, -0.000528442)
             quatf physics:localRot1 = (1, 0, 0, 0)
         }
     }

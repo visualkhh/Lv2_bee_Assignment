@@ -22,6 +22,21 @@ PUCK_H = 0.06
 FINGER_TIP = 0.0206
 GRIP_DEPTH = 0.020
 GRASP_Z = PUCK_H - GRIP_DEPTH + FINGER_TIP  # end effector above the puck bottom when grasped
+# wrist D435 colour camera in gripper_link (URDF gripper_cam_joint + gripper_cam_optical_joint; pitch 20 deg toward the fingers, measured 11-08)
+_CP = 0.349066
+CAM_OFF_G = (0.081681 - 0.0043 * math.cos(_CP), -0.000273 + 0.0325, 0.040325 + 0.0043 * math.sin(_CP))  # colour optical origin
+CAM_AXES_G = ((math.cos(_CP), 0.0, -math.sin(_CP)), (0.0, -1.0, 0.0), (-math.sin(_CP), 0.0, -math.cos(_CP)))  # optical z, x, y
+
+
+def tag_view(v, oz, ox, oy, n_t, tan_h, tan_v, half_m, cos_max):
+    """Camera -> tag vectors v (..., 3), optical axes oz / ox / oy and tag normals n_t in the same frame (numpy or torch).
+    Returns (distance, whole tag inside the image and seen within acos(cos_max) of its normal)."""
+    d = ((v * v).sum(-1)) ** 0.5
+    vz, vx, vy = (v * oz).sum(-1), abs((v * ox).sum(-1)), abs((v * oy).sum(-1))
+    vis = (vz > 0) & (vx + half_m <= tan_h * vz) & (vy + half_m <= tan_v * vz) & (-(v * n_t).sum(-1) >= cos_max * d)
+    return d, vis
+
+
 GRIP_STOP = 0.0062  # finger joint where the fingers stop on a 30 mm puck (convex decomposition colliders)
 GRIP_FORCE = 29.0  # N per finger, team current 0.4 A (report 6)
 
@@ -144,3 +159,13 @@ def place_rot(target_xy):
 
 def place_seeds(hd, yaw):
     return [np.array([hd, -0.2, 0.7, 1.0, s]) for s in (0.0, yaw - hd, hd - yaw, math.pi / 2, -math.pi / 2)]
+
+
+if __name__ == "__main__":  # wrist camera vs the top tag of a puck centred under the hand (fingers down): above pose / grasp
+    th, tv = math.tan(math.radians(34.5)), math.tan(math.radians(21.0))
+    axes = [np.array(a) for a in CAM_AXES_G]
+    for h, want in ((0.05, True), (0.035, True), (0.03, False), (0.0, False)):  # hand above the grasp [m]: tag lost near 30 mm
+        tag = np.array([EE_OFFSET_POS[0] + (GRASP_Z - PUCK_H) + h, 0.0, 0.0])  # gripper x points down at the puck
+        d, vis = tag_view(tag - np.array(CAM_OFF_G), *axes, np.array([-1.0, 0, 0]), th, tv, 0.008, math.cos(math.radians(60)))
+        assert bool(vis) == want, (h, d, vis)
+        print(f"hand {1000 * h:.0f} mm above the grasp: camera-tag {1000 * d:.0f} mm, tag in view {bool(vis)}")

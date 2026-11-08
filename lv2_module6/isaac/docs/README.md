@@ -8,7 +8,6 @@ Isaac Sim 장면·로봇 USD(`usda/`)와 Isaac Lab 학습(`rl/bee_isaac/tasks/`)
 2. [학습](lab.md) — 팔 RL 잔차, skill별 학습 환경, 결과
 3. [USD](usd.md) — 장면·로봇 USD 구조, 퍽·상자·미로 물리, 텍스처
 4. [실기 측정](calib.md) — Real to Sim 관절 응답 측정과 도표
-5. [v02 학습 계획](v02.md) — 시뮬에도 중력 앞먹임을 넣고 다시 학습
 
 ## 폴더 구조
 

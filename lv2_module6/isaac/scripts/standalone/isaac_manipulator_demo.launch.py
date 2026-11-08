@@ -5,7 +5,7 @@
 import os
 
 from launch import LaunchDescription
-from launch.actions import ExecuteProcess, IncludeLaunchDescription
+from launch.actions import ExecuteProcess, IncludeLaunchDescription, TimerAction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import PathJoinSubstitution
 from launch_ros.actions import SetParameter
@@ -25,4 +25,10 @@ def generate_launch_description():
                               'twist_state': 'false' if '0' in (os.environ.get('BEEBOT_TWIST_STATE'), os.environ.get('OPENCR_TWIST_SCALE')) else 'true'}.items()),
         ExecuteProcess(cmd=['python3', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'camera_adapter.py'),
                             '--ros-args', '-p', 'use_sim_time:=true'], output='screen'),
+        # pick_load_demo.sh --truth-perception: 인식 대신 Isaac 참값 (순수 pick 시험). 팀 launch는 못 고치니 YOLO 노드를 뜬 뒤 반복해서 끈다
+        *([ExecuteProcess(cmd=['python3', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'truth_perception.py'),
+                               *os.environ.get('BEEBOT_TRUTH_ARGS', '').split(), '--ros-args', '-p', 'use_sim_time:=true'], output='screen'),
+           TimerAction(period=3.0, actions=[ExecuteProcess(  # 한 번으로는 모델 로딩 중이면 안 죽는다 — 60 s 동안 SIGKILL 반복 ([l]은 이 셸 자신이 걸리지 않게)
+               cmd=['bash', '-c', 'for i in $(seq 60); do pkill -9 -f "[l]ib/perception/perception_node"; sleep 1; done'], output='screen')])]
+          if os.environ.get('BEEBOT_TRUTH_PERCEPTION') else []),
     ])
