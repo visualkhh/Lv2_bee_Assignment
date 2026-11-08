@@ -67,6 +67,7 @@ ROS_SYSTEM_ARGS = {
     'pole_front_cam_pointcloud': ('true', 'pole_front_cam PointCloud2 발행 (body_filter/Nav2)'),
     'gripper_cam_pointcloud': ('false', 'gripper_cam PointCloud2 발행 (grasp_scorer용, 필요할 때만 true)'),
     'use_ekf': ('true', 'robot_localization EKF'),
+    'ekf_imu': ('true', 'EKF yaw 회전속도 = IMU 자이로 · false면 바퀴'),
     'use_nav2': ('true', '진짜 Nav2 서버'),
     'use_moveit': ('true', '진짜 move_group — coordinator의 pick/place가 씀 (ros_system 기본은 false라 실기에서 팔 작업이 안 됐음)'),
 }

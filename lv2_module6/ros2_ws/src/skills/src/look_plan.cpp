@@ -8,10 +8,10 @@ namespace skills::look {
 
 namespace {
 // gripper_link → gripper_cam_color_optical_frame (URDF gripper_cam_joint · gripper_cam_optical_joint을 stand::fk_gripper 축으로 옮긴 것)
-constexpr V3 CAM_T = {0.077621, 0.0322315, 0.0416346};
-constexpr double CAM_R[3][3] = {{-0.0010535, -0.3056415, 0.9521461},
-                                {-0.9999994, 0.0001866, -0.0010466},
-                                {0.0001422, -0.9521466, -0.3056415}};
+constexpr V3 CAM_T = {0.0776744, 0.0322314, 0.0417911};
+constexpr double CAM_R[3][3] = {{-0.0010481, -0.3420198, 0.9396922},
+                                {-0.9999994, 0.0002266, -0.0010329},
+                                {0.0001404, -0.9396927, -0.3420198}};
 // joint2~4 한계 (SRDF) 안쪽으로 0.1 rad
 constexpr double LO[3] = {-1.919862 + 0.1, -1.570796 + 0.1, -1.7 + 0.1};
 constexpr double HI[3] = {1.919862 - 0.1, 1.396263 - 0.1, 1.97 - 0.1};

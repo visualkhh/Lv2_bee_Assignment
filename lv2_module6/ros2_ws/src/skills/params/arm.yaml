@@ -3,7 +3,9 @@ arm_velocity_scale: 1.0  # MoveIt 팔 계획 속도·가속도 비율 (0~1] — 
 arm_plan_tries: 3        # 팔 계획 실패 시 같은 목표로 다시 (IK·OMPL이 무작위라 닿는 곳도 가끔 못 찾음)
 contact_mode: "sim"      # sim: 퍽·칸에 닿는 구간은 시뮬과 같은 기준 동작 + 학습 보정 (2026-11-03 배포 결정) · moveit: 예전처럼 MoveIt만
 # 잡기 판정 (닫은 뒤 gripper_left_joint 위치 + 전류) — 실기에서 다시 맞출 값. grasp_check는 bringup 인자 (faker는 false)
-grip_current_a: 0.35     # [A] 닫을 때 쥐는 힘 (goal effort → Goal Current) — 팀 결정 0.3~0.4 A
+grip_current_a: 0.1      # [A] 닫을 때 쥐는 힘 상한 (goal effort → Goal Current) — 실기 11/08: grip_close_gap_m 0.026과 같이 0.1 A (약 7 N)
+grip_close_gap_m: 0.026  # [m] 닫는 목표 손가락 사이 — 퍽 30 mm보다 4 mm 좁게 (끝까지 닫지 않음, 쥐는 힘은 grip_current_a로 제한) · 실기 11/08
+pick_open_gap_m: 0.060   # [m] pick 닿는 구간 전 손가락 사이 (skill_pick만 씀) — 시뮬 40 mm는 한쪽 여유 5 mm뿐이라 실기 인식 오차 ~10 mm에 손가락이 퍽 윗면에 걸림 (11/08)
 grasp_min_pos_m: 0.003   # [m] 이보다 더 닫히면 빈손
 server_wait_s: 30.0      # [s] MoveIt · Nav2 서버가 뜰 때까지 기다림
 # inspect 상자 보기 1차 자세 (skill_inspect target box · skill_pose "look") — 상자 앞 퍽 둘을 gripper_cam 한 장에 (사용자 11/07: 0 · −96.4 · 18.6 · 110.4 · 0°)
