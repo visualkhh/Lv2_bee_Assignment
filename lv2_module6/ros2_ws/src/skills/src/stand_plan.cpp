@@ -141,9 +141,11 @@ std::vector<V3> waypoints(const V3 & centre, double yaw, bool is_box, const Para
     const double f_end = fs.back();
     for (double f : fs) pts.push_back(on_arc(f, p.tilt_over_m * f / f_end));  // 호 0 → 끝, 가며 tilt_over만큼 더 올림
     pts.push_back(pts.back());                                                // 멈춤
-    for (auto it = fs.rbegin(); it != fs.rend(); ++it)                        // 같은 호로 90°까지 되돌림
-      if (*it < f_end - 1e-9 && *it >= M_PI / 2 - 1e-9) pts.push_back(on_arc(*it, p.tilt_over_m));
-    pts.push_back(on_arc(M_PI / 2, p.set_dz_m));  // 눌러 놓기
+    if (p.arc_return) {
+      for (auto it = fs.rbegin(); it != fs.rend(); ++it)                      // 같은 호로 90°까지 되돌림
+        if (*it < f_end - 1e-9 && *it >= M_PI / 2 - 1e-9) pts.push_back(on_arc(*it, p.tilt_over_m));
+      pts.push_back(on_arc(M_PI / 2, p.set_dz_m));  // 눌러 놓기
+    }
   }
   V3 above = pts.front();
   above[2] += p.above_m;
@@ -232,7 +234,42 @@ int up_segments(const Params & p) {
 
 std::vector<std::pair<int, int>> arc_groups(const Params & p, int n_seg) {
   const int n = up_segments(p);
+  if (n + 1 >= n_seg) return {{0, n}, {n, n + 1}};  // 되돌림 없음 (arc_return false): 호 · 멈춤
   return {{0, n}, {n, n + 1}, {n + 1, n_seg}};
+}
+
+std::vector<Q5> sample_via(const Q5 & from, const Q5 & via, const Q5 & to, double vel_scale, double dt) {
+  Q5 c;
+  for (int j = 0; j < 5; ++j) c[j] = 2 * via[j] - 0.5 * (from[j] + to[j]);
+  const auto at = [&](double s) {
+    Q5 q;
+    for (int j = 0; j < 5; ++j) q[j] = (1 - s) * (1 - s) * from[j] + 2 * s * (1 - s) * c[j] + s * s * to[j];
+    return q;
+  };
+  constexpr int N = 200;  // 길이 · 한계 확인용 촘촘한 표본
+  double len = 0;
+  Q5 prev = from;
+  for (int i = 1; i <= N; ++i) {
+    const Q5 q = at(static_cast<double>(i) / N);
+    if (!in_limits(q)) {  // 곡선이 한계 밖 — via에서 꺾음
+      auto a = sample_move(from, via, vel_scale, dt), b = sample_move(via, to, vel_scale, dt);
+      a.insert(a.end(), b.begin(), b.end());
+      return a;
+    }
+    len += linf(prev, q);
+    prev = q;
+  }
+  // 최소 저크(5차) 시간 — 끝에서 속도와 가속도가 둘 다 0이라 도착하며 덜 흔들림 (3차 move_s는 끝에서 가속도가 확 0이 됨:
+  // 11/08 실기 carry → 칸 위 끝에 팔이 떨림). 시간은 예전과 같은 사다리꼴 시간 — 정점 속도 1.875 L/T가 팀 한계를 ~17 % 넘음
+  // (11/08 사용자: 한계에 맞춰 T를 늘리면(+0.27 s) 느림). 닿는 구간(sample_move)은 시뮬 학습과 같은 move_s 그대로
+  const double t = trapezoid_duration(len, vel_scale);
+  const int n = std::max(1, static_cast<int>(std::ceil(t / dt - 1e-9)));
+  std::vector<Q5> out;
+  for (int k = 1; k <= n; ++k) {
+    const double x = std::min(k * dt, t) / t;
+    out.push_back(at(x * x * x * (10 - 15 * x + 6 * x * x)));
+  }
+  return out;
 }
 
 std::vector<Q5> sample_move(const Q5 & from, const Q5 & to, double vel_scale, double dt) {

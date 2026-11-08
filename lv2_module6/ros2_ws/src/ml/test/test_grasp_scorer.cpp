@@ -205,3 +205,32 @@ TEST_F(RosTest, ServiceUnknownIdAndLying) {
   EXPECT_FALSE(missing->success);
   EXPECT_EQ(missing->message, "object 99 not in /tracked_objects");
 }
+
+TEST_F(RosTest, ServiceUsesRememberedObjects) {
+  // coordinator가 기억한 퍽 (지금 /tracked_objects에 없음) — 요청에 실린 대상·옆 퍽으로 후보, 프레임은 map
+  auto node = std::make_shared<GraspScorer>();
+  auto probe = std::make_shared<rclcpp::Node>("probe_grasp3");
+  auto cli = probe->create_client<ScoreGrasps>("/score_grasps");
+  rclcpp::executors::SingleThreadedExecutor exec;
+  exec.add_node(node);
+  exec.add_node(probe);
+  auto req = std::make_shared<ScoreGrasps::Request>();
+  req->object_id = 9;
+  req->max_candidates = 3;
+  req->objects = {puck(9, 0.25, 0.0, "cyl"), puck(4, 0.25, 0.08, "cyl")};  // 옆 퍽이 +y로 8 cm
+  const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(8);
+  ScoreGrasps::Response::SharedPtr res;
+  while (std::chrono::steady_clock::now() < end && !res) {
+    exec.spin_some(std::chrono::milliseconds(50));
+    if (!cli->service_is_ready()) continue;
+    auto fut = cli->async_send_request(req);
+    if (exec.spin_until_future_complete(fut, std::chrono::seconds(2)) == rclcpp::FutureReturnCode::SUCCESS) res = fut.get();
+  }
+  ASSERT_TRUE(res);
+  ASSERT_TRUE(res->success) << res->message;
+  ASSERT_EQ(res->grasps.size(), 1u);  // 옆 퍽이 있으면 닫힘축이 옆 퍽 선에 직각인 후보 하나
+  EXPECT_EQ(res->grasps[0].header.frame_id, "map");
+  EXPECT_DOUBLE_EQ(res->grasps[0].pose.position.x, 0.25);
+  const auto & q = res->grasps[0].pose.orientation;
+  EXPECT_NEAR(axis_angle_deg(2 * std::atan2(q.y, q.x), M_PI / 2), 90.0, 1e-6);  // 닫힘축 ⟂ 옆 퍽 선(+y)
+}

@@ -35,6 +35,7 @@ struct Params {               // right_env RightEnvCfg 값 (tilt)
   double arc_end_deg = 120.0;  // 호 끝 — 선 자세(90°)를 지나침
   double arc_step_deg = 7.5;   // 경유점 간격 (관절 직선 보간이 원에서 0.5mm 안)
   double set_dz_m = -0.010;    // 90° 자리에서 이만큼 눌러 놓음
+  bool arc_return = true;      // 호 끝에서 멈춘 뒤 같은 호로 90°까지 되돌려 눌러 놓음 · false면 호 끝에서 바로 벌림 (실기 11/08)
   double regrasp_lift_m = 0.05;
   double drag_m = 0.0;         // > 0이면 호 대신 잡은 채 로봇 쪽으로 곧게 끌고 눌러 놓음 (실기 11/03~04 — 호는 너무 높이 듦)
   double drag_lift_m = 0.0;    // 끌면서 끝까지 올리는 양 (0 = 수평 — 수평은 퍽이 안 들림)
@@ -81,6 +82,9 @@ int up_segments(const Params & p);
 std::vector<std::pair<int, int>> arc_groups(const Params & p, int n_seg);
 // 샘플 궤적 — 시각 dt, 2dt, … 의 점 (from 자체는 빼고, 끝은 정확히 to). 실행할 때 지금 관절값을 시각 0으로 앞에 붙임
 std::vector<Q5> sample_move(const Q5 & from, const Q5 & to, double vel_scale, double dt);
+// from → to를 via를 지나는 관절 공간 2차 베지어로 (제어점 2·via − (from+to)/2 → 곡선 가운데가 via) — 경유 자세에서 멈추지 않음.
+//   곡선이 관절 한계를 넘으면 via에서 꺾는 두 직선으로. 시간은 곡선 길이(관절 최대 차의 합)로 사다리꼴 · 부드러운 시작·끝 (move_s)
+std::vector<Q5> sample_via(const Q5 & from, const Q5 & via, const Q5 & to, double vel_scale, double dt);
 // 호: 경유점 wp[1] → … → wp[W−2]를 묶음마다 smooth step으로, 묶음 안은 관절 길이 비례 직선 보간
 std::vector<Q5> sample_arc(const std::vector<Q5> & wp, const Params & p, double vel_scale, double hang_s, double dt);
 

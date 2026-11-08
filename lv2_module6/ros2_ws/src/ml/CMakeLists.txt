@@ -36,7 +36,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   srv/ScoreGrasps.srv
   msg/SkillContext.msg
   msg/ArmCorrectionDebug.msg
-  DEPENDENCIES geometry_msgs std_msgs)
+  DEPENDENCIES geometry_msgs std_msgs perception)
 rosidl_get_typesupport_target(msgs_cpp ${PROJECT_NAME} rosidl_typesupport_cpp)
 include_directories(include)
 
@@ -117,6 +117,8 @@ if(BUILD_TESTING)
   target_link_libraries(test_rl_arm_correction rl_arm_correction)
   ament_add_gtest(test_nav_obs test/test_nav_obs.cpp TIMEOUT 60)
   target_include_directories(test_nav_obs PRIVATE include)
+  ament_add_gtest(test_stand_c_obs test/test_stand_c_obs.cpp TIMEOUT 60)
+  target_include_directories(test_stand_c_obs PRIVATE include)
   ament_add_test(test_launch GENERATE_RESULT_FOR_RETURN_CODE_ZERO
     COMMAND ros2 launch "${CMAKE_CURRENT_SOURCE_DIR}/launch/ml.launch.py" --show-args
     TIMEOUT 60)

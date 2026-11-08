@@ -174,3 +174,39 @@ TEST(StandPlan, StandingGraspHeightIgnoresPerceivedFace) {  // 인지 z가 윗�
   EXPECT_NEAR(standing_grasp_z(0.104), 0.07 + GRASP_Z, 1e-12);
   EXPECT_NEAR(standing_grasp_z(0.05), GRASP_Z, 1e-12);  // 바닥
 }
+
+TEST(StandPlan, SampleViaPassesCarryWithoutStopping) {
+  // 집은 자리 → carry_right → 칸 0 위 (basket.yaml): 곡선 가운데가 carry, 끝은 정확히 칸 위, 이웃 표본 사이가 매끈함
+  const Q5 from = {0.0, -0.9, 0.6, 1.2, 0.0}, via = {-1.570796, -0.698132, 0.349066, 1.047198, -1.570796},
+           to = {-2.721611, 0.102129, -0.282709, 1.402190, -1.150814};
+  const auto qs = sample_via(from, via, to, 0.3, 0.02);
+  ASSERT_GT(qs.size(), 10u);
+  double best = 1e9, jump = 0;
+  Q5 prev = from;
+  for (const auto & q : qs) {
+    double d = 0, s = 0;
+    for (int j = 0; j < 5; ++j) d = std::max(d, std::abs(q[j] - via[j])), s = std::max(s, std::abs(q[j] - prev[j]));
+    best = std::min(best, d), jump = std::max(jump, s), prev = q;
+  }
+  EXPECT_LT(best, 0.02);   // carry를 지남 (표본 간격 안)
+  EXPECT_LT(jump, 0.05);   // 20 ms 사이 관절 변화 — 튀지 않음
+  for (int j = 0; j < 5; ++j) EXPECT_NEAR(qs.back()[j], to[j], 1e-9);
+}
+
+TEST(StandPlan, SampleViaStaysInLimitsAndArrivesGently) {
+  // 최소 저크: 관절 속도 ≤ 팀 한계 × vel_scale × 1.25 (사다리꼴 시간 그대로라 ~17 % 넘음), 끝 두 표본 사이 속도 변화(가속도)가 거의 0
+  const Q5 from = {0.0, -0.9, 0.6, 1.2, 0.0}, via = {-1.570796, -0.698132, 0.349066, 1.047198, -1.570796},
+           to = {-2.721611, 0.102129, -0.282709, 1.402190, -1.150814};
+  const double dt = 0.02, vs = 1.0;
+  auto qs = sample_via(from, via, to, vs, dt);
+  qs.insert(qs.begin(), from);
+  double vmax = 0;
+  for (size_t i = 1; i < qs.size(); ++i)
+    for (int j = 0; j < 5; ++j) vmax = std::max(vmax, std::abs(qs[i][j] - qs[i - 1][j]) / dt);
+  EXPECT_LT(vmax, VMAX * vs * 1.25);
+  const size_t n = qs.size();
+  for (int j = 0; j < 5; ++j) {
+    const double v1 = (qs[n - 1][j] - qs[n - 2][j]) / dt, v2 = (qs[n - 2][j] - qs[n - 3][j]) / dt;
+    EXPECT_LT(std::abs(v1 - v2) / dt, 0.2 * AMAX);  // 도착 직전 가속도 작음
+  }
+}

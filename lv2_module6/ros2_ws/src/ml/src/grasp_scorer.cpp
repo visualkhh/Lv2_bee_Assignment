@@ -112,8 +112,16 @@ void GraspScorer::score(const ScoreGrasps::Request & req, ScoreGrasps::Response 
   ++requests_;
   const std::string id = std::to_string(req.object_id);
   const TrackedObject * target = nullptr;
-  if (objects_) {
-    for (const auto & o : objects_->objects) if (o.id == req.object_id) target = &o;
+  std::vector<TrackedObject> scene;  // 옆 퍽을 찾을 물체들
+  if (!req.objects.empty()) {  // coordinator가 기억한 대상 (지금 안 보임) + 그때 옆 퍽 · 지금 보이는 퍽도 옆 퍽으로
+    scene = req.objects;
+    if (objects_)
+      for (const auto & o : objects_->objects)
+        if (o.id != req.objects[0].id) scene.push_back(o);
+    target = &scene[0];
+  } else if (objects_) {
+    scene = objects_->objects;
+    for (const auto & o : scene) if (o.id == req.object_id) target = &o;
   }
   if (!target) {
     res.success = false;
@@ -122,7 +130,7 @@ void GraspScorer::score(const ScoreGrasps::Request & req, ScoreGrasps::Response 
     return;
   }
   std::string note;
-  const auto cands = rule_grasps(*target, objects_->objects, note);
+  const auto cands = rule_grasps(*target, scene, note);
   if (cands.empty()) {
     res.success = false;
     res.message = note;
@@ -132,7 +140,12 @@ void GraspScorer::score(const ScoreGrasps::Request & req, ScoreGrasps::Response 
   const size_t n = std::min<size_t>(cands.size(), req.max_candidates ? req.max_candidates : cands.size());
   for (size_t i = 0; i < n; ++i) {
     geometry_msgs::msg::PoseStamped p;
-    p.header = objects_->header;
+    if (req.objects.empty()) {
+      p.header = objects_->header;
+    } else {  // 기억한 물체 — /tracked_objects와 같은 map 기준
+      p.header.frame_id = "map";
+      p.header.stamp = now();
+    }
     p.pose = target->pose.pose;
     p.pose.orientation = top_down(cands[i].yaw);
     res.grasps.push_back(p);
