@@ -33,6 +33,7 @@ struct Params {               // right_env RightEnvCfg 값 (tilt)
   double pinch_from_end_m = 0.0, press_m = 0.0;
   double tilt_over_m = 0.010;  // 호를 도는 동안 더 올림 (가볍게 쥔 퍽이 손을 늦게 따라옴)
   double arc_end_deg = 120.0;  // 호 끝 — 선 자세(90°)를 지나침
+  double arc_k = 1.0;          // 호의 퍽 축 방향 배율 — 1 = 원 · 0 = 쥔 점 그대로 위로 (실기 11/08: 호를 다 돌기 전에 퍽이 매달림)
   double arc_step_deg = 7.5;   // 경유점 간격 (관절 직선 보간이 원에서 0.5mm 안)
   double set_dz_m = -0.010;    // 90° 자리에서 이만큼 눌러 놓음
   bool arc_return = true;      // 호 끝에서 멈춘 뒤 같은 호로 90°까지 되돌려 눌러 놓음 · false면 호 끝에서 바로 벌림 (실기 11/08)

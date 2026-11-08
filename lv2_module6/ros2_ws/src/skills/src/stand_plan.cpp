@@ -112,7 +112,7 @@ std::vector<V3> waypoints(const V3 & centre, double yaw, bool is_box, const Para
   const V3 pivot = plus(centre, u, -PUCK_L / 2);  // 가까운 끝 아래 모서리
   close_yaw = yaw + M_PI / 2;                      // 닫는 축 = 퍽 축과 직각 (perp)
   const auto on_arc = [&](double f, double h) {
-    V3 q = plus(pivot, u, a * std::cos(f) - b * std::sin(f));
+    V3 q = plus(pivot, u, a + p.arc_k * (a * std::cos(f) - b * std::sin(f) - a));  // 축 방향만 arc_k배 (타원)
     q[2] += a * std::sin(f) + b * std::cos(f) + ee_up + h;
     return q;
   };

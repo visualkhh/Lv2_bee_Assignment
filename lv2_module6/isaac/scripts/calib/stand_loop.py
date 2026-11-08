@@ -12,20 +12,48 @@ from the robot's forward x, centre --x/--y from base_footprint) before the next 
 
     ROS_DOMAIN_ID=88 python3 stand_loop.py --x 0.22 --y 0.0 --rounds 0      (0 = until Ctrl-C)
     add --preview to only hover above the grasp point (check the hand position first)
+
+--perception: keep perception_node running and stand the REAL lying puck it tracks (nearest to --x/--y, within
+--match-m) instead of the fake one. Each round: stow -> /skills/inspect the spot (cameras only see the puck from there)
+-> pick the tracked lying puck -> stand — needed for the hand-camera re-measure before the descent (/skill_stand stand_cam).
+Bring up the stack WITH perception for this.
+
+After each stand: one gripper-cam depth look from where the hand ended (no YOLO) -> height of the highest points
+(p95) above the box top around where the stood puck should be: >= 45 mm standing, >= 15 mm lying, else gone
+(cam_h_mm / cam_verdict in the CSV, next to your y/n). --pick: if the depth says standing, /skills/pick picks it
+(pick_standing_puck policy) at the depth-measured spot; you take it out of the hand, Enter opens the gripper.
+
+One bag per round (./manipulator-record.sh, --bag cam|nocam|off) -> logs/stand_loop_<ts>_bags/round_NN/: starts when the
+round starts, stops a little after the result (putting the puck back is not recorded).
+logs/stand_loop_<ts>.csv: per round the skill result, whether the puck really stands (you answer y/n after putting it
+back lying; --no-ask = old timed --pause, no answer) and the /skill_stand arc parameters of that round — change them
+between rounds with `ros2 param set /skill_stand stand_...` (read at every goal) and the CSV keeps track.
 """
 
 import argparse
+import csv
 import math
 import os
 import signal
 import subprocess
 import time
 
+import numpy as np
+from pathlib import Path
+
 import rclpy
 from diagnostic_msgs.msg import KeyValue
 from plan.msg import SubGoal, SubGoalArray, TaskStatus
 from perception.msg import TrackedObject, TrackedObjectArray
+from rcl_interfaces.srv import GetParameters
+from control_msgs.action import GripperCommand
+from geometry_msgs.msg import PoseStamped
+from rclpy.qos import qos_profile_sensor_data
+from sensor_msgs.msg import CameraInfo, Image
+from plan.action import Skill
+from rclpy.action import ActionClient
 from rclpy.duration import Duration
+from rosbag2_interfaces.srv import Pause
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.time import Time
 from tf2_ros import Buffer, TransformListener
@@ -39,10 +67,28 @@ parser.add_argument("--shape", choices=["box", "cyl"], default="box")
 parser.add_argument("--rounds", type=int, default=0, help="0 = until Ctrl-C")
 parser.add_argument("--pause", type=float, default=6.0, help="s between rounds (hand lifted) to put the puck back")
 parser.add_argument("--preview", action="store_true", help="only hover above the grasp point")
+parser.add_argument("--perception", action="store_true",
+                    help="use the real tracked lying puck (perception_node stays up) instead of the fake one")
+parser.add_argument("--match-m", type=float, default=0.08, help="--perception: tracked lying puck must be this close to --x/--y [m]")
+parser.add_argument("--pick", action="store_true",
+                    help="after a stand the depth calls standing: /skills/pick it (demo stand -> pick)")
+parser.add_argument("--ask", action=argparse.BooleanOptionalAction, default=True,
+                    help="after each round ask whether the puck stands (the answer starts the next round)")
+parser.add_argument("--bag", choices=["cam", "nocam", "off"], default="cam",
+                    help="one manipulator-record.sh bag per round; nocam = no images")
 args = parser.parse_args()
 
 PUCK_ID = 99
 PUCK_W = 0.030
+PUCK_L = 0.060
+STAND_H, LYING_H = 0.045, 0.015  # [m] depth p95 height above the box top: standing puck ~60 mm, lying ~30 mm
+BAG_SH = Path(__file__).resolve().parent / "manipulator-record.sh"
+BAG_NODE = "stand_loop_rec"
+STAMP = time.strftime('%Y%m%d_%H%M%S')
+BAG_DIR = BAG_SH.parent / "logs" / f"stand_loop_{STAMP}_bags"
+CSV_PATH = BAG_SH.parent / "logs" / f"stand_loop_{STAMP}.csv"
+PARAMS = ["stand_arc_k", "stand_cam", "stand_arc_end_deg", "stand_tilt_over_m", "stand_arc_return", "stand_set_dz_m", "stand_above_m",
+          "stand_lift_away_m", "stand_pinch_m", "stand_arc_vel_scale", "stand_drag_m"]
 
 # Clean up before starting: other stand_loop.py copies (Ctrl-Z leaves them stopped, and each one is a DDS participant /
 # fake-puck publisher) and perception_node (it would publish /tracked_objects too).
@@ -50,8 +96,15 @@ for pid in subprocess.run(["pgrep", "-f", "stand_loop.py"], capture_output=True,
     if int(pid) != os.getpid():
         os.kill(int(pid), signal.SIGCONT)  # a stopped process only handles SIGTERM after it is continued
         os.kill(int(pid), signal.SIGTERM)
-subprocess.run(["pkill", "-f", "perception_node"])
+if args.perception:
+    if not subprocess.run(["pgrep", "-f", "perception_node"], capture_output=True).stdout:
+        print("WARN: --perception but no perception_node running — start the stack with perception")
+else:
+    subprocess.run(["pkill", "-f", "perception_node"])
 
+# depth images only come through with the stack's shared-memory Fast DDS profile (without it: no frames at all, 11/08)
+os.environ.setdefault("FASTDDS_DEFAULT_PROFILES_FILE",
+                      str(Path(__file__).resolve().parents[3] / "ros2_ws" / "fastdds_local_only.xml"))
 rclpy.init()
 node = rclpy.create_node("stand_loop")
 tf_buf = Buffer()
@@ -60,7 +113,12 @@ latched = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE, durability
 status = {}
 node.create_subscription(TaskStatus, "/task/status", lambda m: status.update({m.plan_id: m}), latched)
 goal_pub = node.create_publisher(SubGoalArray, "/task/sub_goals", latched)
-obj_pub = node.create_publisher(TrackedObjectArray, "/tracked_objects", QoSProfile(depth=5, reliability=ReliabilityPolicy.RELIABLE))
+tracked = {"msg": None}
+if args.perception:
+    node.create_subscription(TrackedObjectArray, "/tracked_objects", lambda m: tracked.update(msg=m),
+                             QoSProfile(depth=5, reliability=ReliabilityPolicy.RELIABLE))
+obj_pub = None if args.perception else node.create_publisher(  # --perception: perception_node is the only publisher
+    TrackedObjectArray, "/tracked_objects", QoSProfile(depth=5, reliability=ReliabilityPolicy.RELIABLE))
 
 
 def spin(sec):
@@ -91,7 +149,8 @@ def world_pose():
 
 spin(2.0)  # TF listener only fills while the node spins
 frame, px, py, ayaw = world_pose()
-print(f"fake puck in {frame}: ({px:.3f}, {py:.3f}, z {args.support + PUCK_W / 2:.3f}) axis {math.degrees(ayaw):.0f} deg")
+if not args.perception:
+    print(f"fake puck in {frame}: ({px:.3f}, {py:.3f}, z {args.support + PUCK_W / 2:.3f}) axis {math.degrees(ayaw):.0f} deg")
 
 
 def fake_objects():
@@ -113,19 +172,283 @@ def fake_objects():
     return m
 
 
-node.create_timer(0.1, lambda: obj_pub.publish(fake_objects()))
+class RoundBag:
+    """manipulator-record.sh into BAG_DIR/round_NN, stop() closes the MCAP"""
+
+    def __init__(self, n):
+        self.proc = None
+        if args.bag == "off":
+            return
+        env = dict(os.environ, BAG_OUT=str(BAG_DIR / f"round_{n:02d}"), BAG_NODE=BAG_NODE)
+        BAG_DIR.mkdir(parents=True, exist_ok=True)
+        self.proc = subprocess.Popen([str(BAG_SH)] + (["nocam"] if args.bag == "nocam" else []), env=env,
+                                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if not node.create_client(Pause, f"/{BAG_NODE}/pause").wait_for_service(timeout_sec=15.0):
+            print("  bag: recorder did not come up — this round is not recorded")
+            self.stop()
+            return
+        spin(1.0)  # recorder subscribes to the topics after its services are up
+        print(f"  bag: recording -> {env['BAG_OUT']}")
+
+    def stop(self):
+        if self.proc and self.proc.poll() is None:
+            self.proc.send_signal(signal.SIGINT)  # bash exec'd ros2 bag -> same pid; SIGINT closes the MCAP cleanly
+            try:
+                self.proc.wait(timeout=15.0)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+        self.proc = None
+
+
+param_cli = node.create_client(GetParameters, "/skill_stand/get_parameters")
+
+
+def stand_params():
+    """the /skill_stand values this round runs with (empty if the node does not answer)"""
+    if not param_cli.wait_for_service(timeout_sec=2.0):
+        return {}
+    fut = param_cli.call_async(GetParameters.Request(names=PARAMS))
+    rclpy.spin_until_future_complete(node, fut, timeout_sec=2.0)
+    if not fut.result():
+        return {}
+    vals = [v.double_value if v.type == 3 else v.bool_value if v.type == 1 else v.integer_value if v.type == 2 else ""
+            for v in fut.result().values]
+    return dict(zip(PARAMS, vals))
+
+
+skill_cli = {k: ActionClient(node, Skill, f"/skills/{k}") for k in ("pose", "inspect")}
+
+
+def run_skill(skill, goal, timeout=60.0):
+    """/skills/<skill> action → (ok, reason)"""
+    cli = skill_cli[skill]
+    if not cli.wait_for_server(timeout_sec=10.0):
+        return False, f"/skills/{skill} not up"
+    fut = cli.send_goal_async(goal)
+    rclpy.spin_until_future_complete(node, fut, timeout_sec=10.0)
+    gh = fut.result()
+    if gh is None or not gh.accepted:
+        return False, "rejected"
+    res = gh.get_result_async()
+    rclpy.spin_until_future_complete(node, res, timeout_sec=timeout)
+    if not res.done():
+        gh.cancel_goal_async()
+        return False, "timeout"
+    r = res.result().result
+    return r.success, r.reason
+
+
+def inspect_spot():
+    """stow → inspect the box at the spot (like place_loop --from pick) so the cameras see the lying puck"""
+    ok, why = run_skill("pose", Skill.Goal(target="stow"))
+    print(f"  stow: {'ok' if ok else why}")
+    t = tf_buf.lookup_transform(frame, "base_footprint", Time())
+    q = t.transform.rotation
+    yaw = 2.0 * math.atan2(q.z, q.w)
+    p = PoseStamped()
+    p.header.frame_id = frame
+    p.pose.position.x = t.transform.translation.x + math.cos(yaw) * args.x - math.sin(yaw) * args.y
+    p.pose.position.y = t.transform.translation.y + math.sin(yaw) * args.x + math.cos(yaw) * args.y
+    p.pose.position.z = args.support + PUCK_W
+    ok, why = run_skill("inspect", Skill.Goal(target="box", values=[1.0], pose=p))
+    print(f"  inspect: {'ok' if ok else why}")
+    tracked["msg"] = None  # only detections from the inspect pose
+    spin(0.5)
+
+
+def real_puck(timeout=5.0):
+    """--perception: (id, x, y, axis yaw in base_footprint) of the tracked lying puck nearest the spot, or None"""
+    end = time.time() + timeout
+    while time.time() < end:
+        spin(0.2)
+        m = tracked["msg"]
+        if m is None:
+            continue
+        try:
+            t = tf_buf.lookup_transform("base_footprint", m.header.frame_id or "map", Time())
+        except Exception:
+            continue
+        q = t.transform.rotation
+        yaw = 2.0 * math.atan2(q.z, q.w)
+        c, s = math.cos(yaw), math.sin(yaw)
+        best = None
+        for o in m.objects:
+            posture = next((kv.value for kv in o.details if kv.key == "posture"), "")
+            if o.class_name != "puck_lying" and posture != "lying":
+                continue
+            ox, oy = o.pose.pose.position.x, o.pose.pose.position.y
+            bx = t.transform.translation.x + c * ox - s * oy
+            by = t.transform.translation.y + s * ox + c * oy
+            oq = o.pose.pose.orientation
+            d = math.hypot(bx - args.x, by - args.y)
+            if d < args.match_m and (best is None or d < best[0]):
+                best = (d, o.id, bx, by, 2.0 * math.atan2(oq.z, oq.w) + yaw)
+        if best:
+            return best[1:]
+    return None
+
+
+depth = {"img": None, "info": None}
+node.create_subscription(Image, "/gripper_cam/aligned_depth_to_color/image_raw", lambda m: depth.update(img=m), qos_profile_sensor_data)
+node.create_subscription(CameraInfo, "/gripper_cam/aligned_depth_to_color/camera_info", lambda m: depth.update(info=m),
+                         qos_profile_sensor_data)
+
+
+def depth_points(after_ns, frames=3, timeout=3.0):
+    """gripper-cam depth → points (N×3) in base_footprint from up to `frames` images newer than after_ns"""
+    pts, last, end = [], None, time.time() + timeout
+    while len(pts) < frames and time.time() < end:
+        spin(0.05)
+        m, info = depth["img"], depth["info"]
+        if m is None or info is None:
+            continue
+        stamp = m.header.stamp.sec * 10**9 + m.header.stamp.nanosec
+        if stamp <= after_ns or stamp == last:
+            continue
+        last = stamp
+        try:
+            t = tf_buf.lookup_transform("base_footprint", m.header.frame_id, Time())
+        except Exception:
+            continue
+        if m.encoding == "16UC1":
+            z = np.frombuffer(m.data, np.uint16).reshape(m.height, m.width).astype(np.float32) * 0.001
+        elif m.encoding == "32FC1":
+            z = np.frombuffer(m.data, np.float32).reshape(m.height, m.width)
+        else:
+            print(f"  depth: encoding {m.encoding} not handled")
+            return np.zeros((0, 3))
+        v, u = np.mgrid[0:m.height:2, 0:m.width:2]
+        z = z[::2, ::2]
+        ok = (z > 0.09) & (z < 0.6)  # < 9 cm = own fingers · D435 has no depth that close anyway
+        fx, fy, cx, cy = info.k[0], info.k[4], info.k[2], info.k[5]
+        p = np.stack([(u[ok] - cx) * z[ok] / fx, (v[ok] - cy) * z[ok] / fy, z[ok]], 1)
+        q = t.transform.rotation
+        x_, y_, z_, w_ = q.x, q.y, q.z, q.w
+        R = np.array([[1 - 2 * (y_ * y_ + z_ * z_), 2 * (x_ * y_ - z_ * w_), 2 * (x_ * z_ + y_ * w_)],
+                      [2 * (x_ * y_ + z_ * w_), 1 - 2 * (x_ * x_ + z_ * z_), 2 * (y_ * z_ - x_ * w_)],
+                      [2 * (x_ * z_ - y_ * w_), 2 * (y_ * z_ + x_ * w_), 1 - 2 * (x_ * x_ + y_ * y_)]])
+        tr = t.transform.translation
+        pts.append(p @ R.T + np.array([tr.x, tr.y, tr.z]))
+    return np.concatenate(pts) if pts else np.zeros((0, 3))
+
+
+def stand_verdict(after_ns, cx, cy, yaw, save=None):
+    """depth height above the box top where the stood puck should be (pivot side, see stand_plan waypoints)
+    → (verdict, p95 height mm, standing-puck xy or None)"""
+    u = (math.cos(yaw), math.sin(yaw))
+    if u[0] * cx + u[1] * cy < 0:  # away_yaw: axis points from the near end (robot side) to the far end
+        u = (-u[0], -u[1])
+    ex, ey = cx - u[0] * (PUCK_L + PUCK_W) / 2, cy - u[1] * (PUCK_L + PUCK_W) / 2  # stood puck centre = pivot − u·W/2
+    p = depth_points(after_ns)
+    if len(p) == 0:
+        return "no_depth", "", None
+    near = p[np.hypot(p[:, 0] - ex, p[:, 1] - ey) < 0.04]
+    if len(near) < 20:
+        return "unseen", "", None
+    if save is not None:
+        np.save(save, near)  # points around the stood-puck spot (base_footprint) — the bag has no depth
+    h = near[:, 2] - args.support
+    h95 = float(np.percentile(h, 95))
+    # pick target = top face only (within 8 mm of the top): every point above STAND_H also takes the side face the camera
+    # sees, which pulls the centre toward the camera (11/08 first pick: hand cam said the puck was 18 mm off in y)
+    top = near[h > max(STAND_H, h95 - 0.008)]
+    xy = (float(np.median(top[:, 0])), float(np.median(top[:, 1]))) if len(top) >= 10 else None
+    verdict = "standing" if h95 >= STAND_H else "lying" if h95 >= LYING_H else "gone"
+    return verdict, round(h95 * 1000, 1), xy
+
+
+pick_cli = ActionClient(node, Skill, "/skills/pick")
+grip_cli = ActionClient(node, GripperCommand, "/gripper_controller/gripper_cmd")
+
+
+def pick_standing(n, bx, by, yaw_b):
+    """/skills/pick on a standing box puck at (bx, by) base_footprint — grasp_scorer takes it from the request objects"""
+    t = tf_buf.lookup_transform(frame, "base_footprint", Time())
+    q = t.transform.rotation
+    ryaw = 2.0 * math.atan2(q.z, q.w)
+    o = TrackedObject()
+    o.id = 9000 + n  # not a perception id → grasp_scorer uses this object, not /tracked_objects
+    o.class_name = "puck"
+    o.confidence = 1.0
+    o.pose.pose.position.x = t.transform.translation.x + math.cos(ryaw) * bx - math.sin(ryaw) * by
+    o.pose.pose.position.y = t.transform.translation.y + math.sin(ryaw) * bx + math.cos(ryaw) * by
+    o.pose.pose.position.z = args.support + 0.06 / 2  # > 0.09 → skills standing_grasp_z takes it as on the box
+    myaw = yaw_b + ryaw  # stood box puck faces keep the lying puck's yaw (mod 90°)
+    o.pose.pose.orientation.z, o.pose.pose.orientation.w = math.sin(myaw / 2), math.cos(myaw / 2)
+    o.size.x = o.size.y = PUCK_W
+    o.size.z = 0.06
+    o.details = [KeyValue(key="posture", value="standing"), KeyValue(key="shape", value="box"),
+                 KeyValue(key="yaw_period", value="90")]
+    if not pick_cli.wait_for_server(timeout_sec=10.0):
+        return False, "/skills/pick not up"
+    fut = pick_cli.send_goal_async(Skill.Goal(target=str(o.id), tag=-1, shape="box", objects=[o]))
+    rclpy.spin_until_future_complete(node, fut, timeout_sec=10.0)
+    gh = fut.result()
+    if gh is None or not gh.accepted:
+        return False, "rejected"
+    res = gh.get_result_async()
+    rclpy.spin_until_future_complete(node, res, timeout_sec=90.0)
+    if not res.done():
+        gh.cancel_goal_async()
+        return False, "timeout"
+    return res.result().result.success, res.result().result.reason
+
+
+def open_gripper():
+    if not grip_cli.wait_for_server(timeout_sec=5.0):
+        print("  gripper action not up — open it yourself")
+        return
+    g = GripperCommand.Goal()
+    g.command.position, g.command.max_effort = 0.0265, -1.0
+    fut = grip_cli.send_goal_async(g)
+    rclpy.spin_until_future_complete(node, fut, timeout_sec=5.0)
+    spin(1.5)
+
+
+if not args.perception:
+    node.create_timer(0.1, lambda: obj_pub.publish(fake_objects()))
 spin(1.0)
 
 n = 0
+bag = None
+CSV_PATH.parent.mkdir(exist_ok=True)
+fh = open(CSV_PATH, "w", newline="")
+w = csv.DictWriter(fh, fieldnames=["round", "result", "reason", "seconds", "standing", "x_m", "y_m", "axis_deg",
+                                   "puck_id", "seen_x_m", "seen_y_m", "cam_h_mm", "cam_verdict", "pick", "pick_reason"] + PARAMS)
+w.writeheader()
+print(f"log {CSV_PATH}")
 try:
     while args.rounds == 0 or n < args.rounds:
         n += 1
         plan_id = int(time.time()) % 1000000 + n
-        input(f"\n[round {n}] put the puck lying at the spot, hands clear. Enter = start ") if n == 1 else spin(args.pause)
+        if n == 1:
+            input(f"\n[round {n}] put the puck lying at the spot, hands clear. Enter = start ")
+        elif not args.ask:
+            spin(args.pause)
+        sp = stand_params()
         # odom 추정이 흔들리면 처음에 odom에 고정한 퍽이 로봇 기준으로 옆으로 밀림 — 라운드마다 지금 로봇 자세에서 다시 계산
         _, px, py, ayaw = world_pose()
+        target, seen, yaw_b = PUCK_ID, ("", ""), math.radians(args.axis_deg)
+        cx, cy = args.x, args.y
+        if args.perception:
+            bag = RoundBag(n)  # the inspect is in the bag too
+            inspect_spot()
+            found = real_puck()
+            if found is None:
+                bag.stop()
+                print(f"[round {n}] no tracked lying puck within {args.match_m * 1000:.0f} mm of the spot — skipped")
+                w.writerow(dict(round=n, result="SKIPPED", reason="no_lying_puck", x_m=args.x, y_m=args.y, axis_deg=args.axis_deg))
+                fh.flush()
+                if args.ask:
+                    input(f"[round {n}] fix the puck / perception, Enter = retry ")
+                continue
+            target, seen, yaw_b = found[0], (round(found[1], 4), round(found[2], 4)), found[3]
+            cx, cy = found[1], found[2]
+            print(f"  real puck id {target} at base ({seen[0]:.3f}, {seen[1]:.3f})")
+        else:
+            bag = RoundBag(n)
         spin(0.5)  # 코디네이터가 새 퍽 위치를 받은 뒤에 goal
-        g = SubGoal(step=0, skill="stand", target=str(PUCK_ID), relation="preview" if args.preview else "", offset_m=0.0)
+        g = SubGoal(step=0, skill="stand", target=str(target), relation="preview" if args.preview else "", offset_m=0.0)
         msg = SubGoalArray(plan_id=plan_id, goals=[g])
         goal_pub.publish(msg)
         t0 = time.time()
@@ -137,6 +460,42 @@ try:
         s = status.get(plan_id)
         print(f"[round {n}] {'SUCCEEDED' if s and s.state == TaskStatus.SUCCEEDED else 'FAILED'}"
               f"{' ' + s.reason if s and s.reason else ''}  ({time.time() - t0:.0f} s)")
+        spin(1.0)  # hand settles after the release / lift -> into the bag
+        # depth look from the inspect look pose: right after the lift the camera is too close to a STANDING puck — its
+        # upper half has no depth (D435 min range), so it read as 35 mm = lying (11/08 round, puck was standing)
+        ok, why = run_skill("pose", Skill.Goal(target="look"))
+        if not ok:
+            print(f"  pose look: {why} — depth from where the hand is")
+        spin(0.5)
+        BAG_DIR.mkdir(parents=True, exist_ok=True)
+        verdict, h_mm, top_xy = stand_verdict(node.get_clock().now().nanoseconds, cx, cy, yaw_b,
+                                              save=BAG_DIR / f"round_{n:02d}_depth.npy")
+        print(f"  depth: {verdict}  (p95 {h_mm} mm above the box)")
+        standing = ""
+        if args.ask:
+            standing = input(f"[round {n}] puck stood up? y/n ").strip()[:1].lower()
+        pick, pick_reason = "", ""
+        if args.pick and verdict == "standing" and top_xy:
+            print(f"  pick: standing puck at base ({top_xy[0]:.3f}, {top_xy[1]:.3f})")
+            ok, pick_reason = pick_standing(n, top_xy[0], top_xy[1], yaw_b)
+            pick = "ok" if ok else "failed"
+            print(f"  pick: {pick} {pick_reason}")
+            spin(1.0)
+        bag.stop()
+        if pick == "ok":
+            input(f"[round {n}] take the puck out of the hand, Enter = open the gripper ")
+            open_gripper()
+        if args.ask:
+            input(f"[round {n}] put the puck back lying at the spot, Enter = round {n + 1} ")
+        w.writerow(dict(round=n, result="SUCCEEDED" if s and s.state == TaskStatus.SUCCEEDED else "FAILED",
+                        reason=s.reason if s else "timeout", seconds=round(time.time() - t0, 1), standing=standing,
+                        x_m=args.x, y_m=args.y, axis_deg=args.axis_deg, puck_id=target, seen_x_m=seen[0],
+                        seen_y_m=seen[1], cam_h_mm=h_mm, cam_verdict=verdict, pick=pick, pick_reason=pick_reason, **sp))
+        fh.flush()
 except KeyboardInterrupt:
     pass
+finally:
+    if bag:
+        bag.stop()
+    fh.close()
 print("done")
