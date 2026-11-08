@@ -36,6 +36,7 @@ parser.add_argument("--obs_dim", type=int, default=None, help="eval: feed only t
 parser.add_argument("--speed_dr", action="store_true", help="sample vel_scale 0.3-0.8 and settle 0.1-0.3 s per episode")
 parser.add_argument("--sag_dr", action="store_true", help="sample the sag integral gain x 0.5-1.5 and the sag x 0.7-1.5 per episode")
 parser.add_argument("--out", default=None, help="train: exported file name in policies/ (default <task>_residual.pt)")
+parser.add_argument("--stats", default=None, help="zero / eval: save the per-episode stats lists to this .npz (report scripts)")
 parser.add_argument("--run", default=None, help="log folder name under logs/ (default <task>)")
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
@@ -201,6 +202,9 @@ def rollout(env, act_fn, label):
                   f"done {len(u.stats['success'])} in_hand {u.in_hand.sum().item()} t_end {u.t_ph[:, 5].max().item():.2f} t {u.t.max().item():.2f}", flush=True)
     print(f"[{label}] {time.time() - t0:.0f} s")
     report(env, label)
+    if args.stats:
+        np.savez(args.stats, **{k: np.array(v, dtype=float) for k, v in env.unwrapped.stats.items()
+                                if isinstance(v, list) and v and not isinstance(v[0], (tuple, list))})
 
 
 def main():

@@ -5,7 +5,7 @@ kind: arm            # arm (rl_arm_correction이 계산) — 누운 퍽 먼 끝 
 layout: pick         # 정책 입력 모양 (ml/arm_obs.hpp pick 41) — 카메라 = 쥘 끝 − 손끝 (hand_relative box_tag −2)
 use: false
 node: skill_stand
-sim_baseline: TBD
-sim_policy: TBD
+sim_baseline: 61.6      # [%] Δ = 0, 학습 조건 (계획 위치 ±8 mm · yaw ±6°), 1024판 — 닫을 때 옆 오차 p90 8.1 mm
+sim_policy: 83.4        # [%] 학습 뒤 같은 조건 (옆 p90 3.9 · 축 p90 2.5 mm) · ±12 mm ±10°: 84.4 % (Δ = 0 35.8 %) · 인식 오차 0: 84.5 % (Δ = 0 79.9 %)
 source: isaac/rl stand_grasp_env StandGraspEnv (11-08 밤, 4096 env × 2000) · isaac/policies/stand_grasp.pt
 note: 실기 확인 전 — use true면 내려가기가 contact 속도 0.3으로 느려짐 (stand_vel_scale 0.7 대신)
