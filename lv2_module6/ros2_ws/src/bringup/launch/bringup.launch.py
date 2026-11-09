@@ -218,7 +218,7 @@ def generate_launch_description():
         # coordinator: 계획 단계를 skill 노드에 맡기는 순서 담당 (적재함 장부 · 모드·비상정지 취소)
         node('plan', 'coordinator'),
         # skill 노드 — 단계마다 액션 서버 /skills/<skill> (팔: arm_skills 컨테이너 · 주행: base_skills). 학습 정책은 skill마다 models/skills/<skill>/
-        #   시작 자세 · 지도 만들 때 스캔 자세(ros_system/config/scan_pose.yaml)는 skill_pose
+        #   시작 자세(stow)는 skill_pose
         GroupAction([IncludeLaunchDescription(
             PythonLaunchDescriptionSource(PathJoinSubstitution([FindPackageShare('skills'), 'launch', 'skills.launch.py'])),
             launch_arguments={'grasp_check': LaunchConfiguration('grasp_check')}.items())]),

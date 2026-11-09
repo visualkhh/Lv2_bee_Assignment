@@ -70,7 +70,7 @@ Coordinator::Coordinator(const rclcpp::NodeOptions & options)
   approach_m_ = declare_parameter<double>("approach_m", 0.24);
   place_spacing_ = declare_parameter<double>("place_spacing", 0.08);
   box_margin_m_ = declare_parameter<double>("box_margin_m", 0.03);
-  for (const auto & p : declare_parameter<std::vector<std::string>>("pose_names", {"stow", "carry_left", "carry_right", "scan"}))
+  for (const auto & p : declare_parameter<std::vector<std::string>>("pose_names", {"stow", "carry_left", "carry_right"}))
     pose_names_.insert(p);
   basket_.assign(static_cast<size_t>(declare_parameter<int>("basket_slots", 12)), PuckInfo{});
   {

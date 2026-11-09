@@ -1,9 +1,8 @@
-// skill_pose — /skills/pose: 이름 있는 관절 자세로 (stow · carry_left · carry_right · look · scan) — MoveIt 관절 목표. 학습 정책 없음 (move_pose 기준선 100 %)
+// skill_pose — /skills/pose: 이름 있는 관절 자세로 (stow · carry_left · carry_right · look) — MoveIt 관절 목표. 학습 정책 없음 (move_pose 기준선 100 %)
 //   팔을 맡는 기본 일도 이 노드 (예전 coordinator):
 //   - 시작 자세: bringup 직후 한 번 팔을 initial_pose로 — MoveIt 없이 /arm_controller/joint_trajectory 토픽.
 //     못 가면 initial_pose_retries번만 다시 보내고 지금 자세로 멈춤 (걸린 채 계속 밀면 과부하). initial_pose_enabled는 실행 중에도 바꿈
-//   - 스캔 자세: 지도를 만들 때(/state/map_mode MAPPING) 작업이 없으면 팔을 scan_pose로 (2초마다 확인)
-//     — gripper_cam이 왼쪽 뒤를 보는 두 번째 고정 카메라 (ros_system/config/scan_pose.yaml · scan_cam_gate)
+//   스캔 자세(scan)는 없앰 (11-09) — 팔을 왼쪽 뒤로 뻗은 채 주행·회전해 관성으로 밀리고 무게중심이 쏠림. 관측·주행은 stow
 //   작업 중인지는 /task/status (RUNNING) 와 이 노드의 goal로 봄. 자세 값: skills/params/basket.yaml (isaac-lab slot_table)
 #include <chrono>
 #include <cmath>
@@ -25,15 +24,6 @@ public:
   : SkillNode("skill_pose", options), arm_(*this) {
     for (const char * n : {"stow", "carry_left", "carry_right", "look"})  // look = inspect 상자 보기 1차 자세 (skill_inspect도 같은 pose_look)
       poses_[n] = declare_parameter<std::vector<double>>(std::string("pose_") + n, std::vector<double>{});
-    // 값의 정본은 ros_system/config/scan_pose.yaml — skills.launch가 그 파일을 넘긴다.
-    // 아래 기본값은 ros_system 없이 skill만 띄울 때의 fallback이다.
-    scan_joints_ = declare_parameter<std::vector<std::string>>("scan_pose_joints", {"joint1", "joint2", "joint3", "joint4", "joint5"});
-    scan_pose_ = declare_parameter<std::vector<double>>("scan_pose", {2.618, 0.681, -1.414, 1.082, 0.0});
-    scan_tol_ = declare_parameter<double>("scan_pose_tolerance", 0.05);
-    // 매핑 중 자동 스캔 자세는 기본 끔 — 팔을 뒤로 크게 돌리면 무게중심이 왼쪽으로 쏠린다.
-    // 필요하면 `ros2 param set /skill_pose scan_pose_enabled true`로 켠다 (pose scan 액션은 항상 사용 가능).
-    declare_parameter<bool>("scan_pose_enabled", false);
-    poses_["scan"] = scan_pose_;  // pose scan (mission_manager — 바코드·신호 볼 때 팔이 pole_front_cam 시야를 안 가림)
     initial_enabled_ = declare_parameter<bool>("initial_pose_enabled", true);
     initial_joints_ = declare_parameter<std::vector<std::string>>("initial_pose_joints", {"joint1", "joint2", "joint3", "joint4", "joint5"});
     initial_pose_ = declare_parameter<std::vector<double>>("initial_pose", {0.0, -1.9024, 1.344, 0.9023, 0.0});
@@ -52,12 +42,9 @@ public:
     });
     estop_sub_ = create_subscription<std_msgs::msg::Bool>("/state/emergency", latched,
       [this](std_msgs::msg::Bool::ConstSharedPtr m) { estop_ = m->data; });
-    map_mode_sub_ = create_subscription<std_msgs::msg::String>("/state/map_mode", latched,
-      [this](std_msgs::msg::String::ConstSharedPtr m) { map_mode_ = m->data; check_scan_pose(); });
     status_sub_ = create_subscription<plan::msg::TaskStatus>("/task/status", rclcpp::QoS(10).reliable().transient_local(),
       [this](plan::msg::TaskStatus::ConstSharedPtr m) { task_running_ = m->state == plan::msg::TaskStatus::RUNNING; });
     initial_timer_ = create_wall_timer(std::chrono::seconds(1), [this]() { check_initial_pose(); });
-    scan_timer_ = create_wall_timer(std::chrono::seconds(2), [this]() { check_scan_pose(); });
     param_cb_ = add_post_set_parameters_callback([this](const std::vector<rclcpp::Parameter> & ps) {
       for (const auto & p : ps) {
         if (p.get_name() != "initial_pose_enabled") continue;
@@ -167,7 +154,6 @@ private:
         if (!ok) RCLCPP_WARN(get_logger(), "그리퍼 시작 값 실패 — skills.yaml initial_gripper 확인");
       });
     }
-    if (map_mode_ == "MAPPING") { initial_timer_->cancel(); return; }  // 스캔 자세가 대신 잡음
     if (at(initial_joints_, initial_pose_, initial_tol_)) {
       if (initial_gripper_sent_ || initial_gripper_ < 0.0) { initial_timer_->cancel(); RCLCPP_INFO(get_logger(), "팔 초기 자세 확인 끝"); }
       return;
@@ -180,34 +166,19 @@ private:
     publish_targets(initial_joints_, initial_pose_, initial_move_s_);
   }
 
-  void check_scan_pose() {
-    // 지도를 만드는 중이고 작업이 없을 때 — 작업이 끝나면 다음 확인 때 돌아감. 수동 모드여도 (스캔은 보통 수동 주행)
-    if (!get_parameter("scan_pose_enabled").as_bool()) return;  // 실행 중 param set도 반영
-    if (map_mode_ != "MAPPING") return;
-    if (estop_ || busy_arm() || scan_moving_ || at(scan_joints_, scan_pose_, scan_tol_) || !arm_.moveit_ready()) return;
-    double probe;
-    if (!arm_.joint("joint1", probe)) return;
-    scan_moving_ = true;
-    RCLCPP_INFO(get_logger(), "지도 만드는 중 — 팔을 스캔 자세로 (gripper_cam이 왼쪽 뒤를 봄)");
-    arm_.move_joints(scan_pose_, [this](bool ok) {
-      scan_moving_ = false;
-      if (!ok) RCLCPP_WARN(get_logger(), "스캔 자세로 못 감 — 2초 뒤 다시");
-    });
-  }
-
   ArmIO arm_;
   std::map<std::string, std::vector<double>> poses_;
-  std::vector<std::string> scan_joints_, initial_joints_;
-  std::vector<double> scan_pose_, initial_pose_;
-  double scan_tol_ = 0.05, initial_tol_ = 0.05, initial_move_s_ = 3.0, initial_gripper_ = 0.0;
+  std::vector<std::string> initial_joints_;
+  std::vector<double> initial_pose_;
+  double initial_tol_ = 0.05, initial_move_s_ = 3.0, initial_gripper_ = 0.0;
   int initial_retries_ = 1, initial_sent_count_ = 0;
-  bool initial_enabled_ = true, initial_waiting_ = false, initial_gripper_sent_ = false, scan_moving_ = false;
+  bool initial_enabled_ = true, initial_waiting_ = false, initial_gripper_sent_ = false;
   bool estop_ = false, task_running_ = false;
-  std::string mode_ = "AUTO", map_mode_;
+  std::string mode_ = "AUTO";
   std::chrono::steady_clock::time_point initial_sent_{};
-  rclcpp::TimerBase::SharedPtr initial_timer_, scan_timer_;
+  rclcpp::TimerBase::SharedPtr initial_timer_;
   rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr traj_pub_;
-  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr mode_sub_, map_mode_sub_;
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr mode_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr estop_sub_;
   rclcpp::Subscription<plan::msg::TaskStatus>::SharedPtr status_sub_;
   rclcpp::node_interfaces::PostSetParametersCallbackHandle::SharedPtr param_cb_;

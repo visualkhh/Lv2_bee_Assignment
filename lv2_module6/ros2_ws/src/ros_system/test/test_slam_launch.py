@@ -62,7 +62,7 @@ def main():
     base = {'use_cameras': 'false', 'use_ros2_control': 'false', 'use_nav2': 'false', 'use_twist_mux': 'false'}
     on = nodes(**base)
     off = nodes(**base, use_slam='false')
-    slam = {'cuvslam_slam', 'nvblox_node', 'nvblox_map', 'pole_depth_gate', 'gripper_depth_gate'}
+    slam = {'cuvslam_slam', 'nvblox_node', 'nvblox_map', 'pole_depth_gate'}
     rtab = {'rtabmap', 'rgbdx_sync', 'scan_cam_gate', 'scan_cloud_merge', 'pole_rgbd_sync', 'gripper_rgbd_sync'}  # 예전 SLAM — 남아 있으면 안 됨
     # 지도 파일: 매핑이면 끌 때 저장(불러오기 없음) · 위치추정이면 시작할 때 불러오기(저장 안 함 — 불러온 지도를 안 덮어씀)
     m = {**base, 'nvblox_map': '/maps/a/nvblox.nvblx'}
@@ -71,7 +71,8 @@ def main():
     load_map = params('nvblox_map', **m, localization='false').get('load_path')
     load_loc = params('nvblox_map', **m, localization='true').get('load_path')
     checks = [
-        ('SLAM 노드 전부 (cuVSLAM · depth gate ×2 · nvblox · nvblox_map)', slam <= on),
+        ('SLAM 노드 전부 (cuVSLAM · depth gate · nvblox · nvblox_map)', slam <= on),
+        ('손 카메라 depth gate 없음 (스캔 자세 없앰)', 'gripper_depth_gate' not in on),
         ('예전 RTAB-Map 노드 없음', not (rtab & on)),
         ('use_slam:=false: SLAM 노드 없음', not (slam & off)),
         ('매핑: 끌 때 nvblox 지도 저장', save_map == '/maps/a/nvblox.nvblx'),

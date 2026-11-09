@@ -5,7 +5,7 @@
   주행 skill (컨테이너 base_skills): skill_navigate · skill_approach
 
   파라미터: config/skills.yaml (노드별) + params/arm.yaml (팔 공통) + params/basket.yaml (자세·적재함 표)
-           + params/stand_table.yaml (세우기 표) + ros_system/config/scan_pose.yaml (스캔 자세)
+           + params/stand_table.yaml (세우기 표)
   학습 정책: share/skills/model/<skill>/ (meta.yaml use: true면 씀)
 
   ros2 launch skills skills.launch.py
@@ -14,7 +14,7 @@
 import os
 
 import yaml
-from ament_index_python.packages import PackageNotFoundError, get_package_share_directory
+from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
@@ -32,10 +32,6 @@ def launch_setup(context):
     # 표(yaml)는 실행할 때 읽음 (--show-args 같은 검사에서는 패키지 설치 없이도 돎)
     share = get_package_share_directory('skills')
     config = os.path.join(share, 'config', 'skills.yaml')
-    try:  # 스캔 자세 값은 ros_system 하나 (nvblox scan_cam_gate와 같은 값) — ros_system 없이 skill만 띄우면 skill_pose 기본값
-        scan_pose = [os.path.join(get_package_share_directory('ros_system'), 'config', 'scan_pose.yaml')]
-    except PackageNotFoundError:
-        scan_pose = []
     arm = table('arm.yaml')
     arm['grasp_check'] = ParameterValue(LaunchConfiguration('grasp_check'), value_type=bool)
     arm['grasp_min_effort'] = ParameterValue(LaunchConfiguration('grasp_min_effort'), value_type=float)
@@ -48,7 +44,7 @@ def launch_setup(context):
         ComposableNodeContainer(
             name='arm_skills', namespace='', package='rclcpp_components', executable='component_container', output='screen',
             composable_node_descriptions=[
-                skill('PoseSkill', 'skill_pose', arm, basket, *scan_pose),
+                skill('PoseSkill', 'skill_pose', arm, basket),
                 skill('InspectSkill', 'skill_inspect', arm),
                 skill('PickSkill', 'skill_pick', arm, basket),  # basket: pose_carry_* (적재함 쪽에서 퍽으로 갈 때 경유)
                 skill('PlaceSkill', 'skill_place', arm, basket),  # basket: pose_carry_* (적재함 쪽에서 놓을 자리로 갈 때 경유)

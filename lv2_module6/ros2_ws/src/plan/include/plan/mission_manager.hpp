@@ -11,7 +11,7 @@
 //         ✉️ /mission/state (plan/MissionState, latched) · /mission/markers (RViz)
 //         ✉️ 기록 log_dir/<시작 시각>/ signal · allocation · build · verify · return · error .json + photos/ · /diagnostics
 //   단계 (순서와 실패 시 갈 곳은 mission_solver next_phase):
-//     GO_OBSERVE 팔 scan 자세 + 바코드 보는 자세로 → BARCODE 이번에 본 바코드 → 관측 자세(−X)로
+//     GO_OBSERVE 바코드 보는 자세로 (팔은 stow 그대로 — scan 자세는 없앰, 11-09) → BARCODE 이번에 본 바코드 → 관측 자세(−X)로
 //     → READ 12회 점멸 — signal_status가 ok(두 사이클 같은 답)면 확정 · unconfirmed면 기다림 ·
 //              count·unknown·range가 signal_error_cycles번 이어지면 ERROR (발제: 추정 금지 → 안전 정지) · signal_timeout_s 넘어도 ERROR
 //     → SURVEY 시작 박스 6곳 전부: 퍽 두 자리 inspect(tag·색·모양) → pick → load next (적재함 12칸)
