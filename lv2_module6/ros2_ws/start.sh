@@ -1,7 +1,7 @@
 #!/bin/bash
 # 실기 실행: 환경 확인 → (필요하면 빌드) → bringup launch
 #
-#   ./start.sh                              # 📦(카메라·EKF·RTAB-Map·controller_manager) + 🛠 노드 전부, OpenCR 실기
+#   ./start.sh                              # 📦(카메라·EKF·SLAM·controller_manager) + 🛠 노드 전부, OpenCR 실기
 #   ./start.sh mock_hardware:=true          # OpenCR 없이 (명령을 상태로 되돌림 — launch 인자는 그대로 전달)
 #   ./start.sh port:=/dev/ttyACM1           # OpenCR 포트 지정 (기본 /dev/opencr — udev 규칙 99-opencr.rules)
 #   POLE_FRONT_CAM_SERIAL=... GRIPPER_CAM_SERIAL=... ./start.sh  # RealSense serial 고정 (권장)

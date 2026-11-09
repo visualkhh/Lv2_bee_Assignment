@@ -109,7 +109,7 @@ MissionManager::MissionManager()
   home_hold_s_ = declare_parameter<double>("home_hold_s", 3.0);
   log_dir_ = declare_parameter<std::string>("log_dir", "~/.ros/mission");
   photo_topic_ = declare_parameter<std::string>("photo_topic", "/gripper_cam/color/image_raw");
-  // 학습된 플래너 (learning/plan/mission_sim.py에서 학습 · ml/model/plan/plan_next.policy) — 기본은 지금 규칙 순서
+  // 학습된 플래너 (learning/plan/mission_sim.py에서 학습 · models/plan/plan_next.policy) — 기본은 지금 규칙 순서
   planner_ = declare_parameter<std::string>("planner", "rule");
   std::string pn_path = declare_parameter<std::string>("plan_model", "");
   if (pn_path.empty()) pn_path = ament_index_cpp::get_package_share_directory("ml") + "/model/plan/plan_next.policy";

@@ -1,6 +1,6 @@
 # skill 노드 파라미터 (skills.launch.py) — 노드 이름 = skill_<skill>, 액션 = /skills/<skill>
 #   팔 공통값은 params/arm.yaml · 자세·적재함 표는 params/basket.yaml · 세우기 표는 params/stand_table.yaml (launch가 같이 넘김)
-#   학습 정책은 노드 파라미터가 아니라 model/skills/<skill>/meta.yaml (use: true면 씀)
+#   학습 정책은 노드 파라미터가 아니라 models/skills/<skill>/meta.yaml (use: true면 씀)
 skill_navigate:
   ros__parameters:
     server_wait_s: 30.0

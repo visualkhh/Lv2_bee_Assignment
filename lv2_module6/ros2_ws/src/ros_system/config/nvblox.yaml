@@ -3,13 +3,13 @@
 #   (적힌 것만 덮어씀 — 나머지는 nvblox 기본값). 값을 바꾸면 실기에서 /map · ~/mesh(RViz)로 확인
 nvblox_node:
   ros__parameters:
-    # 지도 프레임 = map (cuVSLAM이 map→odom). 원점 = 출발 자리 base_footprint (RTAB-Map과 같음 → mission_manager 좌표 그대로)
+    # 지도 프레임 = map (cuVSLAM이 map→odom). 원점 = 출발 자리 base_footprint (기존 SLAM과 같음 → mission_manager 좌표 그대로)
     #   ponytail: cuVSLAM 루프 클로저로 map→odom이 튀면 이미 쌓은 복셀은 안 옮겨짐 — 튐이 크면 global_frame odom + 격자만 map으로 옮기는 방식 검토
     global_frame: map
     use_tf_transforms: true
     num_cameras: 2                 # camera_0 = pole_front_cam (늘) · camera_1 = gripper_cam (스캔 자세일 때만 — 아니면 depth 전부 0)
     voxel_size: 0.05               # [m] Nav2 costmap 해상도와 같게 (퍽 60 mm는 지도 대상 아님 — 인지가 따로)
-    mapping_type: "static_tsdf"
+    mapping_type: "dynamic"
     esdf_mode: "2d"
     publish_esdf_distance_slice: true
     use_depth: true
@@ -28,10 +28,10 @@ nvblox_node:
     esdf_slice_bounds_visualization_attachment_frame_id: "base_footprint"
     workspace_height_bounds_visualization_attachment_frame_id: "base_footprint"
     static_mapper:
-      # 2D 격자로 자르는 높이 (map z = 바닥) — Nav2 costmap(min 0.03 · max 0.6) · RTAB-Map Grid(0.03~0.6)와 같은 기준
-      esdf_slice_height: 0.3
+      # 2D 격자로 자르는 높이 (map z = 바닥) — Nav2 costmap(min 0.03 · max 0.6) · 기존 SLAM Grid(0.03~0.6)와 같은 기준
+      esdf_slice_height: 0.1
       esdf_slice_min_height: 0.03
-      esdf_slice_max_height: 0.6
+      esdf_slice_max_height: 0.3
       # pole_front_cam 바닥은 화면 맨 아래도 0.59 m — 3 m 넘는 depth는 잡음이 커서 안 씀 (costmap raytrace 3.0과 같게)
       projective_integrator_max_integration_distance_m: 3.0
       workspace_bounds_type: "height_bounds"

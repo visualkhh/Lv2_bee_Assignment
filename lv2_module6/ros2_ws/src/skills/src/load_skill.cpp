@@ -3,7 +3,7 @@
 //   moveit: carry → q_over → q_low → 벌림 → q_lift → stow (예전)
 //   끝 자세 load_end_pose: stow(기본) · carry(다음 pick이 stow를 거치지 않음) · over(칸 위 그대로)
 //   load_via_carry false: 집은 자리에서 칸 위(q_over)로 바로 (carry 안 거침) · carry_blend(기본): carry를 멈추지 않고 베지어로 지나감
-//   정책: model/skills/load_slot/ (slot_env.LoadEnv — 손 카메라 대신 적재함 칸 − 손 안 퍽, hand_relative slot)
+//   정책: models/skills/load_slot/ (slot_env.LoadEnv — 손 카메라 대신 적재함 칸 − 손 안 퍽, hand_relative slot)
 #include "rclcpp_components/register_node_macro.hpp"
 #include "skills/arm_io.hpp"
 #include "skills/basket_table.hpp"

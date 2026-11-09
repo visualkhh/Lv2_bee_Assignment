@@ -1,6 +1,6 @@
 #pragma once
 
-// skill 정책 폴더 — model/skills/<skill>/ 하나가 skill 하나의 학습 결과 (skill 노드가 갖고 관리)
+// skill 정책 폴더 — models/skills/<skill>/ 하나가 skill 하나의 학습 결과 (skill 노드가 갖고 관리)
 //   <skill>.policy  로봇이 읽는 MLP (ml/scripts/export_policy.py — C++ 직접 계산, 파일 안 'test' 줄로 검산)
 //   <skill>.onnx    원본 (Isaac Lab 학습 산출물, 보관·다른 도구용)
 //   meta.yaml       한 줄에 "키: 값" — kind(arm|base) · layout(팔 정책 입력 모양) · use(true면 씀) · 시뮬 성공률 · 출처 · 주행 판정값

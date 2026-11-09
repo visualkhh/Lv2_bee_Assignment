@@ -4,3 +4,17 @@
 install/
 log/
 build/
+
+# 이미지에 COPY하지 않는 대용량/호스트 전용 (dockerfile은 docker/lv2_module6 + lv2_module6/tools만 복사)
+.git/
+.idea/
+lv2_module6/debug/
+lv2_module6/isaac/
+lv2_module6/ai-service/
+lv2_module6/models/
+lv2_module6/urdf/
+lv2_module6/learning/
+lv2_module6/tools/.venv/
+lv2_module6/tools/artifacts/
+lv2_module6/tools/bag/
+lv2_module6/tools/log/

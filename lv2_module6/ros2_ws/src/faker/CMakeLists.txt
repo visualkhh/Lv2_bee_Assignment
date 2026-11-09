@@ -37,9 +37,9 @@ find_package(OpenCV REQUIRED COMPONENTS core imgcodecs imgproc)
 #   📦 대역: fake_camera(RealSense · 장면은 시뮬레이터) · fake_opencr(OpenCR — 테스트베드의 유일한 OpenCR) · ml 대역 fake_grasp_scorer (ml 노드와 1:1)
 #   move_group은 진짜를 쓴다 (ros_system use_moveit — 테스트베드도 mock 컨트롤러로 동작)
 #   호스트 파일 연동: monitor_manager(토픽 → 파일) · input_manager(파일 → 토픽)
-set(NODES fake_camera fake_opencr fake_grasp_scorer monitor_manager input_manager service_action_monitor service_action_input)
+set(NODES fake_camera fake_opencr fake_cuvslam fake_nvblox fake_grasp_scorer monitor_manager input_manager service_action_monitor service_action_bag_input)
 add_library(${PROJECT_NAME}_nodes STATIC
-  src/fake_camera.cpp src/fake_opencr.cpp src/fake_grasp_scorer.cpp src/monitor_manager.cpp src/input_manager.cpp src/service_action_monitor.cpp src/service_action_input.cpp)
+  src/fake_camera.cpp src/fake_opencr.cpp src/fake_cuvslam.cpp src/fake_nvblox.cpp src/fake_grasp_scorer.cpp src/monitor_manager.cpp src/input_manager.cpp src/service_action_monitor.cpp src/service_action_bag_input.cpp)
 target_include_directories(${PROJECT_NAME}_nodes PUBLIC include)
 target_compile_features(${PROJECT_NAME}_nodes PUBLIC cxx_std_17)
 target_link_libraries(${PROJECT_NAME}_nodes PUBLIC rclcpp::rclcpp rclcpp_action::rclcpp_action
@@ -61,12 +61,12 @@ target_link_libraries(fake_rl_arm_correction controller_interface::controller_in
 pluginlib_export_plugin_description_file(controller_interface faker_plugins.xml)
 install(TARGETS fake_rl_arm_correction LIBRARY DESTINATION lib)
 
-# maps: 코스 지도 (lv2_module6/course/tools/build_map.py가 만듦) — 진짜 Nav2용 map_server
-install(DIRECTORY launch config maps DESTINATION share/${PROJECT_NAME})
+# world: faker/world에 커밋된 코스 지도 (fake_opencr 월드 충돌 — 로봇 지도 아님)
+install(DIRECTORY launch config world DESTINATION share/${PROJECT_NAME})
 
 # --- 테스트: colcon test --packages-select faker
 if(BUILD_TESTING)
-  # launch 파일이 문법·인자 선언 오류 없이 읽히는지 (노드는 띄우지 않음 — 실행 흐름은 docker/test-faker)
+  # launch 파일이 문법·인자 선언 오류 없이 읽히는지 (노드는 띄우지 않음 — 실행 흐름은 docker/lv2_module6/test-faker)
   ament_add_test(test_launch GENERATE_RESULT_FOR_RETURN_CODE_ZERO
     COMMAND ros2 launch "${CMAKE_CURRENT_SOURCE_DIR}/launch/faker.launch.py" --show-args
     TIMEOUT 60)

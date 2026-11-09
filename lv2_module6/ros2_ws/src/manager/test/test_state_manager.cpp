@@ -62,7 +62,7 @@ TEST_F(RosTest, OperationAndMapMode) {
 }
 
 TEST_F(RosTest, CourseCannotChange) {
-  auto node = std::make_shared<StateManager>(rclcpp::NodeOptions().parameter_overrides({{"map_mode", "COURSE"}}));
+  auto node = std::make_shared<StateManager>(rclcpp::NodeOptions().parameter_overrides({{"map_mode", "MAPPING"}}));
   auto probe = std::make_shared<rclcpp::Node>("probe2");
   std::string map, restart;
   const auto latched = rclcpp::QoS(1).reliable().transient_local();
@@ -76,9 +76,9 @@ TEST_F(RosTest, CourseCannotChange) {
   exec.add_node(probe);
   std_msgs::msg::String req;
   req.data = "MAPPING";
-  ASSERT_TRUE(spin_until(exec, [] {}, [&] { return map == "COURSE"; }));
+  ASSERT_TRUE(spin_until(exec, [] {}, [&] { return map == "MAPPING"; }));
   spin_until(exec, [&] { req_pub->publish(req); }, [] { return false; }, 0.5);
-  EXPECT_EQ(map, "COURSE");
+  EXPECT_EQ(map, "MAPPING");
   EXPECT_EQ(restart.find("ros2 launch"), std::string::npos) << restart;  // 다시 띄우기도 안 함 (시작 알림만)
 }
 

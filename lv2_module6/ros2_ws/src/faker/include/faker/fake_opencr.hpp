@@ -1,7 +1,7 @@
 #pragma once
 
 // OpenCR 대역: BeebotSystemHardware(mock:=false)가 가상 시리얼로 주고받는 펌웨어 프로토콜(firmware/README.md)을
-// 파일로 흉내낸다. 테스트베드에서 OpenCR 역할은 이것 하나 (시뮬레이터는 시리얼에 쓰지 않음 — simulator/opencr.py가 읽기·요청만).
+// 파일로 흉내낸다. 테스트베드에서 OpenCR 역할은 이것 하나 (외부 도구는 시리얼 파일을 읽거나 요청만 한다).
 //   C 읽기: <serial_out> (debug/output/hardware/serial) — "C,<바퀴L·R rad/s>,<joint1~5 rad>,<그리퍼 m>" 8 필드,
 //     빈 필드(`,,`)는 유지(NaN) — 팔·그리퍼는 명령 생략(현재 유지), 바퀴는 0(정지).
 //     줄마다 엄격 검사 후 적용 (틀린 줄은 버림 — 결과 = 마지막 유효 줄). 예: C,1,,0.4,,,,,
@@ -12,7 +12,7 @@
 //         바닥 전달은 (1 − slip) → 차동 구동 자세 적분.
 // 펌웨어(firmware/beebot_opencr)와 1:1: S 25ms 주기로 항상 · C는 줄마다 엄격 검사(8 필드·유한·뒤 쓰레기 없음,
 //   빈 필드는 유지) · watchdog = 마지막 유효 C부터 0.5초 → 바퀴 0 + 팔·그리퍼 지금 자세 유지 (한 번) · 첫 C 전엔 안 움직임
-//   충돌: 코스 지도 PGM(벽)과 로봇 원(반경 ROBOT_R)이 겹치면 그 걸음 이동 차단 (bumped)
+//   충돌: 시뮬레이터 월드 PGM(벽 — fake_opencr만 씀, 로봇 지도 아님)과 로봇 원(반경 ROBOT_R)이 겹치면 그 걸음 이동 차단 (bumped)
 //   팔·그리퍼: 속도 한계로 목표 추종. arm_grabbed면 관절 고정 + 과전류 1.6A
 //   IMU: 실제 yaw · yaw rate (+ 가우스 잡음), 가속도 z = 9.81
 // 테스트베드의 유일한 OpenCR — 시뮬레이터는 시리얼을 읽기만 하고, 바꿀 것은 아래 ROS 인터페이스로 요청한다.
@@ -44,7 +44,7 @@ private:
   // 지도 PGM 읽기 (P5) — 실패하면 빈 지도(충돌 없음)
   bool load_map(const std::string & yaml_path);
   bool occupied(double x, double y) const;
-  bool collide(double x, double y, double r) const;
+  bool collide(double x, double y, double yaw) const;
   // C 파일 끝부분에서 가장 최근의 완전한 "C,..." 줄을 파싱 → true (8 필드, 빈칸=유지 NaN)
   bool read_command(std::array<double, 8> & cmd);
   // 펌웨어 parse_fields와 같은 규칙으로 C 한 줄 검사

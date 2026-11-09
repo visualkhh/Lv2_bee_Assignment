@@ -3,7 +3,7 @@
 <package format="3">
   <name>skills</name>
   <version>0.1.0</version>
-  <description>skill 노드 — 계획 단계(navigate · approach · pose · inspect · pick · place · load · unload · stand)마다 액션 서버 하나. 학습 정책은 skill마다 model/skills/&lt;skill&gt;/</description>
+  <description>skill 노드 — 계획 단계(navigate · approach · pose · inspect · pick · place · load · unload · stand)마다 액션 서버 하나. 학습 정책은 skill마다 models/skills/&lt;skill&gt;/</description>
   <maintainer email="todo@example.com">JuneKunst</maintainer>
   <license>Apache-2.0</license>
   <buildtool_depend>ament_cmake</buildtool_depend>

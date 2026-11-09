@@ -4,7 +4,7 @@
 //     대각선 끌기(stand_drag_m > 0, 실기 방식) 또는 호 · 멈춤 · 눌러 놓음 → 멈춤 → 벌림 → 위로. 손은 놓고 끝 (경유점을 기억 — 다음 stand_pick)
 //   /skills/stand_pick: 직전 stand의 경유점에서 같은 손목으로 선 퍽 위 → 바로 아래로 → 멈춤 → 제 힘으로 닫기 → 잡기 판정 → 들어올림
 //     (reset_sag 안 함 — 세운 직후 처짐 보정을 0으로 되돌리면 손이 처진 만큼 떨어짐)
-//   정책: model/skills/regrasp_after_stand/ (동료 regrasp_stood = 세우기 + 다시 쥐기 한 에피소드) — 로봇 입력 모양(stand)이
+//   정책: models/skills/regrasp_after_stand/ (동료 regrasp_stood = 세우기 + 다시 쥐기 한 에피소드) — 로봇 입력 모양(stand)이
 //     rl_arm_correction에 생기기 전까지 meta use: false (기준 동작만)
 //   방식 C: model/skills/stand_lying_c/ (kind hand, use: true면 호 대신) — 시뮬 stand_c_env와 같은 단계 규칙을 50 Hz로:
 //     위(MoveIt) → 0 멈춤 → 1 정책 손 속도로 쥘 자리까지 → 2 쥐기(stand_close_current_a) → 3 정책 손 속도로 세우기(stand_pinch_current_a)

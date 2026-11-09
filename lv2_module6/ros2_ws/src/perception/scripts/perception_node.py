@@ -6,7 +6,7 @@
         /perception/<cam>/detections (같은 타입) — 융합 전 카메라별 한 프레임 검출 (id = 붙은 트랙 id, covariance = 관측 공분산)
           → 시뮬레이터가 카메라별 검출과 융합 결과를 나란히 그림 (디버그용 — 소비 노드 없음)
 
-  추적은 odom 기준(track_frame), 발행만 map 기준 — RTAB-Map이 map→odom을 고칠 때마다(잘못 고쳐도) map에 저장해 둔 물체가
+  추적은 odom 기준(track_frame), 발행만 map 기준 — SLAM이 map→odom을 고칠 때마다(잘못 고쳐도) map에 저장해 둔 물체가
   옛 보정에 남아 로봇 기준으로 엉뚱한 곳에 보였고, 보정 전후 관측이 다른 기준으로 섞여 합쳐졌음 (실측: 제자리 여러 바퀴 뒤 puck이 수십 cm 밀림).
   odom은 끊김 없이 이어짐 → 추적·융합은 거기서, /tracked_objects는 발행 순간의 map→odom으로 바꿔 냄 (로봇과 같은 보정으로 같이 움직임).
   컬러·정렬 depth를 시각 동기화(ApproximateTime)해 한 쌍으로 받고, camera_info 내부 파라미터로 3D 역투영
@@ -361,7 +361,7 @@ def classify_color(cls, roi):
 def resolve_model_path(model_path, model_dir):
     """model_path 파라미터 → 실제 가중치 파일 경로 ('' = 모델 없음 — 빈 목록 발행)
       ''              → model_dir/model.pt (팀 기본 — 있으면)
-      파일 이름만     → model_dir/<이름> (예: bee_yolo11n_v1.pt — ros2_ws/model/yolo/*.pt가 share/perception/model에 설치됨)
+      파일 이름만     → model_dir/<이름> (예: bee_yolo11n_v1.pt — models/yolo/*.pt가 share/perception/model에 설치됨)
       그 밖(경로)     → 그대로 (전체 경로를 준 경우 · 없으면 YOLO 로드 실패 경고)"""
     if not model_path:
         cand = os.path.join(model_dir, "model.pt") if model_dir else ""
@@ -478,6 +478,47 @@ def box_depth_m(depth_m, box, min_valid, arm=None):
     if valid.size == 0 or valid.size < min_valid * patch.size:
         return 0.0
     return float(np.median(valid))
+
+
+PUCK_TOPS = {"standing": 0.06, "lying": 0.03}  # 받침 위 퍽 윗면 높이 [m] — 서 있음 60 mm · 누움 30 mm (발제 30×30×60 · Ø30×60)
+
+
+def posture_from_height(depth_m, box, zm, rot, trans, fx, fy, cx, cy, floor_z, supports=(0.0, 0.07), tol=0.02, min_pts=15,
+                        margin=0.01):
+    """퍽 자세를 '윗면 높이'로 (11/09 팀원 이슈: 그리퍼캠이 위에서 보면 서 있는 퍽 윗면에 옆면이 조금 같이 보여
+    박스가 가로로 길어져 '누움'으로 판정됨 — 가로·세로 비율은 옆에서 볼 때만 맞음)
+      ① 박스 안에서 깊이가 퍽 거리(zm) ±4 cm인 화소만 = 퍽 자체 (뒤 바닥·벽 빼기) → 추적 좌표 3D 점
+      ② 퍽 윗면 높이 = 그 점들 높이의 90% 값 (튀는 점 몇 개는 무시)
+      ③ 받침(바닥 floor_z · 상자 윗면 floor_z + 0.07) 위로 6 cm면 standing · 3 cm면 lying — 4가지 중 가장 가까운 것
+         (바닥 서있음 6 · 바닥 누움 3 · 상자 위 서있음 13 · 상자 위 누움 10 cm → 서로 3 cm 넘게 떨어져서 카메라 각도와 상관없이 구분)
+      가장 가까운 것도 tol(2 cm)보다 멀거나 점이 min_pts보다 적으면 '' (모름 — 기울어진 퍽 · 깊이 부족)
+      ④ 서있음 후보와 누움 후보가 margin(1 cm) 안으로 비슷하게 가까우면 '' (애매 — 11/09 실물: 어둡고 1.5 m 먼 서있는 퍽이
+         11.4 cm로 상자 위 누움 10 cm · 서있음 13 cm 사이 → 누움으로 틀렸음) → 노드는 옆에서 볼 때 가로·세로 비율로 대신함
+    → (자세, 윗면 높이 m 또는 None)"""
+    if zm <= 0:
+        return "", None
+    x0, y0, x1, y1 = box
+    patch = depth_m[y0:y1 + 1, x0:x1 + 1]
+    vv, uu = np.nonzero(np.isfinite(patch) & (np.abs(patch - zm) < 0.04) & (patch > 0.05))
+    if len(vv) < min_pts:
+        return "", None
+    z = patch[vv, uu]
+    pts = np.stack([(uu + x0 - cx) * z / fx, (vv + y0 - cy) * z / fy, z], -1) @ rot.T + trans
+    top = float(np.percentile(pts[:, 2], 90)) - floor_z
+    errs = {}  # 자세마다 가장 가까운 받침 기준 오차
+    for sup in supports:
+        for pose, hgt in PUCK_TOPS.items():
+            errs[pose] = min(errs.get(pose, 1e9), abs(top - (sup + hgt)))
+    best = min(errs, key=errs.get)
+    other = max(errs, key=errs.get)
+    if errs[best] > tol or errs[other] - errs[best] < margin:
+        return "", top
+    return best, top
+
+
+def view_from_side(rot, max_down_deg=35.0):
+    """카메라가 옆에서 보는가 (광학 z축이 수평에서 아래로 max_down_deg 안) — 가로·세로 비율 자세 판정은 이때만 믿음"""
+    return float(-rot[2, 2]) < np.sin(np.radians(max_down_deg))
 
 
 def puck_color(roi, colors, hue_tol):
@@ -1186,14 +1227,19 @@ class PerceptionNode(Node):
             return
         rot, trans = tf
         tags = detect_tags(self.tag_det, s["bgr"], self.tag_gamma, self.tag_half)
-        body = self.robot_body(now_stamp) if self.self_filter and len(boxes_in) else None
-        # 영상에서 팔 판정: 박스 일부만 팔이면 depth 중앙값이 팔 뒤 바닥·벽까지라 3D 판정(is_self)을 빠져나갔음
+        # 로봇 몸(차체·팔) — 퍽 판정과 상자 찾기에 같이 씀 (11/09 정리: 예전엔 퍽용·상자용으로 두 번 구했음)
+        body = self.robot_body(now_stamp) if self.self_filter and (len(boxes_in) or self.box_detect) else None
+        # 팔을 화면에 투영: 박스 일부만 팔이면 depth 중앙값이 팔 뒤 바닥·벽까지라 3D 판정(is_self)을 빠져나갔음
         # (실측: 스캔 자세 팔을 obstacle 0.5~0.7로 잡고 위치는 팔 뒤 바닥 (0.42, 0.20, −0.03)) → 팔을 화면에 투영해 박스 안에 있으면 버림
-        arm_px = (arm_pixels(body[1], rot, trans, s["fx"], s["fy"], s["cx"], s["cy"])
-                  if body is not None and self.self_arm_hits > 0 else np.zeros((0, 2)))
+        arm_all = arm_pixels(body[1], rot, trans, s["fx"], s["fy"], s["cx"], s["cy"]) if body is not None else np.zeros((0, 3))
+        arm_px = arm_all if self.self_arm_hits > 0 else np.zeros((0, 3))  # 퍽 박스에 팔이 걸렸나 (self_arm_hits 0이면 안 봄)
         arm_mask = arm_mask_image(arm_px, depth_m.shape) if len(arm_px) else None  # 퍽 depth에서 손가락을 뺄 때
         dets = []
         qr_boxes = []
+        # 바닥 높이 = 로봇 base_footprint 높이 (TF 없으면 추적 좌표 0) — 퍽 자세(높이 판정)와 상자 윗면 찾기에 같이 씀 (11/09 정리: 한 번만 조회)
+        base_now = self.lookup_tf(self.base_frame, now_stamp, quiet=True)
+        floor_z = float(base_now[1][2]) if base_now is not None else 0.0
+        side_view = view_from_side(rot)  # 옆에서 봄 → 높이로 자세를 모를 때 가로·세로 비율 판정을 씀
         s["drops"] = drops = []  # 버린 퍽 박스와 이유 — 디버그 영상에 회색 박스 옆에 씀
         puck_boxes = [clip_box(b.xyxy[0].tolist(), w, h) for b in boxes_in  # 태그를 겹친 퍽 중 어디에 붙일지 (tag_in_box)
                       if split_class(self.names.get(int(b.cls[0]), ""))[0] == "puck"]
@@ -1230,10 +1276,17 @@ class PerceptionNode(Node):
                 wcm = (x1 - x0) * zm / s["fx"] * 100 if zm > 0 else -1.0
                 hcm = (y1 - y0) * zm / s["fy"] * 100 if zm > 0 else -1.0
                 ok, why, posture = self.judge_puck(wcm, hcm, color, clipped, "", near)  # 색은 위에서 정함 → 크기·깊이·자세만
+                # 자세 (11/09): 윗면 높이로 먼저 (카메라 각도와 상관없음) · 모르면 옆에서 볼 때만 가로·세로 비율 판정을 씀
+                #   위에서 내려다보면(그리퍼캠) 서 있는 퍽 윗면에 옆면이 같이 보여 박스가 길어짐 → 비율로는 '누움'으로 틀렸음
+                if ok and zm > 0 and not clipped:
+                    h_post, _ = posture_from_height(depth_m, (x0, y0, x1, y1), zm, rot, trans, s["fx"], s["fy"], s["cx"], s["cy"],
+                                                    floor_z, (0.0, float(self.location_box_size[2])))
+                    posture = h_post or (posture if side_view else "")
                 fine = box_long_px(b, (x0, y0, x1, y1)) >= self.fine_min_px  # 멀어 작으면 모양·자세를 픽셀로 못 가림
                 m_posture = model_posture(name) if fine else ""
                 if self.trust_model_posture:
                     # 크기는 퍽인지 거르는 데만 · 자세는 모델 (OBB 모델은 누운 퍽 박스가 돌아가 있어 가로÷세로로는 못 봄)
+                    # (11/09 병합: 이 설정을 켜면 위 높이 판정보다 모델 자세가 우선 — 팀 설정 그대로)
                     posture = m_posture
                 if not ok or zm <= 0:
                     # 퍽 아님 → 버림 · 퍽인데 깊이 없음(너무 가까움) → 위치를 몰라 이번엔 갱신 안 함 = 트랙은 마지막 위치 유지
@@ -1297,18 +1350,13 @@ class PerceptionNode(Node):
                 "yaw": yaw, "yaw_period": yaw_period,  # 퍽 방향 (추적 좌표) · 못 구하면 None — 합칠 때 아는 방향을 덮지 않음
                 "box": (x0, y0, x1, y1),  # 영상 박스 — 디버그 영상에 그릴 때만 씀 (트랙에는 안 들어감)
             })
-        # 상자 윗면 (depth) — 로봇 차체 둘레는 뺌 · 바닥 높이 = 로봇 base_footprint 높이 (TF 없으면 추적 좌표 0)
-        base_now = self.lookup_tf(self.base_frame, now_stamp, quiet=True)
-        floor_z = float(base_now[1][2]) if base_now is not None else 0.0
+        # 상자 윗면 (depth) — 로봇 차체 둘레는 뺌 · 바닥 높이 floor_z는 위에서 구한 것
         avoid = (base_now[1][:2], self.body_radius) if base_now is not None else None
         rois = self.box_rois(s["bgr"]) if self.box_detect else None  # 상자 YOLO 네모 (모델 없으면 None = 화면 전체)
-        # 자기 팔(그리퍼 포함)을 화면에 투영 — 상자 윗면 점에서 뺌 (위 퍽용 arm_px는 YOLO 박스가 있을 때만 만들어서 따로 구함)
-        box_body = body if body is not None else (self.robot_body(now_stamp) if self.self_filter and self.box_detect else None)
-        box_arm = (arm_pixels(box_body[1], rot, trans, s["fx"], s["fy"], s["cx"], s["cy"])
-                   if box_body is not None else None)
+        # 자기 팔(그리퍼 포함) 투영 점(arm_all, 위에서 구함) — 상자 윗면 점에서 뺌
         boxes = (find_box_tops(depth_m, rot, trans, s["fx"], s["fy"], s["cx"], s["cy"], floor_z, self.box_h,
                                self.box_min_side, self.box_max_side, self.box_cell, avoid=avoid, rois=rois,
-                               mask_px=box_arm)
+                               mask_px=arm_all)
                  if self.box_detect else [])
         # 화면 가장자리에 잘린 상자 → 방향 모름 (가운데·크기는 그대로 씀 · 방향은 다른 카메라/예전 관측 값 유지)
         hh, ww = depth_m.shape[:2]
@@ -1699,13 +1747,13 @@ class PerceptionNode(Node):
         return base[1], chain, base[0]
 
     def to_map(self, tr):
-        """추적 좌표(odom) 트랙·검출 dict → map 기준 사본 (위치·공분산 회전) — 지금의 map ← odom (RTAB-Map 보정 최신값)"""
+        """추적 좌표(odom) 트랙·검출 dict → map 기준 사본 (위치·공분산 회전) — 지금의 map ← odom (SLAM 보정 최신값)"""
         try:
             t = self.tf.lookup_transform("map", self.track_frame, rclpy.time.Time())
             tt = t.transform.translation
             self._out_tf = (quat_to_rot(t.transform.rotation), np.array([tt.x, tt.y, tt.z]))
         except Exception as e:  # noqa: BLE001
-            if self._out_tf is None:  # 아직 map이 없음 (RTAB-Map 기동 전) — odom 그대로 (map 원점 = odom 원점으로 시작)
+            if self._out_tf is None:  # 아직 map이 없음 (SLAM 기동 전) — odom 그대로 (map 원점 = odom 원점으로 시작)
                 self.get_logger().warning(f"map ← {self.track_frame} TF 없음 — 그대로 발행: {e}", throttle_duration_sec=5.0)
                 return tr
         rot, trans = self._out_tf

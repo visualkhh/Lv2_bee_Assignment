@@ -1,4 +1,4 @@
-# IK — pick_ik (PickNik, 소스 빌드 — Lyrical apt에 없음: docker/Dockerfile)
+# IK — pick_ik (PickNik, 소스 빌드 — Lyrical apt에 없음: docker/lv2_module6/Dockerfile)
 #   팔이 5축이라 KDL은 "위치 + 위→아래 방향" 목표를 못 풀었음 (MoveIt이 방향 허용 범위 안에서 뽑은 목표 자세 대부분이
 #   팔 평면 밖으로 기울어 정확한 해가 없음 → 'Unable to sample any valid states for goal tree'). pick_ik는 비용(위치·회전 오차)을
 #   줄이는 방식이라 축이 모자란 팔에서도 해를 찾는다.

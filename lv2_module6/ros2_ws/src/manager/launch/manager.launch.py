@@ -19,7 +19,7 @@ def generate_launch_description():
     config = PathJoinSubstitution([FindPackageShare('manager'), 'config', 'manager.yaml'])
     return LaunchDescription([
         DeclareLaunchArgument('map_mode', default_value='LOCALIZATION',
-                              description='초기 지도 모드: LOCALIZATION | MAPPING | COURSE'),
+                              description='초기 지도 모드: LOCALIZATION | MAPPING'),
         DeclareLaunchArgument('map_dir', default_value='',
                               description='지도 폴더들이 있는 곳 (비면 비워 둠)'),
         DeclareLaunchArgument('map_name', default_value='',

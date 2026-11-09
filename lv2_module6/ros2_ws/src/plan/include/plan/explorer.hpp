@@ -4,7 +4,7 @@
 //   바퀴는 직접 안 움직인다 — 목표만 고르고 주행·회피·충돌 멈춤은 Nav2(navigate_to_pose → 바퀴 명령 체인)가 한다.
 //   조작 모드가 EXPLORE일 때만 일한다 (state_manager가 지도 모드 MAPPING일 때만 허락). 다른 모드가 되면 목표를 취소.
 //   입력: ✉️ /state/operation_mode (std_msgs/String, transient_local) — "EXPLORE"면 탐사
-//         ✉️ /map (nav_msgs/OccupancyGrid, transient_local — RTAB-Map이 매핑하며 키움) · TF map→base_footprint
+//         ✉️ /map (nav_msgs/OccupancyGrid, transient_local — SLAM이 매핑하며 키움) · TF map→base_footprint
 //         ✉️ /global_costmap/costmap (nav_msgs/OccupancyGrid — Nav2 planner가 보는 그것) — 로봇에서 실제로 갈 수 있는지
 //   출력: 🎯 /navigate_to_pose (nav2_msgs/action/NavigateToPose) — 프론티어 목표 (도착 방향 = 로봇에서 목표 쪽 → 카메라가 모르는 곳을 봄)
 //         ✉️ /explore/result (std_msgs/String) — "DONE …"(갈 프론티어 없음) · "FAILED …"(남았는데 못 감) → state_manager가 AUTO로 되돌림

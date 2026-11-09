@@ -84,7 +84,8 @@ def test_mission_qr():
         node.create_subscription(String, "/mission/qr", lambda m: got.append(m.data),
                                  node.qr_pub.qos_profile)
         node.on_frame("pole_front_cam", msg, depth_msg)  # 동기화된 컬러·depth 쌍
-        end = node.get_clock().now() + rclpy.duration.Duration(seconds=4)
+        # CI·도커처럼 CPU 다 걷어쓰면 타이머·discovery가 늦어질 수 있어서 여유를 둔다 (성공하면 바로 끝남)
+        end = node.get_clock().now() + rclpy.duration.Duration(seconds=15)
         while node.get_clock().now() < end and not got:
             rclpy.spin_once(node, timeout_sec=0.2)
         assert got == ["MISSION:STAND_UP"]
@@ -273,7 +274,7 @@ def test_self_filter():
 
 
 def test_track_in_odom_publish_in_map():
-    """추적은 odom, 발행은 그 순간의 map ← odom: RTAB-Map이 map→odom을 고치면 저장된 물체도 같이 옮겨짐 (로봇과 같은 보정)"""
+    """추적은 odom, 발행은 그 순간의 map ← odom: SLAM이 map→odom을 고치면 저장된 물체도 같이 옮겨짐 (로봇과 같은 보정)"""
     import numpy as np
     from builtin_interfaces.msg import Time
 
@@ -284,7 +285,7 @@ def test_track_in_odom_publish_in_map():
         node.tracks[1] = {"class_name": "puck", "p": np.array([1.0, 0.0, 0.02]), "P": np.diag([1e-4, 4e-4, 1e-4]),
                           "t": 0.0, "size": np.array([0.06, 0.06, 0.04]), "conf": 0.9, "last_seen": Time(),
                           "seen": {"pole_front_cam": 0.0}, "camera": "pole_front_cam", "px": (1, 1), "color": "red"}
-        # map ← odom: 0.2m 옆 · 90° 회전 (RTAB-Map 보정)
+        # map ← odom: 0.2m 옆 · 90° 회전 (SLAM 보정)
         node.tf.set_transform(_tf("map", "odom", 0, 0.2, (0.0, 0.0, 0.7071068, 0.7071068)), "test")
         m = node.to_map(node.tracks[1])
         assert np.allclose(m["p"], [0.2, 1.0, 0.02], atol=1e-6)            # odom (1,0) → 90° 돌려 (0,1) + 0.2 옆
@@ -756,6 +757,27 @@ def test_box_tops():
     # 하얀 원통 방해물(지름 20cm · 30cm) — 윗면 높이 단면이 원이지만 위로 이어져서 상자 아님 · 작은 물체(10cm)도 아님
     tops = find_box_tops(*_box_depth([(1.0, 0.0, 0.10, 0.07, 0.0)], extra=[(1.2, -0.3, 0.10, 0.30)]), *args, step=2)
     assert tops == []
+
+
+def test_posture_from_height():
+    """(11/09) 퍽 자세를 윗면 높이로 — 바닥 위 서있음(윗면 6 cm) · 누움(3 cm) · 상자(7 cm) 위 서있음(13 cm) · 누움(10 cm)
+    카메라가 50° 내려다봐도(가로·세로 비율은 못 믿는 각도) 높이로 맞게 나와야 함"""
+    import numpy as np
+    from perception_node import box_depth_m, posture_from_height, view_from_side
+
+    for top, base, want in ((0.06, 0.0, "standing"), (0.03, 0.0, "lying"), (0.13, 0.07, "standing"), (0.10, 0.07, "lying")):
+        # 받침(상자 205) 위에 퍽 크기 네모 기둥 — 윗면 높이 top
+        boxes = ([(1.0, 0.0, 0.205, base, 0.0)] if base > 0 else []) + [(1.0, 0.0, 0.04, top, 0.0)]
+        d, rot, trans, fx, fy, cx, cy = _box_depth(boxes)
+        assert not view_from_side(rot)   # 50° 내려다봄 → 비율 판정 안 믿는 각도
+        vv, uu = np.mgrid[0:d.shape[0], 0:d.shape[1]]
+        pts = np.stack([(uu - cx) * d / fx, (vv - cy) * d / fy, d], -1) @ rot.T + trans
+        on = pts[..., 2] > top - 0.005  # 퍽 윗면 화소 → 네모
+        ys, xs = np.nonzero(on)
+        box = (int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max()))
+        zm = box_depth_m(d, box, 0.5)
+        got, h = posture_from_height(d, box, zm, rot, trans, fx, fy, cx, cy, 0.0)
+        assert got == want, (top, base, got, h)
 
 
 def test_box_cut_and_arm_mask():

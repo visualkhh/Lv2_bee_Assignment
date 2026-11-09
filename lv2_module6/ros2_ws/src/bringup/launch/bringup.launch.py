@@ -9,7 +9,8 @@
   ros2 launch bringup bringup.launch.py map:=saved                # 위치추정: 가장 최근 폴더 (기본)
   ros2 launch bringup bringup.launch.py map:=saved map_name:=20261017_163731
   map_dir 기본 ~/.ros/beebot_maps (실기 start.sh는 ros2_ws/map, 테스트베드 faker는 /ws/map)
-  map:=course 는 테스트베드 전용 (SLAM 없이 faker의 코스 지도 map_server — 테스트베드엔 GPU가 없어 cuVSLAM·nvblox를 못 띄움)
+  faker 테스트베드는 fake_slam:=true(기본) — 로봇이 센서로 지도를 쌓고(fake_nvblox) 저장한 지도로 위치추정한다 (GPU 불필요)
+  (진짜 cuVSLAM·nvblox는 fake_slam:=false + GPU)
   실행 중 바꾸기: 스캔 ↔ 위치추정 /cmd/map_mode · 지도 갈아끼우기 /cmd/map_name — state_manager가 인자만 바꿔 launch 전체를 다시 띄움
 재시작 (state_manager — 이 launch 명령줄 그대로 다시): ros2 topic pub --once /cmd/restart std_msgs/msg/String "{data: 'all'}"
   'all map:=slam' (그 인자만 바꿔) · 'node perception' (그 노드만, 같은 파라미터)
@@ -78,17 +79,22 @@ MAP_FILE = 'nvblox.nvblx'
 
 
 def setup_map(context):
-    """지도 정하기 (실기·테스트베드 공통): map:=slam → 새 폴더(기본 날짜_시각) 매핑 · saved → 고른 폴더(기본 default, 없으면 가장 최근) 위치추정 ·
-    course → SLAM 없음(테스트베드 faker의 코스 지도). ros_system에 넘길 use_slam · localization · nvblox_map과
-    state_manager 시작 값(map_mode · map_name · map_dir)을 정한다. ros_system을 안 띄우면(use_ros_system:=false) 확인만 건너뜀"""
+    """지도 정하기 (실기·테스트베드 공통): map:=none → 지도 없음(NONE) · slam → 새 폴더(기본 날짜_시각) 매핑 · saved → 고른 폴더(기본 default, 없으면 가장 최근) 위치추정.
+    ros_system에 넘길 use_slam · localization · nvblox_map과 state_manager 시작 값(map_mode · map_name · map_dir)을 정한다.
+    ros_system을 안 띄우면(use_ros_system:=false) 확인만 건너뜀. 지도가 없으면(saved인데 저장 지도 없음) NONE으로 시작한다.
+
+    fake_slam:=true (faker 테스트베드) — 지도 모드·map_saver는 그대로 두고 ros_system의 진짜 SLAM만 끈다.
+    MAPPING은 fake_nvblox가 센서 점구름으로, LOCALIZATION은 저장한 nvblox.nvblx를 읽어 /map을 낸다."""
     mode = LaunchConfiguration('map').perform(context)
+    fake_slam = LaunchConfiguration('fake_slam').perform(context).lower() == 'true'
+    use_ros_system = LaunchConfiguration('use_ros_system').perform(context).lower() == 'true'
     map_file = MAP_FILE
     d = os.path.expanduser(LaunchConfiguration('map_dir').perform(context) or '~/.ros/beebot_maps')
     name = LaunchConfiguration('map_name').perform(context)
-    if mode not in ('course', 'slam', 'saved'):
-        raise RuntimeError(f'map:={mode} — slam | saved (테스트베드는 course도)')
+    if mode not in ('none', 'slam', 'saved'):
+        raise RuntimeError(f'map:={mode} — none | slam | saved')
     no_map = False
-    if LaunchConfiguration('use_ros_system').perform(context).lower() == 'true' and mode != 'course':
+    if use_ros_system and mode != 'none':
         if mode == 'slam':
             name = name or time.strftime('%Y%m%d_%H%M%S')
             if os.path.exists(os.path.join(d, name, map_file)):
@@ -98,26 +104,34 @@ def setup_map(context):
             saved = sorted(p for p in (os.listdir(d) if os.path.isdir(d) else [])
                            if os.path.exists(os.path.join(d, p, map_file)))
             if not saved:
-                # 센서·지도가 아직 없어도 state_manager와 나머지 노드는 뜨게 한다.
-                print(f'WARN: 저장한 지도 없음: {d}/<이름>/{map_file} — SLAM 없이 시작', file=sys.stderr)
+                # 센서·지도가 아직 없어도 state_manager와 나머지 노드는 뜨게 한다 — NONE으로 시작.
+                print(f'WARN: 저장한 지도 없음: {d}/<이름>/{map_file} — NONE(지도 없음)으로 시작', file=sys.stderr)
                 name = ''
                 no_map = True
             else:
                 name = name or ('default' if 'default' in saved else saved[-1])  # 기본 지도 폴더 = default (지도 파일이 있어야)
                 if name not in saved:
-                    print(f'WARN: 지도 없음: {d}/{name}/{map_file} — SLAM 없이 시작 (있는 것: {", ".join(saved)})',
+                    print(f'WARN: 지도 없음: {d}/{name}/{map_file} — NONE(지도 없음)으로 시작 (있는 것: {", ".join(saved)})',
                           file=sys.stderr)
                     name = ''
                     no_map = True
-    if mode == 'course':
+    if mode == 'none':
         name = ''
-    use_slam = 'false' if mode == 'course' or no_map else 'true'
+    effective = 'none' if mode == 'none' or no_map else mode
+    use_slam = 'false' if effective == 'none' else 'true'
+    # use_slam = 지도 의미(모드·map_saver가 켜져야 하나) · use_real_slam = ros_system의 cuVSLAM·nvblox를 띄울지
+    use_real_slam = 'false' if fake_slam else use_slam
+    map_mode = {'none': 'NONE', 'slam': 'MAPPING', 'saved': 'LOCALIZATION'}[effective]
+    # 지도/위치추정이 없으면 Nav2도 띄우지 않는다 — 지도 없는 costmap·BT가 헛도는 걸 막는다.
+    use_nav2 = 'false' if effective == 'none' else 'true'
+    nvblox_map = os.path.join(d, name, map_file) if effective != 'none' else ''
     return [SetLaunchConfiguration('map_dir', d), SetLaunchConfiguration('map_name', name),
-            SetLaunchConfiguration('map_mode', {'course': 'COURSE', 'slam': 'MAPPING', 'saved': 'LOCALIZATION'}[mode]),
+            SetLaunchConfiguration('map_mode', map_mode),
             SetLaunchConfiguration('use_slam', use_slam),
-            SetLaunchConfiguration('localization', 'false' if mode == 'slam' else 'true'),
-            SetLaunchConfiguration('nvblox_map', os.path.join(d, name, map_file))]
-
+            SetLaunchConfiguration('use_real_slam', use_real_slam),
+            SetLaunchConfiguration('use_nav2', use_nav2),
+            SetLaunchConfiguration('localization', 'false' if effective == 'slam' else 'true'),
+            SetLaunchConfiguration('nvblox_map', nvblox_map)]
 
 def generate_launch_description():
     learning = {'enabled': LaunchConfiguration('learning_enabled')}
@@ -130,6 +144,8 @@ def generate_launch_description():
                                 description=f'false면 {n}을 띄우지 않음 (faker가 그 대역 fake_{n}을 띄울 때)') for n in ML_NODES],
         DeclareLaunchArgument('learning_enabled', default_value='true',
                               description='false면 학습 노드가 Δ=0 · 기본 프리셋 (노드는 그대로 뜸)'),
+        DeclareLaunchArgument('operation', default_value='MANUAL',
+                              description='초기 조작 모드: MANUAL(기본) | AUTO | EXPLORE | TEACH'),
         DeclareLaunchArgument('vlm_endpoint', default_value='',
                               description='호스트 ai-service 주소 (비면 템플릿 고정, 예: http://127.0.0.1:8000)'),
         DeclareLaunchArgument('start_pose', default_value='',
@@ -142,12 +158,14 @@ def generate_launch_description():
                               description='/cmd/restart all 때 다시 띄우기 전 셸 명령 (state_manager — 테스트베드 faker = build-ws)'),
         DeclareLaunchArgument('restart_log', default_value='/tmp/bringup.log',
                               description='/cmd/restart all 때 다시 띄운 launch 출력 파일 (state_manager)'),
-        DeclareLaunchArgument('map', default_value='saved',
-                              description='slam = 새 폴더에 매핑 · saved = 저장 지도로 위치추정 (테스트베드 course = 코스 지도, SLAM 없음)'),
+        DeclareLaunchArgument('map', default_value='none',
+                              description='none = 지도 없음(기본) · slam = 새 폴더에 센서로 매핑 · saved = 저장 지도로 위치추정 (faker는 fake_slam:=true)'),
         DeclareLaunchArgument('map_dir', default_value='',
                               description='지도 폴더들이 있는 곳 — <map_dir>/<map_name>/nvblox.nvblx (비면 ~/.ros/beebot_maps)'),
         DeclareLaunchArgument('map_name', default_value='',
                               description='지도 폴더 이름 — slam: 비우면 날짜_시각으로 새로 · saved: 비우면 가장 최근'),
+        DeclareLaunchArgument('fake_slam', default_value='false',
+                              description='true = faker SLAM 대역(코스 map_server · fake_cuvslam · fake_nvblox) — ros_system의 진짜 cuVSLAM·nvblox만 끔'),
         *[DeclareLaunchArgument(k, default_value=v, description=d) for k, (v, d) in ROS_SYSTEM_ARGS.items()],
         OpaqueFunction(function=setup_map),
 
@@ -156,7 +174,7 @@ def generate_launch_description():
             PythonLaunchDescriptionSource(PathJoinSubstitution(
                 [FindPackageShare('ros_system'), 'launch', 'ros_system.launch.py'])),
             launch_arguments={**{k: LaunchConfiguration(k) for k in ROS_SYSTEM_ARGS},
-                              'use_slam': LaunchConfiguration('use_slam'),
+                              'use_slam': LaunchConfiguration('use_real_slam'),
                               'localization': LaunchConfiguration('localization'),
                               'nvblox_map': LaunchConfiguration('nvblox_map')}.items())],
             condition=IfCondition(LaunchConfiguration('use_ros_system'))),
@@ -175,7 +193,7 @@ def generate_launch_description():
              {'vlm_endpoint': ParameterValue(LaunchConfiguration('vlm_endpoint'), value_type=str)}),
         # coordinator: 계획 단계를 skill 노드에 맡기는 순서 담당 (적재함 장부 · 모드·비상정지 취소)
         node('plan', 'coordinator'),
-        # skill 노드 — 단계마다 액션 서버 /skills/<skill> (팔: arm_skills 컨테이너 · 주행: base_skills). 학습 정책은 skill마다 model/skills/<skill>/
+        # skill 노드 — 단계마다 액션 서버 /skills/<skill> (팔: arm_skills 컨테이너 · 주행: base_skills). 학습 정책은 skill마다 models/skills/<skill>/
         #   시작 자세 · 지도 만들 때 스캔 자세(ros_system/config/scan_pose.yaml)는 skill_pose
         GroupAction([IncludeLaunchDescription(
             PythonLaunchDescriptionSource(PathJoinSubstitution([FindPackageShare('skills'), 'launch', 'skills.launch.py'])),
@@ -191,7 +209,8 @@ def generate_launch_description():
         node('perception', 'body_filter'),
         node('perception', 'signal_decoder'),
         node('perception', 'hand_relative'),  # 손 카메라 상대값 → rl_arm_correction 정책 입력
-        node('manager', 'state_manager', {'map_mode': LaunchConfiguration('map_mode'),
+        node('manager', 'state_manager', {'operation': LaunchConfiguration('operation'),
+                                          'map_mode': LaunchConfiguration('map_mode'),
                                           'map_name': ParameterValue(LaunchConfiguration('map_name'), value_type=str),
                                           'map_dir': ParameterValue(LaunchConfiguration('map_dir'), value_type=str),
                                           'restart_prepare': ParameterValue(LaunchConfiguration('restart_prepare'), value_type=str),

@@ -48,8 +48,8 @@ install(TARGETS ${PROJECT_NAME} ARCHIVE DESTINATION lib LIBRARY DESTINATION lib 
 install(DIRECTORY include/ DESTINATION include)
 install(DIRECTORY config launch params DESTINATION share/${PROJECT_NAME})
 
-# 학습 정책 — 워크스페이스 공용 lv2_module6/ros2_ws/model/skills/<skill>/ (meta.yaml · <skill>.policy · <skill>.onnx) → share/skills/model
-set(SKILLS_MODEL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../model/skills" CACHE PATH "ros2_ws/model/skills")
+# 학습 정책 — 워크스페이스 공용 lv2_module6/models/skills/<skill>/ (meta.yaml · <skill>.policy · <skill>.onnx) → share/skills/model
+set(SKILLS_MODEL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../models/skills" CACHE PATH "lv2_module6/models/skills")
 if(EXISTS "${SKILLS_MODEL_DIR}")
   install(DIRECTORY "${SKILLS_MODEL_DIR}/" DESTINATION share/${PROJECT_NAME}/model
     FILES_MATCHING PATTERN "meta.yaml" PATTERN "*.policy" PATTERN "*.onnx")

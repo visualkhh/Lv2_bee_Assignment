@@ -1,0 +1,32 @@
+{
+  "_help": "A/B 자동 주행 설정. start = A·B 공통 출발 자세(map) — 고정해야 매번 같은 곳에서 출발 (null이면 지금 자세라 직전 실행이 끝난 곳 = 목표에서 시작할 수 있음). route는 map 기준 goal 목록 — 기본은 isaac_maze(course:=isaac_maze)에서 벽을 돌아가되 좁은 통로 U턴은 없는 3곳: G1 y=0.45 벽을 돌아 동쪽 통로 끝 · G2 오른쪽 넓은 구역 북쪽(도착 후 남쪽으로 제자리 회전) · G3 x=1.35 벽 너머 (isaac/usda 지도)",
+  "frame_id": "map",
+  "start": {
+    "x": 0.0,
+    "y": 0.0,
+    "yaw_deg": 0.0
+  },
+  "route": [
+    {
+      "x": 1.9,
+      "y": 0.85,
+      "yaw_deg": 0.0
+    },
+    {
+      "x": 1.9,
+      "y": 2.2,
+      "yaw_deg": -90.0
+    },
+    {
+      "x": 1.0,
+      "y": 2.0,
+      "yaw_deg": 0.0
+    }
+  ],
+  "repeats": 1,
+  "goal_timeout_s": 120.0,
+  "settle_s": 1.0,
+  "auto_mode": true,
+  "move_to_start": true,
+  "return_to_start": true
+}

@@ -8,7 +8,7 @@ on:
 
 jobs:
   testbed:
-    # 로컬 게이트(test-all)와 동일한 검사를 그대로 실행 — 검사 로직은 docker/test-*.sh 한 곳에만.
+    # 로컬 게이트(test-all)와 동일한 검사를 그대로 실행 — 검사 로직은 docker/lv2_module6/test-*.sh 한 곳에만.
     # x86_64(PC)·aarch64(Raspberry Pi/Orin) 러너에서 각각 빌드·검사 → 실행 환경별 배포 패키지.
     #   install/의 실행 파일은 빌드한 CPU·OS에서만 돈다 (x86 빌드를 Pi에서 실행하면 Exec format error).
     #   aarch64는 GitHub ARM 러너에서 네이티브로 빌드.
@@ -20,19 +20,19 @@ jobs:
         include:
 #          - arch: x86_64
 #            runner: ubuntu-26.04
-#            dockerfile: docker/Dockerfile
+#            dockerfile: docker/lv2_module6/Dockerfile
 #            label: x86_64
 #            target: ubuntu-26.04-x86_64
 #            package: ros2_ws-deploy-x86_64.tar.gz
 #          - arch: aarch64
 #            runner: ubuntu-26.04-arm
-#            dockerfile: docker/Dockerfile
+#            dockerfile: docker/lv2_module6/Dockerfile
 #            label: aarch64
 #            target: ubuntu-26.04-aarch64
 #            package: ros2_ws-deploy-aarch64.tar.gz
           - arch: aarch64
             runner: ubuntu-24.04-arm
-            dockerfile: docker/Dockerfile
+            dockerfile: docker/lv2_module6/Dockerfile
             label: aarch64-noble
             target: ubuntu-24.04-aarch64
             package: ros2_ws-deploy-aarch64-noble.tar.gz
@@ -55,7 +55,7 @@ jobs:
             -e ROS_DOMAIN_ID=88 -e ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET -e FASTDDS_DEFAULT_PROFILES_FILE=/ws/fastdds.xml \
             -v ${{ github.workspace }}/lv2_module6/ros2_ws/src:/ws/src \
             -v ${{ github.workspace }}/lv2_module6/ros2_ws/fastdds.xml:/ws/fastdds.xml \
-            -v ${{ github.workspace }}/lv2_module6/ros2_ws/model:/ws/model \
+            -v ${{ github.workspace }}/lv2_module6/models:/models \
             -v ${{ github.workspace }}/lv2_module6/urdf:/ws/urdf \
             -v ${{ github.workspace }}/lv2_module6/ros2_ws/map:/ws/map \
             -v ${{ github.workspace }}/lv2_module6/firmware:/firmware \
@@ -71,7 +71,8 @@ jobs:
         #   install/                       ROS 2 패키지 (build/는 컴파일 중간 산출물이라 불필요) — 이 러너 아키텍처용
         #   firmware/                      lv2_module6/firmware 폴더 전체 (스케치·upload.sh·README)
         #   firmware/build/<스케치>/*.bin  test-firmware가 컴파일한 결과 (/debug/firmware에서 복사 — OpenCR용이라 아키텍처 무관)
-        #   *.sh                           lv2_module6/ros2_ws의 실행 스크립트 전부 + docker/*.sh (entrypoint.sh 제외)
+        #   *.sh                           lv2_module6/ros2_ws의 실행 스크립트 전부 + docker/lv2_module6/*.sh (entrypoint.sh 제외)
+        #   tools/cli·tools/rviz  run-cli · A/B · 리포트 (tests·bag·artifacts 제외)
         #   ARCH                           이 패키지의 아키텍처 (start.sh가 확인)
         #   TARGET                         이 패키지의 OS·아키텍처 (예: ubuntu-24.04-aarch64)
         # - install: test-bringup이 --symlink-install로 빌드 → cp -L로 링크 대상 실제 파일을 담음.
@@ -87,12 +88,18 @@ jobs:
           find ros2_ws/firmware/build -type f ! -name '*.bin' -delete
           cp lv2_module6/ros2_ws/*.sh ros2_ws/
           cp lv2_module6/ros2_ws/fastdds.xml lv2_module6/ros2_ws/fastdds_local_only.xml ros2_ws/   # _local = 실기 기기 안 격리 (SHM만)
-          cp docker/*.sh ros2_ws/   # test-*.sh · build-ws.sh · ros-kill.sh · ros-restart.sh (entrypoint.sh 제외 — 컨테이너 전용)
+          cp docker/lv2_module6/*.sh ros2_ws/   # test-*.sh · build-ws.sh · ros-kill.sh · ros-restart.sh (entrypoint.sh 제외 — 컨테이너 전용)
           rm -f ros2_ws/entrypoint.sh
+          # tools/ (run-cli · A/B · 리포트) — 실기에서 wget 묶음으로 바로 실행. tests·log·bag·artifacts·__pycache__ 제외.
+          mkdir -p ros2_ws/tools && cp -r lv2_module6/tools/cli lv2_module6/tools/rviz ros2_ws/tools/
+          cp lv2_module6/tools/run-cli lv2_module6/tools/run-rviz lv2_module6/tools/requirements.txt lv2_module6/tools/setting-venv.sh ros2_ws/tools/
+          [ -f lv2_module6/tools/README.md ] && cp lv2_module6/tools/README.md ros2_ws/tools/
+          find ros2_ws/tools -type d \( -name __pycache__ -o -name .venv \) -prune -exec rm -rf {} + 2>/dev/null || true
+          rm -rf ros2_ws/tools/bag ros2_ws/tools/artifacts ros2_ws/tools/cli/tests
           echo "${{ matrix.arch }}" > ros2_ws/ARCH
           echo "${{ matrix.target }}" > ros2_ws/TARGET
           tar -czf "$PACKAGE" -C ros2_ws .
-          ls -lh "$PACKAGE" && tar -tzf "$PACKAGE" | grep -E "^\./(ARCH|TARGET|firmware/build/)|\.sh$"
+          ls -lh "$PACKAGE" && tar -tzf "$PACKAGE" | grep -E "^\./(ARCH|TARGET|firmware/build/|tools/cli/operator_tool\.py)|\.sh$"
       - uses: actions/upload-artifact@v7
         with:
           path: ${{ env.PACKAGE }}   # archive: false면 파일 이름이 artifact 이름

@@ -3,7 +3,7 @@
 <package format="3">
   <name>ros_system</name>
   <version>0.1.0</version>
-  <description>📦 제공 패키지 기동 — robot_state_publisher(URDF) · ros2_control(controller_manager) · RealSense ×2 · robot_localization EKF · RTAB-Map · Nav2 (MoveIt 2는 설정 준비 후)</description>
+  <description>📦 제공 패키지 기동 — robot_state_publisher(URDF) · ros2_control(controller_manager) · RealSense ×2 · robot_localization EKF · SLAM(cuVSLAM·nvblox) · Nav2 (MoveIt 2는 설정 준비 후)</description>
   <maintainer email="todo@example.com">권형중</maintainer>
   <license>Apache-2.0</license>
 

@@ -16,8 +16,27 @@ MonitorManager::MonitorManager()
   debug_dir_ = declare_parameter<std::string>("debug_dir", "/debug");
   period_ = declare_parameter<double>("period_s", 0.2);
   raw_images_ = declare_parameter<bool>("raw_images", true);
+  image_period_ = declare_parameter<double>("image_period_s", 0.5);
   const auto excluded = declare_parameter<std::vector<std::string>>("exclude_topics", std::vector<std::string>{});
   excluded_ = std::set<std::string>(excluded.begin(), excluded.end());
+  // 호스트가 실제로 구독하는 토픽만 파일로 — input/monitor/topics가 있으면 그 목록만 본다.
+  std::string topics_file = declare_parameter<std::string>("topics_file", "");
+  if (topics_file.empty()) {
+    topics_file = (fs::path(debug_dir_) / "input" / "monitor" / "topics").string();
+  }
+  if (fs::exists(topics_file)) {
+    std::ifstream f(topics_file);
+    std::string line;
+    while (std::getline(f, line)) {
+      const auto b = line.find_first_not_of(" \t\r");
+      if (b == std::string::npos || line[b] == '#') continue;
+      const auto e = line.find_last_not_of(" \t\r");
+      wanted_.insert(line.substr(b, e - b + 1));
+    }
+  }
+  request_dir_ = declare_parameter<std::string>("request_dir",
+    (fs::path(debug_dir_) / "input" / "monitor").string());
+  request_ttl_s_ = declare_parameter<double>("request_ttl_s", 6.0);
   cloud_frame_ = declare_parameter<std::string>("cloud_frame", "base_footprint");
   cloud_max_points_ = declare_parameter<int>("cloud_max_points", 20000);
   tf_ = std::make_shared<tf2_ros::Buffer>(get_clock());
@@ -36,13 +55,14 @@ MonitorManager::MonitorManager()
       topic_dir.c_str(), ec.message().c_str());
     throw std::runtime_error("debug_dir 생성 실패");
   }
-  RCLCPP_INFO(get_logger(), "시작 | 저장: %s | ROS_DOMAIN_ID=%zu | raw_images=%s | period_s=%.2f | 제외 %zu개",
+  RCLCPP_INFO(get_logger(), "시작 | 저장: %s | ROS_DOMAIN_ID=%zu | raw_images=%s | period_s=%.2f | image_period_s=%.2f | 제외 %zu개 | 화이트리스트 %zu개",
     topic_dir.c_str(), get_node_base_interface()->get_context()->get_domain_id(),
-    raw_images_ ? "true" : "false", period_, excluded_.size());
+    raw_images_ ? "true" : "false", period_, image_period_, excluded_.size(), wanted_.size());
 
   // 지난 실행의 그래프 기록도 지우고 새로 (topic/ · node/ · pkg/)
   for (const char * d : {"topic", "node", "pkg"}) fs::remove_all(fs::path(debug_dir_) / d, ec);
   scan_timer_ = create_wall_timer(std::chrono::milliseconds(500), [this]() { scan(); });
+  request_timer_ = create_wall_timer(std::chrono::milliseconds(500), [this]() { refresh_requests(); });
   graph_timer_ = create_wall_timer(std::chrono::seconds(2), [this]() { dump_graph(); });
   // message는 받을 때마다 쓰지 않고 토픽별 마지막 값만 들고 있다가 period_s마다 한 번 (100Hz 토픽을 다 쓰면
   // Docker Desktop 공유 폴더(gRPC FUSE)가 못 따라가 이 노드가 쓰기만 기다리다 멈춤). 마지막 값은 항상 써진다
@@ -50,11 +70,12 @@ MonitorManager::MonitorManager()
   dump_packages();
   // 5초마다 상태 로그 — 실행 중인지, 실제로 저장되고 있는지 확인용
   status_timer_ = create_wall_timer(std::chrono::seconds(5), [this]() { report(); });
+  refresh_requests();
   scan();
 }
 
 void MonitorManager::report() {
-  if (subs_.empty()) {
+  if (subs_by_topic_.empty()) {
     RCLCPP_WARN(get_logger(), "구독할 토픽 없음 — 발행 노드가 떠 있는지, ROS_DOMAIN_ID(현재 %zu)·네트워크 확인",
       get_node_base_interface()->get_context()->get_domain_id());
   } else if (written_ == 0) {
@@ -66,6 +87,57 @@ void MonitorManager::report() {
   }
   written_ = 0;
   write_failed_ = 0;
+}
+
+void MonitorManager::refresh_requests() {
+  // 호스트 CLI/뷰어가 input/monitor/<이름>.topics에 지금 구독 중인 토픽을 2초마다 다시 쓴다.
+  // 6초 넘은 파일은 죽은 프로세스로 보고 무시. 파일이 하나도 없으면 정적 baseline(wanted_)으로 폴백.
+  std::set<std::string> req;
+  bool has = false;
+  std::error_code ec;
+  const auto now = fs::file_time_type::clock::now();
+  for (fs::directory_iterator it(request_dir_, ec), end; !ec && it != end; it.increment(ec)) {
+    if (!it->is_regular_file(ec) || it->path().extension() != ".topics") continue;
+    const auto mt = fs::last_write_time(it->path(), ec);
+    if (ec) continue;
+    if (std::chrono::duration<double>(now - mt).count() > request_ttl_s_) continue;
+    has = true;
+    std::ifstream f(it->path());
+    std::string line;
+    while (std::getline(f, line)) {
+      const auto b = line.find_first_not_of(" \t\r");
+      if (b == std::string::npos || line[b] == '#') continue;
+      const auto e = line.find_last_not_of(" \t\r");
+      req.insert(line.substr(b, e - b + 1));
+    }
+  }
+  req.insert(wanted_.begin(), wanted_.end());
+  dynamic_active_ = has;
+  requested_ = req;
+
+  // 동적 요청에서 빠진 토픽은 구독을 파괴한다 (파일 쓰기·DDS 구독 모두 중단).
+  if (dynamic_active_ || !wanted_.empty()) {
+    for (auto it = subs_by_topic_.begin(); it != subs_by_topic_.end();) {
+      if (requested_.count(it->first)) {
+        ++it;
+        continue;
+      }
+      const std::string topic = it->first;
+      it = subs_by_topic_.erase(it);   // shared_ptr 소멸 → 구독 해제
+      seen_.erase(topic);
+      types_.erase(topic);
+      pending_.erase(topic);
+      std::error_code rm_ec;  // 이 토픽의 파일만 지운다 — state/devices/<이름> 같은 하위 토픽은 남긴다
+      for (const char * leaf : {"message", "image.jpg", "depth.png", "data"}) {
+        fs::remove(dir_of(topic) / leaf, rm_ec);
+      }
+      for (auto lt = last_.begin(); lt != last_.end();) {
+        if (lt->first.rfind(topic + "#", 0) == 0) lt = last_.erase(lt);
+        else ++lt;
+      }
+      write_topic_list();
+    }
+  }
 }
 
 void MonitorManager::scan() {
@@ -81,6 +153,7 @@ void MonitorManager::scan() {
     // 발행자가 아직 없으면(구독자 때문에 이름만 먼저 보임) 다음 훑기로 미룸 — 지금 구독하면 QoS를 발행자에 맞출 수 없어
     // best effort·volatile로 굳어서, 마지막 값 보관(transient_local)으로 바뀔 때만 내는 /map 같은 토픽을 영영 못 받음 (실측)
     if (count_publishers(topic) == 0) continue;
+    if ((dynamic_active_ || !wanted_.empty()) && requested_.count(topic) == 0) continue;
     seen_.insert(topic);
     if (excluded_.count(topic) || (!raw_images_ && types.front() == "sensor_msgs/msg/Image")) {
       RCLCPP_INFO(get_logger(), "제외: %s (%s)", topic.c_str(), types.front().c_str());
@@ -138,7 +211,7 @@ void MonitorManager::subscribe_message(const std::string & topic, const std::str
     return;
   }
   const auto msg_qos = qos_for(topic);
-  subs_.push_back(create_generic_subscription(topic, type, msg_qos,
+  auto sub = create_generic_subscription(topic, type, msg_qos,
     [this, topic, type, parser](std::shared_ptr<const rclcpp::SerializedMessage> msg) {
       const auto & raw = msg->get_rcl_serialized_message();
       RosMsgParser::NanoCDR_Deserializer deserializer;
@@ -151,7 +224,8 @@ void MonitorManager::subscribe_message(const std::string & topic, const std::str
         return;
       }
       pending_[topic] = "{\"type\": \"" + type + "\", \"data\": " + data + "}\n";  // flush_messages가 씀
-    }));
+    });
+  subs_by_topic_[topic].push_back(sub);
   RCLCPP_INFO(get_logger(), "message 저장 시작: %s (%s, %s%s)", topic.c_str(), type.c_str(),
     msg_qos.reliability() == rclcpp::ReliabilityPolicy::Reliable ? "reliable" : "best-effort",
     msg_qos.durability() == rclcpp::DurabilityPolicy::TransientLocal ? ", transient_local" : "");
@@ -159,19 +233,20 @@ void MonitorManager::subscribe_message(const std::string & topic, const std::str
 
 void MonitorManager::subscribe_image(const std::string & topic, const std::string & type) {
   if (type == "sensor_msgs/msg/CompressedImage") {
-    subs_.push_back(create_subscription<sensor_msgs::msg::CompressedImage>(topic, qos(),
+    auto sub = create_subscription<sensor_msgs::msg::CompressedImage>(topic, qos(),
       [this, topic](const sensor_msgs::msg::CompressedImage::ConstSharedPtr & msg) {
-        if (due(topic + "#image")) {
+        if (due(topic + "#image", image_period_)) {
           // NOTE (Lyrical): data가 std::vector가 아님(rosidl_buffer) → 복사 없이 Mat으로 감싸 디코드
           const cv::Mat buf(1, static_cast<int>(msg->data.size()), CV_8UC1,
             const_cast<uint8_t *>(msg->data.data()));
           save_image(topic, cv::imdecode(buf, cv::IMREAD_UNCHANGED));
         }
-      }));
+      });
+    subs_by_topic_[topic].push_back(sub);
   } else if (type == "sensor_msgs/msg/Image") {
-    subs_.push_back(create_subscription<sensor_msgs::msg::Image>(topic, qos(),
+    auto sub = create_subscription<sensor_msgs::msg::Image>(topic, qos(),
       [this, topic](const sensor_msgs::msg::Image::ConstSharedPtr & msg) {
-        if (!due(topic + "#image")) {
+        if (!due(topic + "#image", image_period_)) {
           return;
         }
         try {
@@ -188,7 +263,8 @@ void MonitorManager::subscribe_image(const std::string & topic, const std::strin
           RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000, "%s 변환 실패: %s",
             topic.c_str(), e.what());
         }
-      }));
+      });
+    subs_by_topic_[topic].push_back(sub);
   } else {
     return;
   }
@@ -197,10 +273,11 @@ void MonitorManager::subscribe_image(const std::string & topic, const std::strin
 
 void MonitorManager::subscribe_cloud(const std::string & topic, const std::string & type) {
   if (type != "sensor_msgs/msg/PointCloud2") return;
-  subs_.push_back(create_subscription<sensor_msgs::msg::PointCloud2>(topic, qos(),
+  auto sub = create_subscription<sensor_msgs::msg::PointCloud2>(topic, qos(),
     [this, topic](const sensor_msgs::msg::PointCloud2::ConstSharedPtr & msg) {
-      if (due(topic + "#cloud")) save_cloud(topic, *msg);
-    }));
+      if (due(topic + "#cloud", image_period_)) save_cloud(topic, *msg);
+    });
+  subs_by_topic_[topic].push_back(sub);
   RCLCPP_INFO(get_logger(), "points 저장 시작: %s (→ %s)", topic.c_str(), cloud_frame_.c_str());
 }
 
@@ -215,7 +292,7 @@ void MonitorManager::save_cloud(const std::string & topic, const sensor_msgs::ms
   const size_t n = static_cast<size_t>(cloud.width) * cloud.height;
   const size_t stride = std::max<size_t>(1, (n + cloud_max_points_ - 1) / std::max(1, cloud_max_points_));
   std::vector<float> xyz;
-  // 빈 점구름(RTAB-Map 등이 냄)은 반복자가 빈 버퍼를 건드려 프로세스가 죽는다(실측 abort) → 빈 결과로 씀.
+  // 빈 점구름(SLAM 등이 냄)은 반복자가 빈 버퍼를 건드려 프로세스가 죽는다(실측 abort) → 빈 결과로 씀.
   // x 필드가 없는 점구름은 반복자가 예외 → 건너뜀
   if (n > 0 && !cloud.data.empty()) {
     try {
@@ -245,9 +322,9 @@ void MonitorManager::flush_messages() {
 
 void MonitorManager::subscribe_grid(const std::string & topic, const std::string & type) {
   if (type != "nav_msgs/msg/OccupancyGrid") return;
-  subs_.push_back(create_subscription<nav_msgs::msg::OccupancyGrid>(topic, qos_for(topic),
+  auto sub = create_subscription<nav_msgs::msg::OccupancyGrid>(topic, qos_for(topic),
     [this, topic](const nav_msgs::msg::OccupancyGrid::ConstSharedPtr & m) {
-      if (!due(topic + "#grid")) return;
+      if (!due(topic + "#grid", image_period_)) return;
       const auto & q = m->info.origin.orientation;
       const double yaw = std::atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z));
       char head[256];
@@ -258,14 +335,16 @@ void MonitorManager::subscribe_grid(const std::string & topic, const std::string
       std::string out(head);
       if (!m->data.empty()) out.append(reinterpret_cast<const char *>(m->data.data()), m->data.size());
       write_file(dir_of(topic) / "data", out);
-    }));
+    });
+  subs_by_topic_[topic].push_back(sub);
   RCLCPP_INFO(get_logger(), "grid 저장 시작: %s", topic.c_str());
 }
 
-bool MonitorManager::due(const std::string & key) {
+bool MonitorManager::due(const std::string & key, double period) {
   const auto t = now();
+  const double p = period < 0.0 ? period_ : period;
   auto it = last_.find(key);
-  if (it != last_.end() && (t - it->second).seconds() < period_) {
+  if (it != last_.end() && (t - it->second).seconds() < p) {
     return false;
   }
   last_[key] = t;

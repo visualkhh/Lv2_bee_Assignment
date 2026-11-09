@@ -69,6 +69,9 @@ private:
 
   void scan();
 
+  // input/monitor/*.topics — 호스트가 지금 구독 중인 토픽 (2초마다 heartbeat, 6초 넘으면 무시)
+  void refresh_requests();
+
   void write_topic_list();
 
   // 그래프 기록 (topic/ · node/) — 2초마다
@@ -100,7 +103,7 @@ private:
   // 격자 지도(/map · 코스트맵) → topic/<토픽>/data (period_s마다)
   void subscribe_grid(const std::string & topic, const std::string & type);
 
-  bool due(const std::string & key);
+  bool due(const std::string & key, double period = -1.0);
 
   fs::path dir_of(const std::string & topic) const;
 
@@ -118,15 +121,22 @@ private:
   bool raw_images_;
   std::set<std::string> excluded_;
   double period_;
+  double image_period_;
   std::string cloud_frame_;
   int cloud_max_points_;
   std::shared_ptr<tf2_ros::Buffer> tf_;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
+  std::set<std::string> wanted_;     // input/monitor/topics (정적 baseline)
+  std::set<std::string> requested_;  // baseline + 호스트 *.topics (동적)
+  bool dynamic_active_ = false;
+  std::string request_dir_;
+  double request_ttl_s_;
   std::set<std::string> seen_;
   std::map<std::string, std::string> types_;  // 토픽 -> 타입 (list.json용)
-  std::vector<rclcpp::SubscriptionBase::SharedPtr> subs_;
+  std::map<std::string, std::vector<rclcpp::SubscriptionBase::SharedPtr>> subs_by_topic_;
   std::map<std::string, rclcpp::Time> last_;
   rclcpp::TimerBase::SharedPtr scan_timer_;
+  rclcpp::TimerBase::SharedPtr request_timer_;
   rclcpp::TimerBase::SharedPtr status_timer_;
   rclcpp::TimerBase::SharedPtr graph_timer_;
   rclcpp::TimerBase::SharedPtr flush_timer_;

@@ -16,9 +16,9 @@
 | signal_decoder | 직접 | perception · ROS 2 노드 (C++) | 신호등 12회 점멸 — /tracked_objects의 신호등 상태를 시간축으로 세어 사이클(12번)마다 /mission/signal_status, 두 사이클 같은 답이면 /mission/signal (sequence · R·Y·G 횟수 — 해석은 받는 쪽) |
 | explorer | 직접 | plan · ROS 2 노드 (C++) | 자동 탐사 — 조작 모드 EXPLORE일 때 /map 프론티어(빈 곳·모르는 곳 경계)를 골라 Nav2 /navigate_to_pose로 차례로 보냄, 끝나면 /explore/result |
 | coordinator | 직접 | plan · ROS 2 노드 | 계획 단계를 skill 노드에 맡기는 순서 — 계획 검증(navigate·approach·pick·place·inspect·say·pose·load·unload·stand·stand_pick), 물체 → 좌표, 다가가기, 재시도, 적재함 장부, AUTO가 아니면 취소 → /task/status |
-| skill_* (9개) | 직접 | skills · 컴포넌트 (arm_skills · base_skills 컨테이너) | skill마다 액션 서버 `/skills/<skill>` 하나 — navigate · approach · pose · inspect · pick · place · load · unload · stand(+stand_pick). 자기 학습 정책 폴더 `model/skills/<skill>/` ([API.md](../../API.md) 3장) · skill_pose는 시작·스캔 자세도 |
+| skill_* (9개) | 직접 | skills · 컴포넌트 (arm_skills · base_skills 컨테이너) | skill마다 액션 서버 `/skills/<skill>` 하나 — navigate · approach · pose · inspect · pick · place · load · unload · stand(+stand_pick). 자기 학습 정책 폴더 `models/skills/<skill>/` ([API.md](../../API.md) 3장) · skill_pose는 시작·스캔 자세도 |
 | grasp_scorer | 직접 | ml · ROS 2 서비스 노드 | 모델 로드, IK 가능 후보만 채점, /score_grasps 응답 |
-| rl_nav_controller | 직접 | ml · Nav2 controller 플러그인 | 관측 51(웨이포인트 5 + 가상스캔 36 + v/w/gyro + 이전행동 2), ONNX 추론, inner DWB 바이패스 |
+| rl_nav_controller | 직접 | ml · Nav2 controller 플러그인 | 관측 375(웨이포인트 5×2 + 가상스캔 360 + v/w/gyro + 이전행동 2), ONNX 추론, inner DWB 바이패스 |
 | rl_arm_correction | 직접 | ml · ros2_control chainable controller | reference에 Δ 더하기, enabled 파라미터 |
 | arm_safety_monitor | 직접 | control · ROS 2 노드 | 전류로 접촉 감지, 궤적 취소, coordinator 보고 |
 | manual_control | 직접 | control · ROS 2 노드 | 수동 모드(/state/operation_mode), 원격 조종 → twist_mux, 팔·그리퍼 직접 명령, `/cmd/manual/reboot_motors` → 📞 /beebotsystem/reboot_motors |
@@ -46,7 +46,7 @@
 - **launch 파일:** 전체 기동(bringup), 📦 기동(ros_system), 리매핑 (diff_drive_controller 토픽 → /cmd_vel·/odom, twist_mux 출력 → /cmd_vel_mux), 학습 노드 on/off 인자
 - **설정 파일:** 패키지별 config/*.yaml, nav2_params.yaml, ekf.yaml, controllers.yaml, twist_mux.yaml, diagnostics.yaml, collision_monitor 다각형, MoveIt 설정 패키지
 - **상태 진단:** 모든 🛠 노드 · 하드웨어 플러그인이 diagnostic_updater로 /diagnostics
-- **OpenCR 펌웨어 · 대회 코스 · 운영 CLI:** lv2_module6/firmware · course · tool (run-cli — 상태·진단 상세·수동 조작·모터 재부팅). simulator는 더 쓰지 않음
+- **OpenCR 펌웨어 · 운영 CLI:** lv2_module6/firmware · tools (run-cli — 상태·진단 상세·수동 조작·모터 재부팅) · 시뮬레이션은 `isaac/usda`
 - **Isaac Lab 환경 코드:** 관측·행동·보상·랜덤화 정의 (ROS 노드 아님)
 
 ### 패키지 구성
@@ -55,10 +55,8 @@
 lv2_module6/
 ├── urdf/<이름>/urdf.xacro         # 모델 폴더마다 (기본 beebot_mesh, launch urdf:=) — TB3 + OM-X(RM-X52-TNM) + 손목 roll + 카메라 2대 · ros2_control 태그
 ├── firmware/beebot_opencr/       # OpenCR 펌웨어
-├── course/                       # 대회 코스 (미로)
 ├── ai-service/                   # 호스트 계획 서버 (VLM · 사람) — ROS 아님
-├── tool/                         # run-cli 운영 도구
-├── simulator/                    # SIL 시뮬레이터 (더 쓰지 않음)
+├── tools/                         # run-cli 운영 도구
 └── ros2_ws/src/
     ├── perception/   # perception · body_filter · signal_decoder + msg
     ├── plan/         # user_input · vlm_task_planner · explorer · coordinator + msg

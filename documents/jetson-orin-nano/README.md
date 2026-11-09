@@ -9,6 +9,8 @@ Jetson Orin Nano 실기 세팅·점검·원격 접속 문서를 모아 둔 폴�
   - OpenCR/Dynamixel, CI 배포 패키지, 실행 관련 메모
 - [`CUVSLAM.md`](CUVSLAM.md)
   - cuVSLAM 소스 빌드(Orin은 배포 휠 불가), SLAM = cuVSLAM(위치) + nvblox(지도) 구성 · nvblox 설치 방법 · 실기 시험 순서, 원격 RViz 주의, 실기 시험 기록
+- [`ONNXRUNTIME.md`](ONNXRUNTIME.md)
+  - RL 주행 정책(`rl_nav_controller`) ONNX Runtime — CUDA EP 있으면 GPU, 없으면 CPU 자동 선택. Jetson Orin `sm_87` CUDA 13.2 빌드·설치, `ML_ONNXRUNTIME_ROOT`, 도커 GPU 설정
 - [`DOCTOR.md`](DOCTOR.md)
   - 커널/arch, JetPack/L4T, glibc/Python, Jetson 모델 기준값
 - [`remote/README.md`](remote/README.md)

@@ -1,5 +1,7 @@
 // fake_opencr 구현 — 설명·선언은 include/faker/fake_opencr.hpp, main은 fake_opencr_main.cpp
-// 물리 상수 — 로봇 외곽 반경 ROBOT_R은 simulator/opencr.py와 같게 (퍽 밀기 판정)
+// 물리 상수 — 로봇 외곽(FOOT_*)은 충돌 판정용. 0.18은 퍽 밀기 판정에만 씀
+// 로봇 외곽 (base_footprint 기준, URDF base 상자 앞 +0.069 · 뒤 −0.233 · 바퀴 바깥 ±0.153) — 박스 앞 1~2 cm까지 붙는 박스 접근용.
+constexpr double FOOT_FRONT = 0.069, FOOT_REAR = -0.233, FOOT_SIDE = 0.153;
 #include "faker/fake_opencr.hpp"
 
 #include <array>
@@ -154,12 +156,19 @@ bool FakeOpenCR::occupied(double x, double y) const {
   return map_[static_cast<size_t>(row) * map_w_ + col] < 128;
 }
 
-bool FakeOpenCR::collide(double x, double y, double r) const {
+bool FakeOpenCR::collide(double x, double y, double yaw) const {
   if (map_.empty()) return false;
   if (occupied(x, y)) return true;
-  for (int k = 0; k < 8; ++k) {
-    const double a = k * M_PI / 4;
-    if (occupied(x + r * std::cos(a), y + r * std::sin(a))) return true;
+  const double c = std::cos(yaw), s = std::sin(yaw);
+  const double corner[5][2] = {{FOOT_FRONT, FOOT_SIDE}, {FOOT_FRONT, -FOOT_SIDE}, {FOOT_REAR, -FOOT_SIDE}, {FOOT_REAR, FOOT_SIDE},
+                               {FOOT_FRONT, FOOT_SIDE}};
+  for (int e = 0; e < 4; ++e) {  // 외곽 네 변을 1 cm 간격으로
+    const double ax = corner[e][0], ay = corner[e][1], bx = corner[e + 1][0], by = corner[e + 1][1];
+    const int n = static_cast<int>(std::hypot(bx - ax, by - ay) / 0.01) + 1;
+    for (int k = 0; k <= n; ++k) {
+      const double lx = ax + (bx - ax) * k / n, ly = ay + (by - ay) * k / n;
+      if (occupied(x + c * lx - s * ly, y + s * lx + c * ly)) return true;
+    }
   }
   return false;
 }
@@ -360,12 +369,28 @@ void FakeOpenCR::tick() {
     const double w = (ground[1] - ground[0]) / WHEEL_SEP;
     const double nx = x_ + v * std::cos(yaw_) * dt;
     const double ny = y_ + v * std::sin(yaw_) * dt;
-    bumped_ = collide(nx, ny, ROBOT_R) && !collide(x_, y_, ROBOT_R);
-    if (!bumped_) {
+    const double nyaw = yaw_ + w * dt;
+    // 이미 겹친 상태(시작 자리 등)에선 막지 않음 — 빠져나올 수 있게.
+    // 전진+회전을 한 번에 검사하면 좁은 틈에서 회전만 걸려도 직진까지 막혀 꼼짝 못 한다.
+    // 그래서 안 되면 직진만 / 회전만 따로 시도한다 (벽을 따라 빠져나오게).
+    const bool current_bad = collide(x_, y_, yaw_);
+    const bool full_bad = collide(nx, ny, nyaw);
+    bumped_ = false;
+    if (!full_bad || current_bad) {
       x_ = nx;
       y_ = ny;
+      yaw_ = nyaw;
+    } else if (!collide(nx, ny, yaw_)) {  // 회전은 막혀도 직진은 가능
+      x_ = nx;
+      y_ = ny;
+      bumped_ = true;
+    } else if (!collide(x_, y_, nyaw)) {  // 직진은 막혀도 제자리 회전은 가능
+      yaw_ = nyaw;
+      bumped_ = true;
+    } else {
+      bumped_ = true;
     }
-    yaw_ = std::fmod(yaw_ + w * dt + M_PI, 2 * M_PI);
+    yaw_ = std::fmod(yaw_ + M_PI, 2 * M_PI);
     if (yaw_ < 0) yaw_ += 2 * M_PI;
     yaw_ -= M_PI;
     yaw_rate_ = w;

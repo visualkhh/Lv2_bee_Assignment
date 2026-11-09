@@ -16,7 +16,7 @@
           velocity_smoother 입력을 /cmd_vel_nav로 고정해 twist_mux를 건너뛰므로 안 씀.
           속도 체인: controller·behavior → /cmd_vel_nav → twist_mux
                      → /cmd_vel_mux → velocity_smoother → /cmd_vel_smoothed → collision_monitor → /cmd_vel
-          map→odom·/map은 SLAM (faker는 map_server + fake_localizer)
+          map→odom·/map은 SLAM (faker는 map_server + fake_cuvslam)
 TODO(권형중) 아직 자리만 있는 것 — 설정 패키지가 필요:
   - move_group (+ MTC capability): config/moveit 으로 해소 (use_moveit:=true) — pick_ik·octomap 센서(pole_front_cam 점구름)는 아직
 테스트베드에서는 faker가 이 패키지들 대신 같은 토픽·액션을 낸다 (ros2 launch faker faker.launch.py).
@@ -184,7 +184,7 @@ def generate_launch_description():
         flag('gripper_cam_pointcloud', 'false', 'gripper_cam PointCloud2 발행 (grasp_scorer용, 필요할 때만 true)'),
         flag('use_ekf', 'true', 'robot_localization EKF'),
         flag('ekf_imu', 'true', 'EKF yaw 회전속도 = IMU 자이로 · false면 바퀴 (자이로 영점이 틀어지면 서 있어도 yaw가 돎 — 11/08 실기 0.2~2.3°/s)'),
-        flag('use_slam', 'true', 'SLAM(cuVSLAM + nvblox) — false면 map→odom·/map 없음 (테스트베드 faker map:=course는 map_server가 대신)'),
+        flag('use_slam', 'true', 'SLAM(cuVSLAM + nvblox) — false면 map→odom·/map 없음 (테스트베드 faker는 fake_nvblox가 대신)'),
         flag('localization', 'true', 'true=위치추정 모드(운영, 저장 지도로), false=매핑 모드(지도를 새로 만듦)'),
         flag('nvblox_map', '~/.ros/nvblox.nvblx', 'nvblox 지도 파일 — 매핑이면 끌 때 여기에 저장, 위치추정이면 시작할 때 여기서 불러옴'),
         flag('use_nav2', 'true', '진짜 Nav2 서버 (planner · controller · behavior · bt_navigator · velocity_smoother · collision_monitor)'),
@@ -236,7 +236,7 @@ def generate_launch_description():
 def nav2_nodes():
     """진짜 Nav2 서버 — 노드 이름 = nav2_params.yaml 최상위 키. 관리자 둘로 나눠 올림:
       lifecycle_manager_base       velocity_smoother · collision_monitor — 바퀴 명령 체인 (odom만 있으면 뜸 → 수동 조작은 지도 없이도)
-      lifecycle_manager_navigation planner · controller · behavior · bt_navigator — map 필요 (RTAB-Map이 아직 map→odom을 못 내도
+      lifecycle_manager_navigation planner · controller · behavior · bt_navigator — map 필요 (SLAM이 아직 map→odom을 못 내도
                                    이쪽만 실패하고 바퀴 체인은 산다. 하나로 묶으면 global_costmap 실패에 수동 조작까지 막혔음)
     리매핑만 우리 속도 체인에 맞춘다 (위 모듈 설명)."""
     on = IfCondition(LaunchConfiguration('use_nav2'))
@@ -270,7 +270,7 @@ def check_slam(context):
         missing.append('nvblox_ros (isaac_ros_nvblox — documents/jetson-orin-nano/CUVSLAM.md "nvblox")')
     if missing:
         raise RuntimeError('SLAM(cuVSLAM + nvblox)에 필요한 것이 없음: ' + ', '.join(missing) +
-                           ' — GPU 없는 곳(테스트베드)은 faker map:=course 또는 use_slam:=false로')
+                           ' — GPU 없는 곳(테스트베드)은 faker fake_slam:=true(기본) 또는 use_slam:=false로')
     return []
 
 

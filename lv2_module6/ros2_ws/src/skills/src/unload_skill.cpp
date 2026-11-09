@@ -2,7 +2,7 @@
 //   sim: carry → 벌림 → 칸 위(q_over) → 닿는 구간 (unload_slot 정책: q_grasp → 쥐기 → 잡기 판정 → 칸 위) → carry
 //   moveit: carry → 벌림 → q_over → q_grasp → 닫기 → 잡기 판정 → q_over → carry (예전)
 //   빈손이면 reason grasp_empty (coordinator가 그 칸을 '확인 필요'로)
-//   정책: model/skills/unload_slot/ (slot_env.UnloadEnv)
+//   정책: models/skills/unload_slot/ (slot_env.UnloadEnv)
 #include "rclcpp_components/register_node_macro.hpp"
 #include "skills/arm_io.hpp"
 #include "skills/basket_table.hpp"

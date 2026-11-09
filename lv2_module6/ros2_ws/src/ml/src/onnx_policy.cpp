@@ -16,6 +16,19 @@ Ort::Env & env() {
   static Ort::Env e(ORT_LOGGING_LEVEL_WARNING, "ml_onnx");
   return e;
 }
+
+bool cuda_available() {
+  // 이 ORT 빌드에 CUDA EP가 들어 있는지 — 없으면(CPU-only vendor) 조용히 CPU로 간다.
+  // GetAvailableProviders는 컴파일된 목록이라, sm_87 커널이 없는 빌드도 CUDA를 넣을 수 있다.
+  // 실제 GPU에서 커널이 없으면 세션 생성이 실패하므로 그때도 CPU로 되돌린다.
+  try {
+    for (const auto & p : Ort::GetAvailableProviders()) {
+      if (p == "CUDAExecutionProvider") return true;
+    }
+  } catch (const Ort::Exception &) {
+  }
+  return false;
+}
 }  // namespace
 
 OnnxPolicy::OnnxPolicy() = default;
@@ -23,11 +36,33 @@ OnnxPolicy::~OnnxPolicy() = default;
 OnnxPolicy::OnnxPolicy(OnnxPolicy &&) noexcept = default;
 OnnxPolicy & OnnxPolicy::operator=(OnnxPolicy &&) noexcept = default;
 
+std::string OnnxPolicy::runtime_version() { return Ort::GetVersionString(); }
+
 void OnnxPolicy::load(const std::string & path) {
   try {
-    Ort::SessionOptions opt;
-    opt.SetIntraOpNumThreads(1);  // 20Hz 작은 MLP — 다른 노드와 CPU를 덜 다툰다
-    auto s = std::make_shared<Ort::Session>(env(), path.c_str(), opt);
+    std::shared_ptr<Ort::Session> s;
+    std::string device = "CPU", note;
+    if (cuda_available()) {
+      try {
+        Ort::SessionOptions opt;
+        opt.SetIntraOpNumThreads(1);  // 20Hz 작은 MLP — 다른 노드와 CPU를 덜 다툰다
+        OrtCUDAProviderOptions cuda{};
+        cuda.device_id = 0;
+        opt.AppendExecutionProvider_CUDA(cuda);
+        s = std::make_shared<Ort::Session>(env(), path.c_str(), opt);
+        device = "CUDA";
+      } catch (const std::exception & e) {
+        s.reset();  // CUDA EP/드라이버/커널 없음 → CPU로 폴백
+        device = "CPU";
+        note = e.what();
+      }
+    }
+    if (!s) {
+      Ort::SessionOptions opt;
+      opt.SetIntraOpNumThreads(1);
+      s = std::make_shared<Ort::Session>(env(), path.c_str(), opt);
+      device = "CPU";
+    }
     if (s->GetInputCount() != 1 || s->GetOutputCount() != 1) {
       throw std::runtime_error("입력·출력이 하나씩이 아님");
     }
@@ -43,6 +78,8 @@ void OnnxPolicy::load(const std::string & path) {
     n_out_ = out_shape[1];
     session_ = std::move(s);  // 다 읽은 뒤에만 교체
     path_ = path;
+    device_ = device;
+    device_note_ = note;
   } catch (const Ort::Exception & e) {
     throw std::runtime_error(std::string("ONNX 열기 실패: ") + path + " (" + e.what() + ")");
   } catch (const std::runtime_error & e) {
@@ -75,6 +112,8 @@ OnnxPolicy::OnnxPolicy() = default;
 OnnxPolicy::~OnnxPolicy() = default;
 OnnxPolicy::OnnxPolicy(OnnxPolicy &&) noexcept = default;
 OnnxPolicy & OnnxPolicy::operator=(OnnxPolicy &&) noexcept = default;
+
+std::string OnnxPolicy::runtime_version() { return "none"; }
 
 void OnnxPolicy::load(const std::string &) {
   throw std::runtime_error("onnxruntime_vendor 없이 빌드됨 — ros-lyrical-onnxruntime-vendor 설치 후 다시 빌드");

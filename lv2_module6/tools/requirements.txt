@@ -1,0 +1,5 @@
+# tools/ Python 의존성 (ROS 밖 패키지만) — setting-venv.sh가 tools/.venv에 설치한다.
+# rclpy·메시지·rosbag2_py는 ROS setup.bash가 준다 (venv는 --system-site-packages로 그대로 보게 만듦).
+numpy        # A/B 리포트 · 캘리브레이션 (node/)
+matplotlib   # report.png · compare.png
+PyYAML       # config 기본값 비교 (cli/op/configref.py)

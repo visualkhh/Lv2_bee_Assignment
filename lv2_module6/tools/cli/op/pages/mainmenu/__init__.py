@@ -1,0 +1,36 @@
+"""메인 메뉴."""
+from __future__ import annotations
+
+from ...defs import MAIN
+from ...menus import GoMenu, Menu
+
+ENTRIES = [
+    ('1', '상태'),
+    ('2', '장치'),
+    ('3', '조작 (모드 · 수동 · 팔 · 그리퍼 · 바퀴 · E-stop)'),
+    ('4', '지도/위치'),
+    ('5', '노드 (상태 · 재시작 · 전체 재시작)'),
+    ('6', 'RViz 열기 (Best Effort QoS)'),
+    ('7', '칼리브레이션'),
+    ('8', 'A/B 테스트 (노드별)'),
+    ('9', '토픽 · bag'),
+]
+
+
+class MainMenu(Menu):
+    title = '메인 메뉴'
+    root = True
+
+    def items(self):
+        return [GoMenu(self.app, key, label, self.app.screen(key)) for key, label in ENTRIES]
+
+    def center(self):
+        return self.ui.center_summary()
+
+    def show(self) -> int:
+        self.app.poll(0.6)
+        while super().show() == MAIN:  # 하위 화면의 m = 여기로 돌아옴
+            pass
+        self.term.clear()
+        print('operator_tool 종료')
+        return 0

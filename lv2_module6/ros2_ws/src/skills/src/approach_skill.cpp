@@ -1,7 +1,7 @@
 // skill_approach — /skills/approach: 목표 자세(map x,y,yaw) 앞 마지막 몇 cm를 저속 정밀 주행 (Nav2는 로봇을 원 0.18로 봐서 못 붙는 자리)
 //   goal.target = 쓸 주행 정책: dock_box(기본, 상자 앞 도킹) · park_home(출발 구역) · drive_arc · drive_straight
 //   approach_mode sim: 시뮬 drive_env 기준 제어(목표 쪽으로 돌기 → 옆 어긋남 고치며 직진 ≤ 0.12 m/s → 마지막 방향) + 그 정책의 보정 (dv, dw)
-//     — 이 노드가 정책을 직접 계산 (20 Hz). 정책: model/skills/<정책>/ (meta use: false면 기준 제어만)
+//     — 이 노드가 정책을 직접 계산 (20 Hz). 정책: models/skills/<정책>/ (meta use: false면 기준 제어만)
 //     도착 판정은 정책 meta의 tol_m · tol_deg · hold_s (시뮬 drive_env TASKS와 같음)
 //   approach_mode legacy: 예전 coordinator approach (목표 뒤 approach_pre_m로 → 돌기 → 직선)
 //   /cmd_vel_nav로 냄 (Nav2와 같은 입구 → twist_mux 비상정지·collision_monitor 그대로). 진행이 멈추면 approach_blocked

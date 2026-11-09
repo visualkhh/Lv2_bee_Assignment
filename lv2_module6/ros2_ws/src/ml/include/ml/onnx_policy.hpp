@@ -29,11 +29,15 @@ public:
   int64_t inputs() const { return n_in_; }
   int64_t outputs() const { return n_out_; }
   const std::string & path() const { return path_; }
+  const std::string & device() const { return device_; }  // "CUDA" 또는 "CPU" — 실제 세션이 쓰는 EP
+  const std::string & device_note() const { return device_note_; }  // CUDA 시도가 실패한 이유 (없으면 "")
+  std::string provider() const { return device_ == "CUDA" ? "CUDAExecutionProvider" : "CPUExecutionProvider"; }
+  static std::string runtime_version();  // 예: "1.24.3" (ONNX 없이 빌드면 "none")
   std::vector<float> run(const std::vector<float> & obs) const;  // obs.size() == inputs()
 
 private:
   std::shared_ptr<Ort::Session> session_;  // 불완전 타입 OK (소멸자 타입소거)
-  std::string path_, in_name_, out_name_;
+  std::string path_, in_name_, out_name_, device_ = "CPU", device_note_;
   int64_t n_in_ = 0, n_out_ = 0;
 };
 

@@ -1,8 +1,8 @@
 """Re-export rsl_rl TorchScript policies to self-contained ONNX (weights inside, batch 1) for ml/rl_arm_correction.
 
 train.py's ONNX copy leaves its weights in a side .onnx.data file that is not copied, so that .onnx has no weights.
-usage: python export_onnx.py policies/place_residual_sag.pt ../ros2_ws/model/skills/place_cell/place_cell.onnx
-(robot: rl_arm_correction runs model/skills/<skill>/<skill>.policy from ml/scripts/export_policy.py — the .onnx is the reference copy)
+usage: python export_onnx.py policies/place_residual_sag.pt ../models/skills/place_cell/place_cell.onnx
+(robot: rl_arm_correction runs models/skills/<skill>/<skill>.policy from ml/scripts/export_policy.py — the .onnx is the reference copy)
 also writes <dst>.check = one random input + the torch output (float32), for the C++ test
 """
 import sys

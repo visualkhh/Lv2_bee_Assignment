@@ -5,7 +5,7 @@ find_package(ament_cmake REQUIRED)
 
 install(DIRECTORY launch config
   DESTINATION share/${PROJECT_NAME})
-# 스캔 자세일 때만 gripper_cam depth를 RTAB-Map에 넘기는 노드 (scripts/scan_cam_gate.py — 설명은 파일 머리말)
+# 스캔 자세일 때만 gripper_cam depth를 SLAM(nvblox)에 넘기는 노드 (scripts/scan_cam_gate.py — 설명은 파일 머리말)
 install(PROGRAMS scripts/scan_cam_gate.py DESTINATION lib/${PROJECT_NAME} RENAME scan_cam_gate)
 install(PROGRAMS scripts/cuvslam_slam.py DESTINATION lib/${PROJECT_NAME} RENAME cuvslam_slam)
 # nvblox 격자 → /map(latched) + 저장 지도 불러오기 (scripts/nvblox_map.py 머리말)

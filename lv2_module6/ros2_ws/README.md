@@ -4,7 +4,6 @@ ROS 2 Lyrical 실기 워크스페이스 — 로봇 bringup, 지도·주행, 팔�
 
 - 전체 설계: [`../../documents/project/ros/README.md`](../../documents/project/ros/README.md)
 - 미션 설명: [`../../documents/mission/MISSION.md`](../../documents/mission/MISSION.md)
-- 개발·도커·테스트: [`../simulator/gazebo`](../simulator/gazebo/DEVELOP.md)
 
 ## 1. 빠른 시작
 
@@ -193,7 +192,7 @@ queue depth 1로 줄였습니다.
 반면 아래 경로는 **일부러 queue를 크게** 둡니다.
 
 - `perception`: color/depth `ApproximateTimeSynchronizer` — 큐 5
-- RTAB-Map: 두 카메라·depth·odom approximate sync — 큐 10
+- SLAM(cuVSLAM·nvblox): 두 카메라·depth·odom approximate sync — 큐 10
 
 이 경로를 1로 줄이면 한 스트림이 먼저 도착했을 때 짝을 찾지 못해
 `Did not receive data`가 나거나 지도가 끊길 수 있습니다.
@@ -243,9 +242,6 @@ launch가 죽지 않고 **SLAM 없이** 뜹니다.
 # 저장된 지도로 위치추정 (기본)
 ./start.sh
 ./start.sh map:=saved map_name:=20261017_163731
-
-# 테스트베드 코스 지도 (RTAB-Map 없음)
-./start.sh map:=course
 ```
 
 - 지도 폴더: `ros2_ws/map/` (launch가 `map_dir`를 자동 지정)
@@ -333,7 +329,7 @@ ros2 topic echo /state/topics --once \
 ### 패키지별 단독 launch
 
 전체 로봇은 `bringup`으로 띄우고, 아래 launch는 해당 패키지 노드만 따로 시험할 때 씁니다.
-`ros_system`(하드웨어·Nav2·RTAB-Map)·TF·다른 패키지 노드는 포함되지 않습니다.
+`ros_system`(하드웨어·Nav2·SLAM)·TF·다른 패키지 노드는 포함되지 않습니다.
 
 ```bash
 ros2 launch control control.launch.py
@@ -456,7 +452,6 @@ serial을 환경변수로 지정하고, 한 대만 쓸 때는 반대쪽 `use_*_c
 | `start.sh` | 빌드 확인 후 bringup 실행 |
 | `stop.sh` | ROS 프로세스 전체 종료 |
 | `rebuild.sh` | `build/`·`install/`·`log/` 삭제 후 클린 빌드 |
-| `monitor.sh` | `monitor_manager`만 실행해 debug/ 토픽 기록 |
 | `download-artifact.sh` | CI 배포 패키지 다운로드 |
 | `firmware-upload.sh` | 배포 패키지에서 OpenCR 펌웨어 업로드 |
 | `99-opencr.rules` | OpenCR `/dev/opencr` udev 규칙 |

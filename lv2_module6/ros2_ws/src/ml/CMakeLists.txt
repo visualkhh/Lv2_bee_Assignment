@@ -9,6 +9,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(diagnostic_updater REQUIRED)
+find_package(diagnostic_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
@@ -23,8 +24,35 @@ find_package(tf2_geometry_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(ament_index_cpp REQUIRED)
-# ONNX Runtime — Isaac ROS vendor 패키지(ros-lyrical-onnxruntime-vendor). 없으면 ONNX 없이 빌드(Δ=0 통과)
+# ONNX Runtime — 기본은 Isaac ROS vendor(CPU 전용). GPU(CUDA) 빌드를 쓰려면
+#   colcon build --cmake-args -DML_ONNXRUNTIME_ROOT=/opt/onnxruntime
+#   (/opt/onnxruntime/include/onnxruntime_cxx_api.h · lib/libonnxruntime.so)
+set(ML_ONNXRUNTIME_ROOT "" CACHE PATH "CUDA-enabled ONNX Runtime root (include/, lib/)")
 find_package(onnxruntime_vendor QUIET)
+set(ML_ONNX_FOUND FALSE)
+set(ML_ONNX_LINK_TARGET "")
+if(ML_ONNXRUNTIME_ROOT)
+  find_path(ML_ONNX_INCLUDE_DIR onnxruntime_cxx_api.h
+    PATHS "${ML_ONNXRUNTIME_ROOT}/include" "${ML_ONNXRUNTIME_ROOT}/include/onnxruntime"
+    NO_DEFAULT_PATH)
+  find_library(ML_ONNX_LIBRARY onnxruntime
+    PATHS "${ML_ONNXRUNTIME_ROOT}/lib" NO_DEFAULT_PATH)
+  if(NOT ML_ONNX_INCLUDE_DIR OR NOT ML_ONNX_LIBRARY)
+    message(FATAL_ERROR "ML_ONNXRUNTIME_ROOT=${ML_ONNXRUNTIME_ROOT} — "
+      "include/onnxruntime_cxx_api.h 또는 lib/libonnxruntime.so가 없음")
+  endif()
+  add_library(ml_onnxruntime SHARED IMPORTED)
+  set_target_properties(ml_onnxruntime PROPERTIES
+    IMPORTED_LOCATION "${ML_ONNX_LIBRARY}"
+    INTERFACE_INCLUDE_DIRECTORIES "${ML_ONNX_INCLUDE_DIR}")
+  set(ML_ONNX_FOUND TRUE)
+  set(ML_ONNX_LINK_TARGET ml_onnxruntime)
+  set(ML_ONNX_RPATH "${ML_ONNXRUNTIME_ROOT}/lib")
+  message(STATUS "ml: ONNX Runtime GPU root 사용 — ${ML_ONNXRUNTIME_ROOT}")
+elseif(onnxruntime_vendor_FOUND)
+  set(ML_ONNX_FOUND TRUE)
+  set(ML_ONNX_LINK_TARGET onnxruntime::onnxruntime)
+endif()
 find_package(perception REQUIRED)
 find_package(controller_interface REQUIRED)
 find_package(hardware_interface REQUIRED)
@@ -53,17 +81,26 @@ add_library(ml_onnx STATIC src/onnx_policy.cpp)
 set_target_properties(ml_onnx PROPERTIES POSITION_INDEPENDENT_CODE ON)  # 플러그인(.so)에도 링크
 target_include_directories(ml_onnx PUBLIC include)
 target_link_libraries(${PROJECT_NAME}_nodes PUBLIC ml_onnx)
-if(onnxruntime_vendor_FOUND)
+if(ML_ONNX_FOUND)
   target_compile_definitions(ml_onnx PUBLIC ML_HAS_ONNX)
-  target_link_libraries(ml_onnx PUBLIC onnxruntime::onnxruntime)
-  message(STATUS "ml: ONNX Runtime 사용 (onnxruntime_vendor)")
+  target_link_libraries(ml_onnx PUBLIC ${ML_ONNX_LINK_TARGET})
+  message(STATUS "ml: ONNX Runtime 사용 (${ML_ONNX_LINK_TARGET})")
 else()
   message(WARNING "ml: onnxruntime_vendor 없음 — ONNX 없이 빌드 (Δ=0 통과 · 정책 바이패스). "
                   "설치: sudo apt install ros-lyrical-onnxruntime-vendor")
 endif()
+# GPU ONNX Runtime을 /opt/onnxruntime 같은 기본 경로 밖에 두면 provider .so를 찾도록 rpath를 박는다.
+function(ml_onnx_rpath target)
+  if(ML_ONNX_RPATH)
+    set_target_properties(${target} PROPERTIES
+      BUILD_RPATH "${ML_ONNX_RPATH}"
+      INSTALL_RPATH "${ML_ONNX_RPATH}")
+  endif()
+endfunction()
 foreach(node grasp_scorer)
   add_executable(${node} src/${node}_main.cpp)
   target_link_libraries(${node} ${PROJECT_NAME}_nodes)
+  ml_onnx_rpath(${node})
 endforeach()
 install(TARGETS grasp_scorer DESTINATION lib/${PROJECT_NAME})
 
@@ -75,8 +112,10 @@ target_link_libraries(rl_nav_controller PUBLIC rclcpp::rclcpp rclcpp_lifecycle::
   nav2_core::nav2_core nav2_util::nav2_util_core nav2_costmap_2d::nav2_costmap_2d_core
   nav2_ros_common::nav2_ros_common pluginlib::pluginlib tf2::tf2 tf2_ros::tf2_ros
   tf2_geometry_msgs::tf2_geometry_msgs ament_index_cpp::ament_index_cpp
-  ${geometry_msgs_TARGETS} ${nav_msgs_TARGETS} ${sensor_msgs_TARGETS} ${std_srvs_TARGETS})
+  ${geometry_msgs_TARGETS} ${nav_msgs_TARGETS} ${sensor_msgs_TARGETS} ${std_srvs_TARGETS}
+  ${diagnostic_msgs_TARGETS})
 target_link_libraries(rl_nav_controller PUBLIC ml_onnx)
+ml_onnx_rpath(rl_nav_controller)
 pluginlib_export_plugin_description_file(nav2_core rl_nav_controller.xml)
 install(TARGETS rl_nav_controller LIBRARY DESTINATION lib)
 
@@ -92,9 +131,9 @@ install(TARGETS rl_arm_correction LIBRARY DESTINATION lib)
 
 # 파라미터 (bringup이 share/ml/config/ml.yaml을 노드에 넘긴다)
 install(DIRECTORY config DESTINATION share/${PROJECT_NAME})
-# 학습 모델 — ros2_ws/model/<노드>/* → share/ml/model/<노드>/ (기본 model_path=nav_controller/policy.onnx)
-#   노드별 폴더로 겹치지 않게 (nav_controller · grasp_scorer …)
-set(MODEL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../model")
+# 학습 모델 — lv2_module6/models/<노드>/* → share/ml/model/<노드>/ (기본 model_path=rl_nav_controller/policy.onnx)
+#   노드별 폴더로 겹치지 않게 (rl_nav_controller · grasp_scorer …)
+set(MODEL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../models")
 if(IS_DIRECTORY "${MODEL_DIR}")
   # yolo는 perception이 share/perception/model에 설치 — ml에서 중복 설치 안 함
   install(DIRECTORY "${MODEL_DIR}/" DESTINATION share/${PROJECT_NAME}/model
@@ -109,6 +148,10 @@ if(BUILD_TESTING)
   ament_add_gtest(test_mlp_policy test/test_mlp_policy.cpp TIMEOUT 60)
   target_include_directories(test_mlp_policy PRIVATE include)
   target_compile_definitions(test_mlp_policy PRIVATE MODEL_DIR="${MODEL_DIR}")
+  ament_add_gtest(test_nav_policy_onnx test/test_nav_policy_onnx.cpp TIMEOUT 120)
+  target_include_directories(test_nav_policy_onnx PRIVATE include)
+  target_compile_definitions(test_nav_policy_onnx PRIVATE MODEL_DIR="${MODEL_DIR}")
+  target_link_libraries(test_nav_policy_onnx ml_onnx)
   ament_add_gtest(test_arm_obs test/test_arm_obs.cpp TIMEOUT 60)
   target_include_directories(test_arm_obs PRIVATE include)
   ament_add_gtest(test_grasp_scorer test/test_grasp_scorer.cpp TIMEOUT 60 ENV ROS_DOMAIN_ID=111)

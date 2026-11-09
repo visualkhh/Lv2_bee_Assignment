@@ -2,7 +2,7 @@
 # 집기 시연 환경 + ROS (SLAM·Nav2 없음): 바닥 · 시작 상자 · 퍽 2개 · 상자에서 30 cm 로봇 (manipulator_env.py)
 #   isaac/scripts/demo/pick_load_demo.sh · 시연: python3 -u isaac/scripts/demo/pick_load_play.py --clear-basket · 리셋: isaac/scripts/standalone/reset.sh
 #   인자는 manipulator_env.py로 (--headless 등) · --no-policy만 여기서: 그 skill 정책을 끔 (기준 동작만)
-#     --no-policy pick_standing_puck,load_slot  (이름 = ros2_ws/model/skills/ 폴더 · all = 전부)
+#     --no-policy pick_standing_puck,load_slot  (이름 = models/skills/ 폴더 · all = 전부)
 #   --truth-perception: YOLO 인식 대신 Isaac 참값 (standalone/truth_perception.py) — 순수 pick 시험용 (pick_test.py)
 #   --truth-noise "--bias-mm 5 --jitter-mm 1": 참값 인식에 오차를 얹음 (truth_perception.py 옵션: bias-mm · bias-x-mm · jitter-mm · yaw-bias-deg · yaw-jitter-deg)
 #   --perception-only 0,-96.4,18.6,110.4,0 | box: 팔을 그 자세(joint1~5 deg · box = 시행마다 상자 가운데를 보는 자세)로 시작하고 ROS는 perception + 카메라 + TF만 (inspect_test.py --modes static)

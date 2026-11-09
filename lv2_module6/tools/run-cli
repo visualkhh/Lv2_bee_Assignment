@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# run-cli — 로봇 스택(bringup) 시작·중지·재시작 + operator CLI.
+#   ./run-cli                     # 대화형 메뉴 (TUI)
+#   ./run-cli start               # bringup 시작 (백그라운드 · 로그 ./bringup.log = 실행한 폴더 · BRINGUP_LOG=경로로 바꿈) — 이미 떠 있으면 그대로
+#   ./run-cli stop                # 떠 있는 ROS 전부 끄기 (ros2_ws/stop.sh)
+#   ./run-cli restart [all]       # stop → start (같은 셸 환경으로 새로)
+#   ./run-cli restart <노드>      # 그 노드만 다시 띄움 (state_manager · 수명주기 노드는 active까지)
+#   ./run-cli build [colcon 인자…] # ros2_ws에서 colcon build --symlink-install (예: --packages-select ml)
+#   ./run-cli <명령> …            # 그 밖은 CLI 한 번 명령 (status · mode manual · arm show · node list …)
+#
+#   ./run-cli --source real|fake|docker [명령…]   # CLI가 쓸 ROS 층 (기본 real)
+#     real    진짜 rclpy (bringup·실기)
+#     fake    프로세스 안 가짜 ROS (ROS·도커 없이 화면 시험)
+#     docker  도커 test-faker가 /debug에 쓰는 파일 브리지 (--debug-dir로 경로 지정)
+#   start/stop/restart/build는 real 전용이다.
+set -eo pipefail
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+if [ -d /ws/src ]; then
+  WS=/ws                                               # 컨테이너
+else
+  WS="$HERE/../ros2_ws"
+fi
+LOG="${BRINGUP_LOG:-$PWD/bringup.log}"   # 기본 = 실행한 폴더 (BRINGUP_LOG=경로로 바꿈)
+
+running() { pgrep -f '[r]os2 launch bringup' >/dev/null; }
+
+start() {
+  if running; then
+    echo "bringup 이미 실행 중 — 다시 띄우려면 ./run-cli restart"
+    return 0
+  fi
+  mkdir -p "$(dirname "$LOG")"
+  # 이 셸 환경(FASTDDS_DEFAULT_PROFILES_FILE · ROS_DOMAIN_ID)을 그대로 물려줌 — ~/.bashrc를 고쳤으면 새 터미널에서
+  setsid nohup "$WS/start.sh" >"$LOG" 2>&1 </dev/null &
+  echo "bringup 시작 (pid $!) — 로그: tail -f $LOG"
+  for _ in $(seq 30); do  # 하드웨어 활성화까지 (실패해도 프로세스는 남으니 로그로 확인)
+    sleep 1
+    grep -q "Successful 'activate' of hardware\|Failed to 'activate' hardware\|FAIL:" "$LOG" 2>/dev/null && break
+  done
+  grep -E "^FAIL:|^WARN:|Fast DDS 프로파일|activate' (of )?hardware" "$LOG" | sed 's/^.*\] //' | head -12 || true
+}
+
+# --source/--debug-dir를 포함한 CLI 인자는 그대로 cli/start.sh로 넘긴다.
+# 모드 해석·검증은 cli/__main__.py가 한다 (셸은 lifecycle 명령만 가로챈다).
+case "${1:-menu}" in
+  menu) exec "$HERE/cli/start.sh" ;;
+  start) start ;;
+  stop) exec "$WS/stop.sh" ;;
+  restart)
+    if [ $# -ge 2 ] && [ "$2" != all ]; then
+      exec "$HERE/cli/start.sh" node restart "$2"
+    fi
+    "$WS/stop.sh"
+    start
+    ;;
+  build)
+    shift
+    cd "$WS"
+    if [ -f "/opt/ros/${ROS_DISTRO_NAME:-lyrical}/setup.bash" ]; then
+      # shellcheck disable=SC1091
+      source "/opt/ros/${ROS_DISTRO_NAME:-lyrical}/setup.bash"
+    fi
+    exec colcon build --symlink-install "$@"
+    ;;
+  *) exec "$HERE/cli/start.sh" "$@" ;;
+esac

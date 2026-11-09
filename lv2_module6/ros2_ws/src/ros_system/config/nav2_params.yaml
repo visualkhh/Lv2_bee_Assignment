@@ -21,8 +21,11 @@ bt_navigator:
     odom_topic: /odometry/filtered
     # BT를 한 번 tick하는 주기(ms). 10 → 100Hz. 로봇 속도와는 무관하고 configure 때 한 번 읽혀 실행 중 변경 불가.
     bt_loop_duration: 10
-    # BT 노드가 액션 서버(planner·controller·behavior)를 기다리는 기본 시간(ms).
-    default_server_timeout: 20
+    # BT 노드가 액션 서버(planner·controller·behavior)·서비스(is_path_valid)의 응답을 기다리는 시간(ms). Nav2 기본 20.
+    #   20이면 부하가 몰릴 때(도커 테스트베드 — perception YOLO·카메라 대역과 함께) 응답이 늦어
+    #   'Behavior Tree action client timed out waiting'(error 107)로 goal이 통째로 실패했음 (2026-11-07 A/B 실측)
+    #   → 100. 기다리는 시간만 늘 뿐 주행 판단은 같다.
+    default_server_timeout: 100
     # BT를 만들 때 BT 노드가 쓰는 서비스(planner_server의 is_path_valid 등)를 기다리는 시간(ms). 기본 1000ms —
     # 기동 직후 부하로 1초 안에 안 보이면 bt_navigator 활성화가 실패해 Nav2 전체가 중단됐음(실측) → 10초
     wait_for_service_timeout: 10000
@@ -89,28 +92,33 @@ controller_server:
 
     # 경로 추종 플러그인 — ml::RlNavController (RL 정책, ONNX) + inner 바이패스
     #   enable=false → inner(DWB) 그대로. ~/FollowPath/toggle 서비스로 정책 ON/OFF.
-    #   LiDAR가 없어 pole_front_cam 점구름을 36방향 가상 스캔으로 쓴다 (scan_source=points).
+    #   LiDAR가 없어 nvblox 2D ESDF height slice(0.03~0.30 m, 0.05 m voxel)를 360방향 가상 스캔으로 쓴다.
+    #   (raw 카메라 점구름은 costmap·collision_monitor가 계속 사용)
     FollowPath:
       plugin: "ml::RlNavController"
       enable: true             # true = ONNX 정책 (모델 없으면 자동 바이패스)
-      model_path: "nav_controller/policy.onnx"  # share/ml/model/nav_controller/policy.onnx
+      model_path: "rl_nav_controller/policy.onnx"  # share/ml/model/rl_nav_controller/policy.onnx
       scan_source: "points"    # points(점구름 가상 스캔) | scan(실제 LiDAR)
-      points_topic: "/pole_front_cam/depth/color/points_filtered"
-      points_stride: 4         # 점구름 솎음 (4 = 1/4)
-      z_min: 0.03              # [m] base 기준 이 높이 아래는 바닥 — 무시
-      z_max: 1.2               # [m] 천장·먼 벽 무시
+      points_topic: "/nvblox_node/combined_esdf_pointcloud"  # nvblox 2D ESDF height slice (static+dynamic, PointCloud2)
+      points_stride: 1         # height slice 점을 다 쓴다
+      esdf_max_distance: 0.20  # [m] ESDF intensity(장애물까지 거리)가 이보다 큰 free 점은 버린다
+      z_min: 0.03              # [m] base 기준 — nvblox slice 0.03~0.30 m
+      z_max: 0.30
       cloud_timeout: 0.5       # [s] 점구름이 이보다 오래되면 바이패스
       lookahead: 5             # 관측 웨이포인트 개수 (학습과 같게)
       wp_step: 0.30            # [m] 웨이포인트 간격
       wp_scale: 2.0            # 관측 정규화
-      lidar_rays: 36           # 가상 스캔 방향 수
+      lidar_rays: 360          # nvblox 0.05 m voxel / 3.5 m → 1°(360)가 최대 의미 해상도
       lidar_max: 3.5           # [m] 스캔 최대거리 (정규화 기준)
+      lidar_inflation: 0.02    # [m] 사용자 안전 여유 — 기본 2 cm (학습 1~5 cm)
       max_lin: 0.26            # [m/s] 정책 출력 ±1 스케일
       max_ang: 1.82            # [rad/s]
       extra_lin_vel: 0.0       # [m/s] 0~0.10 — 정책 출력에 더하는 추가 선속도 (max_lin 상한 유지, 0 = 끄기)
       extra_ang_vel: 0.0       # [rad/s] 0~0.50 — 정책 출력에 더하는 추가 각속도 (max_ang 상한 유지, 0 = 끄기)
       v_min_ratio: -0.2        # 후진 허용 비율 (음수 = 후진)
-      inner_plugin: "dwb_core::DWBLocalPlanner"   # 바이패스용 기본 controller
+      # 바이패스 controller — dwb(기본) · mppi · rpp · rotation_shim 또는 전체 pluginlib 클래스명.
+      #   선택한 플러그인의 파라미터는 아래 inner.* 블록에 맞출 것.
+      fallback_controller: "dwb"
       inner:                   # ← 기존 DWB 설정 (이름 앞에 inner. 붙임)
 
         # ── 속도 한계 [m/s · rad/s] — ml.yaml max_vel_x · max_vel_theta와 같은 값
@@ -264,8 +272,8 @@ local_costmap:
       width: 3
       height: 3
       resolution: 0.05
-      # 로봇 외곽 반경 (Waffle 폭 0.306 + 상판·팔) — 시뮬레이터 plant.ROBOT_R과 같게
-      robot_radius: 0.18
+      # 로봇 외곽 반경 — 실제 폭 0.306의 절반(0.153)에 여유. 테스트베드 통로가 좁아 0.16으로 최소화
+      robot_radius: 0.16
       always_send_full_costmap: true
       plugins: ["voxel_layer", "inflation_layer"]
       voxel_layer:
@@ -291,13 +299,13 @@ local_costmap:
           raytrace_max_range: 3.0
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        # 통로 0.73m − 로봇 지름 0.36m → 양쪽 여유 약 0.18m. 팽창이 통로를 다 덮지 않게 작게
-        inflation_radius: 0.25
-        cost_scaling_factor: 8.0
+        # 로봇 반경 0.16 + 최소 2cm — 통로를 덮지 않게. (기존 0.25/8.0은 0.73m 통로를 거의 다 덮었다)
+        inflation_radius: 0.18
+        cost_scaling_factor: 3.0
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# global_costmap — map 전체. 정지 지도(/map: 실기 RTAB-Map · 시뮬레이터 map_server) + pole_front_cam 장애물
+# global_costmap — map 전체. 정지 지도(/map: 실기 SLAM · 시뮬레이터 map_server) + pole_front_cam 장애물
 # ─────────────────────────────────────────────────────────────────────────────
 global_costmap:
   global_costmap:
@@ -309,11 +317,13 @@ global_costmap:
       publish_frequency: 1.0
       global_frame: map
       robot_base_frame: base_footprint
-      robot_radius: 0.18
+      robot_radius: 0.16
       resolution: 0.05
       track_unknown_space: true
       always_send_full_costmap: true
-      plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
+      # 전역 계획: 정적 벽 + 작은 팽창만 — 동적 장애물은 local costmap/DWB·ONNX ESDF가 맡는다.
+      # (obstacle_layer까지 넣으면 전역 계획이 동적 장애물에 민감해져 좁은 통로에서 자주 실패)
+      plugins: ["static_layer", "inflation_layer"]
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
         map_subscribe_transient_local: true
@@ -334,8 +344,9 @@ global_costmap:
           raytrace_max_range: 3.0
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        inflation_radius: 0.25
-        cost_scaling_factor: 8.0
+        # 로봇 반경 0.16 + 최소 2cm — 지도 가장자리까지 빨갛게 덮지 않게
+        inflation_radius: 0.18
+        cost_scaling_factor: 3.0
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -411,7 +422,7 @@ collision_monitor:
 
 # ─────────────────────────────────────────────────────────────────────────────
 # lifecycle 관리자 — 맡은 서버를 순서대로 configure·activate (하나라도 실패하면 그 관리자 것만 중단)
-#   둘로 나눈 이유: 하나로 묶으면 RTAB-Map이 아직 map→odom을 못 낼 때 global_costmap 실패로 바퀴 명령 체인까지
+#   둘로 나눈 이유: 하나로 묶으면 SLAM이 아직 map→odom을 못 낼 때 global_costmap 실패로 바퀴 명령 체인까지
 #   inactive → 수동 조작(→ twist_mux → velocity_smoother → collision_monitor)도 막힘 (실측, map:=slam)
 #   bond_timeout: 활성화한 서버와 이 시간(초) 안에 bond(생존 신호)가 이어지지 않으면 중단.
 #     기동 직후 CPU가 몰리면(진짜 Nav2 + 컨트롤러 + 인지) 10초 안에 신호가 늦게 와서 중단됐음(실측) → 여유 있게

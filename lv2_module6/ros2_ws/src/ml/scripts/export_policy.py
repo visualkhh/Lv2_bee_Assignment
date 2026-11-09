@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """학습 정책(TorchScript .pt) → ml 패키지 정책 파일(.policy, include/ml/mlp_policy.hpp가 읽음).
 
-    python3 export_policy.py policies/place_residual_sag.pt ../model/skills/place_cell/place_cell.policy   # 폴더마다 meta.yaml도 (skills/include/skills/model.hpp)
-    python3 export_policy.py plan_next.pt ../model/plan/plan_next.policy --act tanh
+    python3 export_policy.py policies/place_residual_sag.pt ../models/skills/place_cell/place_cell.policy   # 폴더마다 meta.yaml도 (skills/include/skills/model.hpp)
+    python3 export_policy.py plan_next.pt ../models/plan/plan_next.policy --act tanh
 
 rsl_rl 정책 (obs_normalizer + mlp: Linear·ELU…) 과 sb3 정책 (Linear·Tanh…, 정규화 없음) 둘 다.
 층은 state_dict의 2차원 weight 순서대로. 끝에 무작위 입력 하나와 TorchScript 출력값을 'test'로 넣어 C++이 불러올 때 검산.

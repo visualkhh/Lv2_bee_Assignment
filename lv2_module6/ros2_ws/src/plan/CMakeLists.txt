@@ -76,7 +76,7 @@ if(BUILD_TESTING)
   target_link_libraries(test_mission_memory ${PROJECT_NAME}_nodes)
   ament_add_gtest(test_plan_next test/test_plan_next.cpp TIMEOUT 60)
   target_link_libraries(test_plan_next ${PROJECT_NAME}_nodes)
-  target_compile_definitions(test_plan_next PRIVATE MODEL_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../model"
+  target_compile_definitions(test_plan_next PRIVATE MODEL_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../../models"
     CASES="${CMAKE_CURRENT_SOURCE_DIR}/test/plan_next_cases.txt")
   ament_add_test(test_launch GENERATE_RESULT_FOR_RETURN_CODE_ZERO
     COMMAND ros2 launch "${CMAKE_CURRENT_SOURCE_DIR}/launch/plan.launch.py" --show-args

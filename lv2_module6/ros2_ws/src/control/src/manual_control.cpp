@@ -9,7 +9,6 @@ ManualControl::ManualControl()
   gripper_joint_ = declare_parameter<std::string>("gripper_joint", "gripper_left_joint");
   arm_move_s_ = declare_parameter<double>("arm_move_s", 1.0);
   cmd_timeout_s_ = declare_parameter<double>("cmd_timeout_s", 0.5);
-  torque_on_delay_s_ = declare_parameter<double>("torque_on_delay_s", 0.5);
   vel_pub_ = create_publisher<TwistStamped>("/cmd_vel_manual", rclcpp::QoS(1).reliable());
   traj_pub_ = create_publisher<trajectory_msgs::msg::JointTrajectory>("/arm_controller/joint_trajectory", 10);
   gripper_ = rclcpp_action::create_client<GripperCommand>(this, "/gripper_controller/gripper_cmd");
@@ -24,7 +23,6 @@ ManualControl::ManualControl()
   reboot_cli_ = create_client<std_srvs::srv::Trigger>(declare_parameter<std::string>("reboot_service", "/beebotsystem/reboot_motors"));
   reboot_sub_ = create_subscription<std_msgs::msg::Empty>("/cmd/manual/reboot_motors", 10,
     [this](std_msgs::msg::Empty::ConstSharedPtr) { on_reboot(); });
-  torque_cli_ = create_client<std_srvs::srv::SetBool>(declare_parameter<std::string>("torque_service", "/beebotsystem/set_arm_torque"));
   cm_toggle_ = create_client<nav2_msgs::srv::Toggle>(
     declare_parameter<std::string>("collision_monitor_toggle", "/collision_monitor/toggle"));
   js_sub_ = create_subscription<sensor_msgs::msg::JointState>("/joint_states", 10,
@@ -34,15 +32,14 @@ ManualControl::ManualControl()
   timer_ = create_wall_timer(std::chrono::milliseconds(100), [this]() { watchdog(); });
   diag_.setHardwareID("beebot");
   diag_.add("상태", [this](diagnostic_updater::DiagnosticStatusWrapper & s) {
-    s.summary(manual_ || teach_ ? diagnostic_msgs::msg::DiagnosticStatus::WARN : diagnostic_msgs::msg::DiagnosticStatus::OK,
-      teach_ ? "TEACH — 팔·그리퍼 토크 꺼짐 (손으로 자세)" : manual_ ? "수동 모드" : "자동 모드");
+    s.summary(manual_ ? diagnostic_msgs::msg::DiagnosticStatus::WARN : diagnostic_msgs::msg::DiagnosticStatus::OK,
+      manual_ ? "수동 모드" : "자동 모드");
     s.add("모드", mode_);
     s.add("수동 바퀴 명령 수", vel_count_);
     s.add("수동 팔 명령 수", arm_count_);
     s.add("지도 만드는 중 막은 팔 명령", arm_blocked_);
     s.add("모터 재부팅 요청 수", reboot_count_);
     s.add("마지막 모터 재부팅", reboot_result_);
-    s.add("마지막 팔 토크", torque_result_);
     s.add("collision_monitor", cm_result_);
     s.add("마지막 바퀴 명령 [s 전]", vel_count_ ? (now() - last_vel_).seconds() : -1.0);
   });
@@ -53,16 +50,9 @@ bool ManualControl::manual() const { return manual_; }
 void ManualControl::set_mode(const std::string & mode) {
   if (mode == mode_) return;
   mode_ = mode;
-  const bool manual = mode == "MANUAL", teach = mode == "TEACH";
+  const bool manual = mode == "MANUAL";
   if (manual_ && !manual) stop_base();
   manual_ = manual;
-  if (teach && !teach_) {
-    if (torque_timer_) torque_timer_->cancel();
-    call_torque(false);  // 손으로 자세 잡기 — 팔이 처지니 잡고 있을 것
-  } else if (!teach && teach_) {
-    torque_on_here();
-  }
-  teach_ = teach;
   RCLCPP_WARN(get_logger(), "운영 모드 → %s", mode_.c_str());
   sync_collision_monitor();
 }
@@ -95,47 +85,6 @@ void ManualControl::on_reboot() {
       reboot_result_ = (res->success ? "" : "거절: ") + res->message;
       RCLCPP_WARN(get_logger(), "모터 재부팅: %s", reboot_result_.c_str());
     });
-}
-
-void ManualControl::torque_on_here() {
-  if (torque_timer_) torque_timer_->cancel();
-  // 토크가 꺼진 동안 JTC는 예전 목표를 붙잡고 있다 → 지금 각을 새 목표로 먼저 보내고, 그 궤적이 끝난 뒤 켬
-  trajectory_msgs::msg::JointTrajectory traj;
-  trajectory_msgs::msg::JointTrajectoryPoint point;
-  for (const auto & j : arm_joints_) {
-    const auto c = current_.find(j);
-    if (c == current_.end()) {
-      torque_result_ = j + " 지금 각을 모름 (/joint_states 대기) — 토크 켜기 보류";
-      RCLCPP_WARN(get_logger(), "%s", torque_result_.c_str());
-      return;
-    }
-    traj.joint_names.push_back(j);
-    point.positions.push_back(c->second);
-  }
-  point.time_from_start = rclcpp::Duration::from_seconds(0.1);
-  traj.points.push_back(point);
-  traj_pub_->publish(traj);
-  // 그리퍼도 같은 이유로 목표 = 지금 위치 (gripper_controller는 예전 목표를 붙잡고 있음)
-  if (const auto g = current_.find(gripper_joint_); g != current_.end()) send_gripper(g->second);
-  torque_timer_ = create_wall_timer(std::chrono::duration<double>(torque_on_delay_s_), [this]() {
-    torque_timer_->cancel();
-    call_torque(true);
-  });
-}
-
-void ManualControl::call_torque(bool on) {
-  if (!torque_cli_->service_is_ready()) {
-    torque_result_ = "서비스 없음: " + std::string(torque_cli_->get_service_name());
-    RCLCPP_ERROR(get_logger(), "팔 토크 %s 못 함 — %s", on ? "켜기" : "끄기", torque_result_.c_str());
-    return;
-  }
-  auto req = std::make_shared<std_srvs::srv::SetBool::Request>();
-  req->data = on;
-  torque_cli_->async_send_request(req, [this](rclcpp::Client<std_srvs::srv::SetBool>::SharedFuture f) {
-    const auto res = f.get();
-    torque_result_ = (res->success ? "" : "거절: ") + res->message;
-    RCLCPP_WARN(get_logger(), "팔 토크: %s", torque_result_.c_str());
-  });
 }
 
 void ManualControl::watchdog() {

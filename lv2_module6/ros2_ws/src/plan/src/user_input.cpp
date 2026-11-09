@@ -6,7 +6,7 @@ namespace plan {
 UserInput::UserInput()
 : rclcpp::Node("user_input") {
   const auto command = declare_parameter<std::string>("command", "");
-  if (!command.empty()) pending_.push_back(command);
+  if (command.find_first_not_of(" \t\r\n") != std::string::npos) pending_.push_back(command);  // 공백만 = 명령 없음 (dice 미션처럼 끄기)
   cmd_pub_ = create_publisher<String>("/cmd/user_command", rclcpp::QoS(10).reliable());
   say_sub_ = create_subscription<String>("/robot/say", rclcpp::QoS(10).reliable(),
     [this](String::ConstSharedPtr m) { RCLCPP_INFO(get_logger(), "🔊 \"%s\"", m->data.c_str()); });

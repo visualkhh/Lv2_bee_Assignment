@@ -111,7 +111,7 @@ deploy:
   drive_straight: {planner: "-", learned: "짧은 직진 (같은 P 제어)", env: "drive_env task=straight", runs_in: "skill_approach (주행 정책 직접 계산, 20 Hz)", obs_missing: []}
   drive_turn:   {planner: "-", learned: "없음 (시뮬 기준선 100 %)", env: "drive_env task=turn", runs_in: "-", obs_missing: []}
   drive_arc:    {planner: "-", learned: "짧은 곡선 (같은 P 제어)", env: "drive_env task=arc", runs_in: "skill_approach (주행 정책 직접 계산, 20 Hz)", obs_missing: []}
-  navigate:     {planner: Nav2, learned: "경로 따라가기 속도 (RlNavController — Nav2 FollowPath 플러그인, 정책이 속도를 직접 냄 · 정책 없으면 DWB)", env: "동료 학습 중 (model/nav_controller/policy.onnx)", runs_in: "Nav2 controller_server", obs_missing: []}
+  navigate:     {planner: Nav2, learned: "경로 따라가기 속도 (RlNavController — Nav2 FollowPath 플러그인, 정책이 속도를 직접 냄 · 정책 없으면 DWB)", env: "동료 학습 중 (models/rl_nav_controller/policy.onnx)", runs_in: "Nav2 controller_server", obs_missing: []}
   plan_next:    {planner: "-", learned: "다음 skill 고르기", env: "learning/plan/mission_sim.py", runs_in: "mission_manager (PR #49 병합 뒤, 마지막 단계)", obs_missing: []}
   nudge_cell:   {planner: "MoveIt: 칸 위", learned: "보류 (기준 동작·환경 없음)", env: "-", runs_in: "-", obs_missing: []}
   stand_puck_in_cell: {planner: "MoveIt: 칸 위", learned: "보류 (기준 동작·환경 없음)", env: "-", runs_in: "-", obs_missing: []}

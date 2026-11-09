@@ -12,7 +12,7 @@
 //     학습은 85 ms마다 오차 30 % 제거 → sag_gain = −ln(0.7)/0.085 ≈ 4.2 /s. 스킬 시작마다 ~/reset_sag 로 0.
 //     skill과 상관없이 늘 돈다 (sag_enabled). 발열 방지: stow(rest_pose)에선 0으로 풂 · 상한에 windup_s 붙으면 풀고 쉼
 //   - Δ: skill_context에 정책 파일(policy · layout)이 있을 때만 (닿는 구간). 아니면 Δ = 0
-//     정책은 skill 노드가 갖고 관리 (model/skills/<skill>/) — 처음 받은 경로는 구독 콜백(실시간 루프 밖)에서 읽고 검산해 둠 (경로별 한 번)
+//     정책은 skill 노드가 갖고 관리 (models/skills/<skill>/) — 처음 받은 경로는 구독 콜백(실시간 루프 밖)에서 읽고 검산해 둠 (경로별 한 번)
 //   - 정책: policy_hz(50)로 arm_obs(…) → MlpPolicy → a ∈ [−1, 1] → residual_live면 Δ = residual_rad·a (아니면 마지막 Δ 유지)
 //   - run_id가 바뀌면 corr·Δ·이전 행동을 0부터 (시뮬 에피소드 시작)
 //   - 손 카메라 값(/hand_relative)이 max_cam_age_s보다 오래되거나 valid가 아니면 정책을 안 돌림: Δ·행동 기록 그대로

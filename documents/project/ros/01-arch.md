@@ -9,7 +9,7 @@
 ```mermaid
 flowchart TB
     U(((사람)))
-    CLI["🛠️ operator_tool<br/>운영자 CLI (tool/run-cli)"]
+    CLI["🛠️ operator_tool<br/>운영자 CLI (tools/run-cli)"]
     subgraph EXT["외부 서비스 (ROS 바깥)"]
         SIM["🖥️ simulator (SIL)<br/>장면 렌더·플랜트"]
         AIS["🖥️ ai-service<br/>호스트 VLM 서버"]
@@ -242,13 +242,13 @@ flowchart TB
 - **모든 🛠 노드는 /diagnostics로 자기 상태를 낸다.** diagnostic_updater(OK·WARN·ERROR + 값)를 bringup의 diagnostic_aggregator가 계층별로 묶어 /diagnostics_agg로 — 운영자 CLI·시뮬레이터 상태 패널이 본다 (사람용, 노드는 의존하지 않음).
 - **도식에 bringup이 띄우는 노드가 전부 있다.** ros_system 묶음(robot_state_publisher · controller_manager + spawner 1회 · move_group · twist_mux · RealSense ×2 · ekf_filter_node · SLAM 묶음 cuvslam_slam · pole/gripper_depth_gate · nvblox_node · nvblox_map · Nav2 서버 6개 + lifecycle 관리자 둘)과 bringup 직접(🛠 노드들 · map_saver + lifecycle_manager_map_saver · diagnostic_aggregator). lifecycle 관리자를 둘로 나눈 이유: 바퀴 명령 체인(base)은 odom만 있으면 뜨게 — 하나로 묶으면 지도가 없을 때 global_costmap 실패로 수동 조작까지 막혔음.
 - **물리 하드웨어는 노란 영역, 토픽은 내지 않는다.** 장치(육각형)는 신호가 오가는 곳 가까이에 두고 같은 노란 "물리 하드웨어" 영역으로 표시했다 — 센서 쪽(카메라)과 구동 쪽(OpenCR·모터·IMU). RealSense 카메라 2대는 🔌 USB 3로 realsense2_camera 드라이버 노드에 붙고, 토픽은 드라이버 노드가 발행한다. 모터·IMU는 OpenCR → hardware interface(controller_manager) 경로로 같은 원칙을 따른다.
-- **주행 컨트롤러도 학습 정책이다.** Nav2 `FollowPath`는 `ml::RlNavController` — 관측 51(경로 웨이포인트 5 + 가상 스캔 36 + v/w/gyro + 이전 행동 2)을 ONNX에 넣어 v·ω를 직접 낸다. LiDAR가 없어 `/pole_front_cam/depth/color/points_filtered`를 base_footprint로 옮겨 36방향 최소거리(가상 스캔)를 만든다. `enable=false`(기본)이거나 모델·점구름이 없으면 inner DWB가 그대로 주행한다 (`~/FollowPath/toggle`).
+- **주행 컨트롤러도 학습 정책이다.** Nav2 `FollowPath`는 `ml::RlNavController` — 관측 375(경로 웨이포인트 5×2 + 가상 스캔 360 + v/w/gyro + 이전 행동 2)을 ONNX에 넣어 v·ω를 직접 낸다. LiDAR가 없어 nvblox 2D ESDF height slice(`/nvblox_node/combined_esdf_pointcloud`)를 base_footprint로 옮겨 360방향 최소거리(가상 스캔)를 만든다. `enable=false`이거나 정책·점구름이 없으면 inner DWB가 그대로 주행한다 (`~/FollowPath/toggle`).
 - **학습 노드는 입력을 보고 판단한다.** grasp_scorer는 `/tracked_objects`로 대상 퍽을 찾고 gripper_cam 점구름으로 후보를 매긴다.
 - **rl_arm_correction은 ROS 노드가 아니다.** controller_manager 안에서 JTC 바로 뒤에 체인으로 붙는 컨트롤러 플러그인이다 (컨트롤러 탭 참고).
 - **controller_manager 한 주기(100Hz)는 read → update → write.** move_group의 팔 궤적과 collision_monitor의 `/cmd_vel`은 언제든 도착해 다음 update에서 쓰인다. update에서 `/joint_states`(→ arm_safety_monitor)와 `/odom`·`/imu`(→ EKF)를 발행하고, JTC 목표에 rl_arm_correction의 Δ를 더해 write로 보낸다. arm_safety_monitor의 궤적 취소만 주기와 무관한 비동기 호출이다. 단계별로는 **흐름 따라가기 → "팔 한 주기"**에서 볼 수 있다.
 - **controller_manager는 하나.** 베이스·팔·그리퍼·IMU가 같은 OpenCR에 붙어 있으므로 hardware component 하나에 컨트롤러들을 함께 올린다.
 - **LiDAR가 없으므로 /scan도 없다.** 장애물은 pole_front_cam PointCloud2에서 body_filter(perception)가 팔·차체 점을 뺀 `/pole_front_cam/depth/color/points_filtered`를 Nav2 costmap·collision_monitor에 넣는다. nvblox는 점구름이 아니라 depth 영상을 받으므로 depth gate가 영상에서 카메라 0.5 m 안(자기 팔·폴대)을 0으로 바꿔 넘긴다. 원본을 그대로 넣으면 카메라에 찍힌 자기 팔이 장애물로 남았다 (실측).
-- **SLAM·위치추정은 cuVSLAM + nvblox (Jetson GPU).** cuvslam_slam이 pole_front_cam RGB-D로 위치(map→odom, 루프 클로저)를 내고, nvblox_node가 depth 두 대(pole_front_cam 늘 · gripper_cam은 스캔 자세일 때만 — depth gate)로 2D 점유 격자를 만들면 nvblox_map이 `/map`(latched)으로 다시 낸다. 지도 폴더 `<map_dir>/<이름>/nvblox.nvblx` — 매핑(`map:=slam`)이면 끌 때 저장, 위치추정(`map:=saved`)이면 시작할 때 불러온다. 실행 중 모드 전환이 없어 `/cmd/map_mode`·`/cmd/map_name`은 state_manager가 launch 전체를 인자만 바꿔 다시 띄운다. 테스트베드(GPU 없음)는 `map:=course`(map_server + 정지 map→odom)만 된다. slam_toolbox·amcl은 LaserScan이 필요해서 쓰지 않는다 (Nav2·SLAM 섹션의 3-1).
+- **SLAM·위치추정은 cuVSLAM + nvblox (Jetson GPU).** cuvslam_slam이 pole_front_cam RGB-D로 위치(map→odom, 루프 클로저)를 내고, nvblox_node가 depth 두 대(pole_front_cam 늘 · gripper_cam은 스캔 자세일 때만 — depth gate)로 2D 점유 격자를 만들면 nvblox_map이 `/map`(latched)으로 다시 낸다. 지도 폴더 `<map_dir>/<이름>/nvblox.nvblx` — 매핑(`map:=slam`)이면 끌 때 저장, 위치추정(`map:=saved`)이면 시작할 때 불러온다. 실행 중 모드 전환이 없어 `/cmd/map_mode`·`/cmd/map_name`은 state_manager가 launch 전체를 인자만 바꿔 다시 띄운다. 테스트베드(GPU 없음)는 faker `fake_slam`(기본)으로 `map:=slam|saved`를 fake_cuvslam + fake_nvblox(센서 점구름 → `/map`·`nvblox.nvblx`)로 돌린다. slam_toolbox·amcl은 LaserScan이 필요해서 쓰지 않는다 (Nav2·SLAM 섹션의 3-1).
 - **TF 발행자는 딱 둘로 나뉜다.** map→odom은 cuvslam_slam, odom→base_footprint는 robot_localization EKF(바퀴 `/odom` + `/imu` + cuVSLAM 시각 오도메트리 `/cuvslam/odom`(속도만) 융합)만 낸다. EKF의 `/odometry/filtered`는 Nav2 controller의 현재 속도 입력이다. diff_drive_controller는 `enable_odom_tf: false`로 TF를 내지 않는다 (베이스·TF 섹션 참고).
 - **gripper_cam도 RealSense.** 파지 직전 근접 점구름을 grasp_scorer에 주고, 접근 단계의 미세 정렬에 쓴다.
 ---

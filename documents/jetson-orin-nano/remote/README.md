@@ -86,7 +86,7 @@ ssh bee
 ```bash
 ssh bee@bee.local
 
-cd ~/Lv2_bee_Assignment/lv2_module6/tool
+cd ~/Lv2_bee_Assignment/lv2_module6/tools
 ./run-cli
 ```
 
@@ -94,7 +94,7 @@ RViz 같은 개별 GUI 앱만 필요하면 X11 포워딩을 사용할 수 있다
 
 ```bash
 ssh -X bee@bee.local
-cd ~/Lv2_bee_Assignment/lv2_module6/tool
+cd ~/Lv2_bee_Assignment/lv2_module6/tools
 ./run-rviz
 ```
 

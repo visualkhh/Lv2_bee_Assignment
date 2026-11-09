@@ -15,7 +15,7 @@
 | gripper_cam | 그리퍼 위에 얹은 **Intel RealSense 깊이 카메라**(RGB-D), 팔과 함께 움직임 — 근접 파지용 |
 | pole_front_cam | 뒤쪽 전원선 가이드 폴 위 **Intel RealSense 깊이 카메라**(RGB-D), 전방 하향 — **인지·SLAM·장애물·octomap 전부 담당** |
 | 연산 | 로봇 탑재 PC 1대 + 학습용 GPU PC 1대 (Isaac Sim / Isaac Lab) |
-| 환경 | 미로 코스 4.46 × 6.36m (벽 높이 0.39m, 통로 약 0.73m) — lv2_module6/course, 미끄러운 바닥 구간 가정 · 발제 경기장 A·B 각 4464×3212mm ([mission](../../mission/README.md)) |
+| 환경 | Isaac Sim 장면 `lv2_module6/isaac/usda` (미로·퍽·선반), 미끄러운 바닥 구간 가정 · 발제 경기장 A·B 각 4464×3212mm ([mission](../../mission/README.md)) |
 | 대표 작업 | **신호등 암호 미션** ([mission/README.md](../../mission/README.md)) — 신호등 깜빡임(색·개수 · 번호 합 · 목적지)을 읽고, 그 색 **퍽**(30×30×60mm, 윗면 AprilTag 번호) 중 번호 합이 맞는 조합을 적재함에 실어 **목적지 장소**(장소 태그 L1~L3)에 내려놓기 → 그대로 있는지 주기적으로 확인. 가는 길의 장애물·사람 회피 |
 | 표식 | AprilTag tag36h11 — 퍽 윗면 16mm(0~11, 번호 = 색·점수) · 장소 48mm(12~14) / 바코드 Code128(P2-xx, 장소의 작업 지시) |
 

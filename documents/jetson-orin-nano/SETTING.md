@@ -111,7 +111,7 @@ sudo rm -f /swapfile
 ```
 
 > swap을 켠 뒤에도 mapping이 또 멈추면 OOM인지 먼저 확인한다:
-> `journalctl -k -b -1 | grep -i -E 'oom|killed process'` · `tail -n 120 lv2_module6/tool/bringup.log`
+> `journalctl -k -b -1 | grep -i -E 'oom|killed process'` · `tail -n 120 lv2_module6/tools/bringup.log`
 
 
 # ros setting
@@ -230,6 +230,7 @@ sudo apt-get install -y --no-install-recommends \
     ros-lyrical-robot-localization \
     ros-lyrical-rosx-introspection \
     ros-lyrical-onnxruntime-vendor \
+    ros-lyrical-nav2-common \
     ros-lyrical-cv-bridge \
     libopencv-dev \
     rapidjson-dev \
@@ -321,6 +322,24 @@ SLAM은 cuVSLAM(위치 — map→odom) + nvblox(지도 — /map)다.
 python3 -c "import cuvslam; print(cuvslam.get_version())"
 ros2 pkg prefix nvblox_ros && ros2 pkg executables nvblox_ros | grep nvblox_node
 ```
+
+# ONNX Runtime — RL 주행 정책 (GPU 자동, 없으면 CPU)
+
+`rl_nav_controller`는 `policy.onnx`를 ONNX Runtime으로 추론한다. CUDA EP가 있으면 GPU,
+없으면 CPU로 자동 폴백한다. **`ros-lyrical-onnxruntime-vendor`는 CPU 전용**이라, GPU를 쓰려면
+Jetson에서 CUDA EP 포함 ONNX Runtime을 빌드해 `/opt/onnxruntime`에 두고 `ml`을 다시 빌드해야 한다.
+
+```bash
+# 1) CUDA EP 포함 ONNX Runtime 빌드 (sm_87) — 자세한 명령은 ONNXRUNTIME.md 3절
+# 2) ml 패키지만 GPU ORT를 보게 빌드
+cd <repo>/lv2_module6/ros2_ws
+colcon build --symlink-install --packages-select ml \
+  --cmake-args -DML_ONNXRUNTIME_ROOT=/opt/onnxruntime
+# 3) 확인 — device=CUDA면 GPU
+./build/ml/test_nav_policy_onnx
+```
+
+설치·검증·도커 GPU 설정 전체는 [`ONNXRUNTIME.md`](ONNXRUNTIME.md)에 있다.
 
 # 1. Arduino CLI 설치
 ```bash

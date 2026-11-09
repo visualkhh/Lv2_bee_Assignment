@@ -19,7 +19,7 @@
 <a id="api-custom"></a>
 ## 1. 커스텀 인터페이스 정의
 
-별도 interfaces 패키지 없이 **그 메시지를 내보내는 패키지**가 가집니다 ([DEVELOP.md](../lv2_module6/simulator/gazebo/DEVELOP.md#4-커스텀-메시지)).
+별도 interfaces 패키지 없이 **그 메시지를 내보내는 패키지**가 가집니다 ([lv2_module6/README.md](../lv2_module6/README.md)).
 C++ 헤더는 타입명을 snake_case로: `TrackedObjectArray` → `perception/msg/tracked_object_array.hpp`.
 
 <a id="api-msg-trackedobject"></a>
@@ -365,7 +365,7 @@ string message
 
 | 이름 | 타입 | 보내는 쪽 → 받는 쪽 | 주기 · QoS |
 | --- | --- | --- | --- |
-| `/map` | nav_msgs/OccupancyGrid | nvblox_map → planner_server (global_costmap static layer) | 새 격자가 오면 최대 1Hz · reliable + transient_local (테스트베드 `map:=course`는 map_server) |
+| `/map` | nav_msgs/OccupancyGrid | nvblox_map(실기) · fake_nvblox(테스트베드) → planner_server (global_costmap static layer) | 새 격자가 오면 최대 1Hz · reliable + transient_local |
 | `/nvblox_node/static_occupancy_grid` | nav_msgs/OccupancyGrid (map) | nvblox_node → nvblox_map | nvblox 2D 점유 격자 · 보통 토픽(latched 아님) — 주기는 실기에서 확인 |
 | `/cuvslam/odom` | nav_msgs/Odometry | cuvslam_slam → ekf (`odom1`, vx·vy만) | 카메라 프레임마다 — 시각 오도메트리(속도) |
 | `/cuvslam/path` | nav_msgs/Path | cuvslam_slam → RViz | cuVSLAM 궤적 (표시용) |
@@ -419,7 +419,7 @@ string message
 | `/state/restart` | std_msgs/String (transient_local) | state_manager → 시뮬레이터 상태판 · 누구나 | 마지막 재시작 요청 결과 — `all: 재시작 중 …` · `node perception: 재시작 (pid …)` · `거절: …` · 새로 뜨면 `시작 (pid …)` |
 | `/cmd/map_name` | std_msgs/String | 시뮬레이터 지도 목록 · 운영자 → state_manager | 지도 폴더 이름 — `<map_dir>/<이름>/nvblox.nvblx`가 있으면 launch 전체를 `map:=saved map_name:=<이름>`으로 다시 띄움 (`/cmd/restart all`과 같은 길 · nvblox_map이 시작할 때 불러옴 — 위치추정, 결과는 다시 뜬 state_manager의 `/state/map_name` · `/state/map_mode`) |
 | `/cmd/map_mode` | std_msgs/String | 시뮬레이터 · 운영자 → state_manager | MAPPING(스캔) · LOCALIZATION(위치추정) — cuVSLAM·nvblox는 실행 중 전환이 없어 launch 전체를 다시 띄움: MAPPING → `map:=slam`(새 지도 폴더) · LOCALIZATION → `map:=saved map_name:=<지금 폴더>` |
-| `/state/map_mode` | std_msgs/String (transient_local) | state_manager → 시뮬레이터 · 누구나 | MAPPING · LOCALIZATION · COURSE(정지 지도, 바꿀 수 없음) — 다시 뜬 state_manager가 새 값으로 발행 |
+| `/state/map_mode` | std_msgs/String (transient_local) | state_manager → 시뮬레이터 · 누구나 | MAPPING · LOCALIZATION — 다시 뜬 state_manager가 새 값으로 발행 |
 | `/state/map_name` | std_msgs/String (transient_local) | state_manager → 시뮬레이터 · 누구나 | 지금 쓰는 지도 폴더 이름 (`<map_dir>/<이름>/` nvblox.nvblx · map.pgm · map.yaml, 빈 값 = 폴더 없음) — 시뮬레이터 [지도 저장]이 같은 폴더에 씀 |
 
 - `/state/devices`는 **이름 목록만** 낸다. 장치별 `active/disconnected`와 세부 토픽은 `/state/devices/<이름>`에서 본다.
@@ -461,7 +461,7 @@ string message
 ### skill 노드 (`plan/action/Skill`, 2026-11-04)
 
 coordinator가 계획 단계마다 skill 노드 하나에 맡김 — 한 노드에 한 번에 goal 하나. 결과 `success` · `reason`(실패 이유 → `/task/status` reason 그대로) · 피드백 `stage`.
-학습 정책은 skill 노드가 갖고 관리: `lv2_module6/ros2_ws/model/skills/<skill>/` (`<skill>.policy` 로봇용 · `<skill>.onnx` 원본 · `meta.yaml` 쓸지·시뮬 성공률·출처).
+학습 정책은 skill 노드가 갖고 관리: `lv2_module6/models/skills/<skill>/` (`<skill>.policy` 로봇용 · `<skill>.onnx` 원본 · `meta.yaml` 쓸지·시뮬 성공률·출처).
 
 | 액션 | 노드 (컨테이너) | 쓰는 goal 칸 | 하는 일 · 정책 |
 | --- | --- | --- | --- |

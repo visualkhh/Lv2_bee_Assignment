@@ -7,18 +7,16 @@
 //   상태를 바꾸는 일(지도 모드 전환 = 다시 띄우기 등)도 여기서 직접 해서, 발행 값 = 진짜 상태. 건강·오류는 상태가 아니라 diagnostics 몫.
 //   새 상태를 늘릴 때도 /state/<이름> (std_msgs, transient_local) 하나씩.
 //   조작 모드
-//     입력: ✉️ /cmd/operation_mode (std_msgs/String "MANUAL" | "AUTO" | "EXPLORE" | "TEACH") — 시뮬레이터 [수동 조작] · [자동 탐사] · bee.py manual
+//     입력: ✉️ /cmd/operation_mode (std_msgs/String "MANUAL" | "AUTO" | "EXPLORE") — 시뮬레이터 [수동 조작] · [자동 탐사] · bee.py manual
 //           EXPLORE(자동 탐사 — plan/explorer가 프론티어로 Nav2 목표를 보냄)는 지도 모드 MAPPING · 비상정지 아님일 때만 허락.
-//           TEACH(손으로 팔 자세 가르치기 — manual_control이 팔 토크를 끔)는 지도 모드 MAPPING이 아닐 때만 허락.
 //           ✉️ /explore/result (std_msgs/String "DONE …" | "FAILED …", explorer) · MAPPING이 끝남 · 지도 바꿈 · 비상정지 → AUTO로 되돌림
-//   출력: ✉️ /state/operation_mode (std_msgs/String "AUTO" | "MANUAL" | "EXPLORE" | "TEACH", transient_local) → manual_control(수동 명령 통과 · TEACH면 팔 토크 끔) · coordinator(자동 실행 멈춤)
+//   출력: ✉️ /state/operation_mode (std_msgs/String "AUTO" | "MANUAL" | "EXPLORE", transient_local) → manual_control(수동 명령 통과) · coordinator(자동 실행 멈춤)
 //         ✉️ /state/emergency (std_msgs/Bool, transient_local) — /cmd/e_stop 그대로. coordinator는 이것만 본다 (원본 직접 구독 금지)
 //   지도 모드
 //     입력: ✉️ /cmd/map_mode (std_msgs/String "MAPPING" | "LOCALIZATION") — 시뮬레이터 [스캔 시작] · [위치추정으로]
 //           cuVSLAM·nvblox는 실행 중 모드 전환이 없음 → launch 전체를 인자만 바꿔 다시 띄움 (아래 재시작 "all"):
 //             MAPPING → map:=slam (새 지도 폴더) · LOCALIZATION → map:=saved map_name:=<지금 폴더>
-//     출력: ✉️ /state/map_mode (std_msgs/String "MAPPING" | "LOCALIZATION" | "COURSE", transient_local) — 다시 뜬 이 노드가 새 값으로 발행
-//           COURSE = SLAM 없이 정지 지도(테스트베드 코스 지도) — 바꿀 수 없음
+//     출력: ✉️ /state/map_mode (std_msgs/String "MAPPING" | "LOCALIZATION", transient_local) — 다시 뜬 이 노드가 새 값으로 발행
 //     파라미터 map_dir: 지도 폴더들이 있는 곳 (테스트베드 /ws/map — faker가 넘김, 비면 /cmd/map_name 거부)
 //     시작 값: 파라미터 map_mode (launch가 정한 모드 그대로 — 실기 LOCALIZATION · faker map:=slam → MAPPING)
 //     출력: ✉️ /state/map_list (std_msgs/String, transient_local) — 가진 지도 폴더 이름들 (줄바꿈 구분, <map_dir>/<이름>/nvblox.nvblx 있는 것)

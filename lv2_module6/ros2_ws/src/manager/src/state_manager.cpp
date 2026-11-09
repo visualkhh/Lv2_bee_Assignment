@@ -42,7 +42,8 @@ const std::vector<DeviceSpec> DEVICE_SPECS = {
 
 StateManager::StateManager(const rclcpp::NodeOptions & options)
 : rclcpp::Node("state_manager", options) {
-  map_mode_ = declare_parameter<std::string>("map_mode", "LOCALIZATION");
+  map_mode_ = declare_parameter<std::string>("map_mode", "NONE");
+  operation_ = declare_parameter<std::string>("operation", operation_);
   map_name_ = declare_parameter<std::string>("map_name", "");
   map_dir_ = declare_parameter<std::string>("map_dir", "");
   restart_prepare_ = declare_parameter<std::string>("restart_prepare", "");
@@ -129,14 +130,26 @@ StateManager::StateManager(const rclcpp::NodeOptions & options)
   { std_msgs::msg::Bool m; m.data = estop_; estop_pub_->publish(m); }
   diag_.setHardwareID("beebot");
   diag_.add("상태", [this](diagnostic_updater::DiagnosticStatusWrapper & s) {
-    if (!map_error_.empty()) s.summary(DiagnosticStatus::WARN, "지도 모드 전환 실패 — " + map_error_);
+    std::string offline;
+    for (const auto & [name, status] : device_status_) {
+      if (status.find("|disconnected|") != std::string::npos) {
+        if (!offline.empty()) offline += ", ";
+        offline += name;
+      }
+    }
+    if (!offline.empty()) s.summary(DiagnosticStatus::WARN, "장치 끊김 — " + offline);
+    else if (!map_error_.empty()) s.summary(DiagnosticStatus::WARN, "지도 모드 전환 실패 — " + map_error_);
     else s.summary(DiagnosticStatus::OK, operation_ + " · " + map_mode_ + (map_name_.empty() ? "" : " · " + map_name_));
     s.add("조작 모드", operation_);
     s.add("지도 모드", map_mode_);
     s.add("지도 폴더", map_name_.empty() ? "-" : map_name_);
+    s.add("지도 경로", map_dir_.empty() ? "-" : map_dir_);
     s.add("비상정지", estop_ ? "ON" : "-");
     s.add("탐사", explore_note_.empty() ? "-" : explore_note_);
     s.add("재시작", restart_note_);
+    s.add("재시작 준비", restart_prepare_.empty() ? "-" : restart_prepare_);
+    s.add("장치", devices_.empty() ? "-" : devices_);
+    s.add("끊긴 장치", offline.empty() ? "-" : offline);
   });
   RCLCPP_INFO(get_logger(), "조작 %s · 지도 %s %s", operation_.c_str(), map_mode_.c_str(), map_name_.c_str());
 }
@@ -161,12 +174,8 @@ void StateManager::set_estop(bool engaged) {
 }
 
 void StateManager::request_operation(const std::string & mode) {
-  if (mode != "MANUAL" && mode != "AUTO" && mode != "EXPLORE" && mode != "TEACH") {
-    RCLCPP_WARN(get_logger(), "조작 모드 요청 '%s' 모름 (MANUAL | AUTO | EXPLORE | TEACH)", mode.c_str());
-    return;
-  }
-  if (mode == "TEACH" && map_mode_ == "MAPPING") {  // 지도 만드는 중엔 팔이 스캔 자세에 고정 (gripper_cam = 두 번째 지도 카메라)
-    RCLCPP_WARN(get_logger(), "조작 모드 요청 TEACH 거절: 지도 만드는 중(MAPPING) — 팔 스캔 자세 고정");
+  if (mode != "MANUAL" && mode != "AUTO" && mode != "EXPLORE") {
+    RCLCPP_WARN(get_logger(), "조작 모드 요청 '%s' 모름 (MANUAL | AUTO | EXPLORE)", mode.c_str());
     return;
   }
   if (mode == "EXPLORE" && (map_mode_ != "MAPPING" || estop_)) {  // 탐사 = 매핑하며 스스로 돌아다님
@@ -189,10 +198,8 @@ void StateManager::request_map_mode(const std::string & mode) {
   // cuVSLAM·nvblox는 실행 중 모드 전환이 없음 → launch 전체를 인자만 바꿔 다시 띄움 (request_restart "all" — 새 프로세스가 새 상태를 발행)
   //   MAPPING → map:=slam (새 지도 폴더 — nvblox는 이어 붙이지 않음) · LOCALIZATION → map:=saved map_name:=<지금 폴더>
   map_error_.clear();
-  if (mode != "MAPPING" && mode != "LOCALIZATION") {
-    map_error_ = "모르는 값 '" + mode + "' (MAPPING | LOCALIZATION)";
-  } else if (map_mode_ == "COURSE") {
-    map_error_ = "COURSE(정지 지도)는 바꿀 수 없음 — faker map:=slam · saved 로 띄울 것";
+  if (mode != "MAPPING" && mode != "LOCALIZATION" && mode != "NONE") {
+    map_error_ = "모르는 값 '" + mode + "' (NONE | MAPPING | LOCALIZATION)";
   } else if (mode == map_mode_) {
     return;
   } else if (mode == "LOCALIZATION" && map_name_.empty()) {
@@ -202,7 +209,10 @@ void StateManager::request_map_mode(const std::string & mode) {
       explore_note_ = "지도 모드를 바꿔 탐사 멈춤 (다시 띄움)";
       set_operation_mode("AUTO");
     }
-    request_restart(mode == "MAPPING" ? "all map:=slam" : "all map:=saved map_name:=" + map_name_);
+    // 지도 선택/위치추정 = 바로 자율 주행 가능한 AUTO · 지도 없음/매핑 = MANUAL
+    if (mode == "NONE") request_restart("all map:=none operation:=MANUAL");
+    else if (mode == "MAPPING") request_restart("all map:=slam operation:=MANUAL");
+    else request_restart("all map:=saved map_name:=" + map_name_ + " operation:=AUTO");
   }
   if (!map_error_.empty()) RCLCPP_WARN(get_logger(), "지도 모드 요청 %s: %s", mode.c_str(), map_error_.c_str());
 }
@@ -231,8 +241,6 @@ void StateManager::request_map_name(const std::string & name) {
   const auto file = std::filesystem::path(map_dir_) / name / kMapFile;
   if (map_dir_.empty()) {
     map_error_ = "map_dir 파라미터 없음 — 지도 폴더를 모름";
-  } else if (map_mode_ == "COURSE") {
-    map_error_ = "COURSE(정지 지도)에선 지도를 갈아끼울 수 없음 — faker map:=slam · saved";
   } else if (name.empty() || name.find('/') != std::string::npos || !std::filesystem::exists(file)) {
     map_error_ = "지도 없음: " + file.string();
   } else if (name == map_name_ && map_mode_ == "LOCALIZATION") {
@@ -242,7 +250,7 @@ void StateManager::request_map_name(const std::string & name) {
       explore_note_ = "지도를 바꿔 탐사 멈춤 (다시 띄움)";
       set_operation_mode("AUTO");
     }
-    request_restart("all map:=saved map_name:=" + name);
+    request_restart("all map:=saved map_name:=" + name + " operation:=AUTO");
   }
   if (!map_error_.empty()) RCLCPP_WARN(get_logger(), "지도 바꾸기 %s: %s", name.c_str(), map_error_.c_str());
 }
@@ -326,13 +334,14 @@ void StateManager::publish_devices() {
   add_joints("gripper", {"gripper_left_joint"});
 
   // 1) 이름 목록 — std_msgs/String 하나에 쉼표로 구분해 넣는다.
+  //    2초마다 같은 값도 다시 발행한다 — CLI는 마지막 /state/* 수신 시각으로 연결을 판단하므로
+  //    값이 바뀔 때만 내면 한가할 때 '끊김'으로 보이고 12초마다 재연결 exec를 한다 (실측).
+  //    작은 문자열 0.5Hz라 부하는 무시할 수준.
   std::string list;
   for (size_t i = 0; i < names.size(); ++i) list += (i ? "," : "") + names[i];
-  if (!devices_published_ || list != devices_) {
-    publish(devices_pub_, list);
-    devices_ = list;
-    devices_published_ = true;
-  }
+  publish(devices_pub_, list);
+  devices_ = list;
+  devices_published_ = true;
 
   // 2) 장치별 상태 상세 — 활성 여부·세부 토픽/관절
   const auto qos = rclcpp::QoS(1).reliable().transient_local();

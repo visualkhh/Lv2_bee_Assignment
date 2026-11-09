@@ -3,7 +3,7 @@
 //     contact_mode sim: 후보 손 방향 ψ로 푼 관절값으로 퍽 위 5 cm까지 MoveIt (pregrasp — 기준선으로 충분, 정책 없음) → 벌림 → 닿는 구간 (pick_standing_puck 정책: 내려가기 → 쥐기 → 잡기 판정 → 올리기)
 //     moveit: 접근 → 벌림 → 파지 위치 → 닫기(grip_current_a) → 잡기 판정 → 들어올리기 (예전)
 //   실패 이유: no_grasp · arm_contact (과전류 접촉) · grasp_empty (빈손) · grasp_failed_all
-//   정책: model/skills/pick_standing_puck/ (팀원 pick_env)
+//   정책: models/skills/pick_standing_puck/ (팀원 pick_env)
 #include "ml/srv/score_grasps.hpp"
 #include "moveit_msgs/srv/apply_planning_scene.hpp"
 #include "rclcpp_components/register_node_macro.hpp"

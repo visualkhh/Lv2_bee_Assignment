@@ -53,7 +53,7 @@ python3 -u isaac/scripts/demo/pick_load_play.py --clear-basket --storage 0,1
 | `--seed` | `pick_load_demo.sh` | 비운 항목과 퍽 방향을 정한다. 자리는 두 곳 고정 |
 | `--headless` | `pick_load_demo.sh` | 창 없이 실행 |
 | `--no-play` | `pick_load_demo.sh` | Play를 자동으로 누르지 않음 |
-| `--no-policy` | `pick_load_demo.sh` | 그 skill 정책을 끄고 기준 동작만. `pick_standing_puck,load_slot` (이름 = `ros2_ws/model/skills/` 폴더) · `all` |
+| `--no-policy` | `pick_load_demo.sh` | 그 skill 정책을 끄고 기준 동작만. `pick_standing_puck,load_slot` (이름 = `models/skills/` 폴더) · `all` |
 | `--no-twist-state` | `pick_load_demo.sh` | `/joint_states`에 관절 비틀림을 더하지 않음 (엔코더 각 그대로). 기본은 더함 = TF가 실제 팔 (`twist_state`) |
 | `--storage` | `pick_load_play.py` | 적재함 칸 2개를 싣는 순서대로. 없으면 `next` |
 | `--self-test` | `pick_load_play.py` | ROS 없이 계산만 확인 |
