@@ -28,6 +28,11 @@ stand again (--retries); standing -> pick -> /skills/load into slot S, S+1, ...;
 already stands is picked straight away. Ends when inspect finds no puck at the spot. logs/stand_auto_<ts>.csv, one bag per puck.
     ROS_DOMAIN_ID=88 python3 stand_loop.py --auto --slot 0 --x 0.22 --y 0.0
 
+use_sim=true (or --use_sim true): the beebot in Isaac Sim (isaac/scripts/standalone/isaac_sim.sh — same bringup, topics
+and skills as the robot, every node on /clock): this script and its bag recorder run on sim time too (the depth check
+compares image stamps with "now"). Run it in a shell with the ROS_DOMAIN_ID isaac_sim.sh was started with.
+    python3 stand_loop.py use_sim=true --perception --pick --x 0.22 --y 0.0 --rounds 10
+
 One bag per round (./manipulator-record.sh, --bag cam|nocam|off) -> logs/stand_loop_<ts>_bags/round_NN/: starts when the
 round starts, stops a little after the result (putting the puck back is not recorded).
 logs/stand_loop_<ts>.csv: per round the skill result, whether the puck really stands (you answer y/n after putting it
@@ -36,6 +41,8 @@ between rounds with `ros2 param set /skill_stand stand_...` (read at every goal)
 """
 
 import argparse
+import re
+import sys
 import csv
 import math
 import os
@@ -63,6 +70,9 @@ from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.time import Time
 from tf2_ros import Buffer, TransformListener
 
+# launch-style key=value arguments (use_sim=true) → --key value
+sys.argv[1:] = [t for a in sys.argv[1:] for t in (["--" + a.split("=", 1)[0], a.split("=", 1)[1]]
+                                                  if re.fullmatch(r"[a-z_]+=.*", a) else [a])]
 parser = argparse.ArgumentParser()
 parser.add_argument("--x", type=float, default=0.22, help="puck centre ahead of base_footprint [m] (arm reach 0.13-0.31)")
 parser.add_argument("--y", type=float, default=0.0, help="puck centre left of base_footprint [m]")
@@ -77,6 +87,8 @@ parser.add_argument("--perception", action="store_true",
 parser.add_argument("--match-m", type=float, default=0.08, help="--perception: tracked lying puck must be this close to --x/--y [m]")
 parser.add_argument("--pick", action="store_true",
                     help="after a stand the depth calls standing: /skills/pick it (demo stand -> pick)")
+parser.add_argument("--use_sim", type=lambda v: v.strip().lower() in ("1", "true", "yes"), default=False,
+                    help="true: Isaac Sim beebot (isaac_sim.sh) — node and bag on sim time")
 parser.add_argument("--auto", action="store_true", help="stand -> (retry) -> pick -> load every lying puck, no questions")
 parser.add_argument("--slot", type=int, default=0, help="--auto: first basket slot 0-11")
 parser.add_argument("--retries", type=int, default=3, help="--auto: stand attempts per puck after the first")
@@ -116,7 +128,12 @@ else:
 os.environ.setdefault("FASTDDS_DEFAULT_PROFILES_FILE",
                       str(Path(__file__).resolve().parents[3] / "ros2_ws" / "fastdds_local_only.xml"))
 rclpy.init()
-node = rclpy.create_node("stand_loop")
+if args.use_sim:
+    from rclpy.parameter import Parameter
+    node = rclpy.create_node("stand_loop", parameter_overrides=[Parameter("use_sim_time", Parameter.Type.BOOL, True)])
+    print("use_sim: Isaac Sim beebot, sim time (/clock)")
+else:
+    node = rclpy.create_node("stand_loop")
 tf_buf = Buffer()
 TransformListener(tf_buf, node)
 latched = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.TRANSIENT_LOCAL)
@@ -189,7 +206,7 @@ class RoundBag:
         self.proc = None
         if args.bag == "off":
             return
-        env = dict(os.environ, BAG_OUT=str(BAG_DIR / f"round_{n:02d}"), BAG_NODE=BAG_NODE)
+        env = dict(os.environ, BAG_OUT=str(BAG_DIR / f"round_{n:02d}"), BAG_NODE=BAG_NODE, BAG_SIM="1" if args.use_sim else "")
         BAG_DIR.mkdir(parents=True, exist_ok=True)
         self.proc = subprocess.Popen([str(BAG_SH)] + (["nocam"] if args.bag == "nocam" else []), env=env,
                                      stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

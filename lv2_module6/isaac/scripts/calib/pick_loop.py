@@ -23,10 +23,14 @@ failure, one bag for the round (no pauses). No ruler / in-hand questions (the pu
 
     ROS_DOMAIN_ID=88 python3 pick_loop.py --box-x 0.22 --box-y 0.0 --rounds 0      (0 = until q / Ctrl-C)
     ROS_DOMAIN_ID=88 python3 pick_loop.py --pucks 3 --slot 0 --auto
+use_sim=true (or --use_sim true): the beebot in Isaac Sim (isaac/scripts/standalone/isaac_sim.sh, same topics and skills),
+script and bag on sim time — run with the ROS_DOMAIN_ID isaac_sim.sh was started with.
 Policy on/off is not set here: ros2_ws/model/skills/pick_standing_puck/meta.yaml (use:) + colcon build.
 """
 
 import argparse
+import re
+import sys
 import csv
 import math
 import os
@@ -47,6 +51,9 @@ from rcl_interfaces.srv import SetParameters
 from rclpy.time import Time
 from tf2_ros import Buffer, TransformListener
 
+# launch-style key=value arguments (use_sim=true) → --key value
+sys.argv[1:] = [t for a in sys.argv[1:] for t in (["--" + a.split("=", 1)[0], a.split("=", 1)[1]]
+                                                  if re.fullmatch(r"[a-z_]+=.*", a) else [a])]
 parser = argparse.ArgumentParser()
 parser.add_argument("--box-x", type=float, default=0.22, help="box centre ahead of base_footprint [m]")
 parser.add_argument("--box-y", type=float, default=0.0, help="box centre left of base_footprint [m]")
@@ -59,6 +66,8 @@ parser.add_argument("--slot", type=int, default=-1,
 parser.add_argument("--bag", choices=["cam", "nocam", "off"], default="cam",
                     help="one manipulator-record.sh bag per round (paused while you measure); nocam = no images")
 parser.add_argument("--auto", action="store_true", help="--slot only: one round pick -> load ... without stopping, questions at the end")
+parser.add_argument("--use_sim", type=lambda v: v.strip().lower() in ("1", "true", "yes"), default=False,
+                    help="true: Isaac Sim beebot (isaac/scripts/standalone/isaac_sim.sh) — node and bag on sim time (/clock)")
 args = parser.parse_args()
 if args.auto and args.slot < 0:
     parser.error("--auto needs --slot (pick -> load)")
@@ -73,8 +82,15 @@ out.parent.mkdir(exist_ok=True)
 BAG_SH = Path(__file__).resolve().parent / "manipulator-record.sh"
 BAG_NODE = "pick_loop_rec"
 
+# the stack's Fast DDS profile (isaac_sim.sh / manipulator-launcher.sh): without it camera images never arrive
+os.environ.setdefault("FASTDDS_DEFAULT_PROFILES_FILE", str(Path(__file__).resolve().parents[3] / "ros2_ws" / "fastdds_local_only.xml"))
 rclpy.init()
-node = rclpy.create_node("pick_loop")
+if args.use_sim:  # same bringup / topics / skills as the robot, every node on /clock
+    from rclpy.parameter import Parameter
+    node = rclpy.create_node("pick_loop", parameter_overrides=[Parameter("use_sim_time", Parameter.Type.BOOL, True)])
+    print("use_sim: Isaac Sim beebot, sim time (/clock)")
+else:
+    node = rclpy.create_node("pick_loop")
 tf_buf = Buffer()
 TransformListener(tf_buf, node)
 state = {"objects": None, "hand": None}
@@ -163,7 +179,7 @@ class RoundBag:
         self.proc = None
         if args.bag == "off":
             return
-        env = dict(os.environ, BAG_OUT=str(out.with_suffix("")) + f"_bags/round_{n:02d}", BAG_NODE=BAG_NODE)
+        env = dict(os.environ, BAG_OUT=str(out.with_suffix("")) + f"_bags/round_{n:02d}", BAG_NODE=BAG_NODE, BAG_SIM="1" if args.use_sim else "")
         self.proc = subprocess.Popen([str(BAG_SH)] + (["nocam"] if args.bag == "nocam" else []), env=env,
                                      stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.pause_cli = node.create_client(Pause, f"/{BAG_NODE}/pause")

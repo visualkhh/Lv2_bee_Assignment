@@ -12,10 +12,14 @@ Policies on/off are not set here: ros2_ws/model/skills/<skill>/meta.yaml (use:) 
 
     ROS_DOMAIN_ID=88 python3 place_loop.py --from slot --slot 0 --shape box box box cyl cyl --to 0.22 -0.05 0.07
     ROS_DOMAIN_ID=88 python3 place_loop.py --from pick --to 0.22 0.05 0.07
+use_sim=true (or --use_sim true): the beebot in Isaac Sim (isaac/scripts/standalone/isaac_sim.sh, same topics and skills),
+script and bag on sim time — run with the ROS_DOMAIN_ID isaac_sim.sh was started with.
     ROS_DOMAIN_ID=88 python3 place_loop.py --from slot --shape box box box cyl cyl --dice 5 --to 0.185 0 0.07 --auto   (die face 5, no stops)
 """
 
 import argparse
+import re
+import sys
 import csv
 import math
 import os
@@ -35,6 +39,9 @@ from rosbag2_interfaces.srv import Pause
 from rclpy.time import Time
 from tf2_ros import Buffer, TransformListener
 
+# launch-style key=value arguments (use_sim=true) → --key value
+sys.argv[1:] = [t for a in sys.argv[1:] for t in (["--" + a.split("=", 1)[0], a.split("=", 1)[1]]
+                                                  if re.fullmatch(r"[a-z_]+=.*", a) else [a])]
 parser = argparse.ArgumentParser()
 parser.add_argument("--from", dest="src", choices=["slot", "pick"], required=True, help="where the puck comes from")
 parser.add_argument("--slot", type=int, default=0, help="--from slot: first basket slot 0-11 (one more each round)")
@@ -57,6 +64,8 @@ parser.add_argument("--auto", action="store_true",
                          "ruler values asked once at the end")
 parser.add_argument("--bag", choices=["motion", "off"], default="motion",
                     help="manipulator-record.sh motion bag per round (--auto: one for the run)")
+parser.add_argument("--use_sim", type=lambda v: v.strip().lower() in ("1", "true", "yes"), default=False,
+                    help="true: Isaac Sim beebot (isaac/scripts/standalone/isaac_sim.sh) — node and bag on sim time (/clock)")
 args = parser.parse_args()
 
 FIELDS = ["round", "src", "slot", "shape", "get", "get_reason", "place", "place_reason", "to_x_mm", "to_y_mm",
@@ -66,8 +75,15 @@ out.parent.mkdir(exist_ok=True)
 BAG_SH = Path(__file__).resolve().parent / "manipulator-record.sh"
 BAG_NODE = "place_loop_rec"
 
+# the stack's Fast DDS profile (isaac_sim.sh / manipulator-launcher.sh): without it camera images never arrive
+os.environ.setdefault("FASTDDS_DEFAULT_PROFILES_FILE", str(Path(__file__).resolve().parents[3] / "ros2_ws" / "fastdds_local_only.xml"))
 rclpy.init()
-node = rclpy.create_node("place_loop")
+if args.use_sim:  # same bringup / topics / skills as the robot, every node on /clock
+    from rclpy.parameter import Parameter
+    node = rclpy.create_node("place_loop", parameter_overrides=[Parameter("use_sim_time", Parameter.Type.BOOL, True)])
+    print("use_sim: Isaac Sim beebot, sim time (/clock)")
+else:
+    node = rclpy.create_node("place_loop")
 tf_buf = Buffer()
 TransformListener(tf_buf, node)
 state = {"objects": None}
@@ -128,7 +144,7 @@ class Bag:
         self.proc = None
         if args.bag == "off" or name is None:
             return
-        env = dict(os.environ, BAG_OUT=str(out.with_suffix("")) + f"_bags/{name}", BAG_NODE=BAG_NODE)
+        env = dict(os.environ, BAG_OUT=str(out.with_suffix("")) + f"_bags/{name}", BAG_NODE=BAG_NODE, BAG_SIM="1" if args.use_sim else "")
         self.proc = subprocess.Popen([str(BAG_SH), "motion"], env=env,
                                      stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         if not node.create_client(Pause, f"/{BAG_NODE}/pause").wait_for_service(timeout_sec=15.0):
