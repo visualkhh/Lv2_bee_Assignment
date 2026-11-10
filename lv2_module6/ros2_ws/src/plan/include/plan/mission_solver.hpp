@@ -63,6 +63,8 @@ std::vector<Pose2> approach_poses(double cx, double cy, double half, double px, 
 
 // 방문 순서 파라미터(1부터 번호) → 0부터 인덱스. n개의 순열이 아니면(빈 값·중복·범위 밖) 0..n-1 그대로
 std::vector<size_t> visit_order(const std::vector<int64_t> & order, size_t n);
+// 점 (x, y)에서 가장 가까운 벽 선분까지 거리 [m] — walls = [x0, y0, x1, y1, …] (arena). 벽이 없으면 무한대
+double wall_distance(double x, double y, const std::vector<double> & walls);
 
 // ---------- 미션 단계 (순서와 실패 시 갈 곳만 정한다. 각 단계에서 무엇을 하는지는 mission_manager)
 enum class Phase { IDLE, GO_OBSERVE, BARCODE, READ, SURVEY, BUILD, VERIFY, RETURN, DONE, ERROR };

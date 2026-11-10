@@ -2,6 +2,7 @@
 #include "plan/mission_solver.hpp"
 
 #include <algorithm>
+#include <limits>
 #include <cmath>
 #include <set>
 
@@ -126,6 +127,15 @@ std::vector<size_t> visit_order(const std::vector<int64_t> & order, size_t n) {
     o.push_back(static_cast<size_t>(v - 1));
   }
   return o;
+double wall_distance(double x, double y, const std::vector<double> & walls) {
+  double best = std::numeric_limits<double>::infinity();
+  for (size_t i = 0; i + 3 < walls.size(); i += 4) {
+    const double ax = walls[i], ay = walls[i + 1], dx = walls[i + 2] - ax, dy = walls[i + 3] - ay;
+    const double len2 = dx * dx + dy * dy;
+    const double t = len2 > 0 ? std::clamp(((x - ax) * dx + (y - ay) * dy) / len2, 0.0, 1.0) : 0.0;
+    best = std::min(best, std::hypot(x - ax - t * dx, y - ay - t * dy));
+  }
+  return best;
 }
 
 const char * phase_name(Phase p) {
