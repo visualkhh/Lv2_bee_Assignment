@@ -181,6 +181,20 @@ def Xform "World"
                     {
                         rel physics:simulationOwner
                     }
+
+                    over "battery_link"
+                    {
+                    }
+
+                    over "imu_link"
+                    {
+                        over "Imu_Sensor"
+                        {
+                            quatd xformOp:orient = (1, 0, 0, -0)
+                            double3 xformOp:translate = (1.4901161193847656e-8, -2.384185791015625e-7, 0)
+                            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+                        }
+                    }
                 }
             }
         }
@@ -346,6 +360,23 @@ def Xform "World"
                 token[] isaac:physics:DofOffsetOpOrder (
                     displayName = "Dof Offset Op Order"
                 )
+            }
+        }
+
+        over "ActionGraph"
+        {
+            over "ros2_publish_clock"
+            {
+                custom uint64 inputs:context
+                custom string inputs:nodeNamespace
+                custom string inputs:qosProfile
+                custom uint64 inputs:queueSize
+            }
+
+            over "isaac_read_simulation_time"
+            {
+                custom uint64 inputs:referenceTimeDenominator
+                custom int64 inputs:referenceTimeNumerator
             }
         }
     }
@@ -980,6 +1011,21 @@ def "Render" (
                 custom bool overrideClipRange = 0
                 uniform int2 resolution = (640, 480)
             }
+
+            def RenderProduct "Replicator_02" (
+                prepend apiSchemas = ["OmniRtxSettingsCommonAdvancedAPI_1", "OmniRtxSettingsRtAdvancedAPI_1", "OmniRtxSettingsPtAdvancedAPI_1", "OmniRtxSettingsParticleFieldAPI_1", "OmniRtxPostColorGradingAPI_1", "OmniRtxPostChromaticAberrationAPI_1", "OmniRtxPostBloomPhysicalAPI_1", "OmniRtxPostMatteObjectAPI_1", "OmniRtxPostCompositingAPI_1", "OmniRtxPostDofAPI_1", "OmniRtxPostMotionBlurAPI_1", "OmniRtxPostTvNoiseAPI_1", "OmniRtxPostTonemapIrayReinhardAPI_1", "OmniRtxPostDebugSettingsAPI_1", "OmniRtxDebugSettingsAPI_1"]
+                hide_in_stage_window = true
+                no_delete = true
+            )
+            {
+                rel camera = </World/beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link/gripper_cam_link/gripper_cam_color_optical_frame/gripper_cam_rgb>
+                bool omni:rtx:material:db:syncLoads = 1
+                bool omni:rtx:rt:ecoMode:enabled
+                bool omni:rtx:scene:hydra:materialSyncLoads = 1
+                rel orderedVars = </Render/Vars/LdrColor>
+                custom bool overrideClipRange = 0
+                uniform int2 resolution = (640, 480)
+            }
         }
     }
 
@@ -992,6 +1038,7 @@ def "Render" (
             </Render/OmniverseKit/HydraTextures/omni_kit_widget_viewport_ViewportTexture_0>,
             </Render/OmniverseKit/HydraTextures/Replicator>,
             </Render/OmniverseKit/HydraTextures/Replicator_01>,
+            </Render/OmniverseKit/HydraTextures/Replicator_02>,
         ]
     }
 
