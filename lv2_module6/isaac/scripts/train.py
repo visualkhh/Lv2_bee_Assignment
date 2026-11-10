@@ -191,7 +191,7 @@ def main():
         runner.export_policy_to_jit(path=str(log_dir / "exported"), filename="policy.pt")
         (out / args.out).parent.mkdir(parents=True, exist_ok=True)  # --out v02/x.pt -> policies/v02/
         shutil.copy(log_dir / "exported" / "policy.pt", out / args.out)
-        # ONNX copy for rl_arm_correction (C++ onnxruntime); obs normalizer is included like the JIT file
+        # reference ONNX copy (weights may go to a side .onnx.data) — the robot file comes from policies/export_onnx.py
         onnx_rel = Path(args.out).with_suffix(".onnx")
         runner.export_policy_to_onnx(path=str(log_dir / "exported"), filename=onnx_rel.name)
         shutil.copy(log_dir / "exported" / onnx_rel.name, out / onnx_rel)

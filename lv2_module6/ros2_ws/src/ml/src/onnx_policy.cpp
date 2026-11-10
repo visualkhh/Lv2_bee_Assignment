@@ -1,9 +1,10 @@
 // OnnxPolicy 구현 — onnxruntime_vendor가 있을 때만 컴파일(ML_HAS_ONNX). 없으면 빈 구현(load → 예외).
 #include "ml/onnx_policy.hpp"
 
+#include <cmath>
 #include <cstdlib>
+#include <sstream>
 #include <string>
-
 #include <stdexcept>
 
 #ifdef ML_HAS_ONNX
@@ -18,6 +19,14 @@ namespace {
 Ort::Env & env() {
   static Ort::Env e(ORT_LOGGING_LEVEL_WARNING, "ml_onnx");
   return e;
+}
+
+std::vector<float> floats(const std::string & csv) {
+  std::vector<float> v;
+  std::stringstream in(csv);
+  std::string tok;
+  while (std::getline(in, tok, ',')) v.push_back(std::stof(tok));
+  return v;
 }
 
 bool cuda_available() {
@@ -41,11 +50,11 @@ OnnxPolicy & OnnxPolicy::operator=(OnnxPolicy &&) noexcept = default;
 
 std::string OnnxPolicy::runtime_version() { return Ort::GetVersionString(); }
 
-void OnnxPolicy::load(const std::string & path) {
+void OnnxPolicy::load(const std::string & path, bool gpu) {
   try {
     std::shared_ptr<Ort::Session> s;
     std::string device = "CPU", note;
-    if (cuda_available()) {
+    if (gpu && cuda_available()) {
       try {
         env();  // CUDA provider는 로드 시점에 DefaultLogger를 쓴다 — Env를 먼저 만들어 둬야 함
         Ort::SessionOptions opt;
@@ -76,14 +85,37 @@ void OnnxPolicy::load(const std::string & path) {
     if (in_shape.size() != 2 || out_shape.size() != 2 || in_shape[1] <= 0 || out_shape[1] <= 0) {
       throw std::runtime_error("모양이 [1, n]이 아님");
     }
-    in_name_ = s->GetInputNameAllocated(0, alloc).get();
-    out_name_ = s->GetOutputNameAllocated(0, alloc).get();
-    n_in_ = in_shape[1];
-    n_out_ = out_shape[1];
-    session_ = std::move(s);  // 다 읽은 뒤에만 교체
-    path_ = path;
-    device_ = device;
-    device_note_ = note;
+    // 새 객체에 다 만든 뒤 검산하고, 통과하면 통째로 교체 (실패하면 이전 모델 유지)
+    OnnxPolicy p;
+    p.in_name_ = s->GetInputNameAllocated(0, alloc).get();
+    p.out_name_ = s->GetOutputNameAllocated(0, alloc).get();
+    p.n_in_ = in_shape[1];
+    p.n_out_ = out_shape[1];
+    p.in_buf_.assign(p.n_in_, 0.0f);
+    p.out_buf_.assign(p.n_out_, 0.0f);
+    auto mem = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
+    const int64_t in_dims[2] = {1, p.n_in_}, out_dims[2] = {1, p.n_out_};
+    p.in_t_ = std::make_shared<Ort::Value>(Ort::Value::CreateTensor<float>(mem, p.in_buf_.data(), p.in_buf_.size(), in_dims, 2));
+    p.out_t_ = std::make_shared<Ort::Value>(Ort::Value::CreateTensor<float>(mem, p.out_buf_.data(), p.out_buf_.size(), out_dims, 2));
+    p.session_ = std::move(s);
+    p.path_ = path;
+    p.device_ = device;
+    p.device_note_ = note;
+    const auto meta = p.session_->GetModelMetadata();
+    auto tx = meta.LookupCustomMetadataMapAllocated("bee_test_x", alloc);
+    auto ty = meta.LookupCustomMetadataMapAllocated("bee_test_y", alloc);
+    if (tx && ty) {  // 내보낼 때 계산한 값과 같은지
+      const auto x = floats(tx.get()), y = floats(ty.get());
+      if (int64_t(x.size()) != p.n_in_ || int64_t(y.size()) != p.n_out_) throw std::runtime_error("검산 값 크기가 안 맞음");
+      std::vector<double> xd(x.begin(), x.end()), out(p.n_out_);
+      p.act_into(xd.data(), out.data());
+      for (int64_t i = 0; i < p.n_out_; ++i) {
+        if (std::abs(out[i] - y[i]) > 1e-3) {
+          throw std::runtime_error("검산 실패 (" + std::to_string(out[i]) + " ≠ " + std::to_string(y[i]) + ")");
+        }
+      }
+    }
+    *this = std::move(p);
   } catch (const Ort::Exception & e) {
     throw std::runtime_error(std::string("ONNX 열기 실패: ") + path + " (" + e.what() + ")");
   } catch (const std::runtime_error & e) {
@@ -91,8 +123,29 @@ void OnnxPolicy::load(const std::string & path) {
   }
 }
 
+bool OnnxPolicy::load(const std::string & path, std::string & why) noexcept {
+  try {
+    load(path);
+    return true;
+  } catch (const std::exception & e) {
+    why = e.what();
+    return false;
+  }
+}
+
+void OnnxPolicy::act_into(const double * x, double * y) const {
+  if (!session_) throw std::runtime_error("정책 없음");
+  for (int64_t i = 0; i < n_in_; ++i) in_buf_[i] = static_cast<float>(x[i]);
+  const char * in_names[] = {in_name_.c_str()};
+  const char * out_names[] = {out_name_.c_str()};
+  session_->Run(Ort::RunOptions{nullptr}, in_names, in_t_.get(), 1, out_names, out_t_.get(), 1);
+  for (int64_t i = 0; i < n_out_; ++i) y[i] = out_buf_[i];
+}
+
 void OnnxPolicy::unload() {
   session_.reset();
+  in_t_.reset();
+  out_t_.reset();
   path_.clear();
   n_in_ = n_out_ = 0;
 }
@@ -119,9 +172,14 @@ OnnxPolicy & OnnxPolicy::operator=(OnnxPolicy &&) noexcept = default;
 
 std::string OnnxPolicy::runtime_version() { return "none"; }
 
-void OnnxPolicy::load(const std::string &) {
+void OnnxPolicy::load(const std::string &, bool) {
   throw std::runtime_error("onnxruntime_vendor 없이 빌드됨 — ros-lyrical-onnxruntime-vendor 설치 후 다시 빌드");
 }
+bool OnnxPolicy::load(const std::string & path, std::string & why) noexcept {
+  why = "onnxruntime_vendor 없이 빌드됨 (" + path + ")";
+  return false;
+}
+void OnnxPolicy::act_into(const double *, double *) const { throw std::runtime_error("ONNX 지원 없이 빌드됨"); }
 void OnnxPolicy::unload() { path_.clear(); n_in_ = n_out_ = 0; }  // session_은 항상 null (stub)
 std::vector<float> OnnxPolicy::run(const std::vector<float> &) const {
   throw std::runtime_error("ONNX 지원 없이 빌드됨");

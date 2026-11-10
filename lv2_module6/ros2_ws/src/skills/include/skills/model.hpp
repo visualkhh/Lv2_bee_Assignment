@@ -1,8 +1,8 @@
 #pragma once
 
 // skill 정책 폴더 — models/skills/<skill>/ 하나가 skill 하나의 학습 결과 (skill 노드가 갖고 관리)
-//   <skill>.policy  로봇이 읽는 MLP (ml/scripts/export_policy.py — C++ 직접 계산, 파일 안 'test' 줄로 검산)
-//   <skill>.onnx    원본 (Isaac Lab 학습 산출물, 보관·다른 도구용)
+//   <skill>.onnx    로봇이 읽는 정책 (기본) — 가중치를 안에 담은 파일 하나 (isaac/policies/export_onnx.py · 불러올 때 검산)
+//   <skill>.policy  같은 정책의 텍스트 MLP (ml/scripts/export_policy.py) — meta `runtime: policy`일 때만 씀 (실측에서 ONNX가 나쁘면)
 //   meta.yaml       한 줄에 "키: 값" — kind(arm|base) · layout(팔 정책 입력 모양) · use(true면 씀) · 시뮬 성공률 · 출처 · 주행 판정값
 //   use: false면 정책을 안 씀 (Δ = 0, 기준 동작만) — 기준선보다 못하거나 로봇 입력이 아직 없을 때
 #include <cstdlib>
@@ -13,8 +13,8 @@
 namespace skills {
 
 struct SkillModel {
-  std::string name, dir, kind, layout, policy;  // policy = .policy 절대 경로 (없으면 "")
-  bool use = false;                             // meta use: true이고 .policy가 있을 때만 true
+  std::string name, dir, kind, layout, policy;  // policy = 쓸 정책 파일 절대 경로 (.onnx 또는 .policy, 없으면 "")
+  bool use = false;                             // meta use: true이고 그 파일이 있을 때만 true
   std::map<std::string, std::string> meta;      // meta.yaml 전부 (진단·판정값)
   double num(const std::string & key, double fallback) const {
     const auto it = meta.find(key);
@@ -56,11 +56,12 @@ inline SkillModel load_skill_model(const std::string & root, const std::string &
   m.meta = parse_meta(f);
   m.kind = m.meta["kind"];
   m.layout = m.meta["layout"];
-  const std::string policy = m.dir + "/" + name + ".policy";
+  const std::string ext = m.meta["runtime"] == "policy" ? ".policy" : ".onnx";  // 기본 onnx
+  const std::string policy = m.dir + "/" + name + ext;
   const bool have = static_cast<bool>(std::ifstream(policy));
   if (have) m.policy = policy;
   m.use = m.meta["use"] == "true" && have;
-  if (m.meta["use"] == "true" && !have) why = name + ".policy 없음";
+  if (m.meta["use"] == "true" && !have) why = name + ext + " 없음";
   else if (m.meta["use"] != "true") why = "use: " + m.meta["use"] + (m.meta.count("why") ? " — " + m.meta["why"] : "");
   return m;
 }

@@ -64,7 +64,7 @@ mission_manager:             # 주사위 기억 미션 (documents/mission/README
     approach_tries: 3                        # 접근 자리 실패 시 다른 변으로 몇 번까지
     retries: 2                               # skill(집기·놓기·inspect)이 실패하면 다시 하는 횟수. 그래도 안 되면 그 퍽만 실패로 두고 다음
     planner: "rule"                          # BUILD 순서: rule (배정 순서대로) | plan_next (학습된 플래너가 다음 퍽·복귀 시점을 고름 — 마지막 단계)
-    plan_model: ""                           # 비면 share/ml/model/plan/plan_next.policy
+    plan_model: ""                           # 비면 share/ml/model/plan/plan_next.onnx (.policy 경로를 주면 MlpPolicy로)
     place_tol: 0.010                         # [m] 놓은 뒤 확인 · 재검증 — 칸 중심에서 이 안이어야 성공
     place_search: 0.05                       # [m] 놓은 뒤 확인 때 칸에서 이 안의 퍽만 그 퍽으로 봄
     match_radius: 0.04                       # [m] 조사 때 퍽 자리와 트랙을 짝짓는 거리

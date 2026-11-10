@@ -213,7 +213,7 @@ void RlNavController::load_model(const std::string & path) {
   }
   try {
     OnnxPolicy m;
-    m.load(resolved);
+    m.load(resolved, true);  // CUDA EP가 있으면 먼저 시도 (#92)
     const int64_t want = 2 * lookahead_ + lidar_rays_ + 5;
     if (m.inputs() != want || m.outputs() < 2) {
       RCLCPP_ERROR(logger_, "정책 입력 %ld · 출력 %ld — 기대 %ld · 2 (lookahead·lidar_rays 확인): %s",

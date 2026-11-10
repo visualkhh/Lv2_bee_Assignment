@@ -4,6 +4,7 @@ skill: unload_slot
 kind: arm            # arm (rl_arm_correction이 계산) | base (skill_approach가 계산)
 layout: pick          # 정책 입력 모양 (ml/arm_obs.hpp place 39 · pick 41)
 use: true
+runtime: onnx         # onnx (기본, ONNX Runtime) | policy (같은 정책의 .policy · 실측에서 ONNX가 나쁘면)
 node: skill_unload
 sim_baseline: 93.7      # [%] 학습 없이 기준 동작만 (1024판)
 sim_policy: 98.1        # [%] 학습 뒤

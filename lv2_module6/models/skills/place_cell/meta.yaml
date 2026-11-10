@@ -4,6 +4,7 @@ skill: place_cell
 kind: arm            # arm (rl_arm_correction이 계산) | base (skill_approach가 계산)
 layout: place          # 정책 입력 모양 (ml/arm_obs.hpp place 39 · pick 41)
 use: true
+runtime: onnx         # onnx (기본, ONNX Runtime) | policy (같은 정책의 .policy · 실측에서 ONNX가 나쁘면)
 node: skill_place
 sim_baseline: 96.3      # [%] 학습 없이 기준 동작만 (1024판)
 sim_policy: 99.0        # [%] 학습 뒤

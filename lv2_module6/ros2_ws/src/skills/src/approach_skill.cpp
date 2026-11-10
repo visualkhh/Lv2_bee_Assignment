@@ -10,7 +10,7 @@
 #include <map>
 
 #include "geometry_msgs/msg/twist_stamped.hpp"
-#include "ml/mlp_policy.hpp"
+#include "ml/policy.hpp"
 #include "ml/nav_obs.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "rclcpp_components/register_node_macro.hpp"
@@ -37,7 +37,7 @@ public:
       Policy p;
       p.model = load_model(name);
       std::string why;
-      if (p.model.use && (!p.net.load(p.model.policy, why) || p.net.obs_dim() != ml::NAV_OBS || p.net.act_dim() != 2)) {
+      if (p.model.use && (!p.net.load(p.model.policy, why) || p.net.inputs() != size_t(ml::NAV_OBS) || p.net.outputs() != 2)) {
         RCLCPP_ERROR(get_logger(), "%s: 정책을 못 씀 — %s", name, why.c_str());
         p.model.use = false;
       }
@@ -60,7 +60,7 @@ protected:
   }
 
 private:
-  struct Policy { SkillModel model; ml::MlpPolicy net; };
+  struct Policy { SkillModel model; ml::Policy net; };
 
   void start(const SkillGoal & g, Done done) {
     double x, y, yaw;
