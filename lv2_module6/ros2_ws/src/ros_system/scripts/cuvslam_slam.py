@@ -89,7 +89,6 @@ class MapGate:
     """map→odom 보정 거르기 — cuVSLAM(RGB-D 한 대 · IMU 없음)이 벽 앞·빠른 회전에서 튀어도 지도 위치가 따라 튀지 않게.
     표준(Isaac ROS VIO)은 IMU 융합으로 버티고 map→odom은 루프 클로저 때만 바뀜 — 여기선 대신:
       ① 보정이 한 번에 jump_m · jump_deg 넘게 바뀌면 받지 않고 잠금(locked) — 그 뒤 이동은 EKF(바퀴+IMU)만. /initialpose로 풀림
-         (tutor-s-robot pose_quality와 같은 생각: 큰 점프는 받아들이지 않고 멈춰 다시 맞춤)
       ② 그 밖의 보정은 초당 rate_m · rate_deg까지만 따라감 (튀는 프레임이 지도에 바로 안 들어감)
     11-10 시뮬 기록 재생(정답을 odom으로 봄): 4.8 m 점프 → 최대 3.5 cm · 정상 실행은 그대로. 점진적 밀림(13→56 cm)은 못 고침 → VIO 필요"""
 
