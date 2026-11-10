@@ -46,7 +46,7 @@ inline double tilt_of(double qx, double qy, double qz, double qw) {
 }
 
 // 경로 방향 속도 상한 — 전진 속도를 max_v · cos²(오차)까지만 (오차 = 로봇 앞과 경로 앞 웨이포인트(wx, wy, 로봇 좌표) 방향 차).
-//   90° 넘게 어긋나면 0 (제자리 회전만). 후진(v < 0)은 그대로. 표준 Nav2 RPP의 rotate_to_heading · tutor-s-robot alignment_speed_cap과 같은 생각.
+//   90° 넘게 어긋나면 0 (제자리 회전만). 후진(v < 0)은 그대로. 표준 Nav2 RPP의 rotate_to_heading과 같은 생각.
 //   11-10 시뮬: RL 정책이 경로와 80° 어긋난 채 0.22 m/s로 벽 쪽 전진 → 이 상한이면 0.007 m/s
 inline double heading_speed_cap(double v, double max_v, double wx, double wy) {
   if (v <= 0.0 || (wx == 0.0 && wy == 0.0)) return v;
