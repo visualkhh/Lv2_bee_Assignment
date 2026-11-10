@@ -1,4 +1,4 @@
-// skill_inspect — /skills/inspect: gripper_cam으로 보기 (학습 정책 없음). 읽었는지(details tag)는 coordinator · planner도 /tracked_objects로 봄
+// skill_inspect — /skills/inspect: gripper_cam으로 보기 (학습 정책 없음). 읽었는지(details tag)는 coordinator · mission_manager도 /tracked_objects로 봄
 //   점 보기 (target 비움): goal.pose(map) 점 위 inspect_height_m에 손끝을 두고 inspect_wait_s 기다림 (camera_look_down).
 //     퍽 윗면 16mm AprilTag는 gripper_cam이 위에서 봐야 읽힘. values[0] = 손 방향 yaw (로봇 → 점) — 없으면 자유
 //   상자 보기 (target "box"): goal.pose = 상자 위 퍽 윗면 높이의 상자 가운데 (map), values[0] = 기대 퍽 수 (없으면 2)

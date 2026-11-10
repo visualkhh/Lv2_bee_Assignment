@@ -63,6 +63,24 @@ sudo apt install -y --no-install-recommends \
     libopenblas-dev
 ```
 
+cuDNN은 JetPack 기본 설치에 **들어 있지 않을 수 있다** (bee는 없었음). 위 `ls`에 아무것도 안 나오면 설치한다.
+
+```bash
+apt-cache policy cudnn9-cuda-13        # Candidate가 보여야 함 (NVIDIA Jetson r39.2 repo)
+sudo apt install -y cudnn9-cuda-13 libcudnn9-dev-cuda-13
+dpkg -L libcudnn9-dev-cuda-13 | grep -E 'cudnn\.h$|libcudnn\.so$'   # 헤더·라이브러리 위치 확인
+```
+
+CUDA 라이브러리 중 **cuFFT도 JetPack 기본에 빠져 있을 수 있다** (bee는 없었음). 없으면 3절 설정 단계에서
+`Target "onnxruntime_providers_cuda" links to: CUDA::cufft but the target was not found`로 실패한다.
+
+```bash
+ls /usr/local/cuda/targets/*/lib | grep cufft || sudo apt install -y libcufft-dev-13-2
+```
+
+- 3절 `--cudnn_home /usr/lib/aarch64-linux-gnu` 그대로 된다 (bee에서 확인). CMake가
+  `cudnn found at /usr/lib/aarch64-linux-gnu/libcudnn.so`, 헤더는 `/usr/include/aarch64-linux-gnu`로 알아서 찾는다.
+
 > **TensorRT는 지금 필요 없다.** `onnx_policy.cpp`는 CUDA EP만 등록한다. TensorRT EP까지 쓰려면
 > `--use_tensorrt`로 ORT를 빌드하고 코드에 TensorRT EP 등록을 추가해야 한다. 이 MLP에는 이득이 거의 없다.
 
@@ -99,7 +117,17 @@ export CUDACXX=/usr/local/cuda/bin/nvcc
 - ORT 1.24.1부터 CUDA 13.0을 지원한다. CUDA 13.2는 그 상위 버전이라 호환된다.
 - Orin Nano 8GB에서는 `--parallel 4`가 빠듯할 수 있다. `killed`가 나오면 `--parallel 2`로 줄인다.
   빌드는 수 시간 걸리고 메모리를 많이 쓴다. swap 8GB로 부족하면 16GB로 늘린다 (SETTING.md의 swap 절 참고).
+- 설정 단계에서 실패해 의존성을 추가 설치한 뒤에는 `rm -f build/Linux/Release/CMakeCache.txt`만 지우고
+  같은 명령을 다시 실행한다 (받아 둔 `_deps`는 유지돼 설정이 빨리 끝난다).
 - 중간에 OOM이 나면 `rm -rf build/Linux/Release` 후 `--parallel 2`로 다시 실행한다.
+- **빌드가 중간에 끊겼을 때(재부팅·먹통)**: `.o`가 남아 있으니 `--update` 없이 `--build`만 줘서 이어 간다.
+  처음부터 다시 할 필요 없다.
+  `./build.sh --config Release --build --parallel 2 --build_shared_lib --skip_tests --use_cuda --cuda_home /usr/local/cuda --cudnn_home /usr/lib/aarch64-linux-gnu --cmake_extra_defines CMAKE_CUDA_ARCHITECTURES=87 --compile_no_warning_as_error`
+- **빌드 중에는 다른 무거운 작업(`colcon build` 등)을 같이 돌리지 않는다.** RAM 7.4GB에서 `cicc`(CUDA 컴파일러)
+  프로세스 하나가 약 2.6GB를 쓴다. 겹치면 swap을 쓰다 SSH까지 먹통이 된다 (아래 삽질 기록).
+- 끝났는지는 `ls build/Linux/Release/libonnxruntime_providers_cuda.so`로 본다. 진행 중이면
+  `ps -eo pid,etime,pcpu,args | grep -E 'cicc|ptxas' | grep -v grep`에 컴파일러가 보인다.
+  flash attention 커널(`flash_fwd_*_sm80.cu.o`)이 오래 걸린다. bee에서 정지처럼 보여도 컴파일 중인 경우가 많다.
 
 ### 3-1. `/opt/onnxruntime`에 설치
 
@@ -140,6 +168,12 @@ ldd /opt/onnxruntime/lib/libonnxruntime_providers_cuda.so | grep -E 'cudart|cudn
 `ml` 플러그인은 `/opt/onnxruntime/lib`을 RPATH로 갖고 빌드된다. CUDA/cuDNN은 시스템 경로에서 찾는다.
 한 번만 설정하면 된다.
 
+> **`ldconfig`만으로는 부족하다.** ROS `setup.bash`가 `LD_LIBRARY_PATH`에 vendor(CPU 전용) 경로를 넣고,
+> vendor도 같은 이름(`libonnxruntime.so.1`)이라 `LD_LIBRARY_PATH`가 RPATH·ldconfig보다 먼저 이긴다.
+> 그래서 `ml`을 `/opt/onnxruntime`으로 빌드해도 실행 시에는 vendor가 로드되어 `device=CPU`가 된다.
+> `start.sh`는 `/opt/onnxruntime`에 CUDA provider가 있으면 `LD_LIBRARY_PATH` 맨 앞에 자동으로 붙인다.
+> 직접 실행할 때는 `LD_LIBRARY_PATH=/opt/onnxruntime/lib:$LD_LIBRARY_PATH`를 앞에 붙인다.
+
 ```bash
 sudo tee /etc/ld.so.conf.d/onnxruntime.conf >/dev/null <<'EOF'
 /opt/onnxruntime/lib
@@ -168,9 +202,14 @@ cd <repo>/lv2_module6/ros2_ws
 source /opt/ros/lyrical/setup.bash
 
 colcon build --symlink-install --packages-select ml \
-  --cmake-args -DML_ONNXRUNTIME_ROOT=/opt/onnxruntime
+  --cmake-args -DML_ONNXRUNTIME_ROOT=/opt/onnxruntime \
+  --event-handlers status- console_cohesion+
 ```
 
+- `already built in one or more underlay workspaces` 경고(`'ml' is in: /home/<다른 계정>/...`)는 에러가 아니다.
+  셸에 다른 계정의 워크스페이스가 `source`돼 있다는 뜻이다. 새 셸에서 `/opt/ros/lyrical/setup.bash`만 source하면 없어진다.
+- colcon이 빌드 도중 `TypeError: can't multiply sequence by non-int of type 'NoneType'`로 멈추면
+  진행 표시줄(`colcon_notification`) 버그다. 빌드 실패가 아니다. 아래 `--event-handlers`를 붙이면 피한다.
 - `ML_ONNXRUNTIME_ROOT`는 CMake cache 변수다. 한 번 넣으면 이후 `colcon build`에서도 유지된다.
 - `build/ml` 캐시가 vendor를 보고 있으면 한 번 지우고 다시 빌드한다.
 
@@ -196,7 +235,8 @@ build-ws --packages-select ml --cmake-args -DML_ONNXRUNTIME_ROOT=/opt/onnxruntim
 
 ```bash
 cd <repo>/lv2_module6/ros2_ws
-./build/ml/test_nav_policy_onnx
+# vendor(CPU)보다 CUDA ORT가 먼저 로드되게 (start.sh는 이걸 자동으로 함)
+LD_LIBRARY_PATH=/opt/onnxruntime/lib:$LD_LIBRARY_PATH ./build/ml/test_nav_policy_onnx
 ```
 
 정상 예:
@@ -213,6 +253,12 @@ GPU가 없거나 CUDA EP가 없으면:
 ```
 
 둘 다 정상이다. **GPU가 있는데 `device=CPU`면** 3~4절을 다시 확인한다.
+CUDA를 시도했다가 실패했으면 같은 줄 끝에 `· CUDA 실패: <이유>`가 붙는다.
+
+> **`device=CPU`인데 CUDA ORT를 설치했다면:** ROS vendor의 `libonnxruntime.so.1`(CPU 전용)이 `LD_LIBRARY_PATH`로
+> 먼저 잡힌 것이다 (`ldd build/ml/test_nav_policy_onnx | grep onnxruntime`이 `/opt/ros/...`를 가리킴).
+> 단독 실행은 `LD_LIBRARY_PATH=/opt/onnxruntime/lib:$LD_LIBRARY_PATH ./build/ml/test_nav_policy_onnx`.
+> `start.sh`는 `/opt/onnxruntime`에 CUDA provider가 있으면 자동으로 앞에 붙인다.
 
 ### 6-2. 실제 노드 로그
 
@@ -362,3 +408,36 @@ services:
   실제 주행 주기(20 Hz)에서 병목이 확인될 때만 GPU를 켠다.
 - GPU를 켜고 끄는 것은 `controller_server`의 `FollowPath.enable`(A/B 토글)로 한다.
   ONNX device는 프로세스 시작 시 정해지고, `device=CPU`로 폴백해도 주행 자체는 계속된다.
+
+---
+
+## 9. 삽질 기록 (bee · Orin Nano 8GB, 2026-11-09)
+
+처음 설치하며 겪은 순서대로 적는다. 같은 데서 막히면 이 목록부터 본다.
+
+| # | 증상 | 원인 | 해결 |
+|---|---|---|---|
+| 1 | `ml` 빌드: `ML_ONNXRUNTIME_ROOT=/opt/onnxruntime — include/onnxruntime_cxx_api.h 또는 lib/libonnxruntime.so가 없음` | `/opt/onnxruntime`이 빈 폴더. ORT를 빌드·설치하기 전에 `ml`부터 빌드했다 | 3절(빌드) → 3-1절(설치) → 그다음 `ml`. 순서를 지킨다 |
+| 2 | `build.sh`가 어디 있는지 모름 | `~/onnxruntime`(소스 clone 폴더)에 있다. clone을 안 한 상태였다 | 3절의 `git clone` 부터. `ls ~/onnxruntime/build.sh` |
+| 3 | 설정 단계 실패: `Target "onnxruntime_providers_cuda" links to: CUDA::cufft but the target was not found` | JetPack에 `libcufft`가 안 들어 있다 | `sudo apt install -y libcufft-dev-13-2`, `CMakeCache.txt`만 지우고 재실행 |
+| 4 | cuDNN 없음 | JetPack 기본에 없고 apt에서 따로 받아야 한다 | `sudo apt install -y cudnn9-cuda-13 libcudnn9-dev-cuda-13` |
+| 5 | 빌드 중 bee가 먹통, SSH `No route to host`, 핑 100% 손실 | ORT CUDA 빌드가 RAM을 거의 다 쓰는 중(`cicc` 하나가 약 2.6GB, 여유 79MB)에 `colcon build`까지 같이 돌렸다 | 재부팅. `--build`만 줘서 이어 빌드(`--parallel 2`). 빌드 중에는 다른 무거운 작업 금지 |
+| 6 | colcon이 `TypeError: can't multiply sequence by non-int of type 'NoneType'`로 멈추고 `7 packages not processed` | `colcon_notification` 진행 표시줄 버그 | `--event-handlers status- console_cohesion+` |
+| 7 | `ml` 빌드는 성공인데 테스트가 `device=CPU` | 실행 시 ROS vendor의 `libonnxruntime.so.1`(CPU)이 `LD_LIBRARY_PATH` 때문에 먼저 로드됨. `ldd`가 `/opt/ros/lyrical/opt/onnxruntime_vendor/...`를 가리킨다 | `LD_LIBRARY_PATH=/opt/onnxruntime/lib:$LD_LIBRARY_PATH`. `start.sh`는 자동으로 붙인다 |
+| 8 | 7번을 풀어도 CPU로 폴백, 이유가 `Attempt to use DefaultLogger but none has been registered` | 코드 버그. `Ort::Env`가 세션을 만들 때(`std::make_shared<Ort::Session>(env(), ...)`)에야 생성되는데, CUDA provider는 `AppendExecutionProvider_CUDA`에서 로드되며 로거를 쓴다 | `onnx_policy.cpp`에서 CUDA 시도 직전에 `env();`를 먼저 호출 (커밋 `347e287`). 테스트가 `· CUDA 실패: <이유>`를 출력하도록 함 |
+| 9 | `already built in ... underlay workspaces: 'ml' is in: /home/<다른 계정>/...` 경고 | 셸에 다른 계정 워크스페이스가 source돼 있다 | 에러 아님. 새 셸에서 `/opt/ros/lyrical/setup.bash`만 source |
+| 10 | 같은 문서 명령을 `/home/bee/...`와 `/home/khh/...` 두 체크아웃에서 섞어 실행 | 체크아웃마다 `build/ml`이 따로다 | 하나로 정해서 그 폴더에서만 빌드·실행 |
+
+**로그에 보이지만 무시해도 되는 것**
+
+- `GPU device discovery failed ... /sys/class/drm/card1/device/vendor`: ORT가 GPU 목록을 sysfs에서 읽는 부가 경고다. Jetson에는 그 파일이 없는 게 정상이다.
+- `F16C/FMA/AVX instruction set is not supported`: aarch64라서 정상이다.
+- `Excluding SM 80/86/89/...`: ORT가 `CMAKE_CUDA_ARCHITECTURES=87`만 남긴다는 뜻이다.
+- `CUDA_CUDA_LIBRARY ... not used`: CMake 경고일 뿐이다.
+- `get_package_share_directory is deprecated` (`rl_nav_controller.cpp`): 빌드는 정상이다.
+
+**결과**
+
+- 소스 빌드는 `/home/bee/onnxruntime/build/Linux/Release`에서 했다. 재부팅 전후로 나뉘어 총 수 시간 걸렸다 (정확한 시간은 기록하지 않았다).
+- 설치 후 `test_nav_policy_onnx`가 `device=CUDA`, 2 tests PASSED.
+- 노드(`controller_server`)가 `device=CUDA`로 뜨는지는 `start.sh` 로그의 `ONNX loaded: ... device=CUDA`로 따로 확인해야 한다.

@@ -6,7 +6,7 @@ from .state import State
 
 
 class OperationState(State):
-    COLORS = {'AUTO': GREEN, 'MANUAL': YELLOW, 'EXPLORE': CYAN}
+    COLORS = {'AUTO': GREEN, 'MANUAL': YELLOW}
 
     def text(self) -> str:
         op = self.state.operation or '?'

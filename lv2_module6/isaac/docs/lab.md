@@ -59,7 +59,7 @@ v2는 놓기를 2배 빠르게 해도(내려가기·올리기 속도 2배, settl
 
 ## skill별 학습 환경 (skills.yaml 이름 기준)
 
-미션 skill 목록(`lv2_module6/learning/skills.yaml`, 브랜치 `feature/skill-learning`)의 움직이는 skill을 모두 이 폴더의 잔차 강화학습 환경 하나씩에 연결했다. 모두 `train.py`로 같은 방식(rsl_rl PPO, 정책 = 기준 동작 + 잔차)으로 학습·평가한다.
+미션 skill 목록(`../learning`, 브랜치 `feature/skill-learning`)의 움직이는 skill을 모두 이 폴더의 잔차 강화학습 환경 하나씩에 연결했다. 모두 `train.py`로 같은 방식(rsl_rl PPO, 정책 = 기준 동작 + 잔차)으로 학습·평가한다.
 
 ```bash
 cd isaac && PY=~/pa-course/IsaacLab-6.1/.venv/bin/python

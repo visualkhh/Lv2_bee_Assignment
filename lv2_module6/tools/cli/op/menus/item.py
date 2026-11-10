@@ -67,7 +67,13 @@ class GoMenu(MenuItem):
         return self._label
 
     def run(self) -> str:
-        return self._page.show() if self._page is not None else STAY
+        if self._page is None:
+            return STAY
+        self.app.current_screen = self.key   # 자동 재연결이 다시 띄울 때 이 메뉴로 돌아오게
+        try:
+            return self._page.show()
+        finally:
+            self.app.current_screen = ''
 
 
 class InfoItem(MenuItem):

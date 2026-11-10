@@ -117,34 +117,6 @@ TEST_F(RosTest, SwitchMapFolder) {
     << restart;
 }
 
-TEST_F(RosTest, ExploreOnlyWhileMapping) {
-  // EXPLORE는 지도 모드 MAPPING일 때만 · explorer가 /explore/result 를 내면 AUTO로
-  for (const std::string start : {"LOCALIZATION", "MAPPING"}) {
-    auto node = std::make_shared<StateManager>(rclcpp::NodeOptions().parameter_overrides({{"map_mode", start}}));
-    auto probe = std::make_shared<rclcpp::Node>("probe4");
-    std::string op;
-    auto op_sub = probe->create_subscription<std_msgs::msg::String>("/state/operation_mode",
-      rclcpp::QoS(1).reliable().transient_local(), [&](std_msgs::msg::String::SharedPtr m) { op = m->data; });
-    auto op_pub = probe->create_publisher<std_msgs::msg::String>("/cmd/operation_mode", rclcpp::QoS(1).reliable());
-    auto done_pub = probe->create_publisher<std_msgs::msg::String>("/explore/result", rclcpp::QoS(1).reliable());
-    rclcpp::executors::SingleThreadedExecutor exec;
-    exec.add_node(node);
-    exec.add_node(probe);
-    std_msgs::msg::String m;
-    m.data = "EXPLORE";
-    ASSERT_TRUE(spin_until(exec, [] {}, [&] { return op == "AUTO"; }));
-    if (start == "LOCALIZATION") {  // 위치추정 중 → 거절
-      spin_until(exec, [&] { op_pub->publish(m); }, [] { return false; }, 0.5);
-      EXPECT_EQ(op, "AUTO");
-      continue;
-    }
-    ASSERT_TRUE(spin_until(exec, [&] { op_pub->publish(m); }, [&] { return op == "EXPLORE"; }));
-    std_msgs::msg::String done;
-    done.data = "DONE 프론티어 없음";
-    ASSERT_TRUE(spin_until(exec, [&] { done_pub->publish(done); }, [&] { return op == "AUTO"; }));
-  }
-}
-
 TEST_F(RosTest, TopicsSkipHidden) {
   // /state/topics에 숨김 토픽(/_…)은 안 들어감 — nvblox …/_buf/<16진수>는 이름 검사에서 예외라 넘기면 노드가 죽음
   auto node = std::make_shared<StateManager>();

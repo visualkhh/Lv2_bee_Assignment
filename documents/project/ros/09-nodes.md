@@ -2,7 +2,7 @@
 
 ## 직접 작성 노드와 제공 노드
 
-직접 작성은 노드 14개 + 컨트롤러 플러그인(rl_arm_correction) + 하드웨어 플러그인(BeebotSystemHardware) + OpenCR 펌웨어 + 호스트 ai-service입니다. 나머지는 생태계 패키지를 가져와 설정하고 연결하는 일입니다.
+직접 작성은 노드 11개 + 컨트롤러 플러그인(rl_arm_correction) + 하드웨어 플러그인(BeebotSystemHardware) + OpenCR 펌웨어입니다. 나머지는 생태계 패키지를 가져와 설정하고 연결하는 일입니다.
 구현 위치: `lv2_module6/ros2_ws/src/<패키지>` — 패키지는 전부 ament_cmake, 노드는 C++ (perception · scan_cam_gate만 Python 스크립트).
 
 > 인터페이스 명세: [커스텀 인터페이스](../API.md#api-custom)
@@ -10,11 +10,8 @@
 | 노드 | 구분 | 패키지 · 형태 | 핵심 작업 |
 | --- | --- | --- | --- |
 | perception | 직접 | perception · ROS 2 노드 (Python) | YOLO 퍽·목표 구역·장애물·신호등 검출, 3D 위치, 두 카메라 융합 추적(ID), 퍽·장소는 안 보여도 기억 · AprilTag(OpenCV aruco — 퍽 번호 `tag`, 장소 상자 `location_box`) · 상자 윗면(depth — `location_box`·`start_box`, 위치·크기·방향) · 퍽 모양·방향(`shape`·`yaw`) · 바코드(zxing-cpp — `barcode` + /mission/qr) · 신호등 상태(`all` 포함) → /tracked_objects |
-| user_input | 직접 | plan · ROS 2 노드 | 운영자 텍스트 명령 → /cmd/user_command, /robot/say 표시 |
-| vlm_task_planner | 직접 | plan · ROS 2 노드 | 일반 명령 — VLM 호출, 프롬프트, JSON 출력 파싱 → /task/sub_goals (주사위 미션은 mission_manager) |
 | mission_manager | 직접 | plan · ROS 2 노드 | 주사위 미션 순서 ([03-plan.md](03-plan.md)) — /cmd/mission start → 바코드 · 12회 점멸(/mission/signal·signal_status) → 시작 박스 조사·적재함 → 할당(mission_solver) → 주사위 칸 놓기 · 재검증 → 복귀 · /mission/state · 기록 |
 | signal_decoder | 직접 | perception · ROS 2 노드 (C++) | 신호등 12회 점멸 — /tracked_objects의 신호등 상태를 시간축으로 세어 사이클(12번)마다 /mission/signal_status, 두 사이클 같은 답이면 /mission/signal (sequence · R·Y·G 횟수 — 해석은 받는 쪽) |
-| explorer | 직접 | plan · ROS 2 노드 (C++) | 자동 탐사 — 조작 모드 EXPLORE일 때 /map 프론티어(빈 곳·모르는 곳 경계)를 골라 Nav2 /navigate_to_pose로 차례로 보냄, 끝나면 /explore/result |
 | coordinator | 직접 | plan · ROS 2 노드 | 계획 단계를 skill 노드에 맡기는 순서 — 계획 검증(navigate·approach·pick·place·inspect·say·pose·load·unload·stand·stand_pick), 물체 → 좌표, 다가가기, 재시도, 적재함 장부, AUTO가 아니면 취소 → /task/status |
 | skill_* (9개) | 직접 | skills · 컴포넌트 (arm_skills · base_skills 컨테이너) | skill마다 액션 서버 `/skills/<skill>` 하나 — navigate · approach · pose · inspect · pick · place · load · unload · stand(+stand_pick). 자기 학습 정책 폴더 `models/skills/<skill>/` ([API.md](../../API.md) 3장) · skill_pose는 시작·스캔 자세도 |
 | grasp_scorer | 직접 | ml · ROS 2 서비스 노드 | 모델 로드, IK 가능 후보만 채점, /score_grasps 응답 |
@@ -29,7 +26,6 @@
 | body_filter | 직접 | perception · ROS 2 노드 (C++) | pole_front_cam 점구름에서 자기 몸(URDF collision) 점 제거 + `stride: 2`로 솎아 Nav2 |
 | state_manager | 직접 | manager · ROS 2 노드 | 로봇 상태의 주인 — /state/<이름>만 발행 (조작·지도 모드 — 지도 모드·지도 바꾸기는 launch 전체를 다시 띄움) · `/state/devices`(장치 이름 목록) + `/state/devices/<이름>`(active/disconnected/error 상세 — 팔·바퀴·그리퍼 모터 에러 포함) + `/state/topics`(전체 그래프) |
 | (OpenCR 펌웨어) beebot_opencr | 직접 | lv2_module6/firmware · Arduino | 다이나믹셀 8개 + IMU, 단위 변환, watchdog · 한 패킷 BulkWrite(바퀴 속도 + 팔·그리퍼 위치) · SyncRead(전류·속도·위치) · `S` 10ms · Hardware Error `E` 0.5초 · `R` 재부팅 · 12V 끊겼다 오면 토크 천천히 복구 |
-| (호스트) ai-service | 직접 | lv2_module6/ai-service · Python HTTP 서버 (ROS 아님) | vlm_task_planner의 POST /plan → backend(VLM CLI · **human**: 사람이 웹 페이지에서 계획) → SubGoal 목록 |
 | realsense2_camera ×2 (pole_front_cam, gripper_cam) | 제공 | Intel RealSense ROS 2 래퍼 | 장치를 USB 3로 열고 토픽 발행 — serial_no, camera_name, 해상도·fps, align_depth, pointcloud 켜기 |
 | robot_state_publisher | 제공 | ROS 2 기본 | URDF(urdf/<이름>/urdf.xacro — launch `urdf:=`, 기본 beebot_mesh) |
 | robot_localization (ekf) | 제공 | ROS 2 패키지 | /odom + /imu + /cuvslam/odom(속도) 융합, odom TF 발행 |
@@ -55,11 +51,10 @@
 lv2_module6/
 ├── urdf/<이름>/urdf.xacro         # 모델 폴더마다 (기본 beebot_mesh, launch urdf:=) — TB3 + OM-X(RM-X52-TNM) + 손목 roll + 카메라 2대 · ros2_control 태그
 ├── firmware/beebot_opencr/       # OpenCR 펌웨어
-├── ai-service/                   # 호스트 계획 서버 (VLM · 사람) — ROS 아님
 ├── tools/                         # run-cli 운영 도구
 └── ros2_ws/src/
     ├── perception/   # perception · body_filter · signal_decoder + msg
-    ├── plan/         # user_input · vlm_task_planner · explorer · coordinator + msg
+    ├── plan/         # mission_manager · coordinator + msg
     ├── ml/           # grasp_scorer · rl_nav_controller(nav2 플러그인) · rl_arm_correction(플러그인) + srv
     ├── control/      # arm_safety_monitor · manual_control · BeebotSystemHardware(플러그인) + msg
     ├── manager/      # state_manager (상태 /state/*)

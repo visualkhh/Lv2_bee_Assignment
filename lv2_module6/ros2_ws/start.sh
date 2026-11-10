@@ -66,6 +66,11 @@ if [ "$build" = 1 ] || [ ! -f "$HERE/install/setup.bash" ]; then
 fi
 # shellcheck disable=SC1091
 source "$HERE/install/setup.bash"
+
+# CUDA ONNX Runtime(/opt/onnxruntime)이 있으면 ROS vendor(CPU 전용)보다 먼저 로드되게 한다.
+# 같은 libonnxruntime.so.1 이름이라 LD_LIBRARY_PATH 순서가 곧 우선순위. 없으면 vendor(CPU)로 계속.
+[ -f /opt/onnxruntime/lib/libonnxruntime_providers_cuda.so ] &&
+  export LD_LIBRARY_PATH="/opt/onnxruntime/lib:${LD_LIBRARY_PATH:-}"
 # 기본: Jetson Orin Nano 로컬 전용 — SHM만 사용해 DDS가 네트워크로 나가지도 들어오지도 않는다.
 # PC에서 토픽/RViz를 봐야 할 때만 FASTDDS_DEFAULT_PROFILES_FILE=$HERE/fastdds.xml 로 덮어쓴다.
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-88}"

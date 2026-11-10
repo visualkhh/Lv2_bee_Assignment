@@ -4,7 +4,7 @@
   StateBar         state_bar.py           State를 줄(row)로 받아 그림 · add()로 칸·줄 추가 · ←→ 포커스 칸 이동
   TopStateBar      top_state_bar.py       화면 맨 위 기본 구성 (아래 State들)
   OperationState · MapState · EstopState · DeviceState · ConnectionState · PerceptionState · TaskState ·
-  DiagState · SayState · TopicRateState · RobotState · NoDataState
+  DiagState · TopicRateState · RobotState(모터 줄) · PowerState(전원 줄) · NoDataState
 
 새 칸: State를 상속해 text()를 만들고 ui.window.top_bar.add(XxxState(ui), row=…) 또는 TopStateBar 구성에 넣는다.
 Tab으로 고를 수 있게: focusable = True + activate() (예: DiagState → window.navigate('diagnostics')).

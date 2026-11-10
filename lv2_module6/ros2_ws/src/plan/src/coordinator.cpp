@@ -64,9 +64,9 @@ std::pair<double, double> spread_offset(int n, double s) {
 
 Coordinator::Coordinator(const rclcpp::NodeOptions & options)
 : rclcpp::Node("coordinator", options) {
-  max_step_failures_ = declare_parameter<int>("max_step_failures", 2);
   server_wait_s_ = declare_parameter<double>("server_wait_s", 30.0);
   reach_m_ = declare_parameter<double>("reach_m", 0.30);
+  remember_s_ = declare_parameter<double>("remember_s", 120.0);  // [s] 안 보이게 된 퍽을 이만큼 기억 (0 = 안 함) — remembered_
   approach_m_ = declare_parameter<double>("approach_m", 0.24);
   place_spacing_ = declare_parameter<double>("place_spacing", 0.08);
   box_margin_m_ = declare_parameter<double>("box_margin_m", 0.03);
@@ -112,6 +112,7 @@ Coordinator::Coordinator(const rclcpp::NodeOptions & options)
     [this](TrackedObjectArray::ConstSharedPtr m) {
       const bool first = !objects_;
       objects_ = m;
+      remember(*m);
       if (first && waiting_plan_) {  // 물체 목록보다 계획이 먼저 왔으면 지금 검증
         auto plan = *waiting_plan_;
         waiting_plan_.reset();
@@ -143,7 +144,6 @@ Coordinator::Coordinator(const rclcpp::NodeOptions & options)
     s.add("plan_id", plan_.plan_id);
     s.add("단계", step_text());
     s.add("실행 중", running_);
-    s.add("연속 실패", failures_.size());
     std::string slots;
     for (const auto & b : basket_) slots += b.shape.empty() ? "·" : (b.check ? "?" : b.shape.substr(0, 1));
     s.add("적재함", std::to_string(basket_order_.size()) + "/" + std::to_string(basket_.size()) + " " + slots);
@@ -158,7 +158,7 @@ void Coordinator::on_mode(const std::string & mode) {
   if (mode == mode_) return;
   mode_ = mode;
   RCLCPP_WARN(get_logger(), "운영 모드: %s", mode.c_str());
-  if (mode != "AUTO" && running_) {  // 수동 · 자동 탐사(EXPLORE) · TEACH — 작업 실행과 동시에 하면 안 됨
+  if (mode != "AUTO" && running_) {  // 수동 · TEACH — 작업 실행과 동시에 하면 안 됨
     cancel_all();
     running_ = false;
     status(idx_ < plan_.goals.size() ? plan_.goals[idx_].step : 0, TaskStatus::FAILED,
@@ -185,7 +185,7 @@ bool same_goals(const SubGoalArray & a, const SubGoalArray & b) {
 }  // namespace
 
 void Coordinator::on_plan(const SubGoalArray & plan) {
-  // transient_local 재수신은 무시 — 단, 같은 id에 내용이 다르면 다른 계획 (VLM 카운터와 sim 직접 발행 충돌 대비)
+  // transient_local 재수신은 무시 — 단, 같은 id에 내용이 다르면 다른 계획 (mission_manager 카운터와 sim 직접 발행 충돌 대비)
   if (estop_) {
     RCLCPP_WARN(get_logger(), "계획 %u 거부: 비상정지 중", plan.plan_id);
     status(0, TaskStatus::FAILED, "estop_blocked");
@@ -251,7 +251,27 @@ bool Coordinator::is_id(const std::string & s) {
 
 const perception::msg::TrackedObject * Coordinator::find(uint32_t id) const {
   if (objects_) for (const auto & o : objects_->objects) if (o.id == id) return &o;
+  if (const auto it = remembered_.find(id); it != remembered_.end()) return &it->second.o;  // 지금은 안 보이는 퍽
   return nullptr;
+}
+
+void Coordinator::remember(const TrackedObjectArray & m) {
+  const rclcpp::Time t = now();
+  // 믿을 만한 관측만 기억에 씀: 계획이 없을 때(팔 멈춤) · inspect 단계. pick·load 중에는 팔이 빨리 움직여(TF 시각 어긋남)
+  //   트랙이 엉뚱한 자리로 끌려갔음 (11/07 Isaac: 적재 중 옆 퍽 트랙이 14 cm 밀려 그 자리로 pick → IK 실패)
+  const bool trust = !running_ || (idx_ < plan_.goals.size() && plan_.goals[idx_].skill == "inspect");
+  for (auto it = remembered_.begin(); it != remembered_.end();) {  // 오래됨 · 같은 자리(3 cm)에 다른 id 트랙이 다시 생김 → 잊음
+    bool replaced = (t - it->second.t).seconds() > remember_s_;
+    for (const auto & o : m.objects)
+      if (trust && !replaced && o.id != it->first && o.class_name.rfind("puck", 0) == 0 &&
+          std::hypot(o.pose.pose.position.x - it->second.o.pose.pose.position.x,
+                     o.pose.pose.position.y - it->second.o.pose.pose.position.y) < 0.03)
+        replaced = true;
+    it = replaced ? remembered_.erase(it) : std::next(it);
+  }
+  if (remember_s_ <= 0 || !trust) return;
+  for (const auto & o : m.objects)
+    if (o.class_name.rfind("puck", 0) == 0) remembered_[o.id] = {o, t};
 }
 
 std::string Coordinator::shape_of(const perception::msg::TrackedObject & o) const {
@@ -270,7 +290,7 @@ void Coordinator::run_step() {
     running_ = false;
     status(plan_.goals.back().step, TaskStatus::SUCCEEDED, "");
     const bool carried = std::any_of(plan_.goals.begin(), plan_.goals.end(), [](const SubGoal & s) { return s.skill == "place"; });
-    if (carried) say("퍽을 옮겼어요");  // inspect만 한 계획(퍽 번호 보기)은 말 없이 — planner가 이어서 계획
+    if (carried) say("퍽을 옮겼어요");  // inspect만 한 계획(퍽 번호 보기)은 말 없이 — mission_manager가 이어서 계획
     return;
   }
   const auto & g = plan_.goals[idx_];
@@ -345,32 +365,19 @@ void Coordinator::cancel_all() {
 
 void Coordinator::next() {
   if (!running_) return;  // 수동 전환 등으로 이미 멈춘 뒤 도착한 결과
-  failures_.erase(key(plan_.goals[idx_]));
   ++idx_;
   run_step();
 }
 
-// 규칙 3: 실패는 FAILED로 바로 알리고 멈춤 — 다시 할지는 계획을 낸 쪽 (mission_manager retries · vlm_task_planner max_replans).
-//   VLM 계획만 같은 단계 max_step_failures회 연속 실패면 말로 알림 (mission_manager는 자기 재시도 중이라 세지 않음)
+// 규칙 3: 실패는 FAILED + reason으로 바로 알리고 멈춤 — 다시 할지는 계획을 낸 쪽(mission_manager retries · approach_tries)
 void Coordinator::fail(const std::string & reason) {
   if (!running_) return;  // 이미 멈춤 (수동 전환으로 취소된 goal의 결과 등)
   const auto & g = plan_.goals[idx_];
   running_ = false;
-  if (plan_.plan_id >= MISSION_PLAN_ID_BASE) {
-    RCLCPP_WARN(get_logger(), "step %u 실패 (%s)", g.step, reason.c_str());
-    status(g.step, TaskStatus::FAILED, reason);
-    return;
-  }
-  const int n = ++failures_[key(g)];
-  RCLCPP_WARN(get_logger(), "step %u 실패 (%s) %d/%d", g.step, reason.c_str(), n, max_step_failures_);
+  RCLCPP_WARN(get_logger(), "step %u 실패 (%s)", g.step, reason.c_str());
   status(g.step, TaskStatus::FAILED, reason);
-  if (n >= max_step_failures_) {
-    failures_.clear();
-    say(g.skill == "navigate" ? "목표까지 갈 수 없어요" : "퍽을 잡을 수 없어요");
-  }
 }
 
-std::string Coordinator::key(const SubGoal & g) { return g.skill + ":" + g.target; }
 
 bool Coordinator::robot_xy(double & x, double & y) const {
   try {
@@ -445,13 +452,23 @@ void Coordinator::approach(const SubGoal & g) {
 
 void Coordinator::pick(const SubGoal & g) {
   if (!is_id(g.target) || !find(std::stoul(g.target))) { fail("pick_no_target"); return; }
-  if (approach_if_far(g)) return;  // 집을 퍽이 팔 밖이면 먼저 다가감 (VLM이 navigate를 빼먹어도)
+  if (approach_if_far(g)) return;  // 집을 퍽이 팔 밖이면 먼저 다가감 (계획에 navigate가 빠져 있어도)
   const auto o = *find(std::stoul(g.target));
   Skill::Goal sg;
   sg.target = g.target;
   sg.shape = shape_of(o);
   sg.tag = tag_of(o);
+  const bool visible = objects_ && std::any_of(objects_->objects.begin(), objects_->objects.end(),
+                                               [&o](const auto & x) { return x.id == o.id; });
+  if (!visible) {  // 기억한 퍽 — 대상과 그 옆 퍽(기억한 것)을 실어 보냄: grasp_scorer가 지금 인지 대신 씀
+    sg.objects.push_back(o);
+    for (const auto & [id, s] : remembered_)
+      if (id != o.id) sg.objects.push_back(s.o);
+    RCLCPP_INFO(get_logger(), "pick %s: 지금 안 보임 — 기억한 자리 (%.3f, %.3f)로", g.target.c_str(),
+                o.pose.pose.position.x, o.pose.pose.position.y);
+  }
   send("pick", sg, [this, o](const Skill::Result &) {
+    remembered_.erase(o.id);  // 손에 있음
     held_ = PuckInfo{shape_of(o), o.color, tag_of(o), false};  // 집은 퍽 — 칸에 실을 때 장부에 그대로 적음
     basket_changed();
     next();

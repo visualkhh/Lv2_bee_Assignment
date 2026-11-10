@@ -15,13 +15,16 @@
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
 
-#include "plan/coordinator.hpp"  // MISSION_PLAN_ID_BASE
-#include "plan/vlm_task_planner.hpp"  // detail()
-
 namespace plan {
 
 namespace {
-constexpr uint32_t PLAN_ID_BASE = MISSION_PLAN_ID_BASE;  // coordinator.hpp — vlm_task_planner(1부터)와 겹치지 않게
+constexpr uint32_t PLAN_ID_BASE = 1000000;
+
+// 물체의 details 값 (없으면 "")
+std::string detail(const perception::msg::TrackedObject & o, const std::string & key) {
+  for (const auto & kv : o.details) if (kv.key == key) return kv.value;
+  return "";
+}
 
 std::vector<Box> boxes(const std::vector<double> & flat, double half) {  // [x, y, …] 또는 half < 0이면 [x, y, half, …]
   std::vector<Box> out;
@@ -149,7 +152,11 @@ MissionManager::MissionManager()
   signal_status_sub_ = create_subscription<perception::msg::MissionSignal>("/mission/signal_status", rclcpp::QoS(10).reliable(),
     [on_signal](perception::msg::MissionSignal::ConstSharedPtr m) { on_signal(*m); });
   objects_sub_ = create_subscription<perception::msg::TrackedObjectArray>("/tracked_objects", rclcpp::QoS(5).reliable(),
-    [this](perception::msg::TrackedObjectArray::ConstSharedPtr m) { objects_ = m; });
+    [this](perception::msg::TrackedObjectArray::ConstSharedPtr m) {
+      objects_ = m;
+      for (const auto & o : m->objects)  // 태그를 읽은 퍽의 마지막 모습 — 안 보이게 돼도 그 자리로 바로 pick (locate)
+        if (is_puck(o) && !detail(o, "tag").empty()) last_seen_[std::stoi(detail(o, "tag"))] = o;
+    });
   basket_sub_ = create_subscription<plan::msg::BasketState>("/coordinator/basket", rclcpp::QoS(1).reliable().transient_local(),
     [this](plan::msg::BasketState::ConstSharedPtr m) { basket_ = m; if (active_) publish_state(); });
   status_sub_ = create_subscription<TaskStatus>("/task/status", rclcpp::QoS(10).reliable().transient_local(),
@@ -810,7 +817,7 @@ const perception::msg::TrackedObject * MissionManager::puck_near(double mx, doub
 
 // ---------- 집기 · 세우기
 void MissionManager::grab(int tag, Done done, int tries) {
-  locate(tag, [this, tag, done, tries](const TrackedObject * o) {
+  locate(tag, tries == 0, [this, tag, done, tries](const TrackedObject * o) {
     if (!o) { done(false, "puck_lost"); return; }
     if (is_lying(*o)) {  // 누움 (조사 뒤에 넘어진 퍽도) — 세워서 쥠 (stand_up 안에 다시 시도가 있음)
       lying_.insert(tag);
@@ -829,7 +836,7 @@ void MissionManager::grab(int tag, Done done, int tries) {
   });
 }
 
-void MissionManager::locate(int tag, std::function<void(const TrackedObject *)> cb) {
+void MissionManager::locate(int tag, bool memory, std::function<void(const TrackedObject *)> cb) {
   const auto at = puck_at_.find(tag);
   if (at == puck_at_.end()) { cb(puck_for(objects_.get(), tag, nullptr, match_radius_)); return; }
   const Box & box = start_boxes_[at->second.first];
@@ -837,7 +844,13 @@ void MissionManager::locate(int tag, std::function<void(const TrackedObject *)> 
   const auto m = to_map(ax, ay);
   const double spot[2] = {m.x, m.y};
   if (const auto * o = puck_for(objects_.get(), tag, spot, match_radius_)) { cb(o); return; }
-  // 안 보인 지 2초 넘어 인지 목록에서 빠짐 — 그 자리를 다시 봄
+  // 안 보인 지 2초 넘어 인지 목록에서 빠짐 — 처음엔 마지막으로 본 트랙 그대로 (coordinator가 기억한 자리로 pick, 적재 뒤 다시 보지 않음)
+  if (const auto it = last_seen_.find(tag); memory && it != last_seen_.end()) {
+    note("퍽 " + str(tag) + " 기억한 자리로 (인지 목록에 없음)");
+    cb(&it->second);
+    return;
+  }
+  // 그래도 못 집었으면 그 자리를 다시 봄
   note("퍽 " + str(tag) + " 다시 보기 (인지 목록에 없음)");
   run({SubGoal().set__skill("inspect").set__target(point(ax, ay, box_top_z_ + puck_h_))},
       [this, tag, mx = m.x, my = m.y, cb](bool, const std::string &) {

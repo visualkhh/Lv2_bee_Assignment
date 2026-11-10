@@ -1,6 +1,9 @@
 // OnnxPolicy 구현 — onnxruntime_vendor가 있을 때만 컴파일(ML_HAS_ONNX). 없으면 빈 구현(load → 예외).
 #include "ml/onnx_policy.hpp"
 
+#include <cstdlib>
+#include <string>
+
 #include <stdexcept>
 
 #ifdef ML_HAS_ONNX
@@ -18,9 +21,9 @@ Ort::Env & env() {
 }
 
 bool cuda_available() {
-  // 이 ORT 빌드에 CUDA EP가 들어 있는지 — 없으면(CPU-only vendor) 조용히 CPU로 간다.
-  // GetAvailableProviders는 컴파일된 목록이라, sm_87 커널이 없는 빌드도 CUDA를 넣을 수 있다.
-  // 실제 GPU에서 커널이 없으면 세션 생성이 실패하므로 그때도 CPU로 되돌린다.
+  // 기본은 CUDA(가능하면) — 끄려면 환경변수 ML_ONNX_CUDA=0. (작은 MLP는 CPU가 더 빠르지만 GPU 사용이 요구사항)
+  const char * off = std::getenv("ML_ONNX_CUDA");
+  if (off && std::string(off) == "0") return false;
   try {
     for (const auto & p : Ort::GetAvailableProviders()) {
       if (p == "CUDAExecutionProvider") return true;
@@ -44,6 +47,7 @@ void OnnxPolicy::load(const std::string & path) {
     std::string device = "CPU", note;
     if (cuda_available()) {
       try {
+        env();  // CUDA provider는 로드 시점에 DefaultLogger를 쓴다 — Env를 먼저 만들어 둬야 함
         Ort::SessionOptions opt;
         opt.SetIntraOpNumThreads(1);  // 20Hz 작은 MLP — 다른 노드와 CPU를 덜 다툰다
         OrtCUDAProviderOptions cuda{};

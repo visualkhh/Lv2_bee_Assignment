@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from ...menus import GoMenu, Menu
 from ..manual import ArmMenu, GripperMenu, ManualMenu, WheelMenu
-from ..mode import EstopMenu, ModeMenu
+from ..mode import CollisionMenu, EstopMenu, ModeMenu
 from ..status import BeepMenu
 
 
@@ -19,13 +19,15 @@ class ControlMenu(Menu):
             GoMenu(self.app, '5', '바퀴', WheelMenu(self.app)),
             GoMenu(self.app, '6', '비상정지', EstopMenu(self.app)),
             GoMenu(self.app, '7', '비프음 (OpenCR 부저)', BeepMenu(self.app)),
+            GoMenu(self.app, '8', '충돌 감시 (collision_monitor 켜기/끄기)', CollisionMenu(self.app)),
         ]
 
     def center(self):
         st = self.state
         return ['[조작]', f' 모드: {st.operation or "-"}',
                 f' E-STOP: {"ON" if st.emergency else "OFF"}',
-                f' 지도: {st.map_mode or "-"}']
+                f' 지도: {st.map_mode or "-"}',
+                f' collision: {self.bus.collision_status()}']
 
 
 __all__ = ['ControlMenu']

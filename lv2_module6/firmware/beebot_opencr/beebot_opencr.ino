@@ -20,6 +20,7 @@
 //   부저: B = 기본음(BEEP_DEFAULT_HZ · BEEP_DEFAULT_MS) · B,<Hz>,<ms> = 높이·길이 (100~8000 Hz · 10~2000 ms로 자름).
 //         tone()은 타이머로 울리고 바로 돌아옴 — 제어 루프를 막지 않음. 울리는 중에 새 B가 오면 새 소리로 바뀜
 //     OpenCR → SBC  E,<8 정수>\n  모터별 Hardware Error Status (0 = 정상, -1 = 응답 없음) — MOTOR_CHECK_MS마다
+//   팔·그리퍼가 없어도(뽑음 · 12V 꺼짐) 바퀴는 움직인다 — 팔 값은 S에서 nan, E에서 -1. 팔이 꽂히면 5초 안에 다시 찾음
 //   watchdog: 마지막 유효 C부터 COMMAND_TIMEOUT_MS 지나면 바퀴 속도 0, 팔·그리퍼는 현재 자세 유지 (한 번)
 //
 // 주기 구조 (2026-10-24 실기 시험: 개별 패킷이라 S가 60 ms 계단·C 100 Hz면 S 끊김 → 아래로 바꿈)
@@ -48,7 +49,10 @@ char line[LINE_CAPACITY];
 size_t line_length = 0;
 char pending_c[LINE_CAPACITY];  // 이번 loop에 들어온 마지막 C
 bool has_pending_c = false;
-bool motors_ready = false;
+bool motors_ready = false;  // 바퀴(0·1) 준비됨 — C를 받는다. 팔이 없어도 바퀴는 움직여야 하므로 팔과 따로 본다
+bool arm_ready = false;     // 팔·그리퍼(2~) 전부 준비됨 — 없으면 팔 쪽 읽기·쓰기·점검을 건너뛴다 (응답 대기로 loop가 멈추므로)
+uint32_t last_arm_try_ms = 0;
+constexpr uint32_t ARM_RETRY_MS = 5000;  // 팔이 없을 때 다시 찾는 간격 (찾는 ping이 loop를 잠깐 막으니 드물게)
 bool watchdog_tripped = true;  // 첫 C 전에는 움직이지 않음
 uint32_t last_command_ms = 0;
 uint32_t last_state_ms = 0;
@@ -152,12 +156,28 @@ bool setup_motor(size_t i, bool recover)
     return true;
 }
 
-bool setup_motors()
+bool setup_group(size_t from, size_t to)
 {
     bool ok = true;
-    for (size_t i = 0; i < MOTOR_COUNT; ++i)
+    for (size_t i = from; i < to; ++i)
         ok = setup_motor(i, false) && ok;
     return ok;
+}
+
+// syncRead는 응답 없는 모터에서 멈추므로, 팔이 없으면 바퀴 2개만 읽는다 (순서 = 바퀴 먼저)
+void update_sync_count()
+{
+    sr.xel_count = arm_ready ? MOTOR_COUNT : 2;
+    sr.is_info_changed = true;
+}
+
+// 바퀴와 팔을 따로 찾는다 — 반환값 = 바퀴 준비 (명령을 받을 수 있나). 팔은 arm_ready로 따로
+bool setup_motors()
+{
+    const bool wheels = setup_group(0, 2);
+    arm_ready = setup_group(2, MOTOR_COUNT);
+    update_sync_count();
+    return wheels;
 }
 
 void setup_sync()
@@ -217,7 +237,7 @@ void hold_present_pose()
 {
     dxl.setGoalVelocity(WHEEL_LEFT_ID, 0);
     dxl.setGoalVelocity(WHEEL_RIGHT_ID, 0);
-    for (size_t i = 2; i < MOTOR_COUNT; ++i)
+    for (size_t i = 2; i < MOTOR_COUNT && arm_ready; ++i)
     {
         goal_raw[i] = dxl.getPresentPosition(motor_id(i), UNIT_RAW);
         dxl.setGoalPosition(motor_id(i), goal_raw[i], UNIT_RAW);
@@ -298,12 +318,13 @@ void apply_torque_line(char *text)
             return;
         const bool on = v[0] != 0.0f;
         for (size_t i = 0; i < MOTOR_COUNT; ++i)
-            set_torque_one(i, on);
+            if (i < 2 || arm_ready)  // 팔이 없으면 건너뜀 (응답 대기로 loop가 멈춤)
+                set_torque_one(i, on);
     }
     else
     {
         for (size_t i = 0; i < MOTOR_COUNT; ++i)
-            if (!isnan(v[i]))
+            if (!isnan(v[i]) && (i < 2 || arm_ready))
                 set_torque_one(i, v[i] != 0.0f);
     }
     // 하나라도 토크가 켜져 있으면 watchdog 유지, 전부 꺼졌으면 watchdog 정지
@@ -341,7 +362,7 @@ void apply_command(char *text)
     // 팔·그리퍼: 빈칸·토크 꺼짐 = 명령 생략 (현재 목표 유지)
     for (size_t i = 2; i < MOTOR_COUNT; ++i)
     {
-        if (isnan(v[i]) || !torque_state[i])
+        if (!arm_ready || isnan(v[i]) || !torque_state[i])  // 팔이 없으면 명령 생략
             continue;
         bw_value[i] = i == GRIPPER_INDEX ? rad_to_raw(gripper_m_to_servo_rad(v[i]), 1.0f)
                                          : rad_to_raw(v[i], ARM_DIR[i - 2]);
@@ -481,11 +502,27 @@ void check_motors()
         motors_ready = setup_motors();
         return;
     }
+    if (!arm_ready && now - last_arm_try_ms >= ARM_RETRY_MS)
+    {
+        // 팔이 없다 — 꽂혔는지 가끔 본다. joint1 하나만 먼저 ping (없는 모터마다 응답 대기가 붙어 loop가 멈춤)
+        last_arm_try_ms = now;
+        if (dxl.ping(motor_id(2)))
+        {
+            arm_ready = setup_group(2, MOTOR_COUNT);
+            update_sync_count();
+        }
+    }
     if (now - last_check_ms < MOTOR_CHECK_MS)
         return;
     last_check_ms = now;
     for (size_t i = 0; i < MOTOR_COUNT; ++i)
     {
+        if (i >= 2 && !arm_ready)  // 팔이 없다 — 읽지 않고 '응답 없음'으로 보고
+        {
+            hw_error[i] = -1;
+            hw_temp[i] = -1;
+            continue;
+        }
         const uint8_t id = motor_id(i);
         if (recover_since[i])
         {
@@ -567,7 +604,7 @@ void setup()
     dxl.begin(DXL_BAUD);
     dxl.setPortProtocolVersion(DXL_PROTOCOL_VERSION);
     setup_sync();
-    motors_ready = setup_motors();  // 하나라도 응답이 없으면 명령을 받지 않는다 (상태는 계속 보냄 · check_motors가 다시 찾음)
+    motors_ready = setup_motors();  // 바퀴가 응답해야 명령을 받는다 (팔·그리퍼가 없어도 바퀴는 움직임 · 팔은 arm_ready로 따로, check_motors가 다시 찾음 · 상태는 늘 보냄)
     last_check_ms = millis();
 }
 

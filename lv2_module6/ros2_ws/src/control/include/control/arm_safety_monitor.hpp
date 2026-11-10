@@ -3,7 +3,7 @@
 // arm_safety_monitor (🛠 직접 작성, 담당: 김현하) — 설계: documents/project/ros/05-arm.md 4-2
 //   입력: /joint_states effort (= 다이나믹셀 Present Current, joint_state_broadcaster)
 //   출력: 📞 /arm_controller/follow_joint_trajectory/_action/cancel_goal (이상 시에만)
-//         ✉️ /arm_safety_event (control/ArmSafetyEvent) → coordinator
+//         ✉️ /arm_safety_event (control/ArmSafetyEvent) → skills (arm_io)
 // 판단: 관절 전류가 기준을 넘고 **거의 멈춰 있는**(|velocity| < stall_velocity) 상태가 hold_s 넘게 이어지면 접촉.
 //   움직이는 중의 전류는 중력·가속 부하라 정상 — 정지 상태에서 전류만 높으면 막힌 것(접촉).
 // TODO(김현하): 퍽을 든 상태까지 정상 동작 전류를 기록해 관절별 기준값(effort_threshold) 정하기

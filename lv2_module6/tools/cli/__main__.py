@@ -161,7 +161,6 @@ def _seed(app: 'ot.OperatorTool'):
                          values=[KeyValue(key='모드', value='AUTO')]),
         DiagnosticStatus(level=1, name='beebot: opencr', message='모터 에러 없음 · S 줄 지연',
                          values=[KeyValue(key='받은 S 줄', value='48 Hz')])])
-    st.on_say('컵 가져왔어요')
     try:
         st.on_objects([1, 2, 3])
     except Exception:  # noqa: BLE001

@@ -16,7 +16,7 @@ import time
 
 BOX_HALF, DOCK_GAP, STANDOFF = 0.1025, 0.085, 0.25  # plan.yaml box_half · approach_gap · standoff
 MATCH_RADIUS, RETRIES, APPROACH_TRIES = 0.04, 2, 3  # plan.yaml match_radius · retries · approach_tries
-PLAN_ID_BASE = 2000000              # vlm_task_planner(1~) · mission_manager(1000000~)와 안 겹치게
+PLAN_ID_BASE = 2000000              # mission_manager(1000000~)와 안 겹치게
 PAIR_M = 0.15                       # grasp_scorer NEIGHBOR_M — 이 안이면 같은 상자 위 퍽 둘
 INSPECT_Z = 0.11                    # 윗면 0.13보다 낮게 줌 — skill_inspect가 이 위 0.15 · 0.10 · 0.08을 시도하는데, 먼 퍽(x 0.24)은 손끝 z 0.19까지만 닿음
 STAND_CHECK_S = 1.0                 # plan stand_check_s — 세운 뒤 인지가 다시 볼 시간

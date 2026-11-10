@@ -147,7 +147,7 @@ class FakeRos(RosNode):
 
     def get_node_names(self):
         return ['operator_tool', 'state_manager', 'manual_control',
-                'vlm_task_planner', 'coordinator', 'perception',
+                'coordinator', 'perception',
                 'pole_front_cam', 'gripper_cam',
                 'joint_state_broadcaster', 'controller_manager']
 

@@ -3,7 +3,6 @@
   ros2 launch bringup bringup.launch.py
   ros2 launch bringup bringup.launch.py use_ros_system:=false            # 📦 대신 faker 등 다른 입력 (faker.launch.py가 씀)
   ros2 launch bringup bringup.launch.py learning_enabled:=false           # 학습 노드 Δ=0 · 프리셋 A 고정 (비교 기준)
-  ros2 launch bringup bringup.launch.py command:="빨간 퍽을 목표 구역으로 옮겨"   # user_input에 텍스트 명령 한 번
 지도 (실기·테스트베드 공통 — 지도 한 벌 = 폴더 하나 <map_dir>/<map_name>/ nvblox.nvblx · map.pgm · map.yaml):
   ros2 launch bringup bringup.launch.py map:=slam                 # 매핑: 새 폴더 <날짜_시각>/ (map_name:=으로 이름 지정, 있는 이름이면 거부)
   ros2 launch bringup bringup.launch.py map:=saved                # 위치추정: 가장 최근 폴더 (기본)
@@ -17,7 +16,7 @@
 
 🛠 노드 (패키지 · 담당):
   perception: perception, body_filter, signal_decoder(신호등 암호 → /mission/signal) (전승혜)
-  plan:       user_input(외부 텍스트 입력), vlm_task_planner, coordinator (권형중)
+  plan:       coordinator (권형중)
   ml:         grasp_scorer (송정혁)
               rl_arm_correction은 노드가 아니라 컨트롤러 플러그인(ml/RlArmCorrection) — ros_system의 controller_manager가 올린다
   control:    arm_safety_monitor, manual_control (김현하)
@@ -25,6 +24,7 @@
 """
 
 import os
+import subprocess
 import sys
 import time
 
@@ -58,7 +58,7 @@ ROS_SYSTEM_ARGS = {
     'arm_correction_type': ('ml/RlArmCorrection', 'rl_arm_correction 컨트롤러 플러그인 (테스트베드 ML 대역: faker/FakeRlArmCorrection)'),
     'use_cameras': ('true', 'RealSense 2대 (테스트베드는 faker의 fake_camera가 대신 → false)'),
     'use_pole_front_cam': ('true', 'pole_front_cam만 끄기/켜기 (한 대만 연결할 때)'),
-    'use_gripper_cam': ('true', 'gripper_cam만 끄기/켜기 (한 대만 연결할 때)'),
+    'use_gripper_cam': ('auto', 'gripper_cam: auto = gripper_cam_serial 장치가 USB에 감지될 때만 켬(뽑아 두면 노드·의존 노드 안 띄움) · true/false = 강제'),
     'pole_front_cam_serial': ('', 'pole_front_cam RealSense serial_no — 빈 값이면 첫 장치 (2대면 반드시 지정)'),
     'gripper_cam_serial': ('', 'gripper_cam RealSense serial_no — 빈 값이면 첫 장치 (2대면 반드시 지정)'),
     'pole_front_cam_profile': ('640x360x15', 'pole_front_cam RGB/depth 프로파일 (WxHxFPS)'),
@@ -68,6 +68,7 @@ ROS_SYSTEM_ARGS = {
     'pole_front_cam_pointcloud': ('true', 'pole_front_cam PointCloud2 발행 (body_filter/Nav2)'),
     'gripper_cam_pointcloud': ('false', 'gripper_cam PointCloud2 발행 (grasp_scorer용, 필요할 때만 true)'),
     'use_ekf': ('true', 'robot_localization EKF'),
+    'ekf_imu': ('true', 'EKF yaw 회전속도 = IMU 자이로 · false면 바퀴'),
     'use_nav2': ('true', '진짜 Nav2 서버'),
     'use_moveit': ('true', '진짜 move_group — coordinator의 pick/place가 씀 (ros_system 기본은 false라 실기에서 팔 작업이 안 됐음)'),
 }
@@ -75,6 +76,16 @@ ROS_SYSTEM_ARGS = {
 
 # 지도 폴더 안 지도 파일 (nvblox) — 이 파일이 있는 폴더 = 저장한 지도 (state_manager kMapFile 목록도 같은 기준)
 MAP_FILE = 'nvblox.nvblx'
+
+
+def detected_serials():
+    """USB에 꽂힌 RealSense serial 목록 (`rs-enumerate-devices -s` 출력) — 못 알아내면 None.
+    launch가 (다시) 뜰 때마다 부른다: state_manager의 launch 재시작은 start.sh를 안 거치고 기록된 인자를 그대로 쓰므로 감지는 여기서 해야 한다."""
+    try:
+        r = subprocess.run(['rs-enumerate-devices', '-s'], capture_output=True, text=True, timeout=10)
+        return r.stdout if r.returncode == 0 else None
+    except (OSError, subprocess.SubprocessError):
+        return None
 
 
 def setup_map(context):
@@ -121,6 +132,22 @@ def setup_map(context):
     # use_slam = 지도 의미(모드·map_saver가 켜져야 하나) · use_real_slam = ros_system의 cuVSLAM·nvblox를 띄울지
     use_real_slam = 'false' if fake_slam else use_slam
     map_mode = {'none': 'NONE', 'slam': 'MAPPING', 'saved': 'LOCALIZATION'}[effective]
+    # 그립퍼 캠: 뽑아 두면 노드가 respawn(2 s)하며 장치를 계속 훑어 CPU·USB를 먹는다 — 감지될 때만 켠다.
+    ug = LaunchConfiguration('use_gripper_cam').perform(context).lower()
+    if ug not in ('auto', 'true', 'false'):
+        raise RuntimeError(f'use_gripper_cam:={ug} — auto | true | false')
+    if ug == 'auto':
+        serial = LaunchConfiguration('gripper_cam_serial').perform(context)
+        found = detected_serials() if serial else None
+        ug = 'true' if (found is None or serial in found) else 'false'   # 못 알아내면 예전처럼 켬
+        if ug == 'false':
+            print(f'WARN: gripper_cam serial {serial} 감지 안 됨 — gripper_cam · gripper_depth_gate · hand_relative를 안 띄움', file=sys.stderr)
+    # 인지(YOLO 등)는 지도 만들 때(MAPPING) 쓰이지 않는다 — 실기에서는 CPU 코어 하나의 절반을 먹어 주행이 끊겼다 (2026-11-09).
+    #   perception:=auto(기본) = 매핑이면 끔 · true/false = 강제. faker 테스트베드(fake_slam)는 그대로 켠다.
+    pm = LaunchConfiguration('perception').perform(context).lower()
+    if pm not in ('auto', 'true', 'false'):
+        raise RuntimeError(f'perception:={pm} — auto | true | false')
+    use_perception = 'false' if (pm == 'false' or (pm == 'auto' and effective == 'slam' and not fake_slam)) else 'true'
     # 지도/위치추정이 없으면 Nav2도 띄우지 않는다 — 지도 없는 costmap·BT가 헛도는 걸 막는다.
     use_nav2 = 'false' if effective == 'none' else 'true'
     nvblox_map = os.path.join(d, name, map_file) if effective != 'none' else ''
@@ -130,7 +157,10 @@ def setup_map(context):
             SetLaunchConfiguration('use_real_slam', use_real_slam),
             SetLaunchConfiguration('use_nav2', use_nav2),
             SetLaunchConfiguration('localization', 'false' if effective == 'slam' else 'true'),
-            SetLaunchConfiguration('nvblox_map', nvblox_map)]
+            SetLaunchConfiguration('nvblox_map', nvblox_map),
+            SetLaunchConfiguration('use_perception', use_perception),
+            SetLaunchConfiguration('use_gripper_cam', ug),
+            SetLaunchConfiguration('use_hand_relative', 'true' if use_perception == 'true' and ug == 'true' else 'false')]
 
 def generate_launch_description():
     learning = {'enabled': LaunchConfiguration('learning_enabled')}
@@ -144,15 +174,11 @@ def generate_launch_description():
         DeclareLaunchArgument('learning_enabled', default_value='true',
                               description='false면 학습 노드가 Δ=0 · 기본 프리셋 (노드는 그대로 뜸)'),
         DeclareLaunchArgument('operation', default_value='MANUAL',
-                              description='초기 조작 모드: MANUAL(기본) | AUTO | EXPLORE | TEACH'),
-        DeclareLaunchArgument('vlm_endpoint', default_value='',
-                              description='호스트 ai-service 주소 (비면 템플릿 고정, 예: http://127.0.0.1:8000)'),
+                              description='초기 조작 모드: MANUAL(기본) | AUTO | TEACH'),
         DeclareLaunchArgument('start_pose', default_value='',
                               description='mission_manager 출발 자세 arena [x, y, yaw] YAML (비면 plan.yaml start_pose_arena)'),
         DeclareLaunchArgument('grasp_check', default_value='true',
                               description='coordinator 잡기 판정(그리퍼 위치 + 전류) — 물리 없는 대역(faker)은 손가락이 끝까지 닫혀 늘 빈손이라 false'),
-        DeclareLaunchArgument('command', default_value='',
-                              description='user_input이 시작 후 한 번 보낼 텍스트 명령'),
         DeclareLaunchArgument('restart_prepare', default_value='',
                               description='/cmd/restart all 때 다시 띄우기 전 셸 명령 (state_manager — 테스트베드 faker = build-ws)'),
         DeclareLaunchArgument('restart_log', default_value='/tmp/bringup.log',
@@ -163,6 +189,8 @@ def generate_launch_description():
                               description='지도 폴더들이 있는 곳 — <map_dir>/<map_name>/nvblox.nvblx (비면 ~/.ros/beebot_maps)'),
         DeclareLaunchArgument('map_name', default_value='',
                               description='지도 폴더 이름 — slam: 비우면 날짜_시각으로 새로 · saved: 비우면 가장 최근'),
+        DeclareLaunchArgument('perception', default_value='auto',
+                              description='인지 노드(perception_node · signal_decoder · hand_relative): auto = 매핑(map:=slam)이면 끔 · true = 항상 · false = 항상 끔. body_filter는 Nav2 충돌감시용이라 그대로'),
         DeclareLaunchArgument('fake_slam', default_value='false',
                               description='true = faker SLAM 대역(코스 map_server · fake_cuvslam · fake_nvblox) — ros_system의 진짜 cuVSLAM·nvblox만 끔'),
         *[DeclareLaunchArgument(k, default_value=v, description=d) for k, (v, d) in ROS_SYSTEM_ARGS.items()],
@@ -186,10 +214,7 @@ def generate_launch_description():
              condition=IfCondition(PythonExpression(["'", LaunchConfiguration('use_ros_system'), "'.lower() == 'true' and '",
                                                      LaunchConfiguration('use_slam'), "' == 'true'"]))),
 
-        node('perception', 'perception_node'),
-        node('plan', 'user_input', {'command': ParameterValue(LaunchConfiguration('command'), value_type=str)}),  # 공백·빈 값도 문자열로
-        node('plan', 'vlm_task_planner',
-             {'vlm_endpoint': ParameterValue(LaunchConfiguration('vlm_endpoint'), value_type=str)}),
+        node('perception', 'perception_node', condition=IfCondition(LaunchConfiguration('use_perception'))),
         # coordinator: 계획 단계를 skill 노드에 맡기는 순서 담당 (적재함 장부 · 모드·비상정지 취소)
         node('plan', 'coordinator'),
         # skill 노드 — 단계마다 액션 서버 /skills/<skill> (팔: arm_skills 컨테이너 · 주행: base_skills). 학습 정책은 skill마다 models/skills/<skill>/
@@ -197,7 +222,6 @@ def generate_launch_description():
         GroupAction([IncludeLaunchDescription(
             PythonLaunchDescriptionSource(PathJoinSubstitution([FindPackageShare('skills'), 'launch', 'skills.launch.py'])),
             launch_arguments={'grasp_check': LaunchConfiguration('grasp_check')}.items())]),
-        node('plan', 'explorer'),
         # 주사위 미션 — /cmd/mission start로 시작 (abort로 멈춤). 출발 자세만 launch 인자로 덮어씀
         node('plan', 'mission_manager', condition=IfCondition(PythonExpression(["'", LaunchConfiguration('start_pose'), "' == ''"]))),
         node('plan', 'mission_manager', {'start_pose_arena': ParameterValue(LaunchConfiguration('start_pose'), value_type=None)},
@@ -206,8 +230,8 @@ def generate_launch_description():
         node('control', 'arm_safety_monitor'),
         node('control', 'manual_control'),
         node('perception', 'body_filter'),
-        node('perception', 'signal_decoder'),
-        node('perception', 'hand_relative'),  # 손 카메라 상대값 → rl_arm_correction 정책 입력
+        node('perception', 'signal_decoder', condition=IfCondition(LaunchConfiguration('use_perception'))),
+        node('perception', 'hand_relative', condition=IfCondition(LaunchConfiguration('use_hand_relative'))),  # 손 카메라 상대값 → rl_arm_correction 정책 입력
         node('manager', 'state_manager', {'operation': LaunchConfiguration('operation'),
                                           'map_mode': LaunchConfiguration('map_mode'),
                                           'map_name': ParameterValue(LaunchConfiguration('map_name'), value_type=str),

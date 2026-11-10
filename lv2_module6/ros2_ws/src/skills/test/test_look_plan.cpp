@@ -15,9 +15,10 @@ TEST(LookPlan, CameraMatchesUrdf) {
   // urdf/default/urdf.xacro (xacro → base_footprint → gripper_cam_color_optical_frame), isaac/scripts/tools/inspect_cover.py Robot.fk
   struct Case { Q5 q; V3 pos, axis; };
   const Case cases[] = {
-    {{0.0, -1.682497, 0.324631, 1.926843, 0.0}, {0.085126, 0.032001, 0.312824}, {0.637467, -0.001047, -0.770477}},
-    {{-0.2, -1.2, 0.3, 1.8, 0.0}, {0.139103, 0.014186, 0.304365}, {0.345213, -0.071046, -0.935831}},
-    {{0.3, -0.7, 0.1, 1.5, 0.4}, {0.202071, 0.061538, 0.327617}, {0.319566, 0.222431, -0.921087}},
+    // 11-08: gripper_cam pitch 17.8 -> 20 deg (19, 18 tried 11-08: hand overshoots the puck 7-9 mm) (measured on the real robot, gripper at joint 0)
+    {{0.0, -1.682497, 0.324631, 1.926843, 0.0}, {0.085255, 0.032001, 0.312927}, {0.607376, -0.001033, -0.794414}},
+    {{-0.2, -1.2, 0.3, 1.8, 0.0}, {0.139256, 0.014155, 0.304420}, {0.309700, -0.063833, -0.948689}},
+    {{0.3, -0.7, 0.1, 1.5, 0.4}, {0.202229, 0.061523, 0.327665}, {0.282910, 0.225934, -0.932156}},
   };
   for (const auto & c : cases) {
     V3 o;
@@ -30,10 +31,11 @@ TEST(LookPlan, CameraMatchesUrdf) {
 
 TEST(LookPlan, ProjectMatchesIsaacImage) {
   // 11/07 Isaac 전체 스택: 사용자 자세에서 퍽 윗면 태그 8 (0.296, −0.04, 0.1305) 이 화면 (479, 136)에 찍힘
+  // 11/08 gripper_cam pitch 17.8 → 20° (실기 실측, URDF · USD 같이): v 136 → 112는 계산값 — Isaac에서 다시 찍어 확인 필요
   double u, v, d;
   ASSERT_TRUE(project({0.0, -1.682497, 0.324631, 1.926843, 0.0}, {0.296, -0.04, 0.1305}, Params{}, u, v, d));
   EXPECT_NEAR(u, 479, 3);
-  EXPECT_NEAR(v, 136, 3);
+  EXPECT_NEAR(v, 112, 3);
 }
 
 TEST(LookPlan, SearchCoversTwoPucks) {

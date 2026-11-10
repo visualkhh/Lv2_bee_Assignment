@@ -30,7 +30,13 @@ CallbackReturn RlArmCorrection::on_init() {
   auto_declare<double>("gravity_ramp_s", 2.0);      // [s] 켜고 끌 때 서서히
   auto_declare<double>("gravity_max", 0.2);         // [rad] 한 관절 상한
   auto_declare<double>("policy_hz", 50.0);          // 시뮬 정책 주기
-  auto_declare<double>("max_cam_age_s", 1.0);       // 손 카메라 값이 이보다 오래되면 Δ 그대로
+  auto_declare<double>("max_cam_age_s", 0.45);      // 손 카메라 값이 이보다 오래되면 정책을 안 돌림 → Δ 그대로 (시뮬 pick_env meas_age_max)
+  // pick_box · unload_slot 입력의 부하 비 = |effort| / 한계 (시뮬은 토크 / 토크 한계). 실기 effort는 전류 [A]
+  auto_declare<std::string>("gripper_joint", "gripper_left_joint");
+  // [A] XM430-W350 정지 전류 (eManual: 4.1 N·m @ 2.3 A, 12 V · 3.8 N·m @ 2.1 A, 11.1 V — 토크 상수 약 1.78 N·m/A).
+  //   시뮬 부하 비 = 토크 / 4.1 N·m → 같은 토크에서 같은 값이 되게 2.3 A (Waffle Pi 11.1 V에서 실제 한계는 2.1 A, 시뮬 3.7~4.1 DR이 덮음)
+  auto_declare<double>("arm_effort_limit", 2.3);
+  auto_declare<double>("gripper_effort_limit", 0.35);  // [A] = skills grip_current_a (시뮬 쥐는 힘 상한 ↔ 전류 한계)
   return CallbackReturn::SUCCESS;
 }
 
@@ -82,6 +88,9 @@ CallbackReturn RlArmCorrection::on_configure(const rclcpp_lifecycle::State &) {
   }
   policy_dt_ = 1.0 / node->get_parameter("policy_hz").as_double();
   max_cam_age_s_ = node->get_parameter("max_cam_age_s").as_double();
+  gripper_joint_ = node->get_parameter("gripper_joint").as_string();
+  arm_effort_limit_ = node->get_parameter("arm_effort_limit").as_double();
+  gripper_effort_limit_ = node->get_parameter("gripper_effort_limit").as_double();
   obs_.assign(ARM_OBS_MAX, 0.0);
   act_.assign(5, 0.0);
   ctx_sub_ = node->create_subscription<ml::msg::SkillContext>(
@@ -103,6 +112,10 @@ InterfaceConfiguration RlArmCorrection::state_interface_configuration() const {
     cfg.names.push_back(j + "/" + hardware_interface::HW_IF_POSITION);
     cfg.names.push_back(j + "/" + hardware_interface::HW_IF_VELOCITY);
   }
+  // 정책 입력 (pick_box · unload_slot): 관절 effort 5개 → 그리퍼 위치 · effort (위 2×5개 뒤, 순서 고정)
+  for (const auto & j : joints_) cfg.names.push_back(j + "/" + hardware_interface::HW_IF_EFFORT);
+  cfg.names.push_back(gripper_joint_ + "/" + hardware_interface::HW_IF_POSITION);
+  cfg.names.push_back(gripper_joint_ + "/" + hardware_interface::HW_IF_EFFORT);
   return cfg;
 }
 
@@ -176,6 +189,8 @@ std::shared_ptr<const RlArmCorrection::Skill> RlArmCorrection::policy_for(const 
 void RlArmCorrection::reset_run() {  // 보정 Δ만 (처짐 적분은 ~/reset_sag · 닿는 구간 시작에서)
   delta_.fill(0.0);
   prev_act_.fill(0.0);
+  act1_.fill(0.0);
+  act2_.fill(0.0);
   since_policy_ = 0.0;
 }
 
@@ -236,7 +251,9 @@ return_type RlArmCorrection::update_and_write_commands(const rclcpp::Time & time
     if (delta_ != J5{}) reset_run();
   } else {
     since_policy_ += dt;
-    const bool cam_kind = it->layout == ArmLayout::Pick ? hand_.kind == "puck" : (hand_.kind == "cell" || hand_.kind == "slot");
+    const bool cam_kind = it->layout == ArmLayout::Pick || it->layout == ArmLayout::PickBox ? hand_.kind == "puck"
+                        : it->layout == ArmLayout::UnloadSlot ? hand_.kind == "slot_puck"
+                        : (hand_.kind == "cell" || hand_.kind == "slot");
     cam_age = (time - rclcpp::Time(hand_.header.stamp, time.get_clock_type())).seconds();
     cam_ok = hand_.valid && cam_kind && cam_age >= -0.1 && cam_age <= max_cam_age_s_;
     if (since_policy_ >= policy_dt_ - 1e-6 && ctx_.q_above.size() == 5 && ctx_.q_down.size() == 5 && cam_ok) {
@@ -253,8 +270,21 @@ return_type RlArmCorrection::update_and_write_commands(const rclcpp::Time & time
       in.cam_y = hand_.rel.y;
       in.face_yaw = hand_.face_yaw;
       in.is_box = hand_.is_box;
+      // pick_box · unload_slot (시뮬 pick_env 설계 · slot_env UnloadEnv와 같은 정의)
+      in.act1 = act1_; in.act2 = act2_;
+      const size_t ne = 2 * joints_.size();
+      const auto eff = [this](size_t k) { const auto v = state_interfaces_[k].get_optional<double>(); return v ? *v : 0.0; };
+      for (int i = 0; i < 5; ++i) in.load[i] = std::abs(eff(ne + i)) / arm_effort_limit_;
+      in.grip_pos = eff(ne + 5);
+      in.grip_load = std::abs(eff(ne + 6)) / gripper_effort_limit_;
+      in.meas_valid = true;  // 정책은 cam_ok일 때만 돎 (시뮬도 같은 규칙)
+      in.meas_age = std::max(cam_age, 0.0) / max_cam_age_s_;
+      in.cam_z = hand_.rel.z;
+      in.insp_x = hand_.insp_rel.x; in.insp_y = hand_.insp_rel.y; in.insp_z = hand_.insp_rel.z;
       arm_obs(it->layout, in, obs_.data());
       it->policy.act_into(obs_.data(), act_.data());
+      act2_ = act1_;
+      act1_ = prev_act_;  // 행동 기록은 정책이 돈 스텝에만 (시뮬 pick_env와 같음)
       for (int i = 0; i < 5; ++i) {
         const double a = std::clamp(act_[i], -1.0, 1.0);
         if (ctx_.residual_live) delta_[i] = std::clamp(residual_rad_ * a, -max_delta_, max_delta_);

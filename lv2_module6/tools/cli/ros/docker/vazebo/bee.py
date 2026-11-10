@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """호스트용 명령 CLI — 컨테이너에 들어가지 않고 debug/ 파일로 지시한다.
 
-  .venv/bin/python vazebo/bee.py user "빨간 퍽을 목표 구역으로 옮겨"
   .venv/bin/python vazebo/bee.py estop on|off
   .venv/bin/python vazebo/bee.py manual on|off
   .venv/bin/python vazebo/bee.py twist 0.1 0.0          # 수동 모드에서만 먹음
@@ -40,11 +39,6 @@ def wait_for(fn, match, timeout, interval=0.2):
             return data, None
         time.sleep(interval)
     return None, f'timeout {timeout}s'
-
-
-def cmd_user(args):
-    send('/cmd/user_command', 'std_msgs/msg/String', {'data': args.text})
-    print(f'보냄 /cmd/user_command: {args.text}')
 
 
 def cmd_estop(args):
@@ -164,10 +158,6 @@ def cmd_snap(args):
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest='cmd')
-
-    s = sub.add_parser('user', help='텍스트 명령 → /cmd/user_command');
-    s.add_argument('text');
-    s.set_defaults(fn=cmd_user)
 
     s = sub.add_parser('estop', help='비상정지 on|off');
     s.add_argument('state', choices=('on', 'off'));

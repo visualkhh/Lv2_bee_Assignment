@@ -2,8 +2,8 @@
 
 // coordinator (🛠 직접 작성, 담당: 권형중) — 설계: documents/project/ros/03-plan.md "coordinator가 지키는 실행 규칙"
 //   계획(/task/sub_goals)의 단계를 차례로 skill 노드(skills 패키지, 🎬 /skills/<skill> 액션)에 맡기는 순서 담당 (2026-11-04 skill 노드로 나눔)
-//   입력: /task/sub_goals (VLM · mission_manager 계획), /tracked_objects (대상 id 검증 · 물체 자세), /state/operation_mode · /state/emergency
-//   출력: 🎬 /skills/{navigate,approach,pose,inspect,pick,place,load,unload,stand,stand_pick}, ✉️ /task/status → VLM·UI, ✉️ /robot/say,
+//   입력: /task/sub_goals (mission_manager 계획), /tracked_objects (대상 id 검증 · 물체 자세), /state/operation_mode · /state/emergency
+//   출력: 🎬 /skills/{navigate,approach,pose,inspect,pick,place,load,unload,stand,stand_pick}, ✉️ /task/status → mission_manager, ✉️ /robot/say,
 //         📢 /coordinator/basket (적재함 장부, latched) · 📞 /coordinator/basket_clear
 //   이 노드에 남은 것: 계획 검증 · 단계 순서 · 물체 → 좌표 (다가갈 자리 · 놓을 면 · 볼 점) · 적재함 장부와 손에 든 퍽 · 모드·비상정지 취소 · 실패 횟수
 //   팔·주행 동작, 학습 정책, 시작·스캔 자세는 skill 노드 (skills/launch/skills.launch.py · documents/project/ros/05-arm.md)
@@ -11,13 +11,12 @@
 //   1. 계획 검증 — 허용 동작(navigate·approach·pick·place·inspect·say·pose·load·unload·stand·stand_pick), 숫자 대상 id가 /tracked_objects에 있는지
 //      (pose·load·unload·stand_pick의 target은 자세 이름·칸 번호라 물체 검증 안 함), pose 이름은 pose_names
 //   2. 팔이 닿게 다가가기: pick · place · inspect · stand <물체 id> 차례에 대상이 로봇(base_footprint, TF)에서 reach_m 넘게 떨어져 있으면
-//      먼저 그 물체를 바라보며 approach_m 떨어진 자리로 navigate한 뒤 그 단계를 실행 (단계마다 한 번 — VLM이 navigate를 빼먹어도)
-//   3. 실패는 FAILED + reason으로 바로 알림 — 다시 할지는 계획을 낸 쪽이 정함 (mission_manager: retries · approach_tries,
-//      vlm_task_planner: max_replans). VLM 계획(plan_id < MISSION_PLAN_ID_BASE)만 같은 단계 max_step_failures회 연속 실패면 /robot/say로 알림
+//      먼저 그 물체를 바라보며 approach_m 떨어진 자리로 navigate한 뒤 그 단계를 실행 (단계마다 한 번 — 계획에 navigate가 빠져 있어도)
+//   3. 실패는 FAILED + reason으로 바로 알리고 멈춤 — 다시 할지는 계획을 낸 쪽(mission_manager retries · approach_tries)이 정함
 //   3-1. 단계 시간 제한: skill goal이 step_timeout_s.<skill> 안에 결과를 안 주면 취소하고 <skill>_timeout으로 실패 (0 = 없음).
 //        skill 안의 시간 제한(approach · 그리퍼)이 먼저고, 이건 skill이 응답 없이 멈췄을 때의 마지막 안전망
 //   3-2. skill 노드(/skills/<skill>)가 server_wait_s 안에 안 뜨면 skill_unavailable:<skill>
-//   4. AUTO가 아닌 모드(MANUAL · EXPLORE · TEACH) · 비상정지: 진행 중 skill goal을 취소하고 FAILED, 그동안 새 계획은 받지 않음
+//   4. AUTO가 아닌 모드(MANUAL · TEACH) · 비상정지: 진행 중 skill goal을 취소하고 FAILED, 그동안 새 계획은 받지 않음
 //   적재함 장부는 이 노드 하나만 씀: 칸마다 {모양 · 색 · tag · 확인 필요} + 실은 순서 + 손에 든 퍽 → 파일(basket_file)에 저장해 다시 떠도 이어 감
 //     pick·stand_pick 성공이면 그 퍽을 손에 · load 성공이면 칸에 · unload 성공이면 손으로 · place 성공이면 손 비움.
 //     unload가 빈손(grasp_empty)이면 칸을 비우지 않고 check(확인 필요)로. load next는 basket_use 칸 중 빈 칸
@@ -47,9 +46,6 @@
 #include "tf2_ros/transform_listener.h"
 
 namespace plan {
-
-// mission_manager가 내는 계획의 plan_id 시작 (vlm_task_planner는 1부터) — 규칙 3의 말하기는 VLM 계획에만
-inline constexpr uint32_t MISSION_PLAN_ID_BASE = 1000000;
 
 // 적재함 칸 고르기 — filled[i] = 실린 퍽 모양("" = 빔) · order = 실은 순서.
 //   load: "next"·"tray" = 빈 칸 중 가장 낮은 번호 · 숫자 = 그 칸 (차 있으면 slot_full)
@@ -93,7 +89,6 @@ private:
   void run_step();
   void next();
   void fail(const std::string & reason);
-  static std::string key(const SubGoal & g);
   // /skills/<action>에 goal — 서버가 아직 없으면 1초마다 다시 (server_wait_s 넘으면 skill_unavailable:<action>).
   //   step_timeout_s.<action> 안에 결과가 없으면 취소하고 <action>_timeout. 성공이면 ok, 실패면 on_fail(이유)
   void send(const std::string & action, const Skill::Goal & goal, Ok ok, Fail on_fail = nullptr);
@@ -121,7 +116,6 @@ private:
   void status(uint32_t step, uint8_t state, const std::string & reason);
   void say(const std::string & text);
 
-  int max_step_failures_;
   double server_wait_s_, waited_s_ = 0, reach_m_, approach_m_, place_spacing_, box_margin_m_;
   std::set<std::string> pose_names_;
   std::map<std::string, rclcpp_action::Client<Skill>::SharedPtr> skills_;  // action 이름 → 클라이언트
@@ -147,8 +141,13 @@ private:
   SubGoalArray plan_;
   size_t idx_ = 0;
   uint64_t gen_ = 0;  // 새 계획·취소 때마다 증가 — 옛 goal 결과가 새 단계를 건드리지 않게
-  std::map<std::string, int> failures_;
   TrackedObjectArray::ConstSharedPtr objects_;
+  // 기억한 퍽 — perception은 안 보이면 2초 뒤 지우므로(long_memory false, 11/04 "기억은 통합 쪽") 마지막으로 본 모습을 remember_s 동안
+  //   (적재 뒤 팔이 상자를 안 보는 자세여도 다음 퍽을 그 자리로 바로 pick). 집으면 지움 · 같은 자리에 새 트랙이 생기면 지움
+  struct Seen { perception::msg::TrackedObject o; rclcpp::Time t; };
+  std::map<uint32_t, Seen> remembered_;
+  double remember_s_ = 120.0;
+  void remember(const TrackedObjectArray & m);
   std::shared_ptr<SubGoalArray> waiting_plan_;
   rclcpp::Publisher<TaskStatus>::SharedPtr status_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr say_pub_;

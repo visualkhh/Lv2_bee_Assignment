@@ -39,8 +39,33 @@ class StateBar(Bar):
         fs = self.focus_states()
         return fs[self.idx % len(fs)] if fs else None
 
+    cont_indent = '    '   # 줄바꿈으로 이어지는 줄의 들여쓰기
+
+    def _wrap(self, parts: list[str], width: int) -> list[str]:
+        """칸(part)을 sep로 이으며 폭을 넘으면 다음 줄로 — 칸 하나는 쪼개지 않는다 (칸 하나가 폭보다 길면 …로 자름)."""
+        term = self.ui.term
+        lines, cur, cur_w = [], self.indent, term.disp_len(self.indent)
+        first = True
+        for p in parts:
+            pw = term.disp_len(p)
+            add = pw if first else term.disp_len(self.sep) + pw
+            if not first and cur_w + add > width:           # 이 칸이 안 들어감 → 새 줄
+                lines.append(cur)
+                cur, cur_w, first = self.cont_indent, term.disp_len(self.cont_indent), True
+                add = pw
+            if first and cur_w + pw > width:                 # 칸 하나가 폭보다 김 → 자름
+                p = term.fit(p, max(8, width - cur_w)).rstrip()
+                pw = term.disp_len(p)
+                add = pw
+            cur += (p if first else self.sep + p)
+            cur_w += add
+            first = False
+        lines.append(cur)
+        return lines
+
     def lines(self, focused: bool = False) -> list[str]:
         cur = self.focused_state if focused else None
+        width = self.ui.term.size()[0] - 1
         out = []
         for row in self.rows:
             parts = []
@@ -49,7 +74,7 @@ class StateBar(Bar):
                 if t:
                     parts.append(FOCUS + t + '\033[0m' if s is cur else t)
             if parts:
-                out.append(self.indent + self.sep.join(parts))
+                out.extend(self._wrap(parts, width))
         return out
 
     def on_key(self, k) -> bool:

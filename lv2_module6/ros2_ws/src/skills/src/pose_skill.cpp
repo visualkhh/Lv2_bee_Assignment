@@ -2,7 +2,7 @@
 //   팔을 맡는 기본 일도 이 노드 (예전 coordinator):
 //   - 시작 자세: bringup 직후 한 번 팔을 initial_pose로 — MoveIt 없이 /arm_controller/joint_trajectory 토픽.
 //     못 가면 initial_pose_retries번만 다시 보내고 지금 자세로 멈춤 (걸린 채 계속 밀면 과부하). initial_pose_enabled는 실행 중에도 바꿈
-//   - 스캔 자세: 지도를 만들 때(/state/map_mode MAPPING · 자동 탐사 EXPLORE) 작업이 없으면 팔을 scan_pose로 (2초마다 확인)
+//   - 스캔 자세: 지도를 만들 때(/state/map_mode MAPPING) 작업이 없으면 팔을 scan_pose로 (2초마다 확인)
 //     — gripper_cam이 왼쪽 뒤를 보는 두 번째 고정 카메라 (ros_system/config/scan_pose.yaml · scan_cam_gate)
 //   작업 중인지는 /task/status (RUNNING) 와 이 노드의 goal로 봄. 자세 값: skills/params/basket.yaml (isaac-lab slot_table)
 #include <chrono>
@@ -167,7 +167,7 @@ private:
         if (!ok) RCLCPP_WARN(get_logger(), "그리퍼 시작 값 실패 — skills.yaml initial_gripper 확인");
       });
     }
-    if (map_mode_ == "MAPPING" || mode_ == "EXPLORE") { initial_timer_->cancel(); return; }  // 스캔 자세가 대신 잡음
+    if (map_mode_ == "MAPPING") { initial_timer_->cancel(); return; }  // 스캔 자세가 대신 잡음
     if (at(initial_joints_, initial_pose_, initial_tol_)) {
       if (initial_gripper_sent_ || initial_gripper_ < 0.0) { initial_timer_->cancel(); RCLCPP_INFO(get_logger(), "팔 초기 자세 확인 끝"); }
       return;
@@ -183,7 +183,7 @@ private:
   void check_scan_pose() {
     // 지도를 만드는 중이고 작업이 없을 때 — 작업이 끝나면 다음 확인 때 돌아감. 수동 모드여도 (스캔은 보통 수동 주행)
     if (!get_parameter("scan_pose_enabled").as_bool()) return;  // 실행 중 param set도 반영
-    if (map_mode_ != "MAPPING" && mode_ != "EXPLORE") return;
+    if (map_mode_ != "MAPPING") return;
     if (estop_ || busy_arm() || scan_moving_ || at(scan_joints_, scan_pose_, scan_tol_) || !arm_.moveit_ready()) return;
     double probe;
     if (!arm_.joint("joint1", probe)) return;

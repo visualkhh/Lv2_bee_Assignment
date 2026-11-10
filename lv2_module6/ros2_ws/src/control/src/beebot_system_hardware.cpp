@@ -148,6 +148,9 @@ CallbackReturn BeebotSystemHardware::on_activate(const rclcpp_lifecycle::State &
       return CallbackReturn::ERROR;
     }
   }
+  arm_absent_ = !mock_ && arm_nan_.load();
+  if (arm_absent_)
+    RCLCPP_WARN(get_logger(), "팔·그리퍼 모터 응답 없음(nan) — 바퀴만 활성화. 팔 명령은 막음 (팔을 꽂으면 스택을 다시 띄워야 팔 사용)");
   for (const auto & j : info_.joints) {
     for (const auto & c : j.command_interfaces) {
       const auto key = j.name + "/" + c.name;
@@ -176,12 +179,18 @@ void BeebotSystemHardware::report(diagnostic_updater::DiagnosticStatusWrapper & 
   if (mock_) s.summary(DiagnosticStatus::OK, "mock — 명령을 상태로 되돌림");
   else if (fd_ < 0) s.summary(DiagnosticStatus::ERROR, "포트 닫힘: " + port_);
   else if (age > 0.5) s.summary(DiagnosticStatus::ERROR, "OpenCR 상태(S) 수신 없음");
+  else if (arm_absent_.load()) {
+    // 팔을 뽑은 건 예상된 상태 — 에러가 아니라 주의(WARN). 바퀴가 응답하는지는 따로 알려 준다 (바퀴가 죽었는데 '바퀴만'으로 읽히지 않게)
+    const bool wheels_ok = hw_error_[0].load() != -1 && hw_error_[1].load() != -1;
+    s.summary(DiagnosticStatus::WARN, "연결됨 " + port_ + " — 팔·그리퍼 응답 없음 · 바퀴 " + (wheels_ok ? "정상" : "응답 없음"));
+  }
   else s.summary(DiagnosticStatus::OK, "연결됨 " + port_);
   std::string errors;
   std::string hot;
   for (size_t i = 0; i < MOTORS; ++i) {
     const int e = hw_error_[i].load();
-    if (e != 0) errors += (errors.empty() ? "" : ", ") + std::string(motor_name(i)) + " " + error_text(e);
+    const bool expected_absent = arm_absent_.load() && e == -1 && i >= 2;  // 팔 없음으로 활성화된 뒤의 팔·그리퍼 '응답 없음'은 에러로 안 침
+    if (e != 0 && !expected_absent) errors += (errors.empty() ? "" : ", ") + std::string(motor_name(i)) + " " + error_text(e);
     s.add(std::string("모터 에러 ") + motor_name(i), e == 0 ? std::string("정상") : error_text(e));
     const int t = hw_temp_[i].load();
     if (t >= TEMP_WARN_C) hot += (hot.empty() ? "" : ", ") + std::string(motor_name(i)) + " " + std::to_string(t) + "°C";
@@ -275,6 +284,8 @@ return_type BeebotSystemHardware::read_serial() {
       ++bad_;
     }
   }
+  if (arm_absent_.load() && !arm_nan_.load())
+    RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 10000, "팔이 감지됨 — 안전을 위해 팔 명령은 계속 막음. 스택을 다시 띄우면 팔 사용");
   if (std::chrono::steady_clock::now() - last_state_.load() > std::chrono::milliseconds(500)) {
     RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000, "OpenCR 상태(S) 수신 없음 0.5초 넘음 — 펌웨어·배선 확인");
   }
@@ -294,8 +305,14 @@ bool BeebotSystemHardware::apply_state(const std::string & text) {
     wrong_size_ = v.size();  // 활성화 실패 메시지에 — 예전 펌웨어면 개수가 다름
     return false;
   }
-  // 펌웨어는 한 번도 못 읽은 모터(부팅 때 12V 꺼짐 등)를 nan으로 보낸다 — 모르는 자세를 상태로 쓰지 않는다
-  for (size_t k = 0; k < MOTORS * 3; ++k) if (std::isnan(v[k])) return false;
+  // 펌웨어는 한 번도 못 읽은 모터(부팅 때 12V 꺼짐 · 팔을 뽑음 등)를 nan으로 보낸다 — 모르는 자세를 상태로 쓰지 않는다.
+  //   바퀴(앞 3×2개)가 nan이면 줄을 버린다 (바퀴를 모르면 못 달림).
+  //   팔·그리퍼만 nan이면 '팔 없음'으로 받는다 — 바퀴·IMU·배터리는 정상 처리하고, 팔 상태는 그대로 둔다 (NaN을 안 넣음).
+  const size_t wheel_vals = std::size(WHEELS) * 3;
+  for (size_t k = 0; k < wheel_vals; ++k) if (std::isnan(v[k])) return false;
+  bool arm_nan = false;
+  for (size_t k = wheel_vals; k < MOTORS * 3; ++k) if (std::isnan(v[k])) arm_nan = true;
+  arm_nan_ = arm_nan;
   size_t i = 0;
   for (const auto * name : WHEELS) {
     set_state(std::string(name) + "/position", v[i++]);
@@ -303,34 +320,38 @@ bool BeebotSystemHardware::apply_state(const std::string & text) {
     if (wheel_effort_) set_state(std::string(name) + "/effort", v[i]);  // URDF 바퀴에 effort 상태가 있을 때만
     ++i;
   }
-  std::array<double, 6> arm_p{};
-  for (size_t k = 0; k < ARM.size(); ++k) {
-    const char * name = ARM[k];
-    double p = v[i++] - offset_[name];  // 서보 값 → 관절값
-    // 시리얼은 소수 넷째 자리(%.4f) — 한계값 명령(π = 3.14159)이 3.1416으로 오가며 한계를 0.0001쯤 넘는다.
-    // 그대로 내보내면 MoveIt이 출발 자세가 한계 밖이라며 모든 계획을 거부했음 (START_STATE_INVALID) → 반올림만큼 넘은 건 한계로
-    const auto lim = info_.limits.find(name);
-    if (lim != info_.limits.end() && lim->second.has_position_limits) {
-      const double lo = lim->second.min_position, hi = lim->second.max_position;
-      if (p > hi && p - hi < 1e-3) p = hi;
-      if (p < lo && lo - p < 1e-3) p = lo;
+  if (arm_nan) {
+    i += ARM.size() * 3;  // 팔·그리퍼 값은 모름 — 상태는 그대로
+  } else {
+    std::array<double, 6> arm_p{};
+    for (size_t k = 0; k < ARM.size(); ++k) {
+      const char * name = ARM[k];
+      double p = v[i++] - offset_[name];  // 서보 값 → 관절값
+      // 시리얼은 소수 넷째 자리(%.4f) — 한계값 명령(π = 3.14159)이 3.1416으로 오가며 한계를 0.0001쯤 넘는다.
+      // 그대로 내보내면 MoveIt이 출발 자세가 한계 밖이라며 모든 계획을 거부했음 (START_STATE_INVALID) → 반올림만큼 넘은 건 한계로
+      const auto lim = info_.limits.find(name);
+      if (lim != info_.limits.end() && lim->second.has_position_limits) {
+        const double lo = lim->second.min_position, hi = lim->second.max_position;
+        if (p > hi && p - hi < 1e-3) p = hi;
+        if (p < lo && lo - p < 1e-3) p = lo;
+      }
+      arm_p[k] = p;
+      set_state(std::string(name) + "/velocity", v[i++]);
+      set_state(std::string(name) + "/effort", v[i++]);
     }
-    arm_p[k] = p;
-    set_state(std::string(name) + "/velocity", v[i++]);
-    set_state(std::string(name) + "/effort", v[i++]);
-  }
-  if (twist_state_) {  // 비틀림 상태 (헤더 설명) — 토크는 엔코더 각으로 (rl_arm_correction 앞먹임 · Isaac opencr_bridge와 같게)
-    const auto tau = arm_torques(arm_p[1], arm_p[2], arm_p[3]);
-    twist_[1] = twist_c2_ * tau[0];
-    twist_[2] = twist_c3_ * tau[1];
-  }
-  for (size_t k = 0; k < ARM.size(); ++k) {
-    double p = arm_p[k] + twist_[k];
-    // 더한 d가 한계를 넘기면 한계로 — stow joint3 1.344 + d 0.054 = 1.398 > 1.396이라 MoveIt이 출발 자세를 거부함 (START_STATE_INVALID)
-    const auto lim = info_.limits.find(ARM[k]);
-    if (twist_[k] != 0.0 && lim != info_.limits.end() && lim->second.has_position_limits)
-      p = std::clamp(p, lim->second.min_position, lim->second.max_position);
-    set_state(std::string(ARM[k]) + "/position", p);
+    if (twist_state_) {  // 비틀림 상태 (헤더 설명) — 토크는 엔코더 각으로 (rl_arm_correction 앞먹임 · Isaac opencr_bridge와 같게)
+      const auto tau = arm_torques(arm_p[1], arm_p[2], arm_p[3]);
+      twist_[1] = twist_c2_ * tau[0];
+      twist_[2] = twist_c3_ * tau[1];
+    }
+    for (size_t k = 0; k < ARM.size(); ++k) {
+      double p = arm_p[k] + twist_[k];
+      // 더한 d가 한계를 넘기면 한계로 — stow joint3 1.344 + d 0.054 = 1.398 > 1.396이라 MoveIt이 출발 자세를 거부함 (START_STATE_INVALID)
+      const auto lim = info_.limits.find(ARM[k]);
+      if (twist_[k] != 0.0 && lim != info_.limits.end() && lim->second.has_position_limits)
+        p = std::clamp(p, lim->second.min_position, lim->second.max_position);
+      set_state(std::string(ARM[k]) + "/position", p);
+    }
   }
   for (const auto * field : IMU_FIELDS) set_state(imu_ + "/" + field, v[i++]);
   for (size_t k = 0; k < MOTORS; ++k) hw_temp_[k] = static_cast<int>(std::lround(v[i++]));  // °C, −1 = 모름
@@ -442,7 +463,7 @@ return_type BeebotSystemHardware::write_serial() {
   for (const auto * name : ARM) {
     const double p = get_command<double>(std::string(name) + "/position");
     // 명령 없으면 빈칸 = 펌웨어가 현재 자세 유지 (상태로 채우면 S 받기 전엔 0rad를 보내 팔이 튄다)
-    if (std::isnan(p)) {
+    if (arm_absent_.load() || std::isnan(p)) {  // 팔 없음으로 활성화됐으면 늘 빈칸 (꽂혀도 0rad로 안 튐)
       out += ',';
       continue;
     }
@@ -450,7 +471,7 @@ return_type BeebotSystemHardware::write_serial() {
     out += num;
   }
   // 9번째 = 그리퍼 쥐는 힘 한계 A (gripper_controller max_effort · 액션 goal effort) — 생략 = 펌웨어 유지
-  if (gripper_effort_cmd_) {
+  if (gripper_effort_cmd_ && !arm_absent_.load()) {
     const double a = get_command<double>("gripper_left_joint/effort");
     if (!std::isnan(a)) {
       std::snprintf(num, sizeof(num), ",%.3f", a);

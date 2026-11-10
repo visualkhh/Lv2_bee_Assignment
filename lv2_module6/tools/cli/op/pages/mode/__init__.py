@@ -24,8 +24,6 @@ class ModeItem(MenuItem):
         body = [f'현재: {self.state.operation or "-"}']
         if self._target == 'AUTO':
             body.append('AUTO로 바꾸면 자동 주행이 시작될 수 있습니다.')
-        if self._target == 'EXPLORE' and self.state.map_mode != 'MAPPING':
-            body.append(f'주의: EXPLORE는 지도 모드 MAPPING에서만 허용됩니다 (지금 {self.state.map_mode or "-"}).')
         if self._target != 'MANUAL' and not self.ui.confirm(
                 f'{self._target}로 전환할까요?', default=False, body=body):
             return STAY
@@ -38,8 +36,7 @@ class ModeMenu(Menu):
 
     def items(self):
         return [ModeItem(self.app, '1', 'AUTO', '자동 미션 (coordinator·Nav2·arm)'),
-                ModeItem(self.app, '2', 'MANUAL', '수동 주행/팔/그리퍼'),
-                ModeItem(self.app, '3', 'EXPLORE', 'MAPPING 중 자동 탐사')]
+                ModeItem(self.app, '2', 'MANUAL', '수동 주행/팔/그리퍼')]
 
     def center(self):
         st = self.state
@@ -88,6 +85,55 @@ class EstopOffItem(MenuItem):
             return STAY
         self.bus.cmd_estop(argparse.Namespace(state='off'))
         return STAY
+
+
+class CollisionStatusItem(MenuItem):
+    key = '1'
+
+    def label(self):
+        return '상태 새로고침'
+
+    def run(self):
+        self.bus.cmd_collision(argparse.Namespace(state='status'))
+        return STAY
+
+
+class CollisionOnItem(MenuItem):
+    key = '2'
+
+    def label(self):
+        return 'collision_monitor 켜기'
+
+    def run(self):
+        self.bus.cmd_collision(argparse.Namespace(state='on'))
+        return STAY
+
+
+class CollisionOffItem(MenuItem):
+    key = '3'
+
+    def label(self):
+        return 'collision_monitor 끄기'
+
+    def run(self):
+        if not self.ui.confirm('collision_monitor를 끌까요?', default=False,
+                               body=['끄면 벽·물체 앞에서 자동으로 서지 않습니다. 직접 몰 때만 쓰세요.',
+                                     'MANUAL·MAPPING이면 이미 자동으로 꺼져 있습니다.']):
+            return STAY
+        self.bus.cmd_collision(argparse.Namespace(state='off'))
+        return STAY
+
+
+class CollisionMenu(Menu):
+    title = '충돌 감시 (collision_monitor)'
+
+    def items(self):
+        return [CollisionStatusItem(self.app), CollisionOnItem(self.app), CollisionOffItem(self.app)]
+
+    def center(self):
+        return ['[collision_monitor]', f' 반영 상태: {self.bus.collision_status()}', '',
+                ' 자동: MANUAL · 지도 만드는 중(MAPPING)이면 끔, 그 밖엔 켬',
+                ' 직접 바꾸면 모드가 바뀔 때까지 유지됩니다']
 
 
 class EstopMenu(Menu):

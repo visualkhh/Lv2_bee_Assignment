@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import sys
+import time
 
 from ..keys import KeyReader
 
@@ -26,13 +27,15 @@ class Dialog:
       fallback()   TTY가 아닐 때(명령줄·파이프) run()의 결과
     """
 
-    read_timeout = 0.1  # 키를 기다리는 한 주기 [s] — 이 주기로 on_tick·다시 그리기
+    read_timeout = 0.1  # 키를 기다리는 한 주기 [s] — 이 주기로 on_tick (키 반응 속도의 한계)
+    draw_period = 0.0   # 박스를 이보다 자주 다시 그리지 않음 [s] (0 = 매 주기). 화면 갱신은 값이 바뀌는 속도(사람이 읽는 속도)에 맞춘다
 
     def __init__(self, ui, title: str, body: list[str] | None = None):
         self.ui = ui
         self.title = title
         self.body = list(body or [])
         self._geom = None  # (left, top, w, h) — 마지막으로 그린 자리 (지우기·뒤 화면 갱신용)
+        self._drawn_at = 0.0
 
     # ---------------------------------------------------------------- 하위 클래스가 정함
     def content(self) -> list[str]:
@@ -93,8 +96,16 @@ class Dialog:
         content = max([self.ui.term.disp_len(s) for s in lines] + [20]) + self.extra_width() + 4
         return min(max(cols - 4, 20), max(20, content))
 
+    def invalidate(self) -> None:
+        """다음 주기에 바로 다시 그리게 한다 (키를 눌렀을 때 등 — draw_period를 기다리지 않음)."""
+        self._drawn_at = 0.0
+
     def draw(self) -> None:
-        """content()를 화면 가운데 박스로. 크기·자리가 바뀌면 예전 자리를 지운다."""
+        """content()를 화면 가운데 박스로. 크기·자리가 바뀌면 예전 자리를 지운다. draw_period 안이면 건너뜀."""
+        now = time.monotonic()
+        if self.draw_period and now - self._drawn_at < self.draw_period:
+            return
+        self._drawn_at = now
         cols, rows = self.ui.term.size()
         content = self.content()
         w = self._width(content)

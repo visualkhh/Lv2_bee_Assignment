@@ -157,7 +157,7 @@ flowchart LR
 - 관측 실패(바코드, 신호)와 복귀 이동 실패만 **ERROR**로 멈춥니다. coordinator에 정지(plan_id 0 + 빈 목록)를 보냅니다.
 - 나머지(다가가기, 집기, 놓기, 확인)는 skill마다 `retries`번 다시 시도합니다. 그래도 안 되면 **그 퍽·장소만 실패로 결과에 남기고** 다음으로 갑니다. 그때까지의 점수는 유효하므로 복귀까지 진행합니다.
 - `/cmd/mission abort`는 어느 단계에서든 ERROR(`aborted`)로 멈춥니다.
-- **사람·안전 때문에 멈춘 skill은 다시 시도하지 않습니다.** coordinator 실패 이유가 `estop*` · `manual*` · `explore*` · `cancelled`이면 ERROR(`interrupted: <이유>`)로 미션을 멈춥니다. 비상정지, 수동·탐사 모드 전환, 다른 계획이 끼어든 경우입니다. 이어서 하려면 상태를 확인하고 `/cmd/mission start`로 다시 시작합니다(적재함 장부 확인 포함).
+- **사람·안전 때문에 멈춘 skill은 다시 시도하지 않습니다.** coordinator 실패 이유가 `estop*` · `manual*` · `cancelled`이면 ERROR(`interrupted: <이유>`)로 미션을 멈춥니다. 비상정지, 수동 모드 전환, 다른 계획이 끼어든 경우입니다. 이어서 하려면 상태를 확인하고 `/cmd/mission start`로 다시 시작합니다(적재함 장부 확인 포함).
 
 ## 기록
 

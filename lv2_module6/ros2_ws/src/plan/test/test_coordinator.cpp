@@ -8,7 +8,6 @@
 
 #include "plan/coordinator.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
-#include "plan/vlm_task_planner.hpp"
 
 using namespace plan;  // 노드 클래스·메시지 별칭 (include/plan/*.hpp)
 
@@ -185,7 +184,7 @@ TEST_F(RosTest, SilentSkillTimesOutAndIsCancelled) {
   exec.add_node(node);
   exec.add_node(probe);
   SubGoalArray plan;
-  plan.plan_id = MISSION_PLAN_ID_BASE + 52;  // mission_manager 계획 — 실패 횟수는 안 셈
+  plan.plan_id = 1000052;  // mission_manager 계획 번호대
   plan.goals.push_back(SubGoal().set__step(1).set__skill("pose").set__target("stow"));
   goals_pub->publish(plan);
   ASSERT_TRUE(spin_until(exec, [&]() { objects_pub->publish(TrackedObjectArray()); },

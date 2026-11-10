@@ -585,14 +585,22 @@ class AbTest:
                 last_err = str(exc)
         raise RuntimeError(f'{frame_id}→base_footprint TF 없음 — 지도/로컬라이제이션 확인 ({last_err})')
 
-    def _lookup_pose(self, frame_id: str) -> tuple[float, float, float]:
-        """지금 map(frame_id) 기준 base_footprint (x, y, yaw[rad]) — TF가 없으면 예외."""
+    def frame_xy(self, child: str, frame_id: str = 'map') -> tuple[float, float] | None:
+        """map 기준 다른 프레임(odom 등)의 원점 (x, y) — 기다리지 않음, 없으면 None. 지도 화면의 M·O 표시용."""
+        try:
+            x, y, _ = self._lookup_pose(frame_id, child)
+        except Exception:
+            return None
+        return x, y
+
+    def _lookup_pose(self, frame_id: str, child: str = 'base_footprint') -> tuple[float, float, float]:
+        """지금 map(frame_id) 기준 child(기본 base_footprint)의 (x, y, yaw[rad]) — TF가 없으면 예외."""
         from rclpy.time import Time
         if self._tf_buf is None:
             from tf2_ros import Buffer, TransformListener
             self._tf_buf = Buffer()
             self._tf_listener = TransformListener(self._tf_buf, self.node)
-        tr = self._tf_buf.lookup_transform(frame_id, 'base_footprint', Time())
+        tr = self._tf_buf.lookup_transform(frame_id, child, Time())
         t, q = tr.transform.translation, tr.transform.rotation
         yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
         return float(t.x), float(t.y), yaw

@@ -4,6 +4,8 @@
 #   ./start.sh
 #   ROS_DOMAIN_ID=42 ./start.sh
 #   ROS_DOMAIN_ID=42 RVIZ_CONFIG=light ./start.sh     # Wi-Fi 너머 PC: 지도·TF·로봇 모델만 (light.rviz)
+#   RVIZ_CONFIG=mapping ./start.sh                    # 매핑 전용 — 지도·/scan·TF·로봇, 위에서 내려다보는 뷰 (mapping.rviz)
+#   RVIZ_CONFIG=nav ./start.sh                        # 목표 이동(Nav2) 전용 — 지도·코스트맵·경로·footprint, 2D Goal Pose가 /goal_pose (nav.rviz)
 #   RVIZ_CONFIG=ab ./start.sh                         # A/B 경로 지정 — 2D Goal Pose가 /ab/goal_pose (로봇 안 움직임, ab.rviz)
 set -eo pipefail
 

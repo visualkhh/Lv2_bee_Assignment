@@ -74,6 +74,21 @@ std::vector<int> dice_cells(int n) {
   return (n >= 1 && n <= 6) ? table[n] : std::vector<int>{};
 }
 
+std::vector<int> dice_cells_ordered(int n, double facing_yaw) {
+  auto cells = dice_cells(n);
+  const int fx = static_cast<int>(std::lround(std::cos(facing_yaw))), fy = static_cast<int>(std::lround(std::sin(facing_yaw)));
+  const int lx = -fy, ly = fx;  // 로봇 왼쪽 = 앞을 왼쪽으로 90° 돌린 방향
+  const auto key = [&](int cell) {  // (앞쪽 좌표, 왼쪽 좌표) — 칸 간격 1칸 단위
+    const int dx = cell % 3 - 1, dy = 1 - cell / 3;
+    return std::pair<int, int>{dx * fx + dy * fy, dx * lx + dy * ly};
+  };
+  std::stable_sort(cells.begin(), cells.end(), [&](int a, int b) {
+    const auto ka = key(a), kb = key(b);
+    return ka.first != kb.first ? ka.first > kb.first : ka.second > kb.second;  // 먼 줄 먼저, 같은 줄은 왼쪽 먼저
+  });
+  return cells;
+}
+
 std::pair<double, double> cell_offset(int cell, double step) {
   return {(cell % 3 - 1) * step, (1 - cell / 3) * step};
 }

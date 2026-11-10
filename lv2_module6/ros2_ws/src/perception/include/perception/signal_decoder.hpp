@@ -19,7 +19,7 @@
 //     노드가 켜진 뒤 첫 사이클 끝 전의 조각은 버림 (사이클 중간부터 봤을 수 있음)
 //     사이클마다 검사: blinks개인가 · 모르는 색 없나 · 각 색 min_count~max_count인가 → 맞으면 같은 답 연속 횟수를 세고
 //     confirm번 연속 같으면 ok=true (반복 신호 — 한 번 놓치거나 두 번 센 답을 거름)
-//     /mission/signal은 새 답이 확정될 때만 (planner가 받을 때마다 다시 계획함). 사이클마다 결과는 /mission/signal_status · 로그(WARN) · 진단
+//     /mission/signal은 새 답이 확정될 때만 (받을 때마다 mission_manager가 다시 계획함). 사이클마다 결과는 /mission/signal_status · 로그(WARN) · 진단
 #include <map>
 #include <string>
 #include <vector>

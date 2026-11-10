@@ -3,7 +3,7 @@
 <package format="3">
   <name>plan</name>
   <version>0.1.0</version>
-  <description>작업 계획·임무 관리 — user_input(외부 텍스트 입력), vlm_task_planner, coordinator. SubGoal·TaskStatus 메시지 정의 포함</description>
+  <description>작업 계획·임무 관리 — coordinator. SubGoal·TaskStatus 메시지 정의 포함</description>
   <maintainer email="todo@example.com">권형중</maintainer>
   <license>Apache-2.0</license>
 

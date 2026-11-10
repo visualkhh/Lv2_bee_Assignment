@@ -60,9 +60,6 @@ TEST(Signal, Q1TwoCycles) {
   EXPECT_EQ(m.sequence[1], "green");
   EXPECT_EQ(m.sequence[8], "yellow");
   EXPECT_EQ(m.raw, "R G R R G R G G Y G Y G");
-  // 옛 칸은 비어 있음 (planner 빌드용으로만 남김)
-  EXPECT_EQ(m.color, "");
-  EXPECT_EQ(m.count, 0);
 }
 
 TEST(Signal, SameColorInARowCountsEach) {

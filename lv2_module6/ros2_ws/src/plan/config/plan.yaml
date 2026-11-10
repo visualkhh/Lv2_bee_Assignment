@@ -1,16 +1,7 @@
-# plan 패키지 파라미터 — bringup이 노드에 넘긴다. user_input.command는 launch 인자 command가 덮어쓴다
-user_input:
-  ros__parameters:
-    command: ""              # 시작 후 한 번 보낼 텍스트 명령 (비면 안 보냄)
-vlm_task_planner:
-  ros__parameters:
-    max_replans: 1           # 명령 하나당 재계획 횟수 (coordinator의 max_step_failures와 짝)
-    vlm_endpoint: ""         # 비면 템플릿 고정(기본·CI). 호스트 ai-service면 "http://127.0.0.1:8000" (컨테이너 host망이라 localhost가 호스트)
-    vlm_timeout_s: 120.0    # [s] VLM 대기 — 넘기면 템플릿 폴백. ai-service backend human(사람이 웹에서 계획)이면 그쪽 timeout_s(600) 이상으로
+# plan 패키지 파라미터 — bringup이 노드에 넘긴다
 coordinator:
   ros__parameters:
     # 계획 단계를 skill 노드(skills 패키지, /skills/<skill>)에 맡기는 순서 담당 — 팔·주행 값은 skills/config/skills.yaml · skills/params/
-    max_step_failures: 2     # VLM 계획만: 같은 단계가 이만큼 연속 실패하면 말로 알림 (규칙 3 — mission_manager 계획은 retries가 맡음)
     server_wait_s: 30.0      # [s] skill 노드가 뜰 때까지 기다리는 시간 — 넘으면 skill_unavailable:<skill>
     # [s] 단계 시간 제한 — skill goal이 이 안에 결과를 안 주면 취소하고 <skill>_timeout (0 = 없음). 시뮬은 /clock 기준
     #   skill 안의 시간 제한(approach_timeout_s · 그리퍼)이 먼저 걸리고, 이건 skill이 응답 없이 멈췄을 때의 마지막 안전망
@@ -75,12 +66,3 @@ mission_manager:             # 주사위 기억 미션 (documents/mission/README
     home_hold_s: 3.0                         # [s] 출발 구역에서 정지 (발제: 3초)
     log_dir: "~/.ros/mission"                # 회차별 signal · allocation · build · verify · return (· error) .json + photos/
     photo_topic: "/gripper_cam/color/image_raw"   # 단계 사진 (찍을 때만 잠깐 구독) — 빈 문자열이면 안 찍음
-
-explorer:                    # 자동 탐사 — /state/operation_mode EXPLORE일 때 /map 프론티어로 Nav2 목표
-  ros__parameters:
-    min_frontier_cells: 8    # 이보다 작은 프론티어 덩어리는 무시 (칸 0.05m → 약 0.4m 입구)
-    blacklist_radius: 0.4    # [m] 도착·실패·시간 초과한 프론티어 근처는 다시 안 감
-    goal_timeout_s: 60.0     # [s] 목표 하나에 이보다 오래 걸리면 포기
-    empty_checks: 3          # 프론티어 없음이 1초 간격으로 이만큼 이어지면 탐사 끝 (지도 갱신 중일 수 있어서)
-    min_goal_dist: 0.4       # [m] 로봇에서 이보다 가까운 프론티어는 안 고름 — pole_front_cam이 로봇 바로 앞·아래(약 0.3m)를 못 봐 계속 '모름'으로 남음
-    goal_search_radius: 0.3  # [m] 프론티어에서 이 안의 '갈 수 있는 칸'(코스트맵에서 로봇과 이어짐)을 목표 자리로 · 로봇 칸이 막혔을 때 시작 칸 찾는 반경

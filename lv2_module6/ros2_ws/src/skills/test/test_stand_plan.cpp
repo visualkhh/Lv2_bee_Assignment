@@ -174,3 +174,21 @@ TEST(StandPlan, StandingGraspHeightIgnoresPerceivedFace) {  // 인지 z가 윗�
   EXPECT_NEAR(standing_grasp_z(0.104), 0.07 + GRASP_Z, 1e-12);
   EXPECT_NEAR(standing_grasp_z(0.05), GRASP_Z, 1e-12);  // 바닥
 }
+
+TEST(StandPlan, SampleViaPassesCarryWithoutStopping) {
+  // 집은 자리 → carry_right → 칸 0 위 (basket.yaml): 곡선 가운데가 carry, 끝은 정확히 칸 위, 이웃 표본 사이가 매끈함
+  const Q5 from = {0.0, -0.9, 0.6, 1.2, 0.0}, via = {-1.570796, -0.698132, 0.349066, 1.047198, -1.570796},
+           to = {-2.721611, 0.102129, -0.282709, 1.402190, -1.150814};
+  const auto qs = sample_via(from, via, to, 0.3, 0.02);
+  ASSERT_GT(qs.size(), 10u);
+  double best = 1e9, jump = 0;
+  Q5 prev = from;
+  for (const auto & q : qs) {
+    double d = 0, s = 0;
+    for (int j = 0; j < 5; ++j) d = std::max(d, std::abs(q[j] - via[j])), s = std::max(s, std::abs(q[j] - prev[j]));
+    best = std::min(best, d), jump = std::max(jump, s), prev = q;
+  }
+  EXPECT_LT(best, 0.02);   // carry를 지남 (표본 간격 안)
+  EXPECT_LT(jump, 0.05);   // 20 ms 사이 관절 변화 — 튀지 않음
+  for (int j = 0; j < 5; ++j) EXPECT_NEAR(qs.back()[j], to[j], 1e-9);
+}

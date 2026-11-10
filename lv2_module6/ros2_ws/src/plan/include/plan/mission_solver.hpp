@@ -45,6 +45,10 @@ bool allocate(const std::vector<Puck> & pucks, const Counts & c, std::map<int, c
 
 // 주사위 눈 n → 3×3 칸 번호 (0 = 북서 · 8 = 남동, 행 우선). 2·3은 ↘ 대각선, 6은 좌우 두 열 (발제 p4 그림)
 std::vector<int> dice_cells(int n);
+// 같은 칸 집합을 로봇이 서 있는 방향 기준으로 놓는 순서로 정렬: 뒤(로봇에서 먼 칸) → 앞, 같은 줄은 왼 → 오른쪽.
+//   facing_yaw = 로봇이 장소 상자를 바라보는 방향 [rad, 경기장 축 · 0 = 동(+X) · π/2 = 북(+Y)]. 먼 줄부터 놓아야 팔이 놓인 퍽 위를 안 지난다.
+//   칸 집합은 dice_cells(n)과 같다 (눈 방향은 경기장 기준 고정이라 서는 변이 달라도 같은 칸을 놓는다)
+std::vector<int> dice_cells_ordered(int n, double facing_yaw);
 // 칸 → 장소 중심에서 (dx, dy) [m], 경기장 축 (+Y = 북)
 std::pair<double, double> cell_offset(int cell, double step = 0.060);
 

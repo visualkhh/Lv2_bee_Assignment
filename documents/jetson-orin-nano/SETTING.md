@@ -339,7 +339,9 @@ colcon build --symlink-install --packages-select ml \
 ./build/ml/test_nav_policy_onnx
 ```
 
-설치·검증·도커 GPU 설정 전체는 [`ONNXRUNTIME.md`](ONNXRUNTIME.md)에 있다.
+JetPack에 cuDNN·cuFFT가 빠져 있으면 먼저 설치하고(`cudnn9-cuda-13 libcudnn9-dev-cuda-13 libcufft-dev-13-2`),
+빌드 중에는 다른 무거운 작업을 돌리지 않는다 (RAM 부족으로 먹통). 설치·검증·도커 GPU 설정과
+겪은 문제 목록 전체는 [`ONNXRUNTIME.md`](ONNXRUNTIME.md)에 있다.
 
 # 1. Arduino CLI 설치
 ```bash

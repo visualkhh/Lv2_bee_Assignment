@@ -7,7 +7,7 @@
 //         ✉️ /tracked_objects (퍽 tag·color·shape(box|cyl) · 장소 상자 location_box(tag · 윗면 가운데) · barcode · last_seen)
 //         ✉️ /task/status (coordinator 결과)
 //         ✉️ photo_topic (사진 찍을 때만 잠깐 구독) · TF map → base_footprint
-//   출력: ✉️ /task/sub_goals (SubGoalArray, plan_id = PLAN_ID_BASE + n — vlm_task_planner와 겹치지 않게) → coordinator
+//   출력: ✉️ /task/sub_goals (SubGoalArray, plan_id = PLAN_ID_BASE + n) → coordinator
 //         ✉️ /mission/state (plan/MissionState, latched) · /mission/markers (RViz)
 //         ✉️ 기록 log_dir/<시작 시각>/ signal · allocation · build · verify · return · error .json + photos/ · /diagnostics
 //   단계 (순서와 실패 시 갈 곳은 mission_solver next_phase):
@@ -105,7 +105,8 @@ private:
   // 그 퍽(tag)을 손에 — 집기 직전에 locate로 트랙을 다시 찾고, 누웠으면 stand_up · 아니면 pick. pick이 실패하면 다시 찾아서 (retries번)
   void grab(int tag, Done done, int tries = 0);
   // 퍽(tag) 트랙을 지금 찾음 — 목록에 없으면 조사한 자리(puck_at_)를 inspect로 다시 보고 한 번 더 찾음 (그래도 없으면 nullptr)
-  void locate(int tag, std::function<void(const TrackedObject *)> cb);
+  //   memory: 목록에 없을 때 먼저 마지막으로 본 트랙(last_seen_)을 줌 — 첫 시도만 (그 pick이 실패하면 다시 봄)
+  void locate(int tag, bool memory, std::function<void(const TrackedObject *)> cb);
 
   Pose2 to_map(double x, double y, double yaw = 0.0) const;
   Pose2 to_arena(double mx, double my, double myaw = 0.0) const;
@@ -183,6 +184,7 @@ private:
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr markers_pub_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr cmd_sub_, barcode_sub_;
   rclcpp::Subscription<perception::msg::MissionSignal>::SharedPtr signal_sub_, signal_status_sub_;
+  std::map<int, perception::msg::TrackedObject> last_seen_;  // 태그 → 마지막으로 본 트랙 (locate memory)
   rclcpp::Subscription<perception::msg::TrackedObjectArray>::SharedPtr objects_sub_;
   rclcpp::Subscription<TaskStatus>::SharedPtr status_sub_;
   rclcpp::Subscription<plan::msg::BasketState>::SharedPtr basket_sub_;

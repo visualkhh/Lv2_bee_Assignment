@@ -45,6 +45,7 @@ class MapPage(Menu):
         self.msg = ''
         self._robot = None
         self._robot_yaw = None
+        self._odom = None
         self._robot_at = 0.0
         self._fitted = False
         self.cost_mode = 0            # 0 OFF · 1 global_costmap · 2 local_costmap
@@ -151,6 +152,7 @@ class MapPage(Menu):
             p = self.bus.ab.robot_pose()
             self._robot = (p['x'], p['y']) if p else None
             self._robot_yaw = p['yaw_deg'] if p else None
+            self._odom = self.bus.ab.frame_xy('odom')
         return self._robot
 
     def _cost_grid(self, kind: str | None = None):
@@ -174,8 +176,9 @@ class MapPage(Menu):
     def center(self) -> list[str]:
         v = self.view
         cw, ch = self.ui.window.center_size()
-        rows = max(3, ch - 6)
+        rows = max(3, ch - 7)
         v.show_yaw = self.mode != 'view'
+        v.odom = self._odom
         v.cost = self._cost_grid()
         v.show_cost = self.cost_mode != 0 and v.cost is not None
         v.robot, v.start, v.goals, v.yaw = (self._pose(), ((self.start['x'], self.start['y']) if self.start else None),
@@ -211,8 +214,10 @@ class MapPage(Menu):
             status.append('겹침: ' + self.COST_LABELS[self.cost_mode]
                           + (' ON' if v.show_cost else ' 데이터 대기')
                           + ' · 주황=팽창 · 빨강=내접/치명')
-        legend = self.term.paint('● 로봇  + 십자선  ⊕ 로봇=십자선  S 출발  1 2 goal', DIM)
-        return lines + status + [self.msg, legend]
+        legend = self.term.paint('● 로봇(base_footprint)  M map원점  O odom원점  + 십자선  ⊕ 로봇=십자선  S 출발  1 2 goal', DIM)
+        frames = (f'프레임: map 원점 M(0,0) · odom O' + (f'({self._odom[0]:+.2f},{self._odom[1]:+.2f})' if self._odom else ' TF 없음')
+                  + (f' · base_footprint ●({self._robot[0]:+.2f},{self._robot[1]:+.2f})' if self._robot else ' · base_footprint TF 없음'))
+        return lines + status + [frames, self.msg, legend]
 
     # ---------------------------------------------------------------- 실행
     def _load_grid(self, timeout: float = 10.0):

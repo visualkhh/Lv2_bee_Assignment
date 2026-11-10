@@ -6,6 +6,7 @@ string shape                     # 퍽 모양 box | cyl ("" 모름)
 int32 tag -1                     # 퍽 태그 (손 카메라 hand_relative가 찾을 퍽, -1 모름)
 int32 slot -1                    # 적재함 칸 0~11 (load · unload)
 float64[] values                 # skill마다 숫자 (place over: [다가가는 높이 m] · inspect: [손 방향 yaw rad, 없으면 자유])
+perception/TrackedObject[] objects  # pick: coordinator가 기억한 대상(첫째)과 그 옆 퍽 — 지금 /tracked_objects에 없을 때만 (비면 지금 인지)
 ---
 bool success
 string reason                    # 실패 이유 (TaskStatus.reason으로 그대로): nav_failed · grasp_empty · arm_contact · *_unavailable …

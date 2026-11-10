@@ -244,15 +244,15 @@ ros2 topic echo /state/devices/arm --once --qos-durability transient_local --fie
 ros2 topic echo /mission/signal --once --qos-durability transient_local
 # 사이클마다 결과 (ok=false면 error: count · unknown · range · unconfirmed)
 ros2 topic echo /mission/signal_status
-# planner가 낸 계획 · coordinator 진행 (FAILED면 reason)
+# mission_manager가 낸 계획 · coordinator 진행 (FAILED면 reason)
 ros2 topic echo /task/sub_goals --once --qos-durability transient_local
 ros2 topic echo /task/status --qos-durability transient_local
-# planner 판단 이유 — "신호등 미션"(carry·inspect·wait·fail) · "수납 확인"(look·ok·recarry·missing)
-~/Lv2_bee_Assignment/lv2_module6/tools/run-cli status --diagnostics vlm_task_planner
+# mission_manager 판단 이유 — "신호등 미션"(carry·inspect·wait·fail) · "수납 확인"(look·ok·recarry·missing)
+~/Lv2_bee_Assignment/lv2_module6/tools/run-cli status --diagnostics mission_manager
 ```
 
 - 신호가 안 잡힘: `/tracked_objects`에 `traffic_light`가 있고 `color`가 바뀌는지. 점멸이 쪼개지거나 합쳐지면 `ros2 topic hz /perception/pole_front_cam/detections`(추론 주기, 목표 4Hz)와 `perception.yaml` `signal_decoder`(`min_off_s` · `gap_s`).
-- 새 신호(12회 점멸)는 planner가 아직 해석하지 않는다 — 신호 미션 계획은 미션 흐름 작업 뒤.
+- 새 신호(12회 점멸)는 mission_manager가 아직 해석하지 않는다 — 신호 미션 계획은 미션 흐름 작업 뒤.
 - 계속 `wait`: 목적지 장소 상자(`location_box`, tag 12~14)를 아직 못 봤다. 퍽 번호(`details.tag`)는 gripper_cam이 위에서 봐야 읽힌다 (`inspect`).
 - 수납 확인은 옮긴 직후 한 번, 그 뒤 `verify_period_s`(기본 60초)마다 AUTO이고 하던 계획이 없을 때만 돈다.
 
@@ -295,6 +295,31 @@ ros2 topic echo /map --once --field info
 ```
 
 nvblox_map 로그 `격자 받음 N · /map 냄 N`에서 `격자 받음`이 0(`nvblox 격자 아직 없음`)이면 nvblox_node 쪽 — depth 입력(`image_nvblox`)·TF(map→카메라, cuvslam_slam)·설정 `config/nvblox.yaml`을 본다. `격자 프레임 … ≠ map` 오류면 nvblox `global_frame`. 단계별 확인은 CUVSLAM.md 3-1절.
+
+### 추적이 `추적 4 · 잃음 0`에서 멈춤 / `map→odom`이 없음
+
+`cuvslam_slam` 로그가 10초마다 같은 숫자를 찍으면 영상이 안 들어오는 것이다 (정상은 초당 약 15씩 증가).
+
+```bash
+sed 's/\x1b\[[0-9;]*m//g' /tmp/bringup.log | grep -a -E 'pole_front_cam\]|Device or resource|serial'
+```
+
+- `VIDIOC_S_FMT … Device or resource busy` + 시작 때 `WARN: RealSense 2대인데 serial 미지정` → **카메라 serial을 안 줘서** 두 RealSense 노드가 같은 장치를 잡았다. `POLE_FRONT_CAM_SERIAL`·`GRIPPER_CAM_SERIAL`을 주고 다시 띄운다. state_manager의 launch 재시작은 `start.sh`를 거치지 않고 기록된 인자 그대로 띄운다.
+- 자세히: [`cuvslam.md`](cuvslam.md) 6절.
+
+### `/initialpose`를 보내자 TF(`map`)가 사라지고 목표 이동이 `Initial robot pose is not available`
+
+`cuvslam_slam` 로그에 `AttributeError: 'RcutilsLogger' object has no attribute 'warn'`과 `apply_initialpose` 트레이스가 있으면 이 버그다 (노드가 죽음 — 프로세스는 남지만 `map→odom` 0개). `get_logger().warning(...)`으로 고쳐진 버전(`4790699` 이후)인지 확인한다.
+
+### 새로 띄운 프로세스(CLI·`ros2 topic list`·측정 도구)가 스택을 못 봄
+
+증상: `./run-cli map status`가 `지도 모드: -`, `ros2 topic list`가 `/parameter_events`·`/rosout` 두 줄, `ros2 topic pub`이 `구독자 0`으로 멈춤. **이미 떠 있던 TUI는 계속 정상**이다.
+
+- **스택을 (재)시작한 직후 1~2분은 보이고, 그 뒤에 안 보이는 일이 반복**됐다 (2026-11-10 관찰, 원인 미확정).
+- 로그에 `RTPS_TRANSPORT_SHM Error: Failed init_port fastdds_port…: open_and_lock_file failed`가 찍힌다 (공유 메모리 포트를 못 열음).
+- `/dev/shm`의 `fastdds_*` 파일 소유자·권한·개수는 정상이었다. **남은 잠금 파일이 원인이 아니다.** 메모리를 늘려도(데스크톱 끔, +560 MB) 사라지지 않았다.
+- 우회: 스택을 `./run-cli restart`로 다시 띄운 **직후 1분 안에** 명령·측정을 한다. 이미 떠 있는 TUI를 쓴다. 진단 스크립트는 노드 안(같은 DDS 참여자 수명)에서 돌리는 것이 안정적이다.
+- 근본 해결 후보(미검증): DDS 프로파일에 로컬 UDP 추가. 과거 UDP 로컬 전용에서 일부 노드가 안 보인 사례가 있어 확인 필요 — `ros2_ws/fastdds_local_only.xml` 주석 참고.
 
 ## 9. launch 에러 패턴
 

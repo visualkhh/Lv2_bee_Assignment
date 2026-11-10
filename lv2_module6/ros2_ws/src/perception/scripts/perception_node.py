@@ -2,7 +2,7 @@
 """🛠 perception (YOLO nano, 담당: 전승혜) — 설계: documents/project/ros/02-sense.md
 
   입력: pole_front_cam·gripper_cam 컬러·정렬 depth·camera_info (best_effort)
-  출력: /tracked_objects (perception/TrackedObjectArray, reliable) — 두 카메라 융합 결과 · vlm_task_planner · coordinator · grasp_scorer
+  출력: /tracked_objects (perception/TrackedObjectArray, reliable) — 두 카메라 융합 결과 · coordinator · grasp_scorer
         /perception/<cam>/detections (같은 타입) — 융합 전 카메라별 한 프레임 검출 (id = 붙은 트랙 id, covariance = 관측 공분산)
           → 시뮬레이터가 카메라별 검출과 융합 결과를 나란히 그림 (디버그용 — 소비 노드 없음)
 

@@ -5,8 +5,16 @@ import argparse
 import sys
 
 from ...defs import STAY
-from ...menus import InfoItem, Menu, MenuItem
+from ...menus import GoMenu, InfoItem, Menu, MenuItem
+from ..manual import ManualMenu, TeleopItem
 from ..page import Page
+
+
+def _teleop_item(app, key: str):
+    """매핑하며 직접 몰 때 쓰는 텔레오퍼 — 수동 주행 메뉴의 항목을 키만 바꿔 재사용."""
+    item = TeleopItem(app)
+    item.key = key
+    return item
 
 
 class MapStatusItem(MenuItem):
@@ -138,6 +146,48 @@ class MapModeItem(MenuItem):
         return STAY
 
 
+class MapRvizItem(MenuItem):
+    """매핑 전용 RViz(mapping.rviz) — 지도·/scan·TF·로봇을 위에서 내려다본다."""
+    shows_busy = False
+    key = '9'
+
+    def label(self):
+        return '매핑 전용 RViz 열기 (mapping.rviz)'
+
+    def run(self):
+        from ..status import MappingRvizPage
+        return MappingRvizPage(self.app).show()
+
+
+class NavRvizItem(MenuItem):
+    """목표 이동(Nav2) 전용 RViz(nav.rviz) — 코스트맵·경로·footprint 위에서 2D Goal Pose로 목표를 준다."""
+    shows_busy = False
+    key = 'c'
+
+    def label(self):
+        return '목표 이동 전용 RViz 열기 (nav.rviz — 2D Goal Pose)'
+
+    def run(self):
+        from ..status import NavRvizPage
+        return NavRvizPage(self.app).show()
+
+
+class SlamRvizItem(MenuItem):
+    """SLAM 전용 RViz 열기 — nvblox(3D 메시·ESDF·코스트맵) / cuVSLAM(경로·odom) 항목만 다르고 같다."""
+    shows_busy = False
+
+    def __init__(self, app, key: str, label: str, page: str):
+        super().__init__(app)
+        self.key, self._label, self._page = key, label, page
+
+    def label(self):
+        return self._label
+
+    def run(self):
+        from .. import status
+        return getattr(status, self._page)(self.app).show()
+
+
 class MapMenu(Menu):
     title = '지도/위치'
 
@@ -147,7 +197,13 @@ class MapMenu(Menu):
                 MapModeItem(self.app, '3', 'mapping', 'MAPPING'),
                 MapModeItem(self.app, '4', 'localization', 'LOCALIZATION'),
                 MapSwitchItem(self.app), MapSaveItem(self.app),
-                MapViewItem(self.app, '7'), MapPoseMenuItem(self.app)]
+                MapViewItem(self.app, '7'), MapPoseMenuItem(self.app),
+                MapRvizItem(self.app),
+                NavRvizItem(self.app),
+                SlamRvizItem(self.app, 'd', 'nvblox 전용 RViz 열기 (nvblox.rviz — 3D 메시 · ESDF · 코스트맵)', 'NvbloxRvizPage'),
+                SlamRvizItem(self.app, 'e', 'cuVSLAM 전용 RViz 열기 (cuvslam.rviz — 경로 · odom 비교)', 'CuvslamRvizPage'),
+                _teleop_item(self.app, 'a'),
+                GoMenu(self.app, 'b', '수동 주행 메뉴 (전진·후진·회전·속도 설정)', ManualMenu(self.app))]
 
     def center(self):
         st = self.state
@@ -258,7 +314,7 @@ class MapSavePage(Page):
                                body=['지도 미리보기 저장 완료.',
                                      '전환하면 지도를 확정하고 위치추정 모드로 다시 뜹니다 (실제 nvblox는 nvblox.nvblx 저장).',
                                      '다시 뜨는 데 수십 초 걸립니다 — 주행 중이면 먼저 정지하세요.']):
-                self.bus.cmd_map(self.bus.map_args('mode', name='localization'))
+                self.bus.localize_saved()
             else:
                 print('LOCALIZATION 전환 생략 — nvblox.nvblx는 나중에 전환/종료할 때 저장됩니다.')
         return STAY

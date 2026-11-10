@@ -137,12 +137,13 @@ class DiagDetailPage(Page):
 
 class RvizPage(Page):
     title = 'RViz'
+    config: str | None = None  # None = run-rviz 기본(operator.rviz), 아니면 tools/rviz/<config>.rviz
 
     def show(self) -> str:
         if not (os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY')):
             print('거부: DISPLAY/WAYLAND_DISPLAY가 없습니다 — GUI가 있는 터미널에서 실행하세요.')
             return STAY
-        script = Path(__file__).resolve().parents[3] / 'run-rviz'
+        script = Path(__file__).resolve().parents[4] / 'run-rviz'
         if not script.is_file():
             print(f'거부: 실행 파일 없음: {script}')
             return STAY
@@ -155,12 +156,33 @@ class RvizPage(Page):
             with log.open('ab') as out:
                 proc = subprocess.Popen(
                     [str(script)], cwd=str(script.parent),
+                    env={**os.environ, **({'RVIZ_CONFIG': self.config} if self.config else {})},
                     stdout=out, stderr=out, start_new_session=True)
         except OSError as exc:
             print(f'RViz 실행 실패: {exc}')
             return STAY
         print(f'RViz 시작: pid {proc.pid} · 로그 {log}')
         return STAY
+
+
+class MappingRvizPage(RvizPage):
+    title = '매핑 전용 RViz'
+    config = 'mapping'
+
+
+class NavRvizPage(RvizPage):
+    title = '목표 이동 전용 RViz'
+    config = 'nav'
+
+
+class NvbloxRvizPage(RvizPage):
+    title = 'nvblox 전용 RViz'
+    config = 'nvblox'
+
+
+class CuvslamRvizPage(RvizPage):
+    title = 'cuVSLAM 전용 RViz'
+    config = 'cuvslam'
 
 
 class BeepNowItem(MenuItem):

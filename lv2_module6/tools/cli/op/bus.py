@@ -27,8 +27,10 @@ from .terminal import BOLD, DIM, GREEN, RED, YELLOW, Terminal
 
 try:
     from nav2_msgs.srv import SaveMap as SaveMapSrv
+    from nav2_msgs.srv import Toggle as ToggleSrv
 except ImportError:  # nav2_msgs가 없는 환경에서도 나머지 명령은 동작
     SaveMapSrv = None
+    ToggleSrv = None
 
 
 # 수동 주행 속도 상한 (텔레오퍼 -/= · 메뉴 속도 설정) — Waffle Pi 사양 (바퀴 상한 ≈ 8 rad/s × 0.033 m)
@@ -285,8 +287,6 @@ class Bus:
 
     def cmd_mode(self, args) -> int:
         target = args.mode.upper()
-        if target == 'EXPLORE' and self.state.map_mode not in ('MAPPING', ''):
-            print('WARN: EXPLORE는 지도 모드 MAPPING에서만 허용됩니다', file=sys.stderr)
         self._publish(self.pub_operation, String(data=target))
         if self._wait_value('operation_mode', target, 2.5):
             print(f'조작 모드 → {target}')
@@ -313,6 +313,47 @@ class Bus:
             return 0
         print(f'요청 실패: 현재 비상정지 {"ON" if self.state.emergency else "OFF"}', file=sys.stderr)
         return 1
+
+    # --------------------------------------------------------------- collision_monitor
+
+    def collision_status(self) -> str:
+        """manual_control이 마지막으로 반영한 collision_monitor 상태 (진단 값) — 모르면 '-'."""
+        for kvs in self.state.diag_values.values():
+            for k, v in kvs:
+                if k == 'collision_monitor':
+                    return v
+        return '-'
+
+    def cmd_collision(self, args) -> int:
+        """collision_monitor 켜기/끄기 — /collision_monitor/toggle. 모드가 바뀌면(MANUAL·MAPPING = 끔 · 그 밖 = 켬)
+        manual_control이 다시 정한다. 그 전까지는 이 명령이 정한 대로 유지된다."""
+        if args.state == 'status':
+            self._poll(1.0)
+            print(f'collision_monitor: {self.collision_status()}')
+            return 0
+        if ToggleSrv is None:
+            print('거부: nav2_msgs가 없어 collision 토글을 쓸 수 없습니다', file=sys.stderr)
+            return 2
+        client = self.node.create_client(ToggleSrv, '/collision_monitor/toggle')
+        try:
+            if not client.wait_for_service(timeout_sec=3.0):
+                print('거부: /collision_monitor/toggle 없음 — Nav2(collision_monitor)가 떠 있는지 확인 (지도 모드 NONE이면 안 뜸)', file=sys.stderr)
+                return 1
+            req = ToggleSrv.Request()
+            req.enable = args.state == 'on'
+            future = client.call_async(req)
+            rclpy.spin_until_future_complete(self.node, future, timeout_sec=5.0)
+            res = future.result() if future.done() else None
+        finally:
+            self.node.destroy_client(client)
+        if res is None:
+            print('요청 실패: collision_monitor 응답 없음', file=sys.stderr)
+            return 1
+        if not res.success:
+            print(f'거절: {res.message}', file=sys.stderr)
+            return 1
+        print(f'collision_monitor → {"켬" if args.state == "on" else "끔 (근접 정지 없이 통과 — 주의)"}')
+        return 0
 
     # ------------------------------------------------------------------- drive
 
@@ -808,10 +849,20 @@ class Bus:
                 print('LOCALIZATION 전환 생략 — 실제 nvblox는 나중에 전환/종료할 때 지도를 저장합니다.')
                 return 0
             print('LOCALIZATION으로 전환 — 지도 저장 + 다시 뜨기 (수십 초)')
-            return self.cmd_map(self.map_args('mode', name='localization'))
+            return self.localize_saved()
 
         print(f'모르는 map action: {args.action}', file=sys.stderr)
         return 2
+
+    def localize_saved(self) -> int:
+        """저장 직후 LOCALIZATION — 방금 다른 이름("wow")으로 저장했으면 그 지도로 (map mode는 *현재 작업 폴더*로 가서 nvblx가 없어 NONE이 됨)."""
+        saved = getattr(self, '_saved_name', None)
+        if not saved or saved == self.state.values.get('map_name'):
+            return self.cmd_map(self.map_args('mode', name='localization'))
+        end = time.monotonic() + 5.0   # state_manager의 지도 목록이 갱신될 때까지
+        while time.monotonic() < end and saved not in (self.state.values.get('map_list') or '').splitlines():
+            self._poll(0.3)
+        return self.cmd_map(self.map_args('switch', name=saved))
 
     def _map_restart_reply(self, send, desc: str, timeout: float = 3.0) -> int:
         """지도 모드·지도 바꾸기 = state_manager가 launch 전체를 다시 띄움 (cuVSLAM·nvblox는 실행 중 전환이 없음).
@@ -918,6 +969,9 @@ class Bus:
                     break
         # 경로는 map_saver가 쓰는 쪽 기준 — CLI가 원격 PC·컨테이너 밖이면 이 컴퓨터 경로가 로봇에 없다.
         #   --file·--map-dir를 주지 않으면 state_manager의 map_dir을 쓴다 (못 읽을 때만 이 컴퓨터의 ros2_ws/map)
+        # 이름만 준 경우("wow") = 기본 지도 폴더의 <이름>/map — 안 그러면 현재 작업 폴더(tools)에 떨어진다
+        if args.file and not any(c in args.file for c in '/\\~.'):
+            name, args.file = args.file, None
         robot_dir = '' if (args.file or args.map_dir) else self._robot_map_dir()
         if args.file:
             path = Path(args.file).expanduser()
@@ -928,9 +982,13 @@ class Bus:
             path = Path(robot_dir or map_dir) / name / 'map'
         if path.suffix.lower() in ('.yaml', '.pgm'):
             path = path.with_suffix('')
-        if not robot_dir:  # 이 컴퓨터 경로일 때만 — 로봇 쪽 지도 폴더는 bringup이 이미 만듦
+        if not robot_dir:  # 이 컴퓨터 경로일 때만
             path = path.resolve()
+        # 새 이름("wow")의 폴더는 아직 없다 — map_saver는 폴더를 안 만든다. 로봇 위에서 돌 때만 만들어진다(원격 CLI는 건너뜀).
+        try:
             path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass
 
         client = self.node.create_client(SaveMapSrv, '/map_saver/save_map')
         if not client.wait_for_service(timeout_sec=2.0):
@@ -960,6 +1018,7 @@ class Bus:
             print('요청 실패: map_saver가 저장하지 못했습니다', file=sys.stderr)
             return 1
         print(f'지도 저장 → {path}.pgm · {path}.yaml')
+        self._saved_name = None if args.file else name   # 이름으로 저장한 폴더 — 전환할 때 이 지도로 간다
         if self.state.map_mode == 'MAPPING':
             # 위치추정 정본은 nvblox.nvblx — map_saver의 pgm/yaml과 별개로 반드시 저장한다.
             rc = self._save_nvblox_map(path.parent / 'nvblox.nvblx')

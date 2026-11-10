@@ -122,7 +122,7 @@ Dialog (op/dialog/dialog.py — 하위 클래스는 op/dialog/<이름>_dialog.py
 ```text
 State (op/bars/state/state.py)  — text()만 정함 (빈 문자열 = 그 칸 안 보임)
  ├─ OperationState · MapState · EstopState · DeviceState · ConnectionState     (줄 1)
- ├─ PerceptionState · TaskState · DiagState · SayState                        (줄 2)
+ ├─ PerceptionState · TaskState · DiagState                        (줄 2)
  ├─ TopicRateState (키·라벨·기준 Hz를 받아 joint·odom·imu·카메라·인지 6개)  (줄 3)
  ├─ RobotState                                                               (줄 4)
  └─ NoDataState  (상태를 하나도 못 받았을 때만)

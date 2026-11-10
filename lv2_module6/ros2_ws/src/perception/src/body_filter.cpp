@@ -1,6 +1,7 @@
 // body_filter 구현 — 설명·선언은 include/perception/body_filter.hpp, main은 body_filter_main.cpp
 #include "perception/body_filter.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <fstream>
@@ -159,6 +160,16 @@ void BodyFilter::on_cloud(const PointCloud2 & in) {
     to_box.push_back((cam_link * b.origin).inverse());
     half.push_back(b.half + tf2::Vector3(padding_, padding_, padding_));
   }
+  // 팔·차체는 로봇 주변 좁은 영역 — 그 전체를 감싸는 구 하나(카메라 좌표)를 먼저 본다.
+  // 구 밖의 점은 어느 상자에도 못 들어가므로 77개 상자 검사를 건너뛴다 (결과는 같고, 대부분의 점이 여기서 끝남).
+  tf2::Vector3 sc(0, 0, 0);
+  for (const auto & t : to_box) sc += t.inverse().getOrigin();
+  if (!to_box.empty()) sc /= static_cast<double>(to_box.size());
+  double sr = 0;
+  for (size_t k = 0; k < to_box.size(); ++k) {
+    sr = std::max(sr, (to_box[k].inverse().getOrigin() - sc).length() + half[k].length());
+  }
+  const double sr2 = sr * sr;
   PointCloud2 out;
   out.header = in.header;
   out.height = 1;
@@ -179,6 +190,11 @@ void BodyFilter::on_cloud(const PointCloud2 & in) {
     std::memcpy(&z, p + oz, 4);
     const tf2::Vector3 pt(x, y, z);
     bool body = false;
+    if ((pt - sc).length2() > sr2) {  // 몸 영역 밖 — 그대로 통과
+      out.data.insert(out.data.end(), p, p + in.point_step);
+      ++kept;
+      continue;
+    }
     for (size_t k = 0; k < to_box.size() && !body; ++k) {
       const tf2::Vector3 q = to_box[k] * pt;
       body = std::abs(q.x()) <= half[k].x() && std::abs(q.y()) <= half[k].y() && std::abs(q.z()) <= half[k].z();

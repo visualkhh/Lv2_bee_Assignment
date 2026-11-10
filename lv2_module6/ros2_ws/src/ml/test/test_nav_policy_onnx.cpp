@@ -19,7 +19,8 @@ TEST(NavPolicyOnnx, LoadsWithExpectedDims) {
   ml::OnnxPolicy p;
   EXPECT_NO_THROW(p.load(path.string()));
   ASSERT_TRUE(p.loaded());
-  std::cout << "[onnx] device=" << p.device() << " (CUDA EP 있으면 CUDA, 없으면 CPU)" << std::endl;
+  std::cout << "[onnx] device=" << p.device() << " (CUDA EP 있으면 CUDA, 없으면 CPU)"
+            << (p.device_note().empty() ? "" : " · CUDA 실패: " + p.device_note()) << std::endl;
   // nav2_params.yaml FollowPath 값(lookahead_=5 · lidar_rays_=360)과 동기화 — 바꾸면 여기 숫자도 함께
   EXPECT_EQ(p.inputs(), 2 * 5 + 360 + 5);
   EXPECT_GE(p.outputs(), 2);

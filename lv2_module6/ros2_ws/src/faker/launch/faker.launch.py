@@ -33,7 +33,6 @@ fake_slam:=true (기본) — 실기 SLAM(cuVSLAM + nvblox)의 대신:
 ml:=real이면 진짜 ml 노드를 띄운다 — 모델이 없거나 learning_enabled:=false면 기본 동작(Δ=0·규칙)으로 돌아야 한다.
 """
 
-import socket
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
@@ -70,32 +69,19 @@ def fake(executable, name, overrides=None, respawn=False, condition=None):
 FAKE_SLAM = PythonExpression(["'", LaunchConfiguration('fake_slam'), "' == 'true'"])
 
 
-def default_vlm_endpoint():
-    """호스트 ai-service 주소 — macOS Docker Desktop은 host.docker.internal이 호스트를 가리키지만, 리눅스 network_mode: host에선
-    그 이름이 아예 안 풀림(실측: 요청이 한 번도 안 가고 템플릿 폴백 → '계획 보류'). host망이면 호스트 = 127.0.0.1"""
-    try:
-        socket.gethostbyname('host.docker.internal')
-        return 'http://host.docker.internal:8000'
-    except OSError:
-        return 'http://127.0.0.1:8000'
-
-
 def is_real(name):
     return PythonExpression(["'", LaunchConfiguration(name), "' == 'real'"])
 
 
 def generate_launch_description():
     return LaunchDescription([
-        arg('command', '빨간 퍽을 목표 구역으로 옮겨', 'user_input 텍스트 명령 (빈 값이면 안 보냄)'),
         arg('ml', 'fake', 'fake = ML 대역(도커·CI 기본, GPU 불필요) · real = 진짜 ml 노드·컨트롤러 — 아래 넷의 기본값'),
         *[arg(n, LaunchConfiguration('ml'), f'{n}: fake | real (기본 = ml)') for n in ML],
         arg('learning_enabled', 'true', '학습 노드 on/off (ml:=real일 때)'),
-        arg('vlm_endpoint', default_vlm_endpoint(),
-            '호스트 ai-service 주소 (비면 템플릿 고정) — 기본: host.docker.internal이 풀리면(macOS) 그것, 아니면(리눅스 host망) 127.0.0.1'),
         arg('course', 'dice_maze', '시뮬레이터 월드 코스 = faker/world/<이 이름>.yaml (fake_opencr 충돌 모델 — 로봇 지도 아님) — 기본 dice_maze · 옛 미로: twin_closed_maze · Isaac 학습 미로: isaac_maze'),
         arg('start_pose', '[0.734, 0.950, 0.0]', 'mission_manager 출발 자세 arena [x, y, yaw] (비면 plan.yaml) — 시뮬레이터는 +X를 보고 켬'),
         arg('map', 'none', 'none = 지도 없음(기본) · slam = 센서로 새 지도 · saved = 저장한 nvblox.nvblx로 위치추정'),
-        arg('operation', 'MANUAL', '초기 조작 모드: MANUAL(기본) | AUTO | EXPLORE | TEACH'),
+        arg('operation', 'MANUAL', '초기 조작 모드: MANUAL(기본) | AUTO | TEACH'),
         arg('fake_slam', 'true', 'true = 테스트베드 SLAM 대역(fake_cuvslam · fake_nvblox — 센서로 지도) · false = 진짜 cuVSLAM·nvblox (GPU)'),
         arg('map_dir', '/ws/map', '지도 폴더 (호스트 ros2_ws/map 바인드) — 지도마다 <map_name>/ nvblox.nvblx · map.pgm · map.yaml'),
         arg('map_name', '', '지도 폴더 이름 — slam: 비우면 날짜_시각으로 새로 · saved: 비우면 default (nvblox.nvblx 없으면 가장 최근 — bringup이 정함)'),
@@ -108,10 +94,8 @@ def generate_launch_description():
 
         # 진짜 bringup 그대로 (🛠 노드 + ros_system 📦 + 지도 처리) — 대역에 맞는 인자만 덮어씀
         include('bringup', 'bringup.launch.py', {
-            'command': LaunchConfiguration('command'),
             'start_pose': LaunchConfiguration('start_pose'),
             'learning_enabled': LaunchConfiguration('learning_enabled'),
-            'vlm_endpoint': LaunchConfiguration('vlm_endpoint'),
             'map': LaunchConfiguration('map'),
             'operation': LaunchConfiguration('operation'),
             'fake_slam': LaunchConfiguration('fake_slam'),

@@ -26,6 +26,7 @@ bringup이 떠 있는 상태에서 상태 확인, 자동/수동 전환, 비상�
 from __future__ import annotations
 
 import argparse
+import math
 import os
 import sys
 import time
@@ -34,6 +35,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import rclpy
+import rclpy.time
 from diagnostic_msgs.msg import DiagnosticArray
 from rclpy.node import Node
 from rclpy.qos import (
@@ -48,7 +50,7 @@ from std_msgs.msg import Bool, String
 
 from op.bus import Bus
 from op.consts import _nonnegative_float, _positive_float
-from op.defs import STAY
+from op.defs import QUIT, STAY
 from op.pages import MainMenu
 from op.state import StateStore
 from op.terminal import Terminal
@@ -85,6 +87,7 @@ class OperatorTool(Node):
         self._device_subs: dict[str, object] = {}
         self._restart_note = ''
         self._restart_armed_at = 0.0
+        self.current_screen = ''   # 지금 들어가 있는 최상위 메뉴 키 ('4' …) — 재연결 exec 뒤 복원
         # 화면 틀(Window) 신호 — ROS 폴링·재연결은 'tick', 이름으로 화면 열기는 'navigate'
         self.ui.window.connect('tick', self._on_tick)
         self.ui.window.connect('navigate', self._on_navigate)
@@ -134,6 +137,11 @@ class OperatorTool(Node):
             if self._restart_note:
                 self._restart_armed_at = now
             self._restart_note = note
+        # /state/restart 없이 스택이 죽었다 살아난 경우(통신 끊김)도 같은 재연결 — 한 번이라도 받은 뒤 15s 침묵이면 arm.
+        # exec 뒤 새 프로세스는 state_last_update=0이라 스택이 계속 죽어 있어도 반복 exec하지 않는다.
+        last = self.state.state_last_update
+        if not self._restart_armed_at and last > 0 and now - last > 15.0:
+            self._restart_armed_at = now
         if not self._restart_armed_at:
             return
         # state_manager가 다시 살아 /state/*를 보내면 재연결 불필요.
@@ -145,6 +153,7 @@ class OperatorTool(Node):
         if now - self._restart_armed_at < 12.0:
             return
         self.ui.close()
+        os.environ['BEE_RESUME_SCREEN'] = self.current_screen   # 메인 메뉴로 튕기지 않고 보던 메뉴로 (그 안의 하위 화면까지는 복원 안 함)
         os.execv(sys.executable, [sys.executable, '-u', str(Path(__file__).resolve()), 'menu'])
 
     def _wire(self):
@@ -165,8 +174,6 @@ class OperatorTool(Node):
             self.create_subscription(typ, topic, lambda _m, key=key: self.state.tick(key), qos_profile_sensor_data)
         self.create_subscription(DiagnosticArray, '/diagnostics_agg',
                                  lambda m: self.state.on_diagnostics(m.status), LIVE)
-        self.create_subscription(String, '/robot/say',
-                                 lambda m: self.state.on_say(m.data), 10)
         # 커스텀 msg가 빌드 전이면 해당 줄만 비활성 (cli 동작에는 지장 없음)
         try:
             from perception.msg import TrackedObjectArray  # type: ignore
@@ -191,9 +198,26 @@ class OperatorTool(Node):
                 LATCHED)
         except Exception:
             pass
+        # 로봇 map 위치 — tf2_ros가 없는 호스트면 칸이 '-'로 남는다
+        try:
+            from tf2_ros import Buffer, TransformListener
+            self._tf_buf = Buffer()
+            self._tf_listener = TransformListener(self._tf_buf, self)
+            self.create_timer(0.5, self._update_map_pose)
+        except Exception:
+            pass
         # 노드별 추가 상태·기능 (예: controller_server RL/DWB)
         from op.pages.nodes import wire_all
         wire_all(self)
+
+    def _update_map_pose(self):
+        try:
+            tr = self._tf_buf.lookup_transform('map', 'base_footprint', rclpy.time.Time())
+        except Exception:
+            self.state.map_pose = None
+            return
+        t, q = tr.transform.translation, tr.transform.rotation
+        self.state.map_pose = (t.x, t.y, math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z)))
 
     def _on_devices(self, msg: String):
         names = [n.strip() for n in msg.data.split(',') if n.strip()]
@@ -248,6 +272,16 @@ class OperatorTool(Node):
     # ------------------------------------------------------------- CLI 진입
     def cmd_menu(self, args) -> int:
         from op.pages import MainMenu
+        key = os.environ.pop('BEE_RESUME_SCREEN', '')
+        if key:
+            self.poll(0.6)
+            page = self.screen(key)
+            if page is not None:
+                self.current_screen = key
+                res = page.show()
+                self.current_screen = ''
+                if res == QUIT:
+                    return 0
         return int(MainMenu(self).show() or 0)
 
     def __getattr__(self, name: str):
@@ -292,11 +326,14 @@ def build_parser() -> argparse.ArgumentParser:
                         help='/diagnostics_agg 요약 · 이름 일부를 주면 그 항목 상세(값 전부) — 예: --diagnostics signal_decoder')
     status.add_argument('--topics', action='store_true', help='/state/topics 전체 출력')
 
-    mode = sub.add_parser('mode', help='조작 모드 AUTO/MANUAL/EXPLORE/TEACH 전환 (TEACH = 팔 토크 끄고 손으로 자세)')
-    mode.add_argument('mode', type=str.lower, choices=('auto', 'manual', 'explore', 'teach'))
+    mode = sub.add_parser('mode', help='조작 모드 AUTO/MANUAL/TEACH 전환 (TEACH = 팔 토크 끄고 손으로 자세)')
+    mode.add_argument('mode', type=str.lower, choices=('auto', 'manual', 'teach'))
 
     estop = sub.add_parser('estop', help='비상정지 on/off/status')
     estop.add_argument('state', type=str.lower, choices=('on', 'off', 'status'))
+
+    collision = sub.add_parser('collision', help='collision_monitor 켜기/끄기/상태 (MANUAL·MAPPING이면 자동으로 꺼짐 — 직접 바꿀 때)')
+    collision.add_argument('state', type=str.lower, choices=('on', 'off', 'status'))
 
     drive = sub.add_parser('drive', help='바퀴 수동 주행 (MANUAL 모드)')
     drive.add_argument('direction', type=str.lower, choices=('forward', 'back', 'left', 'right', 'stop'))

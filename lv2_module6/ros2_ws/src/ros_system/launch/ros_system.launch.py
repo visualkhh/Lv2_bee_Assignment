@@ -183,10 +183,12 @@ def generate_launch_description():
         flag('pole_front_cam_pointcloud', 'true', 'pole_front_cam PointCloud2 발행 (body_filter/Nav2용)'),
         flag('gripper_cam_pointcloud', 'false', 'gripper_cam PointCloud2 발행 (grasp_scorer용, 필요할 때만 true)'),
         flag('use_ekf', 'true', 'robot_localization EKF'),
-        flag('use_slam', 'true', 'SLAM(cuVSLAM + nvblox) — false면 map→odom·/map 없음 (테스트베드 faker는 fake_nvblox가 대신)'),
+        flag('ekf_imu', 'true', 'EKF yaw 회전속도 = IMU 자이로 · false면 바퀴 (자이로 영점이 틀어지면 서 있어도 yaw가 돎 — 11/08 실기 0.2~2.3°/s)'),
+        flag('use_slam', 'true', 'SLAM(cuVSLAM + nvblox) — false면 map→odom·/map 없음 (테스트베드 faker map:=course는 map_server가 대신)'),
         flag('localization', 'true', 'true=위치추정 모드(운영, 저장 지도로), false=매핑 모드(지도를 새로 만듦)'),
         flag('nvblox_map', '~/.ros/nvblox.nvblx', 'nvblox 지도 파일 — 매핑이면 끌 때 여기에 저장, 위치추정이면 시작할 때 여기서 불러옴'),
-        flag('use_nav2', 'true', '진짜 Nav2 서버 (planner · controller · behavior · bt_navigator · velocity_smoother · collision_monitor)'),
+        flag('use_cmd_chain', 'true', '바퀴 명령 체인 (velocity_smoother · collision_monitor · lifecycle_manager_base) — use_nav2와 별개: 지도 없이(map:=none)도 수동 조작이 되려면 늘 필요'),
+        flag('use_nav2', 'true', '진짜 Nav2 서버 (planner · controller · behavior · bt_navigator) — 바퀴 명령 체인(velocity_smoother · collision_monitor)은 use_cmd_chain'),
         flag('nav2_params_file', share('config', 'nav2_params.yaml'), 'Nav2 파라미터 파일'),
         flag('use_moveit', 'false', 'true면 진짜 move_group (config/moveit) — spawner 완료 후 기동 (동시 기동 레이스 회피)'),
 
@@ -217,10 +219,13 @@ def generate_launch_description():
         camera('gripper_cam', 'gripper_cam_serial', 'gripper_cam_profile',
                'gripper_cam_pointcloud', 'use_gripper_cam'),
 
-        Node(
+        *[Node(
             package='robot_localization', executable='ekf_node', name='ekf_filter_node', output='screen',
-            condition=IfCondition(LaunchConfiguration('use_ekf')),
-            parameters=[share('config', 'ekf.yaml')]),
+            condition=IfCondition(PythonExpression(["'", LaunchConfiguration('use_ekf'), "' == 'true' and '",
+                                                    LaunchConfiguration('ekf_imu'), f"' == '{imu}'"])),
+            parameters=[share('config', 'ekf.yaml')] + ([] if imu == 'true' else [  # 바퀴 vx·vy + yaw 회전속도, IMU 안 씀
+                {'imu0_config': [False] * 15, 'odom0_config': [False] * 6 + [True, True, False, False, False, True] + [False] * 3}]))
+          for imu in ('true', 'false')],
 
         # SLAM = cuVSLAM(위치 · map→odom) + nvblox(지도 · /map) — cuvslam_nvblox_nodes() 설명
         *slam_nodes(),
@@ -236,11 +241,13 @@ def nav2_nodes():
                                    이쪽만 실패하고 바퀴 체인은 산다. 하나로 묶으면 global_costmap 실패에 수동 조작까지 막혔음)
     리매핑만 우리 속도 체인에 맞춘다 (위 모듈 설명)."""
     on = IfCondition(LaunchConfiguration('use_nav2'))
+    # 바퀴 명령 체인은 Nav2(use_nav2)와 따로 — bringup이 지도 없음(map:=none)이면 use_nav2를 끄는데, 그때도 수동 조작은 돼야 한다
+    chain = IfCondition(LaunchConfiguration('use_cmd_chain'))
     params = [LaunchConfiguration('nav2_params_file')]
 
-    def server(package, executable, name=None, remaps=(), extra=()):
+    def server(package, executable, name=None, remaps=(), extra=(), cond=None):
         return Node(package=package, executable=executable, name=name or executable, output='screen',
-                    condition=on, parameters=params + list(extra), remappings=list(remaps))
+                    condition=cond or on, parameters=params + list(extra), remappings=list(remaps))
     return [
         server('nav2_planner', 'planner_server'),
         server('nav2_controller', 'controller_server', remaps=[('cmd_vel', '/cmd_vel_nav')]),
@@ -249,9 +256,9 @@ def nav2_nodes():
         server('nav2_bt_navigator', 'bt_navigator',
                extra=[{'default_nav_to_pose_bt_xml': share('config', 'navigate_to_pose.xml')}]),
         server('nav2_velocity_smoother', 'velocity_smoother',
-               remaps=[('cmd_vel', '/cmd_vel_mux'), ('cmd_vel_smoothed', '/cmd_vel_smoothed')]),
-        server('nav2_collision_monitor', 'collision_monitor'),  # 입출력 토픽은 yaml (cmd_vel_in/out_topic)
-        server('nav2_lifecycle_manager', 'lifecycle_manager', name='lifecycle_manager_base'),
+               remaps=[('cmd_vel', '/cmd_vel_mux'), ('cmd_vel_smoothed', '/cmd_vel_smoothed')], cond=chain),
+        server('nav2_collision_monitor', 'collision_monitor', cond=chain),  # 입출력 토픽은 yaml (cmd_vel_in/out_topic)
+        server('nav2_lifecycle_manager', 'lifecycle_manager', name='lifecycle_manager_base', cond=chain),
         server('nav2_lifecycle_manager', 'lifecycle_manager', name='lifecycle_manager_navigation'),
     ]
 
@@ -284,8 +291,8 @@ def slam_nodes():
     save_path = PythonExpression(["'' if ", *loc, " else ", *nvblox_file])  # 매핑일 때만 저장 (위치추정이면 불러온 지도를 안 덮어씀)
     load_path = PythonExpression([*nvblox_file, " if ", *loc, " else ''"])
 
-    def gate(name, cam, by_pose):
-        return Node(package='ros_system', executable='scan_cam_gate', name=name, output='screen', condition=on,
+    def gate(name, cam, by_pose, cond=on):
+        return Node(package='ros_system', executable='scan_cam_gate', name=name, output='screen', condition=cond,
                     parameters=[share('config', 'scan_pose.yaml'),
                                 {'gate_by_pose': by_pose, 'depth_min_range': 0.5, 'cloud_in': '',
                                  'depth_in': f'/{cam}/aligned_depth_to_color/image_raw',
@@ -301,7 +308,10 @@ def slam_nodes():
         Node(package='ros_system', executable='cuvslam_slam', name='cuvslam_slam', output='screen', condition=on,
              parameters=[{'publish_map_tf': True}]),
         gate('pole_depth_gate', 'pole_front_cam', False),
-        gate('gripper_depth_gate', 'gripper_cam', True),
+        # 그립퍼 캠이 꺼져 있으면(뽑음 · use_gripper_cam:=false) 입력이 없는 게이트도 안 띄운다
+        gate('gripper_depth_gate', 'gripper_cam', True, IfCondition(PythonExpression(
+            ["'", LaunchConfiguration('use_slam'), "'.lower() == 'true' and '", LaunchConfiguration('use_gripper_cam'),
+             "'.lower() == 'true'"]))),
         Node(package='nvblox_ros', executable='nvblox_node', name='nvblox_node', output='screen', condition=on,
              parameters=[share('config', 'nvblox.yaml'),
                          {'after_shutdown_map_save_path': ParameterValue(save_path, value_type=str)}],

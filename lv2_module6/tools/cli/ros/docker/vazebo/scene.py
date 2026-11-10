@@ -218,7 +218,6 @@ PROBLEMS, QR_IMAGES = load_problems()  # QR 텍스트 → (이름, 코드, 퍽 �
 STATION_SIZE = 0.45     # 미션 지역 한 변 [m]
 START_SIZE = 0.45       # 출발 칸(= 마지막 복귀 자리) 표시 한 변 [m] — 로봇(지름 약 0.36m)이 들어가 멈출 크기
 QR_BOARD = {'side': 0.30, 'bottom': 0.10, 'thick': 0.01}   # QR 판 [m] — 아래 끝 바닥 위 0.10
-START_COMMAND = '모든 미션 수행 후 출발 칸으로 복귀'   # 시작 신호 (/cmd/user_command)
 PUCK_COLORS = ('red', 'green', 'blue', 'yellow')
 
 

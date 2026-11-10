@@ -12,6 +12,7 @@ from .grid import FREE, OCC, OUT, UNKNOWN, CostGrid, MapGrid
 from .viewport import Viewport
 
 RGB = {UNKNOWN: (70, 70, 78), FREE: (205, 205, 210), OCC: (18, 18, 24)}   # 칸 색 — OUT은 색 없음 (터미널 바탕)
+MAP_RGB, ODOM_RGB = (90, 220, 255), (255, 150, 40)   # map 원점 M · odom 원점 O
 PATH_RGB, ROBOT_RGB, GOAL_RGB, START_RGB, CURSOR_RGB = (240, 190, 40), (235, 60, 60), (60, 200, 90), (70, 150, 255), (255, 80, 220)
 COST_INFLATED, COST_LETHAL = (125, 85, 25), (175, 35, 35)   # 코스트맵 겹침 — 팽창 / 내접·치명
 BRAILLE = {(0, 0): 0x01, (0, 1): 0x02, (0, 2): 0x04, (1, 0): 0x08, (1, 1): 0x10, (1, 2): 0x20, (0, 3): 0x40, (1, 3): 0x80}
@@ -67,6 +68,8 @@ class MapView(View):
         self.following = True
         self.robot: tuple[float, float] | None = None
         self.start: tuple[float, float] | None = None
+        self.odom: tuple[float, float] | None = None   # map 기준 odom 프레임 원점 (None = TF 없음)
+        self.show_frames = True      # map 원점 M · odom 원점 O (로봇 ● = base_footprint)
         self.goals: list[dict] = []
         self.yaw = 0.0
         self.show_yaw = False       # True면 십자선에서 방향(yaw)선을 뻗어 그림 — 찍는 모드(goal · 위치 지정)
@@ -158,6 +161,10 @@ class MapView(View):
             mark(self.start, 'S', START_RGB)
         for i, g in enumerate(self.goals, 1):
             mark((g['x'], g['y']), str(i % 10), GOAL_RGB)
+        if self.show_frames:
+            mark((0.0, 0.0), 'M', MAP_RGB)
+            if self.odom:
+                mark(self.odom, 'O', ODOM_RGB)
         robot_cell = None
         if self.robot:
             c, r = scr(self.robot)

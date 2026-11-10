@@ -64,7 +64,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   srv/ScoreGrasps.srv
   msg/SkillContext.msg
   msg/ArmCorrectionDebug.msg
-  DEPENDENCIES geometry_msgs std_msgs)
+  DEPENDENCIES geometry_msgs std_msgs perception)
 rosidl_get_typesupport_target(msgs_cpp ${PROJECT_NAME} rosidl_typesupport_cpp)
 include_directories(include)
 
