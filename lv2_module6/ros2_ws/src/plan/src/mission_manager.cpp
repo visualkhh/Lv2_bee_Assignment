@@ -15,12 +15,13 @@
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
 
+#include "plan/coordinator.hpp"  // MISSION_PLAN_ID_BASE
 #include "plan/vlm_task_planner.hpp"  // detail()
 
 namespace plan {
 
 namespace {
-constexpr uint32_t PLAN_ID_BASE = 1000000;  // vlm_task_planner(1부터)와 plan_id가 겹치지 않게
+constexpr uint32_t PLAN_ID_BASE = MISSION_PLAN_ID_BASE;  // coordinator.hpp — vlm_task_planner(1부터)와 겹치지 않게
 
 std::vector<Box> boxes(const std::vector<double> & flat, double half) {  // [x, y, …] 또는 half < 0이면 [x, y, half, …]
   std::vector<Box> out;
