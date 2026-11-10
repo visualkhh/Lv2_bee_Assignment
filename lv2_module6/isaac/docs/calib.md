@@ -41,6 +41,8 @@ python3 pick_loop.py --box-x 0.22 --box-y 0.0 --rounds 0                       #
 - 인식 뒤 스크립트가 퍽 위치(로봇 기준 mm)를 보여 주면, 자로 잰 퍽 가운데 `x y`를 넣는다 → `perc_err_mm`.
 - pick 중 손 카메라가 마지막으로 본 퍽 − 손끝(`/hand_relative`)을 `hand_rel_*`로 남기고, 쥔 뒤 손 안 어긋남(닫힘 방향 · 손가락 방향 mm)을 넣는다.
 - 정책 켜고 끄기는 여기서 하지 않는다: `models/skills/pick_standing_puck/meta.yaml`의 `use:` + `colcon build`.
+- Isaac(`use_sim`)에서는 줄자 대신 Isaac 참값을 쓴다. `isaac_startup.py`가 재생 중 퍽 위치·기울기를 `/tmp/beebot_sim_pucks.json`에 쓰고, `pick_loop.py`가 인식한 퍽마다 가장 가까운 참값(6 cm 안)을 골라 `perc_err_mm`를 채운다. 자세(서 있음 · 누움 · 기울기)는 CSV `true_posture`에 남는다. 파일이 2초보다 오래됐거나 없으면 줄자 입력으로 돌아간다(`--auto` 제외). 옛 `isaac_startup.py`로 띄운 Isaac이면 이 파일이 없으니 `isaac_sim.sh`를 다시 띄운다.
+- 먼 퍽은 `--box-x`를 키워 본다(퍽은 로봇 중심 0.30 m 안). 퍽 위 5 cm 수직 자세에 못 닿는 범위와 대안은 `rl/scripts/pick_far/REPORT.md`.
 
 ### place_loop — 놓기 오차
 
