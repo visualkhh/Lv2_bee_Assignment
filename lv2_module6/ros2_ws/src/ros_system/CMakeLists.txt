@@ -36,6 +36,9 @@ if(BUILD_TESTING)
       TIMEOUT 60)
   endforeach()
   # SLAM(cuVSLAM + nvblox) 노드·지도 파일 경로가 맞게 펼쳐지는지 — GPU 없이 launch 구조만 (test/test_slam_launch.py)
+  # cuVSLAM map→odom 거르기(MapGate) — 회전 중·큰 점프 유지, 안정된 새 값은 받아들임 (test/test_map_gate.py)
+  ament_add_test(test_map_gate GENERATE_RESULT_FOR_RETURN_CODE_ZERO
+    COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/test/test_map_gate.py")
   ament_add_test(test_slam_launch GENERATE_RESULT_FOR_RETURN_CODE_ZERO
     COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/test/test_slam_launch.py"
     TIMEOUT 60)
