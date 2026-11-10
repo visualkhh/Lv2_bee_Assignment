@@ -11,6 +11,7 @@
 //   (scan_source=scan 이면 /scan LaserScan 사용 — 실제 LiDAR 붙였을 때)
 // 행동 [-1,1]² → v = a0 × max_lin (후진은 v_min_ratio까지) · w = a1 × max_ang
 #include "ml/rl_nav_controller.hpp"
+#include "ml/nav_obs.hpp"  // heading_speed_cap
 
 #include <algorithm>
 #include <cctype>
@@ -78,6 +79,7 @@ void RlNavController::configure(
   max_ang_ = param<double>(node, name + ".max_ang", max_ang_);
   v_min_ratio_ = param<double>(node, name + ".v_min_ratio", v_min_ratio_);
   extra_lin_vel_ = param<double>(node, name + ".extra_lin_vel", extra_lin_vel_);
+  heading_cap_ = param<bool>(node, name + ".heading_speed_cap", heading_cap_);  // 경로와 어긋나면 전진 줄임 (ml::heading_speed_cap)
   extra_ang_vel_ = param<double>(node, name + ".extra_ang_vel", extra_ang_vel_);
   points_stride_ = param<int>(node, name + ".points_stride", points_stride_);
   z_min_ = param<double>(node, name + ".z_min", z_min_);
@@ -575,6 +577,8 @@ geometry_msgs::msg::TwistStamped RlNavController::computeVelocityCommands(
   cmd.twist.linear.x = std::clamp(std::max(double(a0) * max_lin_, v_min_ratio_ * max_lin_) * speed_ratio_ + extra_lin_vel_,
                                    v_min_ratio_ * max_lin_, max_lin_);
   cmd.twist.angular.z = std::clamp(double(a1) * max_ang_ + extra_ang_vel_, -max_ang_, max_ang_);
+  if (heading_cap_)  // obs 앞 두 칸 = 첫 웨이포인트(wp_step 앞, 로봇 좌표)
+    cmd.twist.linear.x = heading_speed_cap(cmd.twist.linear.x, max_lin_, obs[0], obs[1]);
   if (debug_pub_) {  // A/B 분석용: [a0, a1, v_out, w_out, scan_min, v_odom, w_odom, on]
     std_msgs::msg::Float32MultiArray dbg;
     dbg.data = {a0, a1, static_cast<float>(cmd.twist.linear.x), static_cast<float>(cmd.twist.angular.z),
