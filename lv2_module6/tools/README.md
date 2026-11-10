@@ -80,6 +80,20 @@ cd tools
 
 저장: `~/.cache/beebot/bags/<날짜시각>_<라벨>/` — `*.mcap` + `metadata.yaml` + **`sys.csv`**(1초마다: load1 · cpu_pct · mem_avail_mb · swap_used_mb · gpu_pct · 메모리 큰 프로세스 6개) + `tegrastats.log`(Jetson). 부하 기록기는 `tools/bag/sysmon.py`(표준 라이브러리만, 단독 실행 가능). 시험: `python3 tools/cli/tests/test_bagrec.py`.
 
+### 실기 액션별 계측 runner
+
+실물에서 sensor 확인·저속 wheel probe·Coordinator 단일 skill·전체 MissionManager 미션을 한 fresh bag + append-only `events.jsonl`로 묶으려면 `tools/field-test.py`를 쓴다. Linux ROS host에서 실행한다. 저장소에 `install/setup.bash`가 있어야 하고 `run-cli`와 동일하게 ROS domain/DDS 환경을 가져온다.
+
+```bash
+./tools/field-test.py run --label dock-pre       # 새 bag 시작 후 단계별 메뉴
+./tools/field-test.py run --baseline ~/bee_bags/full_xxx --label dock-after  # 기존 bag 읽기 전용 비교 + fresh bag
+./tools/field-test.py run --attach-active      # 현재 ros2 bag record에 연결, 종료해도 recorder는 유지
+```
+
+기록되는 것은 topic/rate 상태·map pose·현재 mission/task·visible puck·basket·진단, operator가 확인한 로봇 위치와 퍽/받침대 배치, action 요청·`TaskStatus` 결과·실측 observation이다. 한 개 Coordinator skill만 실행하거나 전체 MissionManager 미션을 실행할 수 있다. 개별 skill은 MissionManager가 IDLE/DONE, E-stop OFF, AUTO이고 Coordinator가 수신 가능할 때만 1개를 발행한다. 휠은 MANUAL의 전진/후진 최대 0.06 m/s·0.4초 또는 회전 최대 0.20 rad/s·0.4초다. 실제 이동마다 위치·장애물 확인과 별도 확인 문구를 요구한다. 기본 진단 preset을 확장해 `/mission/*`, `/task/*`, `/coordinator/*`, `/skill_context`, `/rl_arm_correction/debug`, `/skills/*/_action/*`도 저장한다.
+
+단계별 action은 물리적인 자세·적재 상태를 앱만으로 확인할 수 없으므로 operator가 조건을 눈으로 보고 기록해야 한다. Runner는 값이 안 보이거나 모드·E-stop·미션 상태를 확인할 수 없으면 goal을 보내지 않는다. 기존 bag은 읽고 비교만 하며, 시험 입력은 fresh bag 또는 이미 실행 중인 recorder에 기록한다. `--attach-active`는 recorder를 중지하지 않는다. `events.jsonl`은 `~/.cache/beebot/field-tests/`에 따로 저장한다. 정상 종료 후 runner 소유 fresh bag의 `metadata.yaml`을 요약한다.
+
 `start`는 기본값으로 **`ROS_DOMAIN_ID=88` + `ros2_ws/fastdds_local_only.xml`(SHM 전용)** 을 쓴다 — DDS가 기기 밖으로 나가지도 들어오지도 않는다. 셸의 `FASTDDS_DEFAULT_PROFILES_FILE` · `ROS_DOMAIN_ID`를 지정하면 그 값이 우선한다 (PC에서 볼 때는 `fastdds.xml`).
 
 ```bash
