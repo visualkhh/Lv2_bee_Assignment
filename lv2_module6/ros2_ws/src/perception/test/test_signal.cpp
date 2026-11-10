@@ -137,7 +137,7 @@ TEST(Signal, ConfirmOne) {
   EXPECT_TRUE(s.got[0].ok);
 }
 
-// ---- 실물 녹화 재생(10/28, tl_bags · bee_yolo11n_v2 모델)에서 나온 경우들
+// ---- 실물 녹화를 재생했을 때 나온 경우들
 TEST(Signal, ColorFlickerInsideBlinkNotSplit) {
   Sim s;
   // 빨강 1초 중 0.3초를 모델이 노랑으로 봄 → 쪼개지 않고 다수결 빨강 1번
@@ -209,7 +209,7 @@ TEST(Signal, Slow4Hz) {
 
 TEST(Signal, NoiseInsideBlinkGapDoesNotMerge) {
   Sim s;
-  // 실물 재생(light1 seed 2)에서 나온 경우: 3·4번째 R 사이 1초 꺼짐 한가운데 0.2초 노랑 잡음
+  // 실물 재생에서 나온 경우: 3·4번째 R 사이 1초 꺼짐 한가운데 0.2초 노랑 잡음
   //   → 꺼짐이 0.4 + 0.4초로 쪼개져도 각각 점멸 사이로 끊고, 잡음은 버림 (R 두 번이 하나로 합쳐지면 안 됨)
   for (int c = 0; c < 2; ++c) {
     s.hold("off", 3.0);

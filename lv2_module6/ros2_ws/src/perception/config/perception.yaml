@@ -2,14 +2,15 @@
 perception:
   ros__parameters:
     rate_hz: 10.0            # /tracked_objects 발행 주기 (설계: 10Hz · reliable)
-    model_path: "bee_yolo11n_v4.pt"  # 비면 share/perception/model/model.pt(팀 모델) 자동 탐색, 없으면 빈 목록 · 파일 이름만 쓰면 그 폴더에서 찾음
-                            #   bee_yolo11n_v4.pt (11/02): 10클래스(빨강·초록 퍽 × 사각·원기둥 · 신호등 상태 4 · person · obstacle) — v3 + 로봇 카메라 실물 531장
-                            #     (어둡게 + 노이즈 사본 · 작은 퍽 증강). 로봇 카메라 시험(학습에 안 쓴 녹화, 퍽 366, imgsz 416 · conf 0.4):
-                            #     퍽 335 찾음(91.5%) · 헛검출 12 (v3: 212 · 14) · 옛 실물 시험 퍽 180/184 · 신호등 상태 572/588
-                            #     imgsz 640(젯슨 엔진 384×640)이면 작은 퍽을 더 찾음 — 젯슨 속도 확인 후 바꿀 것
-                            #   되돌리기: "bee_yolo11n_v3.pt" (11/02 오전) · "bee_yolo11n_v2.pt" (10/27, 14클래스) · "" (팀 기본 model.pt)
+    model_path: "bee_yolo11n_v5.onnx"  # 비면 share/perception/model/model.pt(팀 모델) 자동 탐색, 없으면 빈 목록 · 파일 이름만 쓰면 그 폴더에서 찾음
+                            #   bee_yolo11n_v5.onnx: bee_yolo11n_v5.pt를 ONNX로 바꾼 것 (입력 384×640 고정 — 카메라 640×360에 맞춤, 실행에 onnxruntime 필요)
+                            #     로봇 카메라 시험은 .pt와 같음 (퍽 727/767 · 헛검출 23)
+                            #   bee_yolo11n_v5.pt: v4와 같은 10클래스(빨강·초록 퍽 × 사각·원기둥 · 신호등 상태 4 · person · obstacle) — v4 + 노트북 카메라 실물 234장 + 잘못된 학습 라벨 고침
+                            #     시험 (imgsz 640 · conf 0.4, 학습에 안 쓴 사진 · 시험 라벨 확인 후): 로봇 카메라 퍽 767개 중 727 찾음(94.8%) · 헛검출 23
+                            #     옛 실물 시험 퍽 187/193 · 헛검출 8 · 신호등 상태 579/582
+                            #   되돌리기: "bee_yolo11n_v5.pt" (onnxruntime 없을 때) · "bee_yolo11n_v4.pt" · "" (팀 기본 model.pt)
     confidence: 0.4         # 검출 신뢰도 하한
-    imgsz: 416              # YOLO 입력 한 변 (도커 CPU용)
+    imgsz: 640              # YOLO 입력 한 변 — .pt일 때만 씀 (.onnx는 만들 때 정한 384×640으로 고정) · 416보다 작은 퍽을 더 찾음
     # device: 코드 기본 "cpu" — 여기 두지 않음: 노드 이름 아래 값이 launch 덮어쓰기(/**)를 이겨 stand_test perception_device가 안 먹었다 (2026-11-06)
     cpu_threads: 2          # device=cpu일 때 torch 스레드 수 — 기본(코어 전부)이면 제어·Nav2가 밀림 (도커 7코어 중 5코어를 먹었음)
     track_frame: "odom"      # 추적·융합 좌표계 (끊김 없음) — /tracked_objects는 발행 순간의 map ← odom으로 바꿔 map 기준
@@ -39,13 +40,6 @@ perception:
                             #   inspect 자세에서 상자 앞쪽(차체에서 2~5 cm) 퍽을 자기 몸으로 버렸음 (11/07 Isaac 시험)
     body_height: 0.6
     self_arm_hits: 3        # 퍽이 아닌 검출 박스 안에 팔(TF 링크를 화면에 투영) 점이 이만큼 있으면 자기 팔 — 박스 일부만 팔이면 depth가 팔 뒤 바닥이라 위 3D 판정을 빠져나감 (0 = 안 봄)
-    long_memory: false      # 11/04: 기억은 통합(판단) 쪽이 맡음 → 인지는 본 것만 (안 보이면 2초 뒤 지움) · true면 아래 규칙으로 안 보여도 기억
-    # (long_memory: true일 때만) 안 보여도 기억 (퍽 · 목표 구역 · QR 판) — 2초 지나도 안 지우고, 그 자리가 잘 보이는데 연속 못 찾을 때만 지움 (팀 확인 10/22)
-    miss_count: 3           # 잘 보이는 자리에서 이만큼 연속 못 찾으면 지움 (옮겨짐 · 집어 감)
-    miss_max_range: 3.0     # 이보다 먼 자리는 못 찾아도 세지 않음 [m] (멀면 YOLO가 놓치기 쉬움)
-    miss_edge_px: 40        # 화면 가장자리 이만큼 안은 세지 않음 [px] (반쯤 잘려 놓칠 수 있음)
-    miss_occlusion_m: 0.10  # 그 자리 깊이가 물체까지 거리보다 이만큼 넘게 가까우면 가려진 것 — 세지 않음 [m]
-    remember_min_hits: 3    # 같은 자리에서 이만큼 잡혀야 기억 — 그 전엔 2초 규칙 (TF가 잠깐 어긋나 엉뚱한 자리에 찍힌 유령 퍽이 남지 않게)
     # 퍽 판단 (실물 측정 10/21~22 · test/puck_tag_check.py) — 퍽 색·크기는 발제문이 나오면 여기서만 바꿀 것
     puck_colors: ["red", "green"]  # 퍽으로 볼 색 (발제 v5 · 사용자 10/29: 퍽은 빨강·초록뿐 — 파랑·노랑 퍽 없음)
     hue_tol: 10             # 기준 H(색상)에서 이만큼 안이어야 그 색 — 넘으면 other (주황 컵홀더 H12~13이 빨강으로 안 잡히게)
