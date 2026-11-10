@@ -24,6 +24,10 @@ public:
     // sim 방식: 손 안 퍽 바닥이 면 위 이만큼에서 다가와 수직으로 내려감. 이웃 퍽(높이 60 mm)보다 높아야 옆으로 지나갈 때 안 침
     //   (11/08 실기 주사위 5: 5 cm로 가운데 눈을 놓으러 가다 먼 줄 퍽을 넘어뜨림). 손이 못 닿으면 5 cm(CONTACT_ABOVE_M)로
     above_m_ = declare_parameter<double>("place_above_m", 0.08);
+    // 놓을 때 손가락 벌림 [m] — 0.036(시뮬 place_env release_gap)이면 사각 퍽(30 mm, 대각선 42 mm)이 손 안에서 조금만 기울어도
+    //   손가락 사이에 끼어, 박스에 닿은 뒤 퍽을 쥔 채 다시 올라가 공중에서 돌다 떨어져 누움 (11-10 Isaac 퍽 정답 시간선 · 3회 재현).
+    //   0.046이면 같은 퍽이 목표 4 mm 안에 섬. 주사위 칸 이웃 퍽(틈 30 mm) 사이에서 손가락이 걸리는지는 아직 시험 전
+    open_gap_m_ = declare_parameter<double>("place_open_gap_m", 0.046);
     offset_x_m_ = declare_parameter<double>("place_offset_x_m", 0.0037);      // 시뮬 Δ = 0: 퍽이 칸 가운데보다 로봇 앞으로 이만큼 놓임 → 목표를 뒤로 (실기에서 다시 재서 바꿈)
     // 팔이 뒤(적재함 쪽, |joint1| > 1.2 rad — unload_end_pose over)면 그쪽 carry를 멈추지 않고 지나 놓을 자리 위로 (pick과 같음)
     via_carry_ = declare_parameter<bool>("place_via_carry", true);
@@ -81,7 +85,7 @@ private:
   }
 
   void place_cell(const geometry_msgs::msg::PoseStamped & release, double top, double psi, ArmIO::Cb done) {
-    const double open_m = stand::gap_joint(PLACE_OPEN_GAP_M);
+    const double open_m = stand::gap_joint(open_gap_m_);
     if (arm_.sim_contact()) {
       auto down = release;
       down.pose.position.z -= release_m_;  // 퍽 바닥이 면에 닿는 자리
@@ -134,13 +138,12 @@ private:
     arm_.run_steps(steps, 0, done);
   }
 
-  static constexpr double PLACE_OPEN_GAP_M = 0.036;  // 시뮬 place_env release_gap_mm — 이웃 퍽 사이(틈 30 mm)에 손가락이 들어가는 폭
 
   ArmIO arm_;
   SkillModel policy_;
   bool via_carry_ = true;
   std::vector<double> carry_left_, carry_right_;
-  double held_bottom_m_, release_m_, approach_m_, offset_x_m_, above_m_;
+  double held_bottom_m_, release_m_, approach_m_, offset_x_m_, open_gap_m_, above_m_;
 };
 
 }  // namespace skills
