@@ -2,8 +2,20 @@
 coordinator:
   ros__parameters:
     # 계획 단계를 skill 노드(skills 패키지, /skills/<skill>)에 맡기는 순서 담당 — 팔·주행 값은 skills/config/skills.yaml · skills/params/
-    max_step_failures: 2     # 같은 단계가 이만큼 연속 실패하면 알리고 정지 (규칙 3)
-    server_wait_s: 30.0      # [s] skill 노드가 뜰 때까지 기다리는 시간
+    server_wait_s: 30.0      # [s] skill 노드가 뜰 때까지 기다리는 시간 — 넘으면 skill_unavailable:<skill>
+    # [s] 단계 시간 제한 — skill goal이 이 안에 결과를 안 주면 취소하고 <skill>_timeout (0 = 없음). 시뮬은 /clock 기준
+    #   skill 안의 시간 제한(approach_timeout_s · 그리퍼)이 먼저 걸리고, 이건 skill이 응답 없이 멈췄을 때의 마지막 안전망
+    step_timeout_s:
+      navigate: 120.0        # Nav2 자체 진척 검사·재시도 뒤에도 안 끝날 때
+      approach: 60.0         # approach_timeout_s(30) 뒤
+      pose: 30.0
+      inspect: 60.0
+      pick: 90.0
+      place: 90.0
+      load: 90.0
+      unload: 90.0
+      stand: 90.0
+      stand_pick: 90.0
     pose_names: [stow, carry_left, carry_right, scan]   # pose 단계 검증 (값은 skill_pose — skills/params/basket.yaml · scan_pose.yaml)
     # 적재함 장부 (이 노드만 씀): 파일에 저장해 다시 떠도 이어 감 · load next가 쓰는 칸 (팔이 잘 못 닿는 칸은 실기에서 확인 후 뺌)
     basket_slots: 12

@@ -64,7 +64,6 @@ std::pair<double, double> spread_offset(int n, double s) {
 
 Coordinator::Coordinator(const rclcpp::NodeOptions & options)
 : rclcpp::Node("coordinator", options) {
-  max_step_failures_ = declare_parameter<int>("max_step_failures", 2);
   server_wait_s_ = declare_parameter<double>("server_wait_s", 30.0);
   reach_m_ = declare_parameter<double>("reach_m", 0.30);
   remember_s_ = declare_parameter<double>("remember_s", 120.0);  // [s] 안 보이게 된 퍽을 이만큼 기억 (0 = 안 함) — remembered_
@@ -94,8 +93,14 @@ Coordinator::Coordinator(const rclcpp::NodeOptions & options)
     });
   basket_load();
   basket_changed();
-  for (const char * a : {"navigate", "approach", "pose", "inspect", "pick", "place", "load", "unload", "stand", "stand_pick"})
-    skills_[a] = rclcpp_action::create_client<Skill>(this, std::string("/skills/") + a);
+  // 단계 시간 제한 기본값 [s] — 실기 한 단계(팔 skill 약 13~20 s · 경기장 끝에서 끝 주행 약 40 s)의 몇 배. 시뮬 시계 기준
+  static const std::map<std::string, double> timeout_default = {
+    {"navigate", 120.0}, {"approach", 60.0}, {"pose", 30.0}, {"inspect", 60.0}, {"pick", 90.0},
+    {"place", 90.0}, {"load", 90.0}, {"unload", 90.0}, {"stand", 90.0}, {"stand_pick", 90.0}};
+  for (const auto & [a, t] : timeout_default) {
+    skills_[a] = rclcpp_action::create_client<Skill>(this, "/skills/" + a);
+    step_timeout_s_[a] = declare_parameter<double>("step_timeout_s." + a, t);
+  }
   tf_buffer_ = std::make_unique<tf2_ros::Buffer>(get_clock());
   tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
   const auto latched = rclcpp::QoS(10).reliable().transient_local();
@@ -138,7 +143,6 @@ Coordinator::Coordinator(const rclcpp::NodeOptions & options)
     s.add("plan_id", plan_.plan_id);
     s.add("단계", step_text());
     s.add("실행 중", running_);
-    s.add("연속 실패", failures_.size());
     std::string slots;
     for (const auto & b : basket_) slots += b.shape.empty() ? "·" : (b.check ? "?" : b.shape.substr(0, 1));
     s.add("적재함", std::to_string(basket_order_.size()) + "/" + std::to_string(basket_.size()) + " " + slots);
@@ -309,8 +313,7 @@ void Coordinator::send(const std::string & action, const Skill::Goal & goal, Ok 
   const auto & client = skills_.at(action);
   active_action_ = action;
   if (!client->action_server_is_ready()) {  // skill 노드가 아직 없음 (기동 중) — 1초 뒤 같은 단계를 다시
-    const bool base = action == "navigate" || action == "approach";
-    if (waited_s_ >= server_wait_s_) { waited_s_ = 0; fail(base ? "nav_unavailable" : action == "pick" ? "pick_unavailable" : "arm_unavailable"); return; }
+    if (waited_s_ >= server_wait_s_) { waited_s_ = 0; fail("skill_unavailable:" + action); return; }
     RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 5000, "/skills/%s 대기 중", action.c_str());
     waited_s_ += 1.0;
     retry_ = create_wall_timer(std::chrono::seconds(1), [this]() { retry_->cancel(); run_step(); });
@@ -327,6 +330,7 @@ void Coordinator::send(const std::string & action, const Skill::Goal & goal, Ok 
   opt.result_callback = [this, gen, action, ok, on_fail](const rclcpp_action::ClientGoalHandle<Skill>::WrappedResult & r) {
     if (gen != gen_) return;  // 취소된 옛 goal의 늦은 결과
     active_.reset();
+    if (step_timer_) step_timer_->cancel();
     if (r.code == rclcpp_action::ResultCode::SUCCEEDED && r.result->success) { ok(*r.result); return; }
     if (r.code == rclcpp_action::ResultCode::CANCELED) return;  // 취소한 쪽(모드·비상정지·새 계획)이 이미 처리
     const std::string why = r.result && !r.result->reason.empty() ? r.result->reason : action + "_failed";
@@ -334,34 +338,42 @@ void Coordinator::send(const std::string & action, const Skill::Goal & goal, Ok 
     fail(why);
   };
   client->async_send_goal(goal, opt);
+  if (step_timer_) step_timer_->cancel();
+  const double limit = step_timeout_s_.at(action);
+  if (limit > 0)  // 노드 시계(시뮬이면 /clock) 기준 — skill이 결과 없이 멈춰도 계획이 그 단계에 갇히지 않게 (규칙 3-1)
+    step_timer_ = rclcpp::create_timer(this, get_clock(), rclcpp::Duration::from_seconds(limit), [this, gen, action, limit]() {
+      step_timer_->cancel();
+      if (gen != gen_) return;
+      RCLCPP_ERROR(get_logger(), "/skills/%s %.0f s 안에 결과 없음 — 취소", action.c_str(), limit);
+      cancel_all();
+      skills_.at(action)->async_cancel_all_goals();  // goal 응답 전이라 active_가 없어도 그 skill의 goal을 멈춤
+      fail(action + "_timeout");
+    });
 }
 
 void Coordinator::cancel_all() {
   ++gen_;
   if (retry_) retry_->cancel();
+  if (step_timer_) step_timer_->cancel();
   if (active_) skills_.at(active_action_)->async_cancel_goal(active_);
   active_.reset();
 }
 
 void Coordinator::next() {
   if (!running_) return;  // 수동 전환 등으로 이미 멈춘 뒤 도착한 결과
-  failures_.erase(key(plan_.goals[idx_]));
   ++idx_;
   run_step();
 }
 
-// 규칙 3: 같은 단계 max_step_failures회 연속 실패면 알리고 정지. 그 전엔 FAILED만 보내고 다음 계획을 기다린다
+// 규칙 3: 실패는 FAILED + reason으로 바로 알리고 멈춤 — 다시 할지는 계획을 낸 쪽(mission_manager retries · approach_tries)
 void Coordinator::fail(const std::string & reason) {
   if (!running_) return;  // 이미 멈춤 (수동 전환으로 취소된 goal의 결과 등)
   const auto & g = plan_.goals[idx_];
-  const int n = ++failures_[key(g)];
   running_ = false;
-  RCLCPP_WARN(get_logger(), "step %u 실패 (%s) %d/%d", g.step, reason.c_str(), n, max_step_failures_);
+  RCLCPP_WARN(get_logger(), "step %u 실패 (%s)", g.step, reason.c_str());
   status(g.step, TaskStatus::FAILED, reason);
-  if (n >= max_step_failures_) failures_.clear();
 }
 
-std::string Coordinator::key(const SubGoal & g) { return g.skill + ":" + g.target; }
 
 bool Coordinator::robot_xy(double & x, double & y) const {
   try {

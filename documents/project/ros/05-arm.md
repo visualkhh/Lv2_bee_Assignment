@@ -98,7 +98,7 @@ flowchart TB
    - "경로표 + JTC 직접"은 보류입니다. 속도나 반복성이 문제가 되면 표를 move_group ExecuteTrajectory로 실행하거나 Pilz planner를 씁니다.
 2. **skill 하나는 한 가지 일만 합니다.** 단계 순서(흐름)는 계획을 보내는 쪽이 정합니다. 다만 적재함 싣기·꺼내기는 칸마다 carry 방향이 정해져 있어서, 그 경유를 skill 안에 넣었습니다([5절](#5-흐름)).
 3. **판단은 인지 값으로 합니다.** 퍽 위치·모양·방향과 상자 윗면·크기·방향은 실행하는 순간 `/tracked_objects`에서 다시 읽습니다. 계획을 세운 당시의 값은 쓰지 않습니다.
-4. **실패하면 이유를 붙여 바로 끝냅니다.** `/task/status`에 FAILED와 `reason`을 냅니다. 다시 할지는 계획 쪽이 정합니다. coordinator는 같은 단계를 `max_step_failures`번까지만 다시 받습니다.
+4. **실패하면 이유를 붙여 바로 끝냅니다.** `/task/status`에 FAILED와 `reason`을 냅니다. 다시 할지는 계획 쪽이 정합니다. mission_manager 계획은 mission_manager가 `retries` · `approach_tries`만큼 다시 하고, VLM 계획은 `max_replans`만큼 다시 계획합니다. skill이 결과를 안 주면 coordinator가 `step_timeout_s.<skill>` 뒤에 취소하고 `<skill>_timeout`으로 실패시킵니다.
 
 ## 2. 자세
 
@@ -208,7 +208,9 @@ flowchart LR
 | reason | 언제 |
 |---|---|
 | `invalid_plan:<이유>` | 계획 검증 실패. 모르는 skill, 모르는 자세 이름(`pose <이름>`), 없는 물체 id |
-| `arm_unavailable` · `pick_unavailable` · `nav_unavailable` | MoveIt·그리퍼·grasp_scorer·Nav2 서버가 `server_wait_s` 안에 안 뜸 |
+| `skill_unavailable:<skill>` | skill 노드(`/skills/<skill>`)가 coordinator `server_wait_s` 안에 안 뜸 |
+| `arm_unavailable` · `pick_unavailable` · `nav_unavailable` | skill 노드 안에서 MoveIt·그리퍼·grasp_scorer·Nav2 서버가 `server_wait_s` 안에 안 뜸 |
+| `<skill>_timeout` | skill이 `step_timeout_s.<skill>` 안에 결과를 안 줌 → coordinator가 취소 (skill이 멈췄을 때의 안전망) |
 | `nav_failed` · `nav_bad_target` · `approach_failed` · `approach_blocked` · `approach_bad_target` · `approach_no_tf` | 이동·다가가기 실패 · 좌표 형식 오류 · 직선 접근이 막힘 · 로봇 위치 모름 |
 | `no_grasp` · `grasp_failed_all` · `grasp_empty` · `arm_contact` | 파지 후보 없음 · 후보 다 실패 · 닫았는데 빈손 · 팔 접촉 |
 | `pose_failed` | 그 자세로 못 감 |

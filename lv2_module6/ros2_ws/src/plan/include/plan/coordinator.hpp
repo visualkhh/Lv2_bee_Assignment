@@ -12,7 +12,10 @@
 //      (pose·load·unload·stand_pick의 target은 자세 이름·칸 번호라 물체 검증 안 함), pose 이름은 pose_names
 //   2. 팔이 닿게 다가가기: pick · place · inspect · stand <물체 id> 차례에 대상이 로봇(base_footprint, TF)에서 reach_m 넘게 떨어져 있으면
 //      먼저 그 물체를 바라보며 approach_m 떨어진 자리로 navigate한 뒤 그 단계를 실행 (단계마다 한 번 — 계획에 navigate가 빠져 있어도)
-//   3. 같은 단계 max_step_failures회 연속 실패면 정지(실패 횟수 초기화). 그 전엔 FAILED만 보내고 다음 계획을 기다린다
+//   3. 실패는 FAILED + reason으로 바로 알리고 멈춤 — 다시 할지는 계획을 낸 쪽(mission_manager retries · approach_tries)이 정함
+//   3-1. 단계 시간 제한: skill goal이 step_timeout_s.<skill> 안에 결과를 안 주면 취소하고 <skill>_timeout으로 실패 (0 = 없음).
+//        skill 안의 시간 제한(approach · 그리퍼)이 먼저고, 이건 skill이 응답 없이 멈췄을 때의 마지막 안전망
+//   3-2. skill 노드(/skills/<skill>)가 server_wait_s 안에 안 뜨면 skill_unavailable:<skill>
 //   4. AUTO가 아닌 모드(MANUAL · TEACH) · 비상정지: 진행 중 skill goal을 취소하고 FAILED, 그동안 새 계획은 받지 않음
 //   적재함 장부는 이 노드 하나만 씀: 칸마다 {모양 · 색 · tag · 확인 필요} + 실은 순서 + 손에 든 퍽 → 파일(basket_file)에 저장해 다시 떠도 이어 감
 //     pick·stand_pick 성공이면 그 퍽을 손에 · load 성공이면 칸에 · unload 성공이면 손으로 · place 성공이면 손 비움.
@@ -86,8 +89,8 @@ private:
   void run_step();
   void next();
   void fail(const std::string & reason);
-  static std::string key(const SubGoal & g);
-  // /skills/<action>에 goal — 서버가 아직 없으면 1초마다 다시 (server_wait_s 넘으면 unavailable로 실패). 성공이면 ok, 실패면 on_fail(이유)
+  // /skills/<action>에 goal — 서버가 아직 없으면 1초마다 다시 (server_wait_s 넘으면 skill_unavailable:<action>).
+  //   step_timeout_s.<action> 안에 결과가 없으면 취소하고 <action>_timeout. 성공이면 ok, 실패면 on_fail(이유)
   void send(const std::string & action, const Skill::Goal & goal, Ok ok, Fail on_fail = nullptr);
   void cancel_all();
   bool robot_xy(double & x, double & y) const;
@@ -112,10 +115,11 @@ private:
 
   void status(uint32_t step, uint8_t state, const std::string & reason);
 
-  int max_step_failures_;
   double server_wait_s_, waited_s_ = 0, reach_m_, approach_m_, place_spacing_, box_margin_m_;
   std::set<std::string> pose_names_;
   std::map<std::string, rclcpp_action::Client<Skill>::SharedPtr> skills_;  // action 이름 → 클라이언트
+  std::map<std::string, double> step_timeout_s_;                            // action 이름 → 단계 시간 제한 [s] (0 = 없음)
+  rclcpp::TimerBase::SharedPtr step_timer_;
   rclcpp_action::ClientGoalHandle<Skill>::SharedPtr active_;
   std::string active_action_;
   rclcpp::TimerBase::SharedPtr retry_;
@@ -136,7 +140,6 @@ private:
   SubGoalArray plan_;
   size_t idx_ = 0;
   uint64_t gen_ = 0;  // 새 계획·취소 때마다 증가 — 옛 goal 결과가 새 단계를 건드리지 않게
-  std::map<std::string, int> failures_;
   TrackedObjectArray::ConstSharedPtr objects_;
   // 기억한 퍽 — perception은 안 보이면 2초 뒤 지우므로(long_memory false, 11/04 "기억은 통합 쪽") 마지막으로 본 모습을 remember_s 동안
   //   (적재 뒤 팔이 상자를 안 보는 자세여도 다음 퍽을 그 자리로 바로 pick). 집으면 지움 · 같은 자리에 새 트랙이 생기면 지움
