@@ -22,6 +22,10 @@ mission_manager:             # 주사위 기억 미션 (documents/mission/README
     start_pose_arena: [0.734, 0.950, 3.14159]
     start_zone: [0.434, 0.650, 1.034, 1.250]   # 출발 구역 [x0, y0, x1, y1] (복귀 판정·RViz)
     footprint: [0.069, -0.233, 0.153]        # 로봇 외곽 [앞, 뒤, 옆 반폭] (base_footprint, URDF) — 복귀 때 차체 전체가 구역 안인지
+    # 방문 순서 (1부터) — lv2_module6/tools/plan/route_order.py가 도면 벽 위 A*(로봇 반경 0.16 + 0.05)로 출발 → 박스 6 → 장소 3 → 복귀 총 길이를 비교해 정함
+    #   1·2·6·4·5·3 + L3·L2·L1 = 26.6 m (기존 1→6 + L1→L3 = 33.6 m · −21 %). 비우면 번호 순서
+    survey_order: [1, 2, 6, 4, 5, 3]
+    build_location_order: [3, 2, 1]
     start_boxes: [1.468, 0.950, 3.670, 3.152, 2.936, 5.354, 0.734, 5.354, 2.202, 5.354, 3.670, 3.886]   # 시작 박스 1~6 중심
     box_half: 0.1025                         # 205 박스 반 변
     puck_offsets_x: [-0.040, 0.040]          # 박스 위 퍽 두 개 — 중심 X±40

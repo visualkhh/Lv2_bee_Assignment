@@ -180,3 +180,12 @@ TEST(MissionSolver, SignalAction) {
   streak = 0;
   EXPECT_EQ(signal_action(false, "count", streak, 1), SignalAction::STOP);  // limit 1이면 바로
 }
+
+
+TEST(MissionSolver, VisitOrder) {  // plan.yaml survey_order · build_location_order
+  EXPECT_EQ(plan::visit_order({1, 2, 6, 4, 5, 3}, 6), (std::vector<size_t>{0, 1, 5, 3, 4, 2}));
+  EXPECT_EQ(plan::visit_order({}, 3), (std::vector<size_t>{0, 1, 2}));          // 비면 번호 순서
+  EXPECT_EQ(plan::visit_order({1, 1, 2}, 3), (std::vector<size_t>{0, 1, 2}));   // 중복 → 번호 순서
+  EXPECT_EQ(plan::visit_order({0, 1, 2}, 3), (std::vector<size_t>{0, 1, 2}));   // 범위 밖
+  EXPECT_EQ(plan::visit_order({3, 2, 1}, 3), (std::vector<size_t>{2, 1, 0}));
+}

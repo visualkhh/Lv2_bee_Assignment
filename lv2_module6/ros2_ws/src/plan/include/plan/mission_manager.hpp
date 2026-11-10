@@ -121,6 +121,8 @@ private:
   Pose2 start_;
   std::vector<double> start_zone_, footprint_;
   std::vector<Box> start_boxes_, loc_boxes_;
+  std::vector<size_t> survey_order_, build_loc_order_;  // 시작 박스 · 장소 방문 순서 (0부터, plan.yaml survey_order · build_location_order)
+  size_t survey_k_ = 0;                                  // 지금 몇 번째 박스를 도는지 (survey_order_ 인덱스)
   std::vector<std::pair<double, double>> locations_;
   std::vector<int> loc_tags_;
   std::vector<double> puck_dx_;

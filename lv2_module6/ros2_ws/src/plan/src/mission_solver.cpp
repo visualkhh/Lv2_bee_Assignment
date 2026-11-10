@@ -114,6 +114,20 @@ std::vector<Pose2> approach_poses(double cx, double cy, double half, double px, 
   return out;
 }
 
+std::vector<size_t> visit_order(const std::vector<int64_t> & order, size_t n) {
+  std::vector<size_t> out(n);
+  for (size_t i = 0; i < n; ++i) out[i] = i;
+  if (order.size() != n) return out;
+  std::vector<bool> seen(n, false);
+  std::vector<size_t> o;
+  for (const auto v : order) {
+    if (v < 1 || static_cast<size_t>(v) > n || seen[v - 1]) return out;
+    seen[v - 1] = true;
+    o.push_back(static_cast<size_t>(v - 1));
+  }
+  return o;
+}
+
 const char * phase_name(Phase p) {
   static const char * names[] = {"IDLE", "GO_OBSERVE", "BARCODE", "READ", "SURVEY", "BUILD", "VERIFY", "RETURN", "DONE", "ERROR"};
   return names[static_cast<int>(p)];
