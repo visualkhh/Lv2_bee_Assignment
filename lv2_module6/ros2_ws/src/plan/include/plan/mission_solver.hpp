@@ -61,6 +61,9 @@ Pose2 arena_to_map(const Pose2 & p, const Pose2 & start);
 //   변 바깥 standoff [m]에 서서 박스 안쪽을 바라봄, 변을 따라서는 p와 나란히 (박스 범위 안으로 자름). arena 좌표
 std::vector<Pose2> approach_poses(double cx, double cy, double half, double px, double py, double standoff);
 
+// 방문 순서 파라미터(1부터 번호) → 0부터 인덱스. n개의 순열이 아니면(빈 값·중복·범위 밖) 0..n-1 그대로
+std::vector<size_t> visit_order(const std::vector<int64_t> & order, size_t n);
+
 // ---------- 미션 단계 (순서와 실패 시 갈 곳만 정한다. 각 단계에서 무엇을 하는지는 mission_manager)
 enum class Phase { IDLE, GO_OBSERVE, BARCODE, READ, SURVEY, BUILD, VERIFY, RETURN, DONE, ERROR };
 const char * phase_name(Phase p);
