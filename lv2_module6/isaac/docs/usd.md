@@ -41,12 +41,12 @@ Isaac Sim에서 `usda/scene_sim.usda`를 연다. 로봇만 볼 때는 `usda/beeb
 
 ## 에셋
 
-`scene_sim.usda`가 미로, 표지판, 시작 상자 6개, 선반 상자 3개, 퍽 12개, 카펫 바닥을 물리 설정까지 포함해 불러온다. 경로는 모두 상대 경로다. 집기 시연 장면은 파일이 아니라 코드(`rl/bee_isaac/scenes/manipulator_scene.py`)로 만들고 같은 에셋을 쓴다.
+`scene_sim.usda`가 미로, 표지판, 시작 상자 6개, 선반 상자 3개, 퍽 12개, 카펫 바닥을 물리 설정까지 포함해 불러온다. 경로는 모두 상대 경로다.
 
 ```
 usda/
 ├─ scene_sim.usda          전체 미션 장면
-├─ scene_lab.usda          옛 시연 장면 (지금은 scripts/tools/stand_plan.py만 읽음)
+├─ scene_lab.usda          옛 시연 장면 (지금은 rl/scripts/stand_plan.py만 읽음)
 ├─ beebot/    로봇 (위 구조)
 ├─ maze/      maze.usda, geo.usd
 ├─ sign/      sign.usda, geo.usd, blink.py

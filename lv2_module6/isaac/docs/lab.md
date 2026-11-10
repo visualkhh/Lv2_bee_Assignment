@@ -18,9 +18,9 @@ RL 태스크 분할의 구간 9(place_pip)만 학습했다. 나머지 구간은 
 
 ```bash
 cd isaac && PY=~/pa-course/IsaacLab-6.1/.venv/bin/python
-$PY scripts/train.py --mode train --num_envs 512 --iters 1500                       # → policies/place_residual.pt (약 35분)
-$PY scripts/train.py --mode eval --num_envs 512 --episodes 2048 --policy policies/place_residual.pt
-$PY scripts/train.py --mode zero --num_envs 512 --episodes 2048                     # 잔차 0 기준선
+$PY rl/scripts/train.py --mode train --num_envs 512 --iters 1500                       # → rl/policies/place_residual.pt (약 35분)
+$PY rl/scripts/train.py --mode eval --num_envs 512 --episodes 2048 --policy rl/policies/place_residual.pt
+$PY rl/scripts/train.py --mode zero --num_envs 512 --episodes 2048                     # 잔차 0 기준선
 ```
 
 ## 결과 (2026-10-31, seed 7, 에피소드 2048개씩)
@@ -63,12 +63,12 @@ v2는 놓기를 2배 빠르게 해도(내려가기·올리기 속도 2배, settl
 
 ```bash
 cd isaac && PY=~/pa-course/IsaacLab-6.1/.venv/bin/python
-$PY scripts/train.py --task <task> [--cfg k=v,...] --mode zero  --num_envs 64  --episodes 128   # 기준선 (잔차 0)
-$PY scripts/train.py --task <task> [--cfg k=v,...] --mode train --num_envs 512 --iters 1500 --run <skill> --out <skill>.pt
-$PY scripts/train.py --task <task> [--cfg k=v,...] --mode eval  --num_envs 256 --episodes 1024 --policy policies/<skill>.pt
+$PY rl/scripts/train.py --task <task> [--cfg k=v,...] --mode zero  --num_envs 64  --episodes 128   # 기준선 (잔차 0)
+$PY rl/scripts/train.py --task <task> [--cfg k=v,...] --mode train --num_envs 512 --iters 1500 --run <skill> --out <skill>.pt
+$PY rl/scripts/train.py --task <task> [--cfg k=v,...] --mode eval  --num_envs 256 --episodes 1024 --policy rl/policies/<skill>.pt
 #   창으로 보기: --num_envs 16 --viz newton (가벼움) 또는 --viz kit
 #   8 GB GPU에는 학습 하나만 (둘이면 PhysX GPU 메모리 부족). GPU가 바쁘면 --device cpu
-#   여러 skill 차례로: scripts/train_queue.sh [skill ...]  → logs/queue_summary.tsv (기준선·학습 뒤 성공률)
+#   여러 skill 차례로: rl/scripts/train_queue.sh [skill ...]  → rl/logs/queue_summary.tsv (기준선·학습 뒤 성공률)
 #   새 환경(load·unload·reach·drive)은 행동 표준편차를 로그 공간으로 (그냥 두면 dock에서 0.00으로 무너져 학습이 멈췄음)
 ```
 

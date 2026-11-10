@@ -23,7 +23,7 @@ TEST(SagStep, Clamps) {
   EXPECT_DOUBLE_EQ(ml::sag_step(0.19, 0.0, 0.0, -10.0, 0.01, 4.2, 0.2), 0.2);
 }
 
-// 중력 토크 (팔 평면 점질량) — isaac/scripts/calib/arm_model.py(URDF 전체 FK)와 같은 값. grasp 자세 [deg] q2 29.78 q3 −11.31 q4 71.52
+// 중력 토크 (팔 평면 점질량) — isaac/loops/arm_model.py(URDF 전체 FK)와 같은 값. grasp 자세 [deg] q2 29.78 q3 −11.31 q4 71.52
 TEST(Gravity, TorquesMatchUrdfModel) {
   const double d2r = M_PI / 180.0;
   const auto t = ml::gravity::torques(29.78 * d2r, -11.31 * d2r, 71.52 * d2r);

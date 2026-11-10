@@ -5,7 +5,7 @@
 //   점마다 퍽 윗면 태그(z)와 몸통 가운데(z − mid_dz)가 둘 다 화면 가장자리 안 · 손가락이 찍히는 화면 아래 가운데 밖 ·
 //   카메라에서 depth 하한 넘게 떨어짐 · 손끝이 점들보다 hand_clear 위 → 담은 비율이 가장 큰 자세, 그다음 가장 작은 태그가 큰 것
 //   (tag_cap까지), 그다음 담은 점들 평균이 aim 화소에 가까운 것. 무작위 탐색 + 주변 다듬기 (seed 고정 → 같은 입력이면 같은 답).
-//   Python 원형: isaac/scripts/tools/inspect_cover.py (11/07 Isaac 시험: 1차 자세 뒤 이 자세로 다시 보면 퍽 40개 중 37개 판독)
+//   Python 원형: isaac/standalone/runtime/inspect_cover.py (11/07 Isaac 시험: 1차 자세 뒤 이 자세로 다시 보면 퍽 40개 중 37개 판독)
 #include <array>
 #include <vector>
 

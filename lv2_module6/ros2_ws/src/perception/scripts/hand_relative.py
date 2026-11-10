@@ -25,7 +25,7 @@ from tf2_ros import Buffer, TransformListener
 
 import hand_geom as hg
 
-# 적재함 칸 가운데 (base_link, 칸 바닥 높이) — isaac/scripts/tools/slot_table.py SLOTS와 같음 (URDF basket_slot_0~11)
+# 적재함 칸 가운데 (base_link, 칸 바닥 높이) — isaac/rl/scripts/slot_table.py SLOTS와 같음 (URDF basket_slot_0~11)
 SLOTS = [(x, y, 0.09125) for x in (-0.16984, -0.10484, -0.03984) for y in (-0.0975, -0.0325, 0.0325, 0.0975)]
 
 

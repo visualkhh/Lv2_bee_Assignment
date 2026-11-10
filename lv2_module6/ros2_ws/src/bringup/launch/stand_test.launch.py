@@ -1,6 +1,6 @@
 """팔 작업 테스트용 가벼운 실행 (세우기 stand · 집기 pick): 팔·그리퍼·카메라·인지·MoveIt·coordinator만.
 
-  isaac/scripts/calib/manipulator-launcher.sh   # 가상환경 켜고 start.sh 환경 확인(카메라 serial 등) 그대로
+  isaac/loops/manipulator-launcher.sh   # 가상환경 켜고 start.sh 환경 확인(카메라 serial 등) 그대로
 
 전체 bringup(start.sh)에서 빼는 것 — Jetson 메모리·CPU를 많이 먹는데 팔 테스트엔 안 쓰는 것:
   SLAM(cuVSLAM·nvblox·지도) · Nav2 서버 전부 · pole_front_cam 점구름 · body_filter · signal_decoder · explorer ·

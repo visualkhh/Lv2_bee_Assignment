@@ -1,4 +1,4 @@
-description: 'BEE basket slot table from isaac/scripts/tools/slot_table.py. Joint values joint1..5 [rad]. Load: carry -> q_over -> q_low -> open -> q_lift -> stow.
+description: 'BEE basket slot table from isaac/rl/scripts/slot_table.py. Joint values joint1..5 [rad]. Load: carry -> q_over -> q_low -> open -> q_lift -> stow.
   Unload: carry -> q_over -> q_grasp -> close -> q_over -> carry. Box pucks use ''box'', cylinders ''cyl''. Load poses assume the puck bottom at d_nom in the end
   effector frame; for a measured offset e: q = q_nom + P @ (-rot @ e).'
 d_nom_m: [0.0, 0.0, 0.060599999999999994]

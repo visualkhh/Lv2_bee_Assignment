@@ -71,7 +71,7 @@ inline void sag_joint_step(SagJoint & j, bool still, bool rest, double ref, doub
   if (windup_s > 0.0 && j.sat_s >= windup_s) j.blocked = true;
 }
 
-// 팔 평면(joint2~4, 피치 축)의 점질량 모델 — 값은 URDF(beebot.urdf), URDF가 바뀌면 여기를 갱신 (isaac/scripts/calib/arm_model.py가 같은 값)
+// 팔 평면(joint2~4, 피치 축)의 점질량 모델 — 값은 URDF(beebot.urdf), URDF가 바뀌면 여기를 갱신 (isaac/loops/arm_model.py가 같은 값)
 namespace gravity {
 constexpr double G = 9.81;
 // 질량 [kg]·무게중심 (x, z) [m] — 각 링크 프레임 안. 손 = gripper_link + 손가락 + 카메라를 하나로 (gripper_link 프레임)

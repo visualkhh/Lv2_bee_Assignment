@@ -12,7 +12,7 @@ double dist(const V3 & a, const V3 & b) { return std::sqrt(std::pow(a[0] - b[0],
 }  // namespace
 
 TEST(LookPlan, CameraMatchesUrdf) {
-  // urdf/default/urdf.xacro (xacro → base_footprint → gripper_cam_color_optical_frame), isaac/scripts/tools/inspect_cover.py Robot.fk
+  // urdf/default/urdf.xacro (xacro → base_footprint → gripper_cam_color_optical_frame), isaac/standalone/runtime/inspect_cover.py Robot.fk
   struct Case { Q5 q; V3 pos, axis; };
   const Case cases[] = {
     // 11-08: gripper_cam pitch 17.8 -> 20 deg (19, 18 tried 11-08: hand overshoots the puck 7-9 mm) (measured on the real robot, gripper at joint 0)

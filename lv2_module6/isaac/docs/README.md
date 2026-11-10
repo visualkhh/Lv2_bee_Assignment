@@ -4,37 +4,34 @@ Isaac Sim 장면·로봇 USD(`usda/`)와 Isaac Lab 학습(`rl/bee_isaac/tasks/`)
 
 ## 목차
 
-1. [시연](demo.md) — Isaac Sim + ROS 실행 명령, 인자
+1. [시연](demo.md) — Isaac Sim + ROS 실행 명령
 2. [학습](lab.md) — 팔 RL 잔차, skill별 학습 환경, 결과
 3. [USD](usd.md) — 장면·로봇 USD 구조, 퍽·상자·미로 물리, 텍스처
-4. [실기 측정](calib.md) — Real to Sim 관절 응답 측정과 도표
+4. [시험 반복](calib.md) — launcher · pick/place/stand loop (실기 · Isaac)
 
 ## 폴더 구조
 
 ```
 isaac/
 ├── pyproject.toml      패키지 bee_isaac (설치: 아래)
-├── rl/bee_isaac/      시연·학습 공용 코드
-│   ├── constants.py    경로·배치 값 (표준 라이브러리만 — ROS 쪽도 씀)
-│   ├── common.py       IK·궤적·치수 (pinocchio)
-│   ├── mission_rules.py
-│   ├── assets/         로봇 설정 (beebot.py)
-│   ├── scenes/         코드로 만드는 장면 (manipulator_scene.py)
-│   ├── tasks/          Isaac Lab 학습 환경 (*_env.py)
-│   └── data/           slot_table
-├── scripts/            실행 파일 — 공용 코드는 bee_isaac에서 import
-│   ├── train.py · train_queue.sh
-│   ├── demo/           시연 (pick_load_demo.sh · pick_load_play.py)
-│   ├── standalone/     Isaac + ROS 실행 기반 (isaac_sim.sh · manipulator_env · reset.sh · opencr_bridge · launch)
-│   ├── calib/          실기 측정 (Real to Sim, 예전 R2S — 결과 logs/는 git 제외)
-│   └── tools/          slot_table · stand_plan · sim_drive
+├── rl/                 RL 전부
+│   ├── bee_isaac/      시연·학습 공용 코드
+│   │   ├── constants.py    경로 값 (표준 라이브러리만 — ROS 쪽도 씀)
+│   │   ├── common.py       IK·궤적·치수 (pinocchio)
+│   │   ├── assets/         로봇 설정 (beebot.py)
+│   │   ├── tasks/          Isaac Lab 학습 환경 (*_env.py)
+│   │   └── data/           slot_table
+│   ├── scripts/        train.py · train_queue.sh · teach_c.py · slot_table.py · stand_plan.py
+│   ├── policies/       학습한 정책 (.pt · .onnx) · export_onnx.py — 새 결과물은 git 제외
+│   └── logs/           rsl_rl 학습 런 (git 제외)
+├── standalone/         Isaac Sim 실행: isaac_sim.sh (진입점) · runtime/ (isaac_startup · opencr_bridge · launch · camera_adapter · reset.sh · inspect_pose · inspect_cover)
+├── loops/              시험 반복 (manipulator-launcher/record · pick/place/stand_loop · arm_model · ros2_ws/sine_test — logs/는 git 제외)
 ├── usda/               USD 파일 (usd.md)
 ├── source/             장면용 이미지 (HDRI · texture) — usda가 ../source로 참조
-├── policies/           학습한 정책 (.pt · .onnx) · export_onnx.py — 새 결과물(*.pt · *.onnx)은 git 제외
 └── docs/               문서 (README.md가 목차)
 ```
 
-**실행 환경이 둘이다.** `tasks/`·`scenes/`·학습·시연은 Isaac venv (numpy 2), `camera_adapter.py`·`pick_load_play.py`·launch는 시스템 python + ROS (numpy 1.26). `constants.py`만 양쪽에서 import한다.
+**실행 환경이 둘이다.** `tasks/`·학습은 Isaac venv (numpy 2), `camera_adapter.py`·launch는 시스템 python + ROS (numpy 1.26). `constants.py`만 양쪽에서 import한다.
 
 ## 설치
 

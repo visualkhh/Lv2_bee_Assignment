@@ -40,7 +40,12 @@ else
 fi
 # 강제 종료된 참가자의 Fast DDS SHM 통로가 남으면 다음 state_manager가 포트 lock에 걸려
 # publisher가 하나도 안 보일 수 있다 (/state/* publisher count 0). ROS가 모두 꺼진 뒤에만 지운다.
-if [ "$(count)" = 0 ]; then
+# STOP_KEEP_SHM=1: 지우지 않는다 — Isaac Sim(isaac_sim.sh)이 떠 있을 때. Isaac 안 ROS 브리지는 위 PAT에 안 잡혀 "모두 꺼짐"으로
+#   보이는데, 그 통로까지 지우면 /clock·카메라·TF가 끊긴다 (11-09 manipulator-launcher.sh use_sim:=true). 대신 안 쓰는 것만 지움
+if [ -n "${STOP_KEEP_SHM:-}" ]; then
+  fastdds shm clean >/dev/null 2>&1 || true
+  echo "Fast DDS SHM: 안 쓰는 것만 정리 (STOP_KEEP_SHM)"
+elif [ "$(count)" = 0 ]; then
   rm -rf /dev/shm/fastdds_* /dev/shm/sem.fastdds_* 2>/dev/null || true
   echo "Fast DDS SHM 잔재 정리"
 fi

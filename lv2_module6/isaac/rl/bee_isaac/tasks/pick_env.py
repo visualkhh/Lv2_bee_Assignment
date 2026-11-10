@@ -94,7 +94,7 @@ class PickEnvCfg(pe.PlaceEnvCfg):
     retarget: bool | None = None  # re-aim the base plan at the latest measurement (None: stage >= 1)
     common_dr: bool | None = None  # sag / integral gain / base stop error / start joint velocity / output DR (None: stage >= 5)
 
-    # inspect pose error, measured 11-07 (inspect_test.py --modes skillbox, 30 seeds / 60 pucks, YOLO perception, final reading vs truth):
+    # inspect pose error, measured 11-07 (old inspect_test.py --modes skillbox, removed, see git history; 30 seeds / 60 pucks, YOLO perception, final reading vs truth):
     # 32 % of the pucks are off by 5-20 mm (xy, rms 11.9 mm, mostly -y, both pucks of a box share the offset), the rest within 3 mm.
     # The measurement is the sum of tilt / height / position error, so it all goes into xy: uniform +-a per axis has rms hypot 0.82 a.
     insp_err_prob = 5.0 / 16.0  # right : wrong = 11 : 5 (measured 41 : 19)
