@@ -3,7 +3,6 @@
   도면 벽(plan.yaml arena_walls · documents/mission/dice-map.png) 위 5 cm 격자 A*, 벽·박스를 로봇 반경 0.16 + 여유 0.05로 넓힘.
   다가설 자리는 벽에서 0.22 m(wall_clearance) 밖 면만. 출발 → 박스 6(집기) → 장소 3(놓기) → 출발 총 길이로 순서 비교
   (VERIFY는 놓을 때 같이 본다고 가정 · 적재함 12칸에 12개 다 실음). 실행: python3 route_order.py (numpy만)
-  참고: tutor-s-robot scripts/build_footprint_route.py (도면 미로 + 외곽 팽창 A*)
 """
 import heapq, itertools, math
 import numpy as np
