@@ -69,7 +69,8 @@ public:
   //   계획이 실패하면 같은 목표로 arm_plan_tries번까지 (IK·OMPL이 무작위라 닿는 곳도 가끔 못 찾음)
   void move_arm(const geometry_msgs::msg::PoseStamped & target, Cb done,
                 double yaw = std::numeric_limits<double>::quiet_NaN(), int tries_left = -1);
-  void move_joints(const std::vector<double> & q5, Cb done);  // joint1~5 관절 목표
+  // joint1~5 관절 목표. 실행이 거부·실패하면(보통 'start point deviates' — 아직 움직이는 팔) 멈출 때까지 기다려 한 번 다시 (retry)
+  void move_joints(const std::vector<double> & q5, Cb done, bool retry = true);
   // 그리퍼 (m, 손가락 하나) · effort_a [A] = 쥐는 힘 (goal effort → Goal Current, 음수 = controllers.yaml max_effort)
   void set_gripper(double width_m, Cb done, double effort_a = -1.0);
 

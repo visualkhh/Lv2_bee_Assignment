@@ -121,7 +121,9 @@ void ArmIO::settle(std::function<void()> go) {
   const uint64_t gen = gen_;
   auto hist = std::make_shared<std::vector<Q5>>();
   auto ticks = std::make_shared<int>(0);
-  settle_timer_ = node_.create_wall_timer(std::chrono::duration<double>(DT), [this, go, gen, hist, ticks]() {
+  // 노드 시계(Isaac에선 시뮬 시간)로 잼 — wall 타이머는 시뮬이 실시간보다 느릴 때(0.7배) 아직 처지는 팔을 멈췄다고 봐서
+  //   start point deviates (joint3)로 거부됐음 (11/09 Isaac: inspect 바로 뒤 stand)
+  settle_timer_ = node_.create_timer(std::chrono::duration<double>(DT), [this, go, gen, hist, ticks]() {
     if (gen != gen_) { settle_timer_->cancel(); return; }
     Q5 q;
     if (arm_now(q)) {
@@ -199,9 +201,9 @@ void ArmIO::move_arm(const geometry_msgs::msg::PoseStamped & target, Cb done, do
   });
 }
 
-void ArmIO::move_joints(const std::vector<double> & q5, Cb done) {
+void ArmIO::move_joints(const std::vector<double> & q5, Cb done, bool retry) {
   if (q5.size() != 5) { done(false); return; }
-  if (settle_) { settle([this, q5, done]() { move_joints(q5, done); }); return; }
+  if (settle_) { settle([this, q5, done, retry]() { move_joints(q5, done, retry); }); return; }
   auto req = std::make_shared<GetMotionPlan::Request>();
   auto & r = req->motion_plan_request;
   r.group_name = "arm";
@@ -220,11 +222,18 @@ void ArmIO::move_joints(const std::vector<double> & q5, Cb done) {
   }
   r.goal_constraints.push_back(c);
   const uint64_t gen = gen_;
-  plan_->async_send_request(req, [this, done, gen](rclcpp::Client<GetMotionPlan>::SharedFuture f) {
+  plan_->async_send_request(req, [this, q5, done, gen, retry](rclcpp::Client<GetMotionPlan>::SharedFuture f) {
     if (gen != gen_) return;
     const auto res = f.get();
     if (res->motion_plan_response.error_code.val != moveit_msgs::msg::MoveItErrorCodes::SUCCESS) { done(false); return; }
-    execute(res->motion_plan_response.trajectory, done);
+    // 실행 거부: 직전 동작·처짐 보정(stow 쉬는 자세에서 풂)으로 팔이 아직 움직이면 'start point deviates' (11/09 Isaac: 첫 라운드
+    //   stow → inspect look 자세가 joint4로 거부 → inspect_failed). 닿아서 실패(contact_)면 다시 안 함
+    execute(res->motion_plan_response.trajectory, [this, q5, done, retry](bool ok) {
+      if (ok || !retry || contact_) { done(ok); return; }
+      RCLCPP_WARN(node_.get_logger(), "관절 이동 실행 실패 — 팔이 멈춘 뒤 한 번 다시");
+      settle_ = true;
+      move_joints(q5, done, false);
+    });
   });
 }
 
@@ -319,7 +328,9 @@ ArmIO::Step ArmIO::grip_timed_step(double joint_m, double effort_a, double secs)
 ArmIO::Step ArmIO::wait_step(double secs) {
   return [this, secs](Cb cb) {
     const uint64_t gen = gen_;
-    timer_ = node_.create_wall_timer(std::chrono::duration<double>(secs), [this, cb, gen]() {
+    // 노드 시계(Isaac에선 시뮬 시간) — wall이면 시뮬이 느릴 때(0.7배) 멈춤·안정 시간이 짧아져 팔이 흔들리는 채로 쥠
+    //   (11/09 Isaac: 닫기 직전 0.5 s 동안 j2·j3 중앙값 37·58 mrad 움직임 · 실기 7·3 mrad)
+    timer_ = node_.create_timer(std::chrono::duration<double>(secs), [this, cb, gen]() {
       timer_->cancel();
       if (gen == gen_) cb(true);
     });

@@ -40,6 +40,9 @@ def launch_setup(context):
     arm['grasp_check'] = ParameterValue(LaunchConfiguration('grasp_check'), value_type=bool)
     arm['grasp_min_effort'] = ParameterValue(LaunchConfiguration('grasp_min_effort'), value_type=float)
     basket, stand = table('basket.yaml'), table('stand_table.yaml')
+    # 전류 없는 그리퍼(Isaac grasp_min_effort 0) — stand 쥠 판정도 위치·멈춤만으로 (skills.yaml stand_grip_current_a보다 뒤에 넘겨야 먹음)
+    if float(LaunchConfiguration('grasp_min_effort').perform(context)) == 0.0:
+        stand['stand_grip_current_a'] = 0.0
 
     def skill(cls, name, *extra):
         return ComposableNode(package='skills', plugin=f'skills::{cls}', name=name, parameters=[config, *extra])

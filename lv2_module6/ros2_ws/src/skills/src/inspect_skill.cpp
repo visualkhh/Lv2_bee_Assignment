@@ -2,10 +2,10 @@
 //   점 보기 (target 비움): goal.pose(map) 점 위 inspect_height_m에 손끝을 두고 inspect_wait_s 기다림 (camera_look_down).
 //     퍽 윗면 16mm AprilTag는 gripper_cam이 위에서 봐야 읽힘. values[0] = 손 방향 yaw (로봇 → 점) — 없으면 자유
 //   상자 보기 (target "box"): goal.pose = 상자 위 퍽 윗면 높이의 상자 가운데 (map), values[0] = 기대 퍽 수 (없으면 2)
-//     ⓪ 지금 자세에서 이미 기대 수만큼 보이고 태그도 다 읽었으면 끝 (팔 안 움직임)
+//     ⓪ 지금 자세에서 이미 기대 수만큼 보이고 태그·자세도 다 알면 끝 (팔 안 움직임)
 //     ① pose_look 관절 자세(arm.yaml — skill_pose "look"과 같은 값)로 → inspect_look_wait_s 기다림
-//     ② 상자 가운데에서 inspect_box_radius_m 안 퍽 트랙이 기대 수 이상이고 모두 태그를 읽었으면 끝
-//     ③ 아니면 본 퍽(모자라면 상자 가운데도)을 한 장에 담는 자세(look_plan)로 → 기다림 → 다시 셈. 모자라면 inspect_partial
+//     ② 상자 가운데에서 inspect_box_radius_m 안 퍽 트랙이 기대 수 이상이고 모두 태그·자세를 알면 끝
+//     ③ 아니면 본 퍽(모자라거나 태그·자세 모르는 퍽이 있으면 상자 가운데도)을 한 장에 담는 자세(look_plan)로 → 기다림 → 다시 셈. 모자라면 inspect_partial
 //     11/07 Isaac 전체 스택 퍽 40개: 1차 자세만 85 % · 다시 담으면 92 % (isaac/scripts/demo/inspect_test.py center)
 #include <cmath>
 #include <limits>
@@ -81,7 +81,7 @@ private:
     return true;
   }
 
-  // 상자 가운데 c에서 box_radius_m_ 안 퍽 트랙 → base_footprint 윗면 점들 (z = c.z) · 태그 읽은 수
+  // 상자 가운데 c에서 box_radius_m_ 안 퍽 트랙 → base_footprint 윗면 점들 (z = c.z) · 다 본 수 (태그와 자세를 앎)
   //   트랙 중복은 perception이 합침 (merge_tracks · merge_overlap_dets)
   bool box_pucks(const geometry_msgs::msg::PoseStamped & c, std::vector<look::V3> & tops, int & tagged) {
     tops.clear();
@@ -96,8 +96,13 @@ private:
       if (std::hypot(p.x - c.pose.position.x, p.y - c.pose.position.y) > box_radius_m_) continue;
       const tf2::Vector3 b = t * tf2::Vector3(p.x, p.y, c.pose.position.z);
       tops.push_back({b.x(), b.y(), b.z()});
-      for (const auto & kv : o.details)
-        if (kv.key == "tag" && !kv.value.empty()) { ++tagged; break; }
+      // 다 봤음 = 태그 + 자세(standing · lying)까지 — 자세를 모르면('?') coordinator가 세울지 집을지 못 정함 (11/09 Isaac)
+      bool tag = false, posture = false;
+      for (const auto & kv : o.details) {
+        if (kv.key == "tag" && !kv.value.empty()) tag = true;
+        if (kv.key == "posture" && !kv.value.empty()) posture = true;
+      }
+      if (tag && posture) ++tagged;
     }
     return true;
   }
@@ -124,9 +129,10 @@ private:
         int tagged = 0;
         if (!box_pucks(c, tops, tagged)) { done(false, "inspect_no_tf"); return; }
         if (tops.size() >= want && tagged >= static_cast<int>(tops.size())) { done(true, ""); return; }
-        // 다시 담기: 본 퍽 + (모자라면) 상자 가운데 — 못 본 퍽이 상자 위 어딘가에 있음
+        // 다시 담기: 본 퍽 + (모자라거나 태그 못 읽은 퍽이 있으면) 상자 가운데 — 못 본 퍽이 상자 위 어딘가에 있음
+        //   태그 못 읽은 퍽 위치는 옆면 depth라 19~39 mm 틀림 — 그 점만 담으면 퍽을 놓친 자세가 됨 (11/09 Isaac: 살짝 보인 퍽)
         tf2::Transform t;
-        if (tops.size() < want && to_base(c, t)) {
+        if ((tops.size() < want || tagged < static_cast<int>(tops.size())) && to_base(c, t)) {
           const tf2::Vector3 b = t * tf2::Vector3(c.pose.position.x, c.pose.position.y, c.pose.position.z);
           tops.push_back({b.x(), b.y(), b.z()});
         }

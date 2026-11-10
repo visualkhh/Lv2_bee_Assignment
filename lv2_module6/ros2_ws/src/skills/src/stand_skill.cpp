@@ -30,7 +30,7 @@
 namespace skills {
 
 namespace {
-constexpr double STAND_HOLD_S = 0.3, STAND_PINCH_S = 0.3, STAND_SETTLE_S = 0.3, STAND_OPEN_S = 0.3, REGRASP_CLOSE_S = 0.5;
+constexpr double STAND_PINCH_S = 0.3, STAND_SETTLE_S = 0.3, STAND_OPEN_S = 0.3, REGRASP_CLOSE_S = 0.5;
 constexpr double STAND_HANG_S = 0.5;  // 호 안 멈춤
 // stand_grasp 정책 구간 — isaac stand_grasp_env와 같은 값 (hold_s 0.5 · 내려가기 vel_scale 0.3 = arm_io CONTACT_VS)
 constexpr double STAND_GRASP_HOLD_S = 0.5, STAND_GRASP_VS = 0.3;
@@ -54,6 +54,7 @@ public:
     grip_a_ = declare_parameter<double>("stand_grip_current_a", 0.007);        // [A] 이 전류 이상 + 안 움직임 = 쥠
     empty_m_ = declare_parameter<double>("stand_empty_m", 0.003);              // [m] 이보다 닫히면 빈손
     grip_timeout_s_ = declare_parameter<double>("stand_grip_timeout_s", 4.0);
+    hold_s_ = declare_parameter<double>("stand_hold_s", 0.3);  // [s] 퍽 위(stand 첫 자세 · stand_pick 쥐는 자리)에서 멈춤 — 처짐 보정 쌓임
     sp_.drag_m = declare_parameter<double>("stand_drag_m", sp_.drag_m);
     sp_.drag_lift_m = declare_parameter<double>("stand_drag_lift_m", sp_.drag_lift_m);
     sp_.arc_end_deg = declare_parameter<double>("stand_arc_end_deg", sp_.arc_end_deg);
@@ -180,7 +181,7 @@ private:
     std::vector<ArmIO::Step> st = {
       arm_.gripper_step(open),
       arm_.joints_step(std::vector<double>(first.begin(), first.end())),  // 어디서든 MoveIt 계획으로 (충돌 확인)
-      arm_.wait_step(STAND_HOLD_S)};
+      arm_.wait_step(hold_s_)};
     if (cam) {
       const auto & gp = g.pose.pose.position;
       st.push_back(cam_step(run, g.tag, gp.x, gp.y, gp.z));
@@ -387,7 +388,7 @@ private:
     auto steps = std::make_shared<std::vector<ArmIO::Step>>(std::vector<ArmIO::Step>{
       arm_.traj_step([lift, vs](const stand::Q5 & now) { return stand::sample_move(now, lift, vs, TRAJ_DT); }),   // 선 퍽 위
       arm_.traj_step([grasp, vs](const stand::Q5 & now) { return stand::sample_move(now, grasp, vs, TRAJ_DT); }),  // 바로 아래로
-      arm_.wait_step(STAND_HOLD_S),                                                                                // 처짐 보정 쌓임
+      arm_.wait_step(hold_s_),                                                                                // 처짐 보정 쌓임
       arm_.grip_timed_step(arm_.grip_close_m(), arm_.grip_current_a(), REGRASP_CLOSE_S), arm_.held_step(),
       arm_.traj_step([lift, vs](const stand::Q5 & now) { return stand::sample_move(now, lift, vs, TRAJ_DT); })});
     arm_.run_steps(steps, 0, [this, done](bool ok) {
@@ -409,7 +410,7 @@ private:
     sp_.set_dz_m = d("stand_set_dz_m"); sp_.tilt_over_m = d("stand_tilt_over_m"); sp_.arc_return = get_parameter("stand_arc_return").as_bool();
     sp_.above_m = d("stand_above_m"); sp_.lift_away_m = d("stand_lift_away_m"); sp_.arc_k = d("stand_arc_k");
     sp_.contact_h_box = d("stand_contact_h_box_m"); sp_.contact_h_cyl = d("stand_contact_h_cyl_m");
-    vs_ = d("stand_vel_scale"); arc_vs_ = d("stand_arc_vel_scale");
+    vs_ = d("stand_vel_scale"); arc_vs_ = d("stand_arc_vel_scale"); hold_s_ = d("stand_hold_s");
   }
 
   // ---------- 방식 C: 정책이 손 속도를 냄 (시뮬 stand_c_env _pre_physics_step · _get_observations와 같은 순서)
@@ -605,7 +606,7 @@ private:
   perception::msg::TrackedObjectArray::ConstSharedPtr objects_;
   std::string waypoints_ = "ik";
   double box_top_m_ = 0.07, vs_ = 0.3, arc_vs_ = 0.5;
-  double open_m_ = 0.012, pinch_m_ = 0.007, close_a_ = 0.01614, pinch_a_ = 0.00538, grip_a_ = 0.007, empty_m_ = 0.003, grip_timeout_s_ = 4.0;
+  double open_m_ = 0.012, pinch_m_ = 0.007, close_a_ = 0.01614, pinch_a_ = 0.00538, grip_a_ = 0.007, empty_m_ = 0.003, grip_timeout_s_ = 4.0, hold_s_ = 0.3;
   stand::Params sp_;
   stand::Table table_;
   std::vector<stand::Q5> done_qs_;  // 마지막 stand 경유점 — stand_pick이 같은 손목으로 다시 잡음

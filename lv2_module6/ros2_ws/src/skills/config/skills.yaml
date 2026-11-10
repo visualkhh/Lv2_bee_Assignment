@@ -57,6 +57,7 @@ skill_stand:
     stand_grip_current_a: 0.007    # [A] 이 전류 이상 + 0.2 s 안 움직임 = 쥠 (실측: 퍽을 밀 때 8~10 mA)
     stand_empty_m: 0.003           # [m] 이보다 닫히면 빈손 → stand_no_grip
     stand_grip_timeout_s: 4.0      # [s] 넘으면 stand_grip_timeout
+    stand_hold_s: 0.3              # [s] 퍽 위(stand 첫 자세 · stand_pick 쥐는 자리)에서 멈춤 — 처짐 보정 쌓임
     # 대각선 끌기 (실기 11/03~04 — 큰 호는 퍽을 너무 높이 듦, 수평 끌기는 퍽이 안 들림). stand_drag_m 0이면 호 (stand_arc_end_deg)
     stand_drag_m: 0.0              # [m] 잡은 채 로봇 쪽으로 곧게 끎 — 0 = 호 (11/08 사용자: 끌기 안 씀 · 이전 0.04)
     stand_drag_lift_m: 0.035       # [m] 끌면서 올리는 양 — 약 41° 대각선
