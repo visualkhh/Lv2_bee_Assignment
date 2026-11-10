@@ -105,7 +105,6 @@ Coordinator::Coordinator(const rclcpp::NodeOptions & options)
   tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
   const auto latched = rclcpp::QoS(10).reliable().transient_local();
   status_pub_ = create_publisher<TaskStatus>("/task/status", latched);
-  say_pub_ = create_publisher<std_msgs::msg::String>("/robot/say", rclcpp::QoS(10).reliable());
   goals_sub_ = create_subscription<SubGoalArray>("/task/sub_goals", latched,
     [this](SubGoalArray::ConstSharedPtr m) { on_plan(*m); });
   objects_sub_ = create_subscription<TrackedObjectArray>("/tracked_objects", rclcpp::QoS(5).reliable(),
@@ -229,10 +228,10 @@ void Coordinator::on_plan(const SubGoalArray & plan) {
 }
 
 bool Coordinator::validate(const SubGoalArray & plan, std::string & why) const {
-  static const std::set<std::string> allowed = {"navigate", "approach", "pick", "place", "inspect", "say", "pose", "load", "unload",
+  static const std::set<std::string> allowed = {"navigate", "approach", "pick", "place", "inspect", "pose", "load", "unload",
                                                 "stand", "stand_pick"};
   // target이 물체 id가 아님 (stand_pick은 직전 stand의 퍽 — 세운 사이 인지 id가 바뀌어도 됨)
-  static const std::set<std::string> not_object = {"say", "pose", "load", "unload", "stand_pick"};
+  static const std::set<std::string> not_object = {"pose", "load", "unload", "stand_pick"};
   if (plan.goals.empty()) { why = "empty"; return false; }
   for (const auto & g : plan.goals) {
     if (!allowed.count(g.skill)) { why = "skill " + g.skill; return false; }
@@ -289,15 +288,12 @@ void Coordinator::run_step() {
   if (idx_ >= plan_.goals.size()) {
     running_ = false;
     status(plan_.goals.back().step, TaskStatus::SUCCEEDED, "");
-    const bool carried = std::any_of(plan_.goals.begin(), plan_.goals.end(), [](const SubGoal & s) { return s.skill == "place"; });
-    if (carried) say("퍽을 옮겼어요");  // inspect만 한 계획(퍽 번호 보기)은 말 없이 — mission_manager가 이어서 계획
     return;
   }
   const auto & g = plan_.goals[idx_];
   status(g.step, TaskStatus::RUNNING, "");
   RCLCPP_INFO(get_logger(), "step %u: %s %s", g.step, g.skill.c_str(), g.target.c_str());
-  if (g.skill == "say") { say(g.target); next(); }
-  else if (g.skill == "navigate") navigate(g);
+  if (g.skill == "navigate") navigate(g);
   else if (g.skill == "approach") approach(g);
   else if (g.skill == "pick") g.target == "tray" ? unload(g) : pick(g);   // pick tray = unload last (호환)
   else if (g.skill == "place") g.target == "tray" ? load(g) : place(g);   // place tray = load next (호환)
@@ -720,12 +716,6 @@ void Coordinator::status(uint32_t step, uint8_t state, const std::string & reaso
   s.state = state;
   s.reason = reason;
   status_pub_->publish(s);
-}
-
-void Coordinator::say(const std::string & text) {
-  std_msgs::msg::String m;
-  m.data = text;
-  say_pub_->publish(m);
 }
 
 }  // namespace plan

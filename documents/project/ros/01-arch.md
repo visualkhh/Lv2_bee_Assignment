@@ -293,13 +293,13 @@ flowchart TB
 1. **신호를 읽는다** — perception이 신호등 색(`red`·`yellow`·`green`·`off`, 두 색 이상 동시 = `all`)을 `/tracked_objects`에 싣고, 같은 perception 패키지의 signal_decoder가 12회 점멸을 세어 두 사이클 같은 답이면 ✉️ /mission/signal (예: `R G R R G R G G Y G Y G` → R4 · Y2 · G6). 사이클마다 결과·오류는 ✉️ /mission/signal_status.
    <sub>화살표: perception → signal_decoder · signal_decoder → mission_manager</sub>
 2. **번호를 아는 퍽으로 조합** — mission_manager가 번호(퍽 윗면 AprilTag, `details.tag`)를 아는 그 색 퍽 중 개수·합이 맞는 조합을 고른다 (모든 부분집합, 로봇에서 가까운 것 우선).
-3. **모르면 보러 간다** — 조합이 없으면 번호 모르는 그 색 퍽마다 `inspect` (손끝을 퍽 윗면 0.15m 위로 → gripper_cam이 16mm 태그를 읽음). 끝나면(SUCCEEDED) 2로 돌아가 다시 판단. 목적지 장소 태그를 아직 못 봤으면 기다림, 다 봐도 조합이 없으면 say.
+3. **모르면 보러 간다** — 조합이 없으면 번호 모르는 그 색 퍽마다 `inspect` (손끝을 퍽 윗면 0.15m 위로 → gripper_cam이 16mm 태그를 읽음). 끝나면(SUCCEEDED) 2로 돌아가 다시 판단. 목적지 장소 태그를 아직 못 봤으면 기다림, 다 봐도 조합이 없으면 멈춤.
    <sub>화살표: mission_manager → coordinator · coordinator → move_group · perception → mission_manager</sub>
 4. **옮긴다** — ✉️ /task/sub_goals [navigate(퍽) → pick(퍽) → place(tray)] × N → navigate(장소) → [pick(tray) → place(장소)] × N. 적재함 최대 4칸.
    <sub>화살표: mission_manager → coordinator · coordinator → bt_navigator · coordinator → move_group</sub>
 5. **수납 확인 — 옮긴 직후** — 옮기기가 SUCCEEDED면 mission_manager가 바로 확인 계획: navigate(장소) → 장소 근처(`verify_radius_m` 0.2m) 번호 모르는 퍽만 inspect. 끝나면 옮긴 번호가 장소 근처에 다 있는지 본다.
    <sub>화살표: coordinator → mission_manager · mission_manager → coordinator</sub>
-6. **빠졌으면** — 빠진 번호가 다른 곳에서 보이면 다시 옮김(recarry → 끝나면 5), 어디에도 안 보이면 ✉️ /robot/say로 알림.
+6. **빠졌으면** — 빠진 번호가 다른 곳에서 보이면 다시 옮김(recarry → 끝나면 5), 어디에도 안 보이면 missing으로 기록.
 7. **그 뒤 주기적으로** — `verify_period_s`(60초)마다 5를 반복한다. 단 AUTO(/state/operation_mode)이고 하던 계획이 끝났을 때만. 확인 계획이 실패하면 재계획하지 않고 다음 주기에. 새 명령·새 신호가 오면 확인 대상을 지운다.
 
 ### 베이스 속도 명령 한 주기 (20Hz)
@@ -353,7 +353,7 @@ flowchart TB
    <sub>화살표: coordinator → move_group</sub>
 4. **실패 보고** — ✉️ /task/status (step 2, FAILED, reason: grasp_failed_all). 후보를 다 썼습니다.
    <sub>화살표: coordinator → mission_manager</sub>
-5. **알리고 정지** — ✉️ /robot/say → 💬 "퍽을 잡을 수 없어요" 후 정지.
+5. **정지** — 같은 단계가 `max_step_failures`회 연속 실패라 정지하고 다음 계획을 기다립니다.
 
 ### 이동 실패 → 복구 → 정지
 
@@ -365,7 +365,7 @@ flowchart TB
    <sub>화살표: coordinator → bt_navigator</sub>
 4. **실패 보고** — ✉️ /task/status (step 1, FAILED, reason: nav_failed).
    <sub>화살표: coordinator → mission_manager</sub>
-5. **알리고 정지** — ✉️ /robot/say → 💬 "목표까지 갈 수 없어요".
+5. **정지** — 같은 단계가 `max_step_failures`회 연속 실패라 정지하고 다음 계획을 기다립니다.
 
 
 ---

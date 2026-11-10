@@ -305,7 +305,7 @@ sed 's/\x1b\[[0-9;]*m//g' /tmp/bringup.log | grep -a -E 'pole_front_cam\]|Device
 ```
 
 - `VIDIOC_S_FMT … Device or resource busy` + 시작 때 `WARN: RealSense 2대인데 serial 미지정` → **카메라 serial을 안 줘서** 두 RealSense 노드가 같은 장치를 잡았다. `POLE_FRONT_CAM_SERIAL`·`GRIPPER_CAM_SERIAL`을 주고 다시 띄운다. state_manager의 launch 재시작은 `start.sh`를 거치지 않고 기록된 인자 그대로 띄운다.
-- 자세히: [`cuvslam.md`](cuvslam.md) 6절.
+- 자세히: 웹사이트 ROS 2 개념 → 제공노드 → cuVSLAM (겪은 문제).
 
 ### `/initialpose`를 보내자 TF(`map`)가 사라지고 목표 이동이 `Initial robot pose is not available`
 

@@ -125,8 +125,8 @@ for obj in tracked_objects.objects:
 
 ```text
 uint32 step
-string skill        # navigate | pick | place | inspect | say | pose | load | unload | stand | stand_pick  (정의: documents/project/ros/05-arm.md)
-string target       # 물체 id (/tracked_objects의 id) · "x,y"(navigate) · 자세 이름(pose) · 칸 0~11 · next(load) · last(unload) · "tray"(pick·place — unload last·load next와 같음) · 말할 내용(say)
+string skill        # navigate | pick | place | inspect | pose | load | unload | stand | stand_pick  (정의: documents/project/ros/05-arm.md)
+string target       # 물체 id (/tracked_objects의 id) · "x,y"(navigate) · 자세 이름(pose) · 칸 0~11 · next(load) · last(unload) · "tray"(pick·place — unload last·load next와 같음)
 string relation     # front | on | ...
 float32 offset_m
 ```
@@ -143,7 +143,6 @@ float32 offset_m
 | `inspect` | 퍽 id · `"x,y,z"` | 손끝을 퍽 윗면(좌표면 그 점) 위 `inspect_height_m`로 (좌표면 손 방향 = 로봇 → 점) → `inspect_wait_s` 기다림 — gripper_cam이 윗면 16mm AprilTag(번호)를 읽게. 못 읽어도 성공 (읽었는지는 `details.tag`). **relation `box`** + `"x,y,z"`(상자 가운데, 퍽 윗면 높이): `pose_look` 자세로 → 상자 위 퍽이 2개 미만이거나 태그를 못 읽었으면 본 퍽을 한 장에 담는 자세(look_plan)로 다시 → 그래도 모자라면 `inspect_partial` (미션 SURVEY) |
 | `stand` | 누운 퍽 id (`puck_lying`) | 누운 퍽 세우기 — 먼 끝을 위치형으로 쥐고(`stand_pinch_m`, 닫는 전류 `stand_close_current_a` → 쥔 뒤 `stand_pinch_current_a`) 대각선으로 끌어(`stand_drag_m`, 실기 방식 · 0이면 호) 세운 뒤 벌리고 위로 (손은 빈 채 끝). 경유점 `stand_waypoints` ik(기본) · table |
 | `stand_pick` | 아무 값 (직전 `stand`의 퍽) | 세운 퍽 다시 집기 — 같은 손목으로 바로 아래로 → 닫기 → 잡기 판정 → 들어올림. 성공하면 그 퍽을 손에 든 것으로 장부에 |
-| `say` | 말할 내용 | `/robot/say`로 알림 |
 
 <a id="api-msg-basketstate"></a>
 ### plan/msg/BasketState · BasketSlot ([파일](../lv2_module6/ros2_ws/src/plan/msg/BasketState.msg))
@@ -351,8 +350,7 @@ string message
 | `/mission/qr` | std_msgs/String | perception → mission_manager | 바코드 원문(예 `P2-01` — 정렬 방향) · QR — 읽은 내용이 바뀔 때만 · reliable + transient_local |
 | `/mission/signal` | perception/MissionSignal | signal_decoder (perception) → mission_manager | 신호등 12회 점멸 확정 답 {sequence, red, yellow, green, ok, raw} — 두 사이클 같게 읽혀 새 답이 확정될 때만 · reliable + transient_local. 해석(L1~L3 배정)은 mission_manager |
 | `/mission/signal_status` | perception/MissionSignal | signal_decoder (perception) → mission_manager | 사이클마다 결과 · `ok=false`면 `error` = count · unknown · range · unconfirmed · reliable (래치 없음) |
-| `/robot/say` | std_msgs/String | coordinator → (CLI 표시) | 알릴 때 · reliable |
-| `/task/sub_goals` | plan/SubGoalArray | mission_manager → coordinator | 계획마다 · reliable + transient_local. target = 물체 id · `"x,y"`(navigate) · **`"tray"`(pick·place — 로봇 뒤 적재함 12칸: place tray = `load next`, pick tray = `unload last`)** · 칸 번호·`next`·`last`(load·unload) · 자세 이름(pose) · 퍽 id(inspect) · 말할 내용(say) |
+| `/task/sub_goals` | plan/SubGoalArray | mission_manager → coordinator | 계획마다 · reliable + transient_local. target = 물체 id · `"x,y"`(navigate) · **`"tray"`(pick·place — 로봇 뒤 적재함 12칸: place tray = `load next`, pick tray = `unload last`)** · 칸 번호·`next`·`last`(load·unload) · 자세 이름(pose) · 퍽 id(inspect) |
 | `/mission/state` | plan/MissionState | mission_manager → (운영 화면 · RViz) | 단계 · 지금 하는 일 · 바코드 · R·Y·G 횟수 · L1~L3 그룹 · 적재함 칸 → tag · 놓은 수 · 결과 · 오류 — 바뀔 때마다 · reliable + transient_local ([03-plan.md](project/ros/03-plan.md)) |
 | `/mission/markers` | visualization_msgs/MarkerArray | mission_manager → RViz | 출발 구역 · 박스 · 장소 3×3 칸(배정 뒤 그룹 색) — 1Hz · reliable + transient_local |
 | `/task/status` | plan/TaskStatus | coordinator → mission_manager | 단계 완료·실패 시 · reliable + transient_local |

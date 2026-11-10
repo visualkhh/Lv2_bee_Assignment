@@ -1,4 +1,4 @@
-// plan 기본 테스트: coordinator는 허용 동작(navigate·pick·place·inspect·say·pose·load·unload)이 아닌 계획을 거부하고 FAILED를 보낸다 (규칙 1)
+// plan 기본 테스트: coordinator는 허용 동작(navigate·pick·place·inspect·pose·load·unload)이 아닌 계획을 거부하고 FAILED를 보낸다 (규칙 1)
 #include <algorithm>
 #include <cmath>
 #include <gtest/gtest.h>

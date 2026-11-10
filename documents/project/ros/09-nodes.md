@@ -12,7 +12,7 @@
 | perception | 직접 | perception · ROS 2 노드 (Python) | YOLO 퍽·목표 구역·장애물·신호등 검출, 3D 위치, 두 카메라 융합 추적(ID), 퍽·장소는 안 보여도 기억 · AprilTag(OpenCV aruco — 퍽 번호 `tag`, 장소 상자 `location_box`) · 상자 윗면(depth — `location_box`·`start_box`, 위치·크기·방향) · 퍽 모양·방향(`shape`·`yaw`) · 바코드(zxing-cpp — `barcode` + /mission/qr) · 신호등 상태(`all` 포함) → /tracked_objects |
 | mission_manager | 직접 | plan · ROS 2 노드 | 주사위 미션 순서 ([03-plan.md](03-plan.md)) — /cmd/mission start → 바코드 · 12회 점멸(/mission/signal·signal_status) → 시작 박스 조사·적재함 → 할당(mission_solver) → 주사위 칸 놓기 · 재검증 → 복귀 · /mission/state · 기록 |
 | signal_decoder | 직접 | perception · ROS 2 노드 (C++) | 신호등 12회 점멸 — /tracked_objects의 신호등 상태를 시간축으로 세어 사이클(12번)마다 /mission/signal_status, 두 사이클 같은 답이면 /mission/signal (sequence · R·Y·G 횟수 — 해석은 받는 쪽) |
-| coordinator | 직접 | plan · ROS 2 노드 | 계획 단계를 skill 노드에 맡기는 순서 — 계획 검증(navigate·approach·pick·place·inspect·say·pose·load·unload·stand·stand_pick), 물체 → 좌표, 다가가기, 재시도, 적재함 장부, AUTO가 아니면 취소 → /task/status |
+| coordinator | 직접 | plan · ROS 2 노드 | 계획 단계를 skill 노드에 맡기는 순서 — 계획 검증(navigate·approach·pick·place·inspect·pose·load·unload·stand·stand_pick), 물체 → 좌표, 다가가기, 재시도, 적재함 장부, AUTO가 아니면 취소 → /task/status |
 | skill_* (9개) | 직접 | skills · 컴포넌트 (arm_skills · base_skills 컨테이너) | skill마다 액션 서버 `/skills/<skill>` 하나 — navigate · approach · pose · inspect · pick · place · load · unload · stand(+stand_pick). 자기 학습 정책 폴더 `models/skills/<skill>/` ([API.md](../../API.md) 3장) · skill_pose는 시작·스캔 자세도 |
 | grasp_scorer | 직접 | ml · ROS 2 서비스 노드 | 모델 로드, IK 가능 후보만 채점, /score_grasps 응답 |
 | rl_nav_controller | 직접 | ml · Nav2 controller 플러그인 | 관측 375(웨이포인트 5×2 + 가상스캔 360 + v/w/gyro + 이전행동 2), ONNX 추론, inner DWB 바이패스 |

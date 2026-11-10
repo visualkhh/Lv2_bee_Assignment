@@ -1384,7 +1384,6 @@ def status_lines(sim=None):
 
     add('작업', 'task_status', lambda d: f"plan {d['plan_id']} step {d['step']} {STATE_NAMES.get(d['state'], d['state'])} {d['reason']}")
     add('계획', 'sub_goals', lambda d: f"plan {d['plan_id']}: " + ' → '.join(f"{g['skill']}({g['target']})" for g in d['goals']))
-    add('로봇 말', 'robot_say', lambda d: d['data'])
     add('재시작 (state_manager)', 'state/restart', lambda d: d['data'], latched=True)
     # Nav2 관리자 — 기동 때 가끔(약 4번에 1번) 서버 응답을 못 받고 멈춤 → 꺼짐이면 빨간불, 사람이 [ROS 재시작]
     for label, mgr in (('Nav2 바퀴 체인 (velocity_smoother · collision_monitor)', 'lifecycle_manager_base'),
