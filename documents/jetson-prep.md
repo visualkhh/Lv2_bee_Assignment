@@ -1,10 +1,8 @@
 # Jetson 준비 통합본 (2026-11-10)
 
-## 기준과 포함 범위
+## 통합 범위
 
-이 준비 브랜치는 `develop`의 `b857e9c5` (#151 포함)를 기준으로 만들었다.
-
-아직 `develop`에 병합되지 않은 PR의 현재 head를 모두 로컬 통합 브랜치에 반영했다.
+`develop`의 `b857e9c5` (#151 포함)를 기준으로 미병합 PR의 현재 head 9개를 `prep/jetson-all-open-prs`에 통합했다.
 
 - #149 place 릴리즈 간격 / MoveIt 시작 허용 오차
 - #148 RL Nav2 heading 속도 제한
@@ -16,30 +14,24 @@
 - #140 Coordinator 단계 timeout 및 실패 처리
 - #97 ONNX Runtime 정책 실행
 
-#141과 #146은 플래너 파일을 함께 바꿔 수동으로 통합했다. 두 기능과 테스트를 모두 보존하고, 함수/테스트 경계도 확인해 수정했다. 이 브랜치는 Jetson 검증을 위해 origin에 별도 이름으로 push한다. `develop`이나 원본 PR은 변경·병합하지 않는다.
+#141과 #146은 같은 플래너 파일을 수정해 충돌이 났다. 두 기능과 테스트를 함께 보존하도록 통합했다. 원본 PR과 `develop`은 수정·병합하지 않았다. 후보 브랜치는 Jetson 검증을 위해 origin에 push했다.
 
-`lv2_module6/tools/field-test.py`와 `lv2_module6/tools/README.md` 변경은 ROS bag을 기록하며 센서 확인, 제한된 저속 주행, Coordinator 단일 skill, 전체 미션을 단계적으로 실행하고 사전조건과 관측을 남기는 현장 준비 도구다. 단일 skill과 미션은 물리 로봇에서만 실행해야 한다. 새 bag이 기본이며, 비교 bag은 읽기 전용이고 `--attach-active`는 기존 recorder를 중지하지 않는다.
+`lv2_module6/tools/field-test.py`는 ROS bag 기록과 함께 센서 확인, 제한된 저속 주행, Coordinator 단일 skill, 전체 미션을 단계별로 실행하고 사전조건과 관측값을 남긴다. 기존 bag은 읽기 전용 비교 기준이며 `--attach-active`는 현재 recorder를 중지하지 않는다.
 
-## 현재 검증과 제한
+## Jetson 환경과 경로
 
-- Python 구문 검사 및 runner 도움말 출력 성공
-- `git diff --check` 통과
-- PR #141 + #146 통합 코드 경계 수동 확인
-- ROS/colcon 테스트는 미실행: 이 Mac의 Docker daemon에 연결할 수 없어 프로젝트 CI 컨테이너를 시작하지 못했다.
-- Jetson 빌드, 모델/가속기 호환성, 카메라·OpenCR·Nav2 동작, bag 기록은 아직 검증되지 않았다.
+저장소에 기록된 SSH 대상은 `bee@bee.local`이며, 이번 세션에서는 `10.2.12.110`으로 접속해 `hostname=bee`, Ubuntu 24.04, JetPack R39, ARM64, ROS 2 Lyrical을 확인했다.
 
-따라서 이 브랜치는 현장 배포 준비 후보이지, 실기 배포 완료본이 아니다. ROS 빌드와 테스트를 통과한 뒤에만 Jetson에 동기화한다.
+사용자가 지정한 위치는 `/home/ghj`다. 기존 `/home/ghj/Lv2_bee_Assignment`에는 `feature/cuvslam`의 미커밋 변경과 생성된 파일이 있다. 사용자는 해당 이전 작업을 제거해도 된다고 승인했고, 최신 후보를 우선 사용하도록 요청했다. 별도 후보 worktree는 `/home/ghj/Lv2_bee_Assignment-jetson-prep`에 있다. 기존 checkout을 최신 브랜치로 교체한 후 실제 사용할 경로에서 다시 빌드한다.
 
-## 현재 연결 상태
+## Jetson 검증 결과
 
-2026-11-10 확인 기준 Tailscale 기기 목록에 Jetson이 없다. 보이는 Linux 기기 `pa27-Legion-Pro-5-16IAX10` (`100.98.44.58`)는 학습용 PC이며 Jetson으로 취급하지 않는다. Mac의 Tailscale 상태도 coordination server에 동기화하지 못하고 있어, 지금은 원격 호스트의 신원을 확인하거나 배포할 수 없다.
+- ROS 2 워크스페이스 전체 9개 패키지 빌드 성공. `ML_ONNXRUNTIME_ROOT=/opt/onnxruntime`로 Jetson의 ONNX Runtime을 연결했다.
+- `plan`, `skills`, `ml`, `perception`, `ros_system` 테스트: 184 passed, 0 failed, 1 skipped.
+- perception의 OpenCV marker 테스트는 OpenCV 4.6 `drawMarker`와 4.7+ `generateImageMarker`를 모두 지원하도록 수정했다.
+- ML 정책 테스트가 YOLO detector를 제어 정책으로 잘못 읽던 점을 수정했다. 이제 plan/nav/skills 정책만 확인한다.
+- field runner의 Python 구문 검사·도움말과 `ros2 bag record --help` 확인 성공.
+- TF2 헤더와 ament-index API deprecation 경고가 남아 있지만 빌드 차단 오류는 아니다.
+- 실기 bringup, 바퀴·팔·그리퍼 동작, 카메라 스트림, rosbag 실기 기록은 실행하지 않았다.
 
-## Jetson 연결 뒤 순서
-
-1. Jetson이 Tailnet에 나타나면 hostname, OS/Ubuntu/ROS 배포판, 저장소 경로, 현재 branch/commit, 작업 트리 상태를 확인한다. 변경 파일이 있으면 보존하고, 확인 전에는 덮어쓰지 않는다.
-2. 후보 브랜치를 Jetson이 지원하는 ROS 2 Lyrical 환경에서 빌드한다. CI의 `test-all` 및 관련 plan, skills, ml, perception, ros_system 테스트를 우선 실행한다.
-3. Jetson의 CUDA/TensorRT/ONNX Runtime, 메모리 여유, 카메라 드라이버, OpenCR 연결을 확인한다. 모델 v5와 ONNX 정책 파일의 로딩 여부를 주행 없이 검사한다.
-4. `tools/field-test.py run --label <단계>`로 시작해 각 단계에서 화면에 나온 로봇 위치, 퍽, 받침대/적재함 상태를 직접 확인·기록한다. 각 구동 동작은 별도 확인을 요구한다. 처음부터 전체 미션을 실행하지 말고 센서와 제한된 단일 동작부터 진행한다.
-5. 로그와 bag을 검토하고 문제를 수정한 후에야 전체 미션 및 최종 실기 확인을 한다.
-
-저장소 업데이트와 실제 로봇 구동은 Jetson 연결 및 빌드 준비 검증 후 수행한다. 브랜치 이름은 `prep/jetson-all-open-prs`다. Jetson의 기존 `develop` 체크아웃은 유지하고, 이 브랜치는 별도 worktree에서 빌드·검증한다.
+실기 확인은 최신 checkout의 빌드와 자동 테스트를 마친 뒤 field runner로 한 단계씩 진행한다. 물리 동작은 실행하지 않았다.
