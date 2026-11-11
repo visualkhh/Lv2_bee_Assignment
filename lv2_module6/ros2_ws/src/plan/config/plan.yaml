@@ -14,8 +14,15 @@ coordinator:
     box_margin_m: 0.03       # [m] 상자 위에 여러 개 놓을 때 상자 가장자리에서 이만큼 안쪽까지만
     # 팔이 닿게 다가가기 — pick · place · inspect · stand <물체 id> 때 대상이 로봇 중심에서 reach_m 넘으면 먼저 approach_m 앞까지 navigate
     #   바닥 퍽은 팔 회전축(차체 중심 앞 0.05)에서 수평 약 0.08~0.26 — 차체 중심 기준 약 0.13~0.31 (simulator 팔 범위 지도)
-    reach_m: 0.30
-    approach_m: 0.24         # [m] 다가간 뒤 로봇 중심 ~ 물체 중심 (범퍼 0.18 + 여유 — 팔 범위 가운데쯤)
+    # 2026-11-11 실기 재현: reach_m 0.30(팔 최대치 0.31과 거의 붙음)이라 여유가 없어 재현 실패함.
+    #   stand_plan.cpp의 ik_down·waypoints를 그대로 파이썬으로 옮겨 실측 검증한 결과, stand 궤적은 누운 퍽의
+    #   "먼 쪽 끝"부터 쥐고 100°까지 호를 그리므로 필요한 도달거리가 퍽의 축 방향(yaw)에 따라 크게 달라짐 —
+    #   로봇이 퍽을 정면으로 보고 있어도 가장 불리한 yaw(퍽 축이 로봇과 거의 직각)에서는 퍽 중심 거리
+    #   상자 0.234m·실린더 0.238m를 넘으면 궤적 앞부분(첫 8개 경유점)이 기하학적으로 아예 안 풀림
+    #   (k 1.1~1.74 — 여유가 아니라 완전 불능). 0.20으로 낮춰 이 한계 아래로 안전 여유를 둠.
+    #   pick도 0.273m에서 특이점 근처라 grasp_failed_all 재현 — 같은 값으로 보호.
+    reach_m: 0.20
+    approach_m: 0.20         # [m] 다가간 뒤 로봇 중심 ~ 물체 중심 (stand 궤적 실측 안전 한계 0.234m 아래로 여유를 둠)
 mission_manager:             # 주사위 기억 미션 (documents/mission/README.md) — 좌표는 경기장(arena) m · 왼쪽 아래 기둥 원점 · +Y 위
   ros__parameters:
     # 로봇을 켠 자리의 arena 자세 [x, y, yaw] — 운영 규칙: 출발 관측 위치에서 −X(π)를 보고 켬. 다르면 launch 인자 start_pose:=x,y,yaw
