@@ -463,16 +463,16 @@ string message
 coordinator가 계획 단계마다 skill 노드 하나에 맡김 — 한 노드에 한 번에 goal 하나. 결과 `success` · `reason`(실패 이유 → `/task/status` reason 그대로) · 피드백 `stage`.
 학습 정책은 skill 노드가 갖고 관리: `lv2_module6/models/skills/<skill>/` (`<skill>.policy` 로봇용 · `<skill>.onnx` 원본 · `meta.yaml` 쓸지·시뮬 성공률·출처).
 
-| 액션 | 노드 (컨테이너) | 쓰는 goal 칸 | 하는 일 · 정책 |
-| --- | --- | --- | --- |
-| `/skills/navigate` | skill_navigate (base_skills) | `pose` | Nav2 `/navigate_to_pose` |
-| `/skills/approach` | skill_approach (base_skills) | `pose` (x, y, yaw) · `target` = 정책 `dock_box`(기본) \| `park_home` \| `drive_arc` \| `drive_straight` | 시뮬 기준 제어 + 정책 보정을 직접 계산 → `/cmd_vel_nav` (20 Hz) · 도착 판정은 정책 meta (tol_m · tol_deg · hold_s) |
-| `/skills/pose` | skill_pose (arm_skills) | `target` = stow \| carry_left \| carry_right \| scan | MoveIt 관절 목표 · 시작 자세 · 지도 만들 때 스캔 자세도 이 노드 |
-| `/skills/inspect` | skill_inspect | `pose` (볼 점) · `values[0]` 손 방향 yaw · `target "box"`: `pose` = 상자 가운데, `values[0]` = 기대 퍽 수(기본 2) | 점 위 `inspect_height_m`에서 기다림 (태그 읽기) · box: look 자세 → 모자라면 다시 담기 |
-| `/skills/pick` | skill_pick | `target` 물체 id · `tag` · `shape` | score_grasps → 후보 손 방향 ψ로 푼 관절값으로 퍽 위 5 cm (MoveIt 관절 목표) → 닿는 구간 `pick_standing_puck` |
-| `/skills/place` | skill_place | `target` cell \| over · `pose` (놓을 면) · `values[0]` 다가가는 높이 | 닿는 구간 `place_cell` (cell) · 물체 위 MoveIt (over) |
-| `/skills/load` · `/skills/unload` | skill_load · skill_unload | `slot` · `shape` · `tag` | 적재함 칸 (장부는 coordinator) · `load_slot` · `unload_slot` |
-| `/skills/stand` · `/skills/stand_pick` | skill_stand | `pose` (누운 퍽) · `shape` · `tag` | 세우기 · 그 자리 다시 쥐기 · `regrasp_after_stand` (meta use: false — 로봇 입력 모양 없음) |
+| 액션 | 노드 (컨테이너) | 쓰는 goal 칸 | 하는 일 · 정책 | 모델 (`models/skills/`) |
+| --- | --- | --- | --- | --- |
+| `/skills/navigate` | skill_navigate (base_skills) | `pose` | Nav2 `/navigate_to_pose` | — |
+| `/skills/approach` | skill_approach (base_skills) | `pose` (x, y, yaw) · `target` = 정책 `dock_box`(기본) \| `park_home` \| `drive_arc` \| `drive_straight` | 시뮬 기준 제어 + 정책 보정을 직접 계산 → `/cmd_vel_nav` (20 Hz) · 도착 판정은 정책 meta (tol_m · tol_deg · hold_s) | `dock_box` · `park_home` · `drive_arc` · `drive_straight` (켜짐) |
+| `/skills/pose` | skill_pose (arm_skills) | `target` = stow \| carry_left \| carry_right \| scan | MoveIt 관절 목표 · 시작 자세 · 지도 만들 때 스캔 자세도 이 노드 | — |
+| `/skills/inspect` | skill_inspect | `pose` (볼 점) · `values[0]` 손 방향 yaw · `target "box"`: `pose` = 상자 가운데, `values[0]` = 기대 퍽 수(기본 2) | 점 위 `inspect_height_m`에서 기다림 (태그 읽기) · box: look 자세 → 모자라면 다시 담기 | — |
+| `/skills/pick` | skill_pick | `target` 물체 id · `tag` · `shape` | score_grasps → 후보 손 방향 ψ로 푼 관절값으로 퍽 위 5 cm (MoveIt 관절 목표) → 닿는 구간 `pick_standing_puck` | `pick_standing_puck` (켜짐) |
+| `/skills/place` | skill_place | `target` cell \| over · `pose` (놓을 면) · `values[0]` 다가가는 높이 | 닿는 구간 `place_cell` (cell) · 물체 위 MoveIt (over) | `place_cell` (꺼짐 — 상수 오프셋) |
+| `/skills/load` · `/skills/unload` | skill_load · skill_unload | `slot` · `shape` · `tag` | 적재함 칸 (장부는 coordinator) · `load_slot` · `unload_slot` | `load_slot` (켜짐) · `unload_slot` (꺼짐) |
+| `/skills/stand` · `/skills/stand_pick` | skill_stand | `pose` (누운 퍽) · `shape` · `tag` | 세우기 · 그 자리 다시 쥐기 · `regrasp_after_stand` (meta use: false — 로봇 입력 모양 없음) | `stand_grasp` (꺼짐 — 누운 퍽 집기 위치 보정) · `regrasp_after_stand` (꺼짐) |
 
 ### 그 밖
 
