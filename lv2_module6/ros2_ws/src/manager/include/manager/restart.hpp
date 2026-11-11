@@ -25,7 +25,7 @@ struct Proc {
 };
 
 // 할 일 — 도우미가 차례로: marker 만들기 → stop(SIGINT) → 다 죽을 때까지 최대 wait_s → kill(남은 것 SIGKILL)
-//   → (all) Fast DDS 공유메모리 잔재 삭제 → prepare(bash -lc, 예: 빌드) → marker 지우기 → cwd에서 env로 argv 실행 (출력 log에 이어 씀)
+//   → (all) Fast DDS 공유메모리 잔재 삭제 (살아 있는 프로세스가 매핑 중인 통로는 남김 — fake_opencr 등) → prepare(bash -lc, 예: 빌드) → marker 지우기 → cwd에서 env로 argv 실행 (출력 log에 이어 씀)
 struct Plan {
   std::vector<int> stop;   // SIGINT 보낼 것 (launch 또는 그 노드)
   std::vector<int> kill;   // 시간 안에 안 죽으면 SIGKILL (stop + 그 자손)

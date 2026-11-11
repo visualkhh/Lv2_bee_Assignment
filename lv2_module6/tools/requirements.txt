@@ -3,3 +3,4 @@
 numpy        # A/B 리포트 · 캘리브레이션 (node/)
 matplotlib   # report.png · compare.png
 PyYAML       # config 기본값 비교 (cli/op/configref.py)
+usd-core     # 실세계 isaac_maze(USD) 읽기 — cli/ros/fake/RealWorld.py · course/build_world.py (pxr)

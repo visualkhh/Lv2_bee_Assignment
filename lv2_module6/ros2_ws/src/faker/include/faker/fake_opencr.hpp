@@ -45,6 +45,11 @@ private:
   bool load_map(const std::string & yaml_path);
   bool occupied(double x, double y) const;
   bool collide(double x, double y, double yaw) const;
+  // 몸 외곽 [m] (base_footprint 기준) — 파라미터로 덮어씀 (robot_footprint.yaml = 실제 로봇 USD에서)
+  double foot_front_ = 0.069, foot_rear_ = -0.245, foot_side_ = 0.151;
+  // 마지막으로 걸린 점 (디버그 로그용) — collide()가 true일 때: 로봇 기준 (lx, ly) · 월드 (wx, wy) · 픽셀 (col, row, 값 — 256 = 지도 밖)
+  mutable double hit_lx_ = 0, hit_ly_ = 0, hit_wx_ = 0, hit_wy_ = 0;
+  mutable int hit_col_ = 0, hit_row_ = 0, hit_val_ = 0;
   // C 파일 끝부분에서 가장 최근의 완전한 "C,..." 줄을 파싱 → true (8 필드, 빈칸=유지 NaN)
   bool read_command(std::array<double, 8> & cmd);
   // 펌웨어 parse_fields와 같은 규칙으로 C 한 줄 검사

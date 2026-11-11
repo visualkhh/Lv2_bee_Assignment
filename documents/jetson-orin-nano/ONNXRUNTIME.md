@@ -300,7 +300,7 @@ cd lv2_module6/tools && ./run-cli --source docker status --diagnostics controlle
 ```text
 [제공 패키지 / controller_server: FollowPath]
  레벨: OK
- 메시지: idle · enable=on · CUDA · ONNX Runtime 1.24.3 · fallback=DWB
+ 메시지: idle · enable=on · CUDA · ONNX Runtime 1.24.3 · fallback=MPPI
  값:
   policy      loaded
   enable      true
@@ -333,7 +333,7 @@ CLI 메뉴에서는 **노드 → `controller_server` → 상태**와 **A/B → `
 `device · provider · runtime` 줄이 나온다.
 
 `FollowPath.enable` 파라미터는 **바꾸는 즉시 적용**된다 (플러그인의 `add_on_set_parameters_callback`).
-`/controller_server/FollowPath/toggle` 서비스를 부르지 않아도 `false`면 DWB 바이패스, `true`면 정책으로
+`/controller_server/FollowPath/toggle` 서비스를 부르지 않아도 `false`면 fallback(기본 MPPI) 바이패스, `true`면 정책으로
 바뀐다. 둘은 같은 상태(`enable_`)를 바꾼다. 모델이 없는데 `true`로 켜면 파라미터 변경이 거절되고
 이유가 응답에 남는다.
 

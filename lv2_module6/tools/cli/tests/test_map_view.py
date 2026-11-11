@@ -179,8 +179,9 @@ assert QUAD[_quad_cell(col)[0]] == '▌', '세로 벽 = 왼쪽 반 블록 (이�
 edge = [((dx, dy), FREE if dx == 0 else OUT) for dy in (0, 1) for dx in (0, 1)]
 bits, fg, bg, wall = _quad_cell(edge)
 assert fg == RGB[FREE] and bg is None and not wall, '지도 가장자리는 바탕 그대로'
-from ros.fake.FakeRos import fake_map  # noqa: E402
-view = MapView(MapGrid.from_msg(fake_map()), color=True)   # 실제 미로 지도 — 벽이 이어진 선으로 나오는지
+from ros.fake.RealWorld import RealWorld  # noqa: E402
+_W, _H, _ox, _oy, _occ = RealWorld('isaac_maze').occupancy(0.05)   # 실세계 미로 — 벽이 이어진 선으로 나오는지
+view = MapView(MapGrid(_W, _H, 0.05, _ox, _oy, [100 if _occ[r][c] else 0 for r in range(_H) for c in range(_W)]), color=True)
 view.vp.fit(70, 60)
 hi = '\n'.join(view.render(70, 30))
 assert any(ch in QUAD[1:] for ch in hi), '블록으로 그려져야 함'
@@ -242,3 +243,76 @@ assert pg._extra_key('o') and pg.view.show_map and pg.view.show_odom, 'o는 O만
 assert pg._extra_key('m') and not pg.view.show_map and pg.view.show_odom
 assert pg._extra_key('o') and not pg.view.show_map and not pg.view.show_odom
 print('map frame toggles ok')
+
+# goal 웨이포인트 가운데 스냅 — 벽 사이 중앙으로, 벽 너머 다른 통로로는 안 넘어감
+w21, h41 = 21, 41
+data = [0] * (w21 * h41)
+for r in range(h41):
+    for c in (0, 20):
+        data[r * w21 + c] = 100
+g3 = MapGrid(w21, h41, 0.1, -1.05, -2.05, data)
+pg = MapPage.__new__(MapPage)
+pg.view = MapView(g3, color=False)
+sx, sy, clear = pg._center_point(0.80, 0.0)   # 오른쪽 벽에 붙은 점
+assert abs(sx) < 0.15 and abs(sy) < 0.15, (sx, sy)
+assert clear is not None and clear > 0.9, clear
+print('map goal snap center ok')
+
+data = [0] * (w21 * h41)
+for r in range(h41):
+    for c in (0, 10, 20):
+        data[r * w21 + c] = 100
+g4 = MapGrid(w21, h41, 0.1, -1.05, -2.05, data)
+pg.view = MapView(g4, color=False)
+sx, sy, clear = pg._center_point(-0.20, 0.0)   # 왼쪽 통로의 벽에 붙은 점
+assert abs(sx + 0.5) < 0.15 and abs(sy) < 0.15 and clear > 0.4, (sx, sy, clear)
+print('map goal snap stays in corridor ok')
+
+# d = 웨이포인트 전체 지우기 · s = 가운데 스냅 토글
+class _Nav:
+    def nav_progress(self):
+        return None
+
+    def cancel_nav(self):
+        return True
+
+
+class _Bus:
+    nav = _Nav()
+
+
+pg.mode, pg.msg, pg.snap, pg.goals, pg.bus = 'goal', '', True, [{'x': 0.0, 'y': 0.0}], _Bus()
+assert pg._extra_key('d') and not pg.goals, 'd = 전체 지우기'
+assert pg._extra_key('s') and not pg.snap, 's = 스냅 끄기'
+assert pg._extra_key('s') and pg.snap
+print('map goal keys ok')
+
+# x = 주행 취소 — 경로(p)·경유점·웨이포인트 표시를 모두 지우고 '취소'를 남긴다
+pg._plans = {'plan': (1.0, [(0.0, 0.0)]), 'local_plan': (1.0, [(0.0, 0.0)])}
+pg._waypoints = (1, [(0.0, 0.0)])
+pg.plan_on, pg._canceled, pg.msg, pg._show_goals = True, False, '', True
+pg.goals = [{'x': 0.0, 'y': 0.0}]
+assert pg._extra_key('x')
+assert pg._plans == {'plan': None, 'local_plan': None}, pg._plans
+assert pg._waypoints is None and not pg.plan_on and pg._canceled, (pg._waypoints, pg.plan_on, pg._canceled)
+assert pg.goals and not pg._show_goals, (pg.goals, pg._show_goals)   # 목록은 남기고 지도 표시만 숨김
+assert '취소' in pg.msg, pg.msg
+
+# Backspace = 마지막 웨이포인트 취소 — 취소 뒤에도 목록이 남아 있어 바로 고칠 수 있다
+pg.goals = [{'x': 0.0, 'y': 0.0}, {'x': 1.0, 'y': 0.0}]
+pg._show_goals, pg.msg = False, ''
+assert pg._extra_key('backspace')
+assert len(pg.goals) == 1 and pg._show_goals and '웨이포인트' in pg.msg, (pg.goals, pg._show_goals, pg.msg)
+print('map goal cancel/backspace ok')
+
+# 연속 같은 자리 찍기는 추가하지 않는다 (through-poses 계획에 중복 점이 들어가지 않게)
+pg = MapPage.__new__(MapPage)
+pg.view = MapView(g3, color=False)
+pg.mode, pg.snap, pg.yaw, pg.goals, pg.msg = 'goal', False, 0.0, [], ''
+pg._canceled, pg._show_goals = True, False
+pg.pick()
+assert len(pg.goals) == 1 and pg._show_goals, (pg.goals, pg._show_goals)
+pg.msg = ''
+pg.pick()
+assert len(pg.goals) == 1 and '같은 자리' in pg.msg, (pg.goals, pg.msg)
+print('map goal duplicate skip ok')

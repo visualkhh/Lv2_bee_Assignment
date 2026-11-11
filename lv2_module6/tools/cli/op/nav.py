@@ -1,6 +1,7 @@
-"""RobotNav — 로봇 위치(map TF) 읽기 · initialpose · Nav2 goal 한 점 보내기. 지도 화면(MapPage)과 위치 지정 메뉴가 쓴다.
+"""RobotNav — 로봇 위치(map TF) 읽기 · initialpose · Nav2 goal 보내기. 지도 화면(MapPage)과 위치 지정 메뉴가 쓴다.
 
 Bus가 node·_poll을 제공한다. docker 소스는 가짜 rclpy에 TF·액션이 없어서 파일 브리지/컨테이너 CLI로 돌린다.
+웨이포인트 여러 개는 NavigateToPose를 순서대로 보낸다 — 각 구간 경로는 Nav2 planner가 채운다.
 """
 from __future__ import annotations
 
@@ -21,6 +22,20 @@ class RobotNav:
         self._pub_reset = None
         self._tf_buf = None  # map → base_footprint 조회용
         self._tf_listener = None
+        self._feedback = None             # 실기 NavigateToPose feedback 최신
+        self._feedback_goal_id = None     # docker 파일 브리지 goal_id
+        self._seq: list[dict] = []        # 보낼 웨이포인트 목록
+        self._seq_i = 0                   # 지금 보낸 웨이포인트 index
+        self._seq_through = False         # 2개 이상이면 NavigateThroughPoses 한 번에
+        self._seq_remaining = None        # feedback의 number_of_poses_remaining
+        self._seq_state = 'idle'          # idle | running | done | failed | canceled
+        self._seq_error = ''
+        self._seq_frame = 'map'
+        self._seq_goal_id = None          # 지금 goal의 id (docker 파일 비교용)
+        self._seq_handle = None           # 실기 action goal handle
+        self._seq_result_fut = None
+        self._through_cli = None          # 실기 NavigateThroughPoses action client
+        self._last_result_poll = 0.0      # docker result 파일 확인 간격 (tick)
 
     def set_robot_pose(self, x: float, y: float, yaw_deg: float, frame_id: str = 'map') -> None:
         """로봇 위치를 지도 위 (x, y, yaw)로.
@@ -83,8 +98,55 @@ class RobotNav:
         except (OSError, ValueError, KeyError, TypeError):
             return None
 
+    def _docker_odom_pose(self) -> tuple[float, float, float] | None:
+        """odom 프레임 기준 base_footprint (x, y, yaw[rad]) — EKF(/odometry/filtered) 우선, 없으면 바퀴 /odom."""
+        debug = getattr(self.node, 'debug_dir', None)
+        if not debug:
+            return None
+        for name in ('odometry/filtered', 'odom'):
+            try:
+                doc = json.loads((Path(debug) / 'output' / 'topic' / name / 'message').read_text())
+                data = doc.get('data') or {}
+                pose = data.get('pose') or {}
+                if 'pose' in pose:  # nav_msgs/Odometry: data.pose.pose
+                    pose = pose['pose']
+                pos, q = pose.get('position') or {}, pose.get('orientation') or {}
+                x, y = float(pos['x']), float(pos['y'])
+                qx, qy, qz, qw = (float(q.get(k, 0.0)) for k in ('x', 'y', 'z', 'w'))
+                if qw == 0.0 and qz == 0.0:
+                    qw = 1.0
+                yaw = math.atan2(2.0 * (qw * qz + qx * qy), 1.0 - 2.0 * (qy * qy + qz * qz))
+                return x, y, yaw
+            except (OSError, ValueError, KeyError, TypeError):
+                continue
+        return None
+
+    def _docker_frame_pose(self, child: str) -> tuple[float, float, float] | None:
+        """docker에서 map 기준 odom 원점 — T_map_odom = T_map_base · T_odom_base⁻¹.
+        호스트 rclpy에는 TF가 없지만 ground_truth(map→base)와 EKF(odom→base) 파일로 같은 값을 계산한다."""
+        if child != 'odom':
+            return None
+        truth, odom = self._docker_ground_truth(), self._docker_odom_pose()
+        if truth is None or odom is None:
+            return None
+        mx, my = truth['x'], truth['y']
+        myaw = math.radians(truth['yaw_deg'])
+        ox, oy, oyaw = odom
+        # T_odom_base⁻¹ 의 평행이동 = -R(odom_yaw)ᵀ · t
+        ix = -(math.cos(oyaw) * ox + math.sin(oyaw) * oy)
+        iy = -(-math.sin(oyaw) * ox + math.cos(oyaw) * oy)
+        # map 프레임으로 회전·이동
+        x = mx + math.cos(myaw) * ix - math.sin(myaw) * iy
+        y = my + math.sin(myaw) * ix + math.cos(myaw) * iy
+        yaw = math.atan2(math.sin(myaw - oyaw), math.cos(myaw - oyaw))
+        return x, y, math.degrees(yaw)
+
     def frame_pose(self, child: str, frame_id: str = 'map') -> tuple[float, float, float] | None:
         """map 기준 다른 프레임(odom 등)의 (x, y, yaw[deg]) — 기다리지 않음, 없으면 None. 지도 화면의 M·O 표시(위치 + 방향)용."""
+        if os.environ.get('CLI_SOURCE') == 'docker':
+            p = self._docker_frame_pose(child)
+            if p is not None:
+                return p
         try:
             x, y, yaw = self._lookup_pose(frame_id, child)
         except Exception:
@@ -144,58 +206,307 @@ class RobotNav:
             pass
         self.bus._poll(1.0)  # TF·EKF가 점프를 따라잡을 시간
 
+    # ---------------------------------------------------------------- Nav2 goal · 웨이포인트 순차 주행
     def send_nav_goal(self, pose: dict, frame_id: str = 'map') -> None:
-        """Nav2 NavigateToPose 한 점을 보내고 바로 돌아온다 — 지도 화면 goal 찍기용 (진행은 로봇이 한다).
-        docker 소스는 가짜 rclpy에 nav2_msgs.action이 없으므로 컨테이너의 ros2 CLI로 보낸다."""
-        if os.environ.get('CLI_SOURCE') == 'docker':
-            self._send_nav_goal_docker(pose, frame_id)
+        """Nav2 NavigateToPose 한 점 — send_nav_waypoints([pose])와 같다."""
+        self.send_nav_waypoints([pose], frame_id)
+
+    def send_nav_waypoints(self, poses: list[dict], frame_id: str = 'map') -> None:
+        """웨이포인트 여러 개 — 2개 이상이면 NavigateThroughPoses 한 번에 보낸다 (중간에 안 끊김).
+        1개면 예전처럼 NavigateToPose. 각 구간 경로는 Nav2 planner가 채운다."""
+        poses = [dict(p) for p in poses]
+        if not poses:
+            raise RuntimeError('웨이포인트 없음')
+        if self._seq_state == 'running':
+            raise RuntimeError('이미 Nav2 주행 중 — 먼저 취소(x)하세요')
+        self._seq, self._seq_frame = poses, frame_id
+        self._seq_through = len(poses) > 1
+        self._seq_i = 0 if not self._seq_through else len(poses) - 1
+        self._seq_remaining = len(poses) if self._seq_through else None
+        self._seq_state, self._seq_error = 'running', ''
+        self._seq_goal_id = None
+        self._seq_handle = None
+        self._seq_result_fut = None
+        self._feedback = None
+        self._feedback_goal_id = None
+        self._seq_send_current()
+        if self._seq_state == 'failed':
+            raise RuntimeError(self._seq_error)
+
+    def _seq_send_current(self) -> None:
+        self._feedback = None
+        self._feedback_goal_id = None
+        if self._seq_through:
+            try:
+                if os.environ.get('CLI_SOURCE') == 'docker':
+                    self._seq_goal_id = self._send_nav_through_docker(self._seq, self._seq_frame)
+                    self._feedback_goal_id = self._seq_goal_id
+                else:
+                    self._seq_send_real_through(self._seq)
+            except Exception as exc:
+                self._seq_state = 'failed'
+                self._seq_error = str(exc)
             return
+        if self._seq_i >= len(self._seq):
+            self._seq_state = 'done'
+            return
+        try:
+            if os.environ.get('CLI_SOURCE') == 'docker':
+                self._seq_goal_id = self._send_nav_goal_docker(self._seq[self._seq_i], self._seq_frame)
+                self._feedback_goal_id = self._seq_goal_id
+            else:
+                self._seq_send_real(self._seq[self._seq_i])
+        except Exception as exc:
+            self._seq_state = 'failed'
+            self._seq_error = str(exc)
+
+    def _through_client(self):
+        if self._through_cli is None:
+            from nav2_msgs.action import NavigateThroughPoses
+            from rclpy.action import ActionClient
+            self._through_cli = ActionClient(self.node, NavigateThroughPoses, '/navigate_through_poses')
+        return self._through_cli
+
+    def _seq_send_real_through(self, poses: list[dict]) -> None:
+        from geometry_msgs.msg import PoseStamped
+        from nav2_msgs.action import NavigateThroughPoses
+
+        cli = self._through_client()
+        if not cli.wait_for_server(timeout_sec=5.0):
+            raise RuntimeError('/navigate_through_poses 액션 서버 없음 — bt_navigator 재시작/설정 확인')
+        goal = NavigateThroughPoses.Goal()
+        goal.poses.header.frame_id = self._seq_frame
+        goal.poses.header.stamp = self.node.get_clock().now().to_msg()
+        for pose in poses:
+            ps = PoseStamped()
+            ps.header.frame_id = self._seq_frame
+            ps.header.stamp = goal.poses.header.stamp
+            ps.pose.position.x = float(pose['x'])
+            ps.pose.position.y = float(pose['y'])
+            yaw = math.radians(float(pose.get('yaw_deg', 0.0)))
+            ps.pose.orientation.z = math.sin(yaw / 2.0)
+            ps.pose.orientation.w = math.cos(yaw / 2.0)
+            goal.poses.goals.append(ps)
+        gid = f'cli-{os.getpid()}-{int(time.time() * 1000)}-through'
+        self._seq_goal_id = gid
+        self._seq_handle = None
+        self._seq_result_fut = None
+        self._seq_remaining = len(poses)
+        send = cli.send_goal_async(goal, feedback_callback=lambda m, g=gid: self._on_feedback(m, g))
+        send.add_done_callback(lambda f, g=gid: self._on_seq_response(f, g))
+
+    def _seq_send_real(self, pose: dict) -> None:
         from geometry_msgs.msg import PoseStamped
         from nav2_msgs.action import NavigateToPose
 
         cli = self._nav_client()
-        if not cli.wait_for_server(timeout_sec=5.0):
+        if not cli.wait_for_server(timeout_sec=5.0 if self._seq_i == 0 else 0.5):
             raise RuntimeError('/navigate_to_pose 액션 서버 없음 — 지도/로컬라이제이션/Nav2 확인')
         goal = NavigateToPose.Goal()
         goal.pose = PoseStamped()
-        goal.pose.header.frame_id = frame_id
+        goal.pose.header.frame_id = self._seq_frame
         goal.pose.header.stamp = self.node.get_clock().now().to_msg()
         goal.pose.pose.position.x = float(pose['x'])
         goal.pose.pose.position.y = float(pose['y'])
         yaw = math.radians(float(pose.get('yaw_deg', 0.0)))
         goal.pose.pose.orientation.z = math.sin(yaw / 2.0)
         goal.pose.pose.orientation.w = math.cos(yaw / 2.0)
-        send = cli.send_goal_async(goal)
-        rclpy.spin_until_future_complete(self.node, send, timeout_sec=5.0)
-        if not send.done():
-            raise RuntimeError('이동 목표: goal 전송 timeout')
-        handle = send.result()
-        if handle is None or not handle.accepted:
-            raise RuntimeError('이동 목표: goal 거부됨')
+        gid = f'cli-{os.getpid()}-{int(time.time() * 1000)}-{self._seq_i}'
+        self._seq_goal_id = gid
+        self._seq_handle = None
+        self._seq_result_fut = None
+        send = cli.send_goal_async(goal, feedback_callback=lambda m, g=gid: self._on_feedback(m, g))
+        send.add_done_callback(lambda f, g=gid: self._on_seq_response(f, g))
 
-    def _send_nav_goal_docker(self, pose: dict, frame_id: str) -> None:
-        """docker: debug/input/action/navigate_to_pose/goal 파일 브리지 → 컨테이너 service_action_bag_input → 진짜 Nav2.
-        (rclpy action을 호스트에 흉내내지 않는다 — 컨테이너가 이미 액션을 받아 준다.)"""
+    def _on_seq_response(self, future, goal_id: str) -> None:
+        """goal 수락 여부 — 실기 rclpy 콜백 (UI 폴링이 spin한다)."""
+        if goal_id != self._seq_goal_id or self._seq_state != 'running':
+            return
+        try:
+            handle = future.result()
+        except Exception as exc:
+            self._seq_fail(f'goal 전송 실패: {exc}')
+            return
+        if handle is None or not handle.accepted:
+            self._seq_fail('goal 거부됨')
+            return
+        self._seq_handle = handle
+        self._seq_result_fut = handle.get_result_async()
+        self._seq_result_fut.add_done_callback(lambda f, g=goal_id: self._on_seq_result(f, g))
+
+    def _on_seq_result(self, future, goal_id: str) -> None:
+        if goal_id != self._seq_goal_id or self._seq_state != 'running':
+            return
+        try:
+            from action_msgs.msg import GoalStatus
+            wrapped = future.result()
+            ok = wrapped.status == GoalStatus.STATUS_SUCCEEDED
+            error = getattr(getattr(wrapped, 'result', None), 'error_msg', '') or f'status={wrapped.status}'
+        except Exception as exc:
+            self._seq_fail(f'결과 수신 실패: {exc}')
+            return
+        if ok:
+            if self._seq_through:
+                self._seq_state = 'done'
+                self._seq_remaining = 0
+            else:
+                self._seq_advance()
+        else:
+            self._seq_fail(error)
+
+    def _seq_advance(self) -> None:
+        """현재 goal 성공 — 다음 웨이포인트를 보낸다. 마지막이면 done."""
+        self._seq_i += 1
+        if self._seq_i >= len(self._seq):
+            self._seq_state = 'done'
+            return
+        self._seq_send_current()
+
+    def _seq_fail(self, reason: str) -> None:
+        self._seq_state = 'failed'
+        self._seq_error = reason
+
+    def cancel_nav(self) -> bool:
+        """주행 중인 웨이포인트 취소 — docker는 cancel 파일, 실기는 action cancel."""
+        if self._seq_state != 'running':
+            return False
+        self._seq_state = 'canceled'
+        if os.environ.get('CLI_SOURCE') == 'docker':
+            debug = getattr(self.node, 'debug_dir', None)
+            if debug and self._seq_goal_id:
+                name = 'navigate_through_poses' if self._seq_through else 'navigate_to_pose'
+                folder = Path(debug) / 'input' / 'action' / name
+                folder.mkdir(parents=True, exist_ok=True)
+                tmp = folder / f'.cancel-{os.getpid()}-{int(time.time() * 1000)}'
+                tmp.write_text(json.dumps({'goal_id': self._seq_goal_id}))
+                os.replace(tmp, folder / 'cancel')
+        elif self._seq_handle is not None:
+            self._seq_handle.cancel_goal_async()
+        return True
+
+    def _poll_docker_result(self) -> None:
+        """docker result 파일 — 단일 goal이면 다음 웨이포인트를 보내고, through-poses면 끝났는지 본다."""
+        if self._seq_state != 'running' or not self._seq_goal_id:
+            return
+        debug = getattr(self.node, 'debug_dir', None)
+        if not debug:
+            return
+        name = 'navigate_through_poses' if self._seq_through else 'navigate_to_pose'
+        try:
+            doc = json.loads((Path(debug) / 'output' / 'action' / name / 'result').read_text())
+        except (OSError, ValueError, TypeError):
+            return
+        if str(doc.get('goal_id', '')) != str(self._seq_goal_id):
+            return
+        status = str(doc.get('status', ''))
+        if status == 'succeeded':
+            if self._seq_through:
+                self._seq_state = 'done'
+                self._seq_remaining = 0
+            else:
+                self._seq_advance()
+        elif status in ('aborted', 'canceled', 'unknown_goal'):
+            data = doc.get('data') or {}
+            self._seq_fail(data.get('error_msg') or status)
+
+    def tick(self) -> None:
+        """이벤트 루프가 자주 부른다 — docker는 result 파일을 0.1초 간격으로 확인해 다음 웨이포인트를 바로 보낸다.
+        지도 화면 redraw(2초)만 기다리면 웨이포인트마다 2초씩 멈춘다."""
+        if self._seq_state != 'running' or os.environ.get('CLI_SOURCE') != 'docker':
+            return
+        now = time.monotonic()
+        if now - self._last_result_poll < 0.1:
+            return
+        self._last_result_poll = now
+        self._poll_docker_result()
+
+    def nav_progress(self) -> dict | None:
+        """웨이포인트 진행 상황 — index(1부터) · total · state · 회복/남은 거리. 보낸 적 없으면 None."""
+        if not self._seq or self._seq_state == 'idle':
+            return None
+        if os.environ.get('CLI_SOURCE') == 'docker' and self._seq_state == 'running':
+            self._poll_docker_result()
+        fb = self._current_feedback() or {}
+        total = len(self._seq)
+        if self._seq_through:
+            remaining = fb.get('poses_remaining')
+            if remaining is not None:
+                try:
+                    self._seq_remaining = int(remaining)
+                except (TypeError, ValueError):
+                    pass
+            if self._seq_state == 'done':
+                index = total
+            else:
+                rem = self._seq_remaining if self._seq_remaining is not None else total
+                index = max(1, min(total, total - int(rem) + 1))
+        else:
+            index = total if self._seq_state == 'done' else min(self._seq_i + 1, max(1, total))
+        return {'state': self._seq_state, 'index': index, 'total': total,
+                'poses_remaining': self._seq_remaining if self._seq_through else None,
+                'recoveries': fb.get('recoveries'), 'distance_remaining': fb.get('distance_remaining'),
+                'age': fb.get('age'), 'error': self._seq_error}
+
+    def nav_feedback(self) -> dict | None:
+        """최근 NavigateToPose feedback — 회복 횟수·남은 거리. (이전 호출부 호환)"""
+        p = self.nav_progress()
+        if p is None or p['state'] != 'running' or p.get('recoveries') is None:
+            return None
+        return {'recoveries': p['recoveries'], 'distance_remaining': p['distance_remaining'], 'age': p['age']}
+
+    def _current_feedback(self) -> dict | None:
+        if os.environ.get('CLI_SOURCE') == 'docker':
+            debug = getattr(self.node, 'debug_dir', None)
+            if not debug or not self._seq_goal_id:
+                return None
+            name = 'navigate_through_poses' if self._seq_through else 'navigate_to_pose'
+            path = Path(debug) / 'output' / 'action' / name / 'feedback'
+            try:
+                doc = json.loads(path.read_text())
+                if str(doc.get('goal_id', '')) != str(self._seq_goal_id):
+                    return None
+                data = doc.get('data') or {}
+                remaining = data.get('poses_remaining')
+                return {'recoveries': int(data.get('recoveries', 0)),
+                        'distance_remaining': float(data.get('distance_remaining', 0.0)),
+                        'poses_remaining': int(remaining) if remaining is not None else None,
+                        'age': max(0.0, time.time() - path.stat().st_mtime)}
+            except (OSError, ValueError, TypeError):
+                return None
+        fb = self._feedback
+        if fb is None or fb.get('goal_id') != self._seq_goal_id:
+            return None
+        return {'recoveries': fb['recoveries'], 'distance_remaining': fb['distance_remaining'],
+                'poses_remaining': fb.get('poses_remaining'),
+                'age': max(0.0, time.monotonic() - fb.get('at', time.monotonic()))}
+
+    def _on_feedback(self, msg, goal_id: str | None = None):
+        if goal_id is not None and goal_id != self._seq_goal_id:
+            return
+        fb = getattr(msg, 'feedback', msg)
+        remaining = getattr(fb, 'number_of_poses_remaining', None)
+        self._feedback = {
+            'goal_id': goal_id,
+            'recoveries': int(getattr(fb, 'number_of_recoveries', 0) or 0),
+            'distance_remaining': float(getattr(fb, 'distance_remaining', 0.0) or 0.0),
+            'poses_remaining': int(remaining) if remaining is not None else None,
+            'at': time.monotonic(),
+        }
+
+    def _docker_goal(self, name: str, goal_id: str, payload: dict) -> str:
+        """docker 파일 브리지에 goal을 쓰고 accept를 기다린다. 보낸 goal_id를 돌려준다."""
         debug = getattr(self.node, 'debug_dir', None) or os.environ.get('CLI_DEBUG_DIR')
         if not debug:
             raise RuntimeError('docker debug 경로를 모름 — --debug-dir 확인')
         debug = Path(debug)
-        name = 'navigate_to_pose'
         folder = debug / 'input' / 'action' / name
         folder.mkdir(parents=True, exist_ok=True)
-        goal_id = f'cli-{os.getpid()}-{int(time.time() * 1000)}'
-        yaw = math.radians(float(pose.get('yaw_deg', 0.0)))
-        payload = {'goal_id': goal_id, 'data': {'pose': {
-            'position': {'x': float(pose['x']), 'y': float(pose['y']), 'z': 0.0},
-            'orientation': {'x': 0.0, 'y': 0.0,
-                            'z': math.sin(yaw / 2.0), 'w': math.cos(yaw / 2.0)},
-        }}}
         goal = folder / 'goal'
         tmp = folder / f'.goal-{os.getpid()}-{int(time.time() * 1000)}'
         tmp.write_text(json.dumps(payload, ensure_ascii=False))
         os.replace(tmp, goal)
         accept_path = debug / 'output' / 'action' / name / 'accept'
-        end = time.monotonic() + 5.0
+        end = time.monotonic() + 20.0   # service_action_bag_input timeout_s와 같게 — 재시작 직후 액션 발견이 늦을 수 있다
         while time.monotonic() < end and rclpy.ok():
             try:
                 doc = json.loads(accept_path.read_text())
@@ -205,10 +516,36 @@ class RobotNav:
             if str(doc.get('goal_id', '')) == goal_id:
                 if not doc.get('accepted'):
                     raise RuntimeError(f'goal 거부: {doc.get("error") or "이유 없음"}')
-                print(f'[docker] Nav2 goal 전송 → ({pose["x"]:.2f}, {pose["y"]:.2f}, {pose.get("yaw_deg", 0):.0f}°)')
-                return
+                return goal_id
             time.sleep(0.1)
         raise RuntimeError('action 브리지 응답 없음 — service_action_bag_input/Nav2 확인')
+
+    def _send_nav_goal_docker(self, pose: dict, frame_id: str) -> str:
+        """docker: debug/input/action/navigate_to_pose/goal 파일 브리지 → service_action_bag_input → 진짜 Nav2."""
+        goal_id = f'cli-{os.getpid()}-{int(time.time() * 1000)}'
+        self._feedback_goal_id = goal_id
+        yaw = math.radians(float(pose.get('yaw_deg', 0.0)))
+        payload = {'goal_id': goal_id, 'data': {'pose': {
+            'position': {'x': float(pose['x']), 'y': float(pose['y']), 'z': 0.0},
+            'orientation': {'x': 0.0, 'y': 0.0,
+                            'z': math.sin(yaw / 2.0), 'w': math.cos(yaw / 2.0)},
+        }}}
+        return self._docker_goal('navigate_to_pose', goal_id, payload)
+
+    def _send_nav_through_docker(self, poses: list[dict], frame_id: str) -> str:
+        """docker: debug/input/action/navigate_through_poses/goal — 여러 점을 한 액션으로."""
+        goal_id = f'cli-{os.getpid()}-{int(time.time() * 1000)}-through'
+        self._feedback_goal_id = goal_id
+        arr = []
+        for pose in poses:
+            yaw = math.radians(float(pose.get('yaw_deg', 0.0)))
+            arr.append({
+                'position': {'x': float(pose['x']), 'y': float(pose['y']), 'z': 0.0},
+                'orientation': {'x': 0.0, 'y': 0.0,
+                                'z': math.sin(yaw / 2.0), 'w': math.cos(yaw / 2.0)},
+            })
+        payload = {'goal_id': goal_id, 'data': {'frame_id': frame_id, 'poses': arr}}
+        return self._docker_goal('navigate_through_poses', goal_id, payload)
 
     def _is_sim(self) -> bool:
         """테스트베드(faker)인가 — fake_opencr가 /cmd/fake_opencr/set_pose를 듣고 있으면 텔레포트가 된다."""

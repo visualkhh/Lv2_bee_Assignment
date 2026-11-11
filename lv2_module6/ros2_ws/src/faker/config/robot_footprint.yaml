@@ -1,0 +1,7 @@
+# tools/course/build_world.py가 tools/cli/ros/fake/real/robot/beebot.usda(실제 로봇 몸)에서 만든 몸 외곽 — 손으로 고치지 말 것
+# base_footprint 기준 [m] · 팔 제외 · 바닥~0.30 m의 충돌 도형 — fake_opencr가 벽과 부딪히는 몸
+fake_opencr:
+  ros__parameters:
+    foot_front: 0.0688
+    foot_rear: -0.2454
+    foot_side: 0.1514

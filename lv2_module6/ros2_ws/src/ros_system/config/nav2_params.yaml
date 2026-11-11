@@ -19,6 +19,9 @@ bt_navigator:
     robot_base_frame: base_footprint
     # 현재 속도를 읽는 토픽. /odom(바퀴만)이 아니라 EKF가 IMU까지 합친 결과.
     odom_topic: /odometry/filtered
+    # 목표·현재 자세를 map으로 바꿀 때 TF가 이 시간(초)까지 늦어도 허용. 기본(0.1)이면 부하로 TF가 수십 ms만 늦어도
+    #   "Failed to transform end pose to global frame"(102)으로 목표가 취소됐다 (실기 2026-11-11).
+    transform_tolerance: 0.5
     # BT를 한 번 tick하는 주기(ms). 10 → 100Hz. 로봇 속도와는 무관하고 configure 때 한 번 읽혀 실행 중 변경 불가.
     bt_loop_duration: 10
     # BT 노드가 액션 서버(planner·controller·behavior)·서비스(is_path_valid)의 응답을 기다리는 시간(ms). Nav2 기본 20.
@@ -29,12 +32,16 @@ bt_navigator:
     # BT를 만들 때 BT 노드가 쓰는 서비스(planner_server의 is_path_valid 등)를 기다리는 시간(ms). 기본 1000ms —
     # 기동 직후 부하로 1초 안에 안 보이면 bt_navigator 활성화가 실패해 Nav2 전체가 중단됐음(실측) → 10초
     wait_for_service_timeout: 10000
-    # 띄울 내비게이터 목록. coordinator는 navigate_to_pose만 쓴다 (navigate_through_poses는 뺌).
-    #   이름은 기본값 그대로 — 액션 이름 /navigate_to_pose와 연결된다.
-    navigators: ["navigate_to_pose"]
+    # 띄울 내비게이터 목록. CLI 지도 화면은 여러 웨이포인트를 한 번에 보낼 때
+    #   /navigate_through_poses를 쓴다 — 중간 웨이포인트마다 액션을 끊지 않아 서지 않는다.
+    #   coordinator는 계속 /navigate_to_pose만 쓴다.
+    navigators: ["navigate_to_pose", "navigate_through_poses"]
     navigate_to_pose:
       # NavigateToPose 액션을 처리하는 Nav2 플러그인 (이름 고정).
       plugin: "nav2_bt_navigator::NavigateToPoseNavigator"
+    navigate_through_poses:
+      # 여러 PoseStamped를 한 경로로 계획·추종한다 (기본 BT: navigate_through_poses_w_replanning_and_recovery.xml).
+      plugin: "nav2_bt_navigator::NavigateThroughPosesNavigator"
     # 행동 트리 default_nav_to_pose_bt_xml = config/navigate_to_pose.xml — 파일 경로라 ros_system.launch.py가 넘긴다.
     #   기본 BT 복사본에서 복구 후진만 0.30m → 0.10m (pole_front_cam이 뒤를 못 봐서 벽에 박힘, 15-changes #23)
 
@@ -46,6 +53,8 @@ bt_navigator:
 # ─────────────────────────────────────────────────────────────────────────────
 controller_server:
   ros__parameters:
+    # 경로 끝점을 map으로 바꿀 때 TF 허용 지연(초). bt_navigator와 같은 이유 — 기본(0.1)은 부하 시 너무 짧다.
+    transform_tolerance: 0.5
     # 컨트롤러 계산 주기(Hz). /cmd_vel_nav가 이 주기로 나온다 (API.md: 20Hz).
     controller_frequency: 20.0
     # 현재 속도를 읽는 토픽 (EKF 결과). 가속 제한 계산에 쓴다.
@@ -66,7 +75,8 @@ controller_server:
     failure_tolerance: 0.3
     # 아래 세 목록의 이름은 우리가 짓는 라벨 — 같은 이름의 블록을 찾아 읽는다.
     progress_checker_plugins: ["progress_checker"]
-    goal_checker_plugins: ["goal_checker"]
+    # general_goal_checker = Nav2 기본 through-poses BT가 찾는 이름. goal_checker와 같은 값으로 둔다.
+    goal_checker_plugins: ["goal_checker", "general_goal_checker"]
     # FollowPath는 이름 고정 (예전엔 rl_nav_tuner가 FollowPath.* 를 실행 중 바꿨음, 제거됨).
     controller_plugins: ["FollowPath"]
 
@@ -89,9 +99,15 @@ controller_server:
       xy_goal_tolerance: 0.10
       # 목표 방향 허용 오차(rad). 0.15 ≈ 8.6°. (실측)
       yaw_goal_tolerance: 0.15
+    # through-poses 기본 BT의 GoalCheckerSelector가 찾는 이름 — 값은 goal_checker와 같게.
+    general_goal_checker:
+      plugin: "nav2_controller::SimpleGoalChecker"
+      stateful: false
+      xy_goal_tolerance: 0.10
+      yaw_goal_tolerance: 0.15
 
     # 경로 추종 플러그인 — ml::RlNavController (RL 정책, ONNX) + inner 바이패스
-    #   enable=false → inner(DWB) 그대로. ~/FollowPath/toggle 서비스로 정책 ON/OFF.
+    #   enable=false → inner(MPPI — fallback_controller) 그대로. ~/FollowPath/toggle 서비스로 정책 ON/OFF.
     #   LiDAR가 없어 nvblox 2D ESDF height slice(0.03~0.30 m, 0.05 m voxel)를 360방향 가상 스캔으로 쓴다.
     #   (raw 카메라 점구름은 costmap·collision_monitor가 계속 사용)
     FollowPath:
@@ -116,11 +132,12 @@ controller_server:
       extra_lin_vel: 0.0       # [m/s] 0~0.10 — 정책 출력에 더하는 추가 선속도 (max_lin 상한 유지, 0 = 끄기)
       extra_ang_vel: 0.0       # [rad/s] 0~0.50 — 정책 출력에 더하는 추가 각속도 (max_ang 상한 유지, 0 = 끄기)
       v_min_ratio: -0.2        # 후진 허용 비율 (음수 = 후진)
-      # 바이패스 controller — dwb(기본) · mppi · rpp · rotation_shim 또는 전체 pluginlib 클래스명.
+      # 바이패스 controller — mppi(기본) · dwb · rpp · rotation_shim 또는 전체 pluginlib 클래스명.
       #   처음 쓸 것은 여기서 고르고, 실행 중에는 서비스 /controller_server/FollowPath/set_fallback 으로 바꾼다
       #   (CLI: ./run-cli controller fallback mppi). 각 inner 의 파라미터는 FollowPath.inner_<이름>.* — 아래 블록 하나씩:
       #   inner_dwb(아래) · inner_mppi · inner_rpp · inner_rotation_shim. 안 쓰는 블록은 읽지 않는다.
-      fallback_controller: "dwb"
+      #   기본 MPPI (2026-11-11 dwb → mppi). DWB로 돌아가려면 "dwb".
+      fallback_controller: "mppi"
       inner_dwb:               # ← DWB 설정 (예전 이름 inner — 바꿔 줌)
 
         # ── 속도 한계 [m/s · rad/s] — ml.yaml max_vel_x · max_vel_theta와 같은 값
@@ -236,7 +253,7 @@ controller_server:
         TrajectoryValidator:
           plugin: "mppi::DefaultOptimalTrajectoryValidator"
           collision_lookahead_time: 1.5
-          consider_footprint: false
+          consider_footprint: true   # 직사각형 몸으로 궤적 충돌 검사 (원이면 뒤 0.13 m를 못 봄)
         critics:
           ["ConstraintCritic", "CostCritic", "GoalCritic", "GoalAngleCritic",
            "PathAlignCritic", "PathFollowCritic", "PathAngleCritic", "PreferForwardCritic"]
@@ -250,7 +267,7 @@ controller_server:
           cost_weight: 3.81
           near_collision_cost: 253
           critical_cost: 300.0
-          consider_footprint: false
+          consider_footprint: true   # 직사각형 몸 (inflation_radius ≥ 외접 반경이어야 함 — local_costmap 참고)
           collision_cost: 1000000.0
           near_goal_distance: 0.5
           trajectory_point_step: 2
@@ -377,8 +394,11 @@ local_costmap:
       width: 3
       height: 3
       resolution: 0.05
-      # 로봇 외곽 반경 — 실제 폭 0.306의 절반(0.153)에 여유. 테스트베드 통로가 좁아 0.16으로 최소화
-      robot_radius: 0.16
+      # 로봇 외곽 = 실제 몸 직사각형 (base_footprint 기준 [m]: 앞 0.069 · 뒤 -0.245 · 옆 ±0.151 — beebot.usda 충돌 도형,
+      #   faker/config/robot_footprint.yaml과 같은 값). 기준점이 앞 바퀴축 쪽이라 몸이 뒤로 길다 → 원(0.16)은 뒤를 0.13 m 덜 봐서
+      #   경로가 벽에 붙고 제자리 회전 때 뒤가 벽에 걸렸다 (테스트베드 실측 2026-11-11: 105 반복·Spin "Collision Ahead").
+      footprint: "[[0.069, 0.151], [0.069, -0.151], [-0.245, -0.151], [-0.245, 0.151]]"
+      footprint_padding: 0.01
       always_send_full_costmap: true
       plugins: ["voxel_layer", "inflation_layer"]
       voxel_layer:
@@ -404,9 +424,10 @@ local_costmap:
           raytrace_max_range: 3.0
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        # 로봇 반경 0.16 + 최소 2cm — 통로를 덮지 않게. (기존 0.25/8.0은 0.73m 통로를 거의 다 덮었다)
-        inflation_radius: 0.18
-        cost_scaling_factor: 3.0
+        # 직사각형 footprint의 외접 반경(≈0.30, 패딩 포함) 이상이어야 MPPI가 몸 모양으로 충돌을 본다 (작으면 경고 + 원으로 봄).
+        # 6.0 = 벽에서 0.3 m면 비용 약 1/4 — 통로 가운데를 고르되 좁은 곳(절반 폭 0.25)도 지나가게
+        inflation_radius: 0.35
+        cost_scaling_factor: 6.0
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -422,7 +443,11 @@ global_costmap:
       publish_frequency: 1.0
       global_frame: map
       robot_base_frame: base_footprint
-      robot_radius: 0.16
+      # 로봇 외곽 = 실제 몸 직사각형 (base_footprint 기준 [m]: 앞 0.069 · 뒤 -0.245 · 옆 ±0.151 — beebot.usda 충돌 도형,
+      #   faker/config/robot_footprint.yaml과 같은 값). 기준점이 앞 바퀴축 쪽이라 몸이 뒤로 길다 → 원(0.16)은 뒤를 0.13 m 덜 봐서
+      #   경로가 벽에 붙고 제자리 회전 때 뒤가 벽에 걸렸다 (테스트베드 실측 2026-11-11: 105 반복·Spin "Collision Ahead").
+      footprint: "[[0.069, 0.151], [0.069, -0.151], [-0.245, -0.151], [-0.245, 0.151]]"
+      footprint_padding: 0.01
       resolution: 0.05
       track_unknown_space: true
       always_send_full_costmap: true
@@ -449,9 +474,10 @@ global_costmap:
           raytrace_max_range: 3.0
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        # 로봇 반경 0.16 + 최소 2cm — 지도 가장자리까지 빨갛게 덮지 않게
-        inflation_radius: 0.18
-        cost_scaling_factor: 3.0
+        # 전역 계획(NavFn)은 로봇을 점으로 본다 — 몸 안쪽 반경(앞 0.08)까지만 막히니, 비용으로 통로 가운데를 고르게 한다.
+        # 0.45 · 6.0: 벽에서 0.3 m ≈ 67 · 0.15 m ≈ 166 (253 = 몸이 닿음) — 제자리 회전 반경(뒤 모서리 0.29)을 지키는 경로
+        inflation_radius: 0.45
+        cost_scaling_factor: 6.0
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -493,12 +519,16 @@ collision_monitor:
     stop_pub_timeout: 2.0
     enable_stamped_cmd_vel: true
     polygons: ["Approach", "SlowZone"]
-    # approach: 지금 속도로 계속 가면 time_before_collision 안에 몸(반경 0.18 + 2cm)이 점에 닿는 경우에만 그 속도를 줄여 멈춤.
-    #   멀어지는 방향(후진·회전)은 그대로 통과 → 벽에 붙어도 빠져나온다.
-    #   (예전 stop 원 0.22m는 방향과 무관하게 전부 정지 → 벽에 4cm 붙으면 후진도 못 해 갇혔음 — 실측)
+    # approach: 지금 속도로 계속 가면 time_before_collision 안에 몸에 점이 닿는 경우에만 그 속도를 줄여 멈춤.
+    #   ⚠ Nav2는 점이 이미 영역 안에 있으면 방향과 상관없이 충돌 시간 0 → 전부 정지 (polygon.cpp getCollisionTime).
+    #     예전엔 몸 둘레 원(0.20) 하나라 벽에 다가가 멈춘 뒤 깊이 잡음으로 점이 원 안에 들면 후진·회전까지 막혀
+    #     복구(BackUp·Spin)가 못 움직이고 계획이 파기됐다 (2026-11-11 실기 증상).
+    #   그래서 velocity_polygon — 지금 명령 속도에 따라 영역을 고른다 (첫 번째로 맞는 것):
+    #     forward  (vx > 0)  몸 앞 반원 0.20 — 앞의 벽만 전진을 막는다
+    #     backward (vx < 0)  몸 뒤 반원 0.20 — 앞 카메라 점은 여기 없으니 후진은 막히지 않는다 (뒤는 못 봄)
+    #     rotate   (vx ≈ 0)  몸 크기 원 0.18 — 실제로 닿은 점만 제자리 회전을 막는다
     Approach:
-      type: "circle"
-      radius: 0.20
+      type: "velocity_polygon"
       action_type: "approach"
       time_before_collision: 1.0
       simulation_time_step: 0.1
@@ -506,6 +536,26 @@ collision_monitor:
       visualize: true
       polygon_pub_topic: polygon_approach
       enabled: true
+      holonomic: false
+      velocity_polygons: ["rotate", "forward", "backward"]
+      rotate:
+        points: "[[0.18, 0], [0.174, 0.047], [0.156, 0.09], [0.127, 0.127], [0.09, 0.156], [0.047, 0.174], [0, 0.18], [-0.047, 0.174], [-0.09, 0.156], [-0.127, 0.127], [-0.156, 0.09], [-0.174, 0.047], [-0.18, 0], [-0.174, -0.047], [-0.156, -0.09], [-0.127, -0.127], [-0.09, -0.156], [-0.047, -0.174], [0, -0.18], [0.047, -0.174], [0.09, -0.156], [0.127, -0.127], [0.156, -0.09], [0.174, -0.047]]"
+        linear_min: -0.005
+        linear_max: 0.005
+        theta_min: -10.0
+        theta_max: 10.0
+      forward:
+        points: "[[0, -0.2], [0.052, -0.193], [0.1, -0.173], [0.141, -0.141], [0.173, -0.1], [0.193, -0.052], [0.2, 0], [0.193, 0.052], [0.173, 0.1], [0.141, 0.141], [0.1, 0.173], [0.052, 0.193], [0, 0.2]]"
+        linear_min: 0.005
+        linear_max: 10.0
+        theta_min: -10.0
+        theta_max: 10.0
+      backward:
+        points: "[[0, 0.2], [-0.052, 0.193], [-0.1, 0.173], [-0.141, 0.141], [-0.173, 0.1], [-0.193, 0.052], [-0.2, 0], [-0.193, -0.052], [-0.173, -0.1], [-0.141, -0.141], [-0.1, -0.173], [-0.052, -0.193], [0, -0.2]]"
+        linear_min: -10.0
+        linear_max: -0.005
+        theta_min: -10.0
+        theta_max: 10.0
     # 0.30m 안이면 절반 속도 (통로 가운데면 벽까지 약 0.37m라 평소엔 안 걸림)
     SlowZone:
       type: "circle"

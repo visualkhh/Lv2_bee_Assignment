@@ -33,7 +33,7 @@ class MapListItem(MenuItem):
     key = '2'
 
     def label(self):
-        return '지도 목록 → 보기'
+        return '지도 목록 (보기 · 이름 바꾸기 · 삭제)'
 
     def run(self):
         return MapListMenu(self.app).show()
@@ -43,12 +43,12 @@ class MapViewItem(MenuItem):
     """지도 화면(MapPage)을 'view' 모드로 연다 — name이 없으면 지금 /map, 있으면 저장된 지도 파일."""
     shows_busy = False
 
-    def __init__(self, app, key: str, name: str | None = None):
+    def __init__(self, app, key: str, name: str | None = None, label: str | None = None):
         super().__init__(app)
-        self.key, self._name = key, name
+        self.key, self._name, self._label = key, name, label
 
     def label(self):
-        return self._name or '지도 보기 (지금 /map · 로봇 위치)'
+        return self._label or self._name or '지도 보기 (지금 /map · 로봇 위치)'
 
     def run(self):
         if self._name is None:
@@ -73,12 +73,12 @@ class MapPoseItem(MenuItem):
 
 
 class MapGoalItem(MenuItem):
-    """Nav2 이동 목표(GOAL) — 지도 위에서 한 점을 찍어 보낸다 (도착은 로봇이 알아서)."""
+    """Nav2 이동 목표 — 지도에서 여러 웨이포인트를 찍어 순서대로 보낸다 (구간 경로는 Nav2 planner가 채운다)."""
     shows_busy = False
     key = '2'
 
     def label(self):
-        return '이동 목표 (goal · 지도에서 찍기)'
+        return '이동 목표 (Nav2 · 여러 웨이포인트)'
 
     def run(self):
         if self.state.operation and self.state.operation != 'AUTO':   # 모르면(빈 값) 묻지 않음 — 재연결 직후 거짓 확인창 방지
@@ -86,10 +86,7 @@ class MapGoalItem(MenuItem):
                                    body=['Nav2 이동 목표는 AUTO에서 실행됩니다.']):
                 return STAY
             self.bus.cmd_mode(argparse.Namespace(mode='auto'))
-        return self.ui.window.navigate('map', mode='goal', on_pose=self._send_goal)
-
-    def _send_goal(self, x: float, y: float, yaw_deg: float) -> None:
-        self.bus.nav.send_nav_goal({'x': x, 'y': y, 'yaw_deg': yaw_deg}, 'map')
+        return self.ui.window.navigate('map', mode='goal')
 
 
 class MapPoseMenuItem(MenuItem):
@@ -113,19 +110,98 @@ class MapPoseMenu(Menu):
     def center(self):
         return ['[위치 지정]', f' 조작: {self.state.operation or "-"}',
                 ' initialpose = 로봇 초기 위치 (faker 텔레포트)',
-                ' goal = Nav2 이동 목표']
+                ' goal = Nav2 이동 목표 — 지도에서 여러 점을 찍고 g로 순서대로 주행']
+
+
+class MapEntryItem(MenuItem):
+    """목록의 지도 한 개 → 그 지도의 하위 메뉴 (보기 · 이름 바꾸기 · 삭제)."""
+    shows_busy = False
+
+    def __init__(self, app, key: str, name: str):
+        super().__init__(app)
+        self.key, self._name = key, name
+
+    def label(self):
+        return self._name
+
+    def run(self):
+        return MapEntryMenu(self.app, self._name).show()
+
+
+class MapRenameItem(MenuItem):
+    key = '2'
+
+    def __init__(self, app, entry: 'MapEntryMenu'):
+        super().__init__(app)
+        self._entry = entry
+
+    def label(self):
+        return '이름 바꾸기'
+
+    def run(self):
+        old = self._entry.name
+        new = self.ui.modal_input('지도 이름 바꾸기', [f'지금 이름: {old}', '새 폴더 이름 (/ 안 됨)'], '새 이름>', old,
+                                  validate=lambda t: None if t.strip() and t.strip() != old else '새 이름을 입력하세요')
+        if new is not None and self.bus.cmd_map(self.bus.map_args('rename', name=old, to=new.strip())) == 0:
+            self._entry.name = new.strip()   # 하위 메뉴는 새 이름으로 계속
+        return STAY
+
+
+class MapDeleteItem(MenuItem):
+    key = '3'
+
+    def __init__(self, app, entry: 'MapEntryMenu'):
+        super().__init__(app)
+        self._entry = entry
+
+    def label(self):
+        return '삭제'
+
+    def run(self):
+        name = self._entry.name
+        if self.ui.confirm(f'지도 "{name}"을(를) 삭제할까요?', default=False,
+                           body=[f'폴더째 지움: {self.bus.default_map_dir() / name}', '되돌릴 수 없습니다.']):
+            self.bus.cmd_map(self.bus.map_args('delete', name=name))
+        return STAY
+
+
+class MapEntryMenu(Menu):
+    """지도 한 개 — 폴더가 없어지면(삭제) items()가 비어 목록으로 돌아간다 (Window 규칙)."""
+
+    def __init__(self, app, name: str):
+        super().__init__(app)
+        self.name = name
+
+    @property
+    def title(self):
+        return f'지도 {self.name}'
+
+    def items(self):
+        if not (self.bus.default_map_dir() / self.name).is_dir():
+            return []
+        return [MapViewItem(self.app, '1', self.name, '보기 (터미널 지도 화면)'), MapRenameItem(self.app, self), MapDeleteItem(self.app, self)]
+
+    def center(self):
+        st = self.state
+        d = self.bus.default_map_dir() / self.name
+        files = sorted(p.name for p in d.iterdir()) if d.is_dir() else []
+        lines = [f'[지도 {self.name}]', f' 폴더: {d}', f' 파일: {", ".join(files) or "-"}']
+        if self.name == st.values.get('map_name') and st.map_mode not in (None, '', 'NONE'):
+            lines.append(f' 지금 쓰는 지도 ({st.map_mode}) — 이름 바꾸기·삭제 안 됨')
+        return lines
 
 
 class MapListMenu(Menu):
-    title = '지도 목록 → 보기'
+    title = '지도 목록'
 
     def items(self):
         maps = self.bus.map_names()
-        return ([MapViewItem(self.app, str(i + 1), n) for i, n in enumerate(maps)]
+        return ([MapEntryItem(self.app, str(i + 1), n) for i, n in enumerate(maps)]
                 or [InfoItem(self.app, '지도 목록 없음')])
 
     def center(self):
-        return ['[저장된 지도]', ' Enter = 터미널 지도 화면으로 열기', f' 폴더: {self.bus.default_map_dir()}', ' <이름>/map.yaml + map.pgm 이 있는 지도만 볼 수 있음']
+        return ['[저장된 지도]', ' Enter = 그 지도 메뉴 (보기 · 이름 바꾸기 · 삭제)', f' 폴더: {self.bus.default_map_dir()}',
+                ' 보기는 <이름>/map.yaml + map.pgm 이 있는 지도만']
 
 
 class MapModeItem(MenuItem):

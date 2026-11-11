@@ -295,6 +295,8 @@ cd tools
 ./run-cli map mode mapping
 ./run-cli map mode localization
 ./run-cli map switch 20261019_093353
+./run-cli map rename 20261019_093353 --to arena_a   # 폴더 이름 바꾸기
+./run-cli map delete arena_a                         # 폴더째 삭제
 ./run-cli map save                 # 저장 후 LOCALIZATION 전환을 물어봄 (TTY)
 ./run-cli map save --localize      # 저장 후 바로 LOCALIZATION (비대화형)
 ./run-cli map save --no-localize   # 미리보기만 저장하고 MAPPING 유지
@@ -306,6 +308,8 @@ cd tools
 
 - `map mode` · `map switch`는 **launch 전체를 다시 띄웁니다** (cuVSLAM·nvblox는 실행 중 전환이 없음 — state_manager가 `all map:=slam` · `all map:=saved map_name:=<이름>`).
   CLI는 `/state/restart`의 첫 응답(`all: 재시작 중 …` · `거절: …`)만 보여 주고 끝납니다. 다시 뜨는 데 수십 초(nvblox 지도 저장 → SLAM 시작) — 끝났는지는 `map status`.
+- `map rename` · `map delete`는 지도 폴더를 직접 바꿉니다 (state_manager가 2초마다 다시 읽어 목록 갱신). **지금 쓰는 지도**(모드가 NONE이 아닐 때의 `map_name`)는 거절 — 다른 지도로 전환하거나 NONE에서 하세요.
+  TUI **7) 지도/위치 → 2) 지도 목록**에서 지도를 고르면 보기 · 이름 바꾸기 · 삭제(확인창) 메뉴가 열립니다.
 - 없는 지도 이름 · 지도 폴더 없이 `localization`은 CLI가 먼저 거절합니다 (state_manager는 거절 이유를 `/diagnostics`에만 남김).
 - COURSE는 없어졌습니다. 테스트베드(faker)는 fake SLAM(fake_cuvslam + fake_nvblox)으로 GPU 없이 MAPPING(센서로 지도 작성)/LOCALIZATION(저장 지도)이 됩니다.
 - `map save`는 `/map_saver/save_map`(map:=slam·saved일 때만 뜸)을 불러 `.pgm`·`.yaml`을 저장합니다.
@@ -315,6 +319,8 @@ cd tools
   TUI **7) 지도 → 6) 지도 저장**도 같은 확인창을 띄웁니다.
   기본 경로는 `<state_manager의 map_dir>/<현재 지도 이름>/map` — map_saver가 도는 쪽(로봇·컨테이너) 경로라 원격 PC에서 CLI를 써도 맞습니다.
   `map_dir`을 못 읽으면 이 컴퓨터의 `ros2_ws/map`(또는 `BEEBOT_MAP_DIR`). `--file` · `--map-dir`는 그대로 씁니다.
+- **테스트 지도 폴더는 따로** — `--source fake`·`--source docker`는 `tools/cli/ros/fake/map/`을 씁니다 (도커는 compose가 `/ws/map`으로 바인드 · `BEEBOT_MAP_DIR`을 주면 그게 우선). 실기 지도(`ros2_ws/map`)와 섞이지 않습니다.
+  `default` = `tools/course/build_world.py`가 Isaac 미로 USD로 만든 **완벽한 지도**(벽 100 · 미로 안 0 · 밖 미지)라 매핑 없이 바로 `map switch default` → LOCALIZATION 주행 시험. 커밋되는 건 `default`만입니다.
 
 ### 노드 (상태 · 파라미터 · 진단 · 재시작)
 

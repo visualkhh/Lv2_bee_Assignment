@@ -212,6 +212,23 @@ class Toggle:   # nav2_msgs/srv/Toggle — collision_monitor 켜기·끄기
     Response = ToggleResponse
 
 
+class FilePathRequest(_Msg):
+    def __init__(self, **kw):
+        self.file_path = ''
+        super().__init__(**kw)
+
+
+class FilePathResponse(_Msg):
+    def __init__(self, **kw):
+        self.success = True
+        super().__init__(**kw)
+
+
+class FilePath:   # nvblox_msgs/srv/FilePath — nvblox 지도(.nvblx) 저장·불러오기
+    Request = FilePathRequest
+    Response = FilePathResponse
+
+
 class Int32MultiArray(_Msg):
     def __init__(self, data=None):
         self.data = list(data or [])

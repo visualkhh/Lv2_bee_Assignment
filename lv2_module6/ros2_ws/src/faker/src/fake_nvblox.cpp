@@ -17,13 +17,14 @@ namespace faker {
 
 namespace {
 
-// 테스트베드 지도 격자 — map 프레임 원점(출발 칸) 기준 12m×12m. 코스(dice_maze ≈ x -1..4 · y -1.2..5.6)를 덮는다.
+// 테스트베드 지도 격자 — map 프레임 원점(출발 칸) 기준 16m×16m (-8..8). 두 코스를 다 덮는다:
+//   isaac_maze ≈ x -2.7..3.2 · y -6.1..1.4 (예전 12m·-3 시작이면 y<-3이 잘려 미로 아래쪽 벽이 지도에 없었음) · dice_maze ≈ x -1..4 · y -1.2..5.6
 constexpr char kMagic[9] = {'F', 'A', 'K', 'E', 'S', 'L', 'A', 'M', '1'};
-constexpr int kMapW = 240;
-constexpr int kMapH = 240;
+constexpr int kMapW = 320;
+constexpr int kMapH = 320;
 constexpr double kMapRes = 0.05;
-constexpr double kMapOriginX = -3.0;
-constexpr double kMapOriginY = -3.0;
+constexpr double kMapOriginX = -8.0;
+constexpr double kMapOriginY = -8.0;
 
 }  // namespace
 

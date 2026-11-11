@@ -24,3 +24,14 @@ TEST(NavObs, Tilt) {
   const double h = std::sin(0.1 / 2);
   EXPECT_NEAR(ml::tilt_of(h, 0, 0, std::cos(0.1 / 2)), 0.1, 1e-9);
 }
+
+
+TEST(NavObs, HeadingSpeedCap) {  // 11-10 시뮬 RUN1: 경로와 80° 어긋난 채 0.22 m/s
+  const double r80 = 80.0 * M_PI / 180.0;
+  EXPECT_NEAR(ml::heading_speed_cap(0.22, 0.26, std::cos(r80), std::sin(r80)), 0.26 * std::pow(std::cos(r80), 2), 1e-9);  // ≈ 0.008
+  EXPECT_LT(ml::heading_speed_cap(0.22, 0.26, std::cos(r80), std::sin(r80)), 0.01);
+  EXPECT_DOUBLE_EQ(ml::heading_speed_cap(0.20, 0.26, 0.3, 0.0), 0.20);    // 경로 정면 — 그대로
+  EXPECT_NEAR(ml::heading_speed_cap(0.26, 0.26, 0.3, 0.3 * std::tan(M_PI / 6)), 0.26 * 0.75, 1e-9);  // 30° — 0.195
+  EXPECT_DOUBLE_EQ(ml::heading_speed_cap(0.20, 0.26, -0.3, 0.1), 0.0);    // 뒤쪽 경로 — 제자리 회전만
+  EXPECT_DOUBLE_EQ(ml::heading_speed_cap(-0.05, 0.26, -0.3, 0.1), -0.05); // 후진은 그대로
+}

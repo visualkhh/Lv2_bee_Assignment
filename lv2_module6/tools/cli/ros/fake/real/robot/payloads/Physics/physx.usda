@@ -1,0 +1,130 @@
+#usda 1.0
+(
+    customLayerData = {
+        string creator = "URDF USD Converter v0.3.2"
+    }
+    defaultPrim = "beebot"
+    endTimeCode = 1000000
+    kilogramsPerUnit = 1
+    metersPerUnit = 1
+    startTimeCode = 0
+    subLayers = [
+        @./physics.usda@
+    ]
+    upAxis = "Z"
+)
+
+over "beebot"
+{
+    over "Geometry"
+    {
+        over "base_footprint"
+        {
+            over "base_link" (
+                prepend apiSchemas = ["PhysxArticulationAPI"]
+            )
+            {
+                bool physxArticulation:enabledSelfCollisions = 1
+                float physxArticulation:sleepThreshold = 0
+                float physxArticulation:stabilizationThreshold = 0
+            }
+        }
+    }
+
+    over "Physics"
+    {
+        over "wheel_left_joint" (
+            prepend apiSchemas = ["PhysxJointAPI"]
+        )
+        {
+            float physxJoint:armature = 0.016
+            float physxJoint:maxJointVelocity = 462
+        }
+
+        over "wheel_right_joint" (
+            prepend apiSchemas = ["PhysxJointAPI"]
+        )
+        {
+            float physxJoint:armature = 0.016
+            float physxJoint:maxJointVelocity = 462
+        }
+
+        over "joint1" (
+            prepend apiSchemas = ["PhysxJointAPI"]
+        )
+        {
+            float physxJoint:armature = 0.045
+            float physxJoint:maxJointVelocity = 276
+        }
+
+        over "joint2" (
+            prepend apiSchemas = ["PhysxJointAPI"]
+        )
+        {
+            float physxJoint:armature = 0.045
+            float physxJoint:maxJointVelocity = 276
+        }
+
+        over "joint3" (
+            prepend apiSchemas = ["PhysxJointAPI"]
+        )
+        {
+            float physxJoint:armature = 0.045
+            float physxJoint:maxJointVelocity = 276
+        }
+
+        over "joint4" (
+            prepend apiSchemas = ["PhysxJointAPI"]
+        )
+        {
+            float physxJoint:armature = 0.045
+            float physxJoint:maxJointVelocity = 276
+        }
+
+        over "joint5" (
+            prepend apiSchemas = ["PhysxJointAPI"]
+        )
+        {
+            float physxJoint:armature = 0.045
+            float physxJoint:maxJointVelocity = 276
+        }
+
+        over "gripper_left_joint" (
+            prepend apiSchemas = ["PhysxJointAPI"]
+        )
+        {
+            float physxJoint:maxJointVelocity = 0.07
+        }
+
+        over "gripper_right_joint" (
+            prepend apiSchemas = ["PhysxJointAPI"]
+        )
+        {
+        }
+    }
+
+    over "PhysicsMaterials"
+    {
+        over "wheel_rubber" (
+            prepend apiSchemas = ["PhysxMaterialAPI"]
+        )
+        {
+            uniform token physxMaterial:frictionCombineMode = "max"
+        }
+
+        over "finger_pad" (
+            prepend apiSchemas = ["PhysxMaterialAPI"]
+        )
+        {
+            uniform token physxMaterial:frictionCombineMode = "max"
+        }
+
+        over "caster_ball" (
+            prepend apiSchemas = ["PhysxMaterialAPI"]
+        )
+        {
+            uniform token physxMaterial:frictionCombineMode = "min"
+        }
+    }
+}
+

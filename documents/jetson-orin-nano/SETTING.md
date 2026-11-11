@@ -274,8 +274,16 @@ sudo apt-get update && apt-get install -y --no-install-recommends \
 ```bash
 sudo apt-get install -y --no-install-recommends \
     git ros-lyrical-rsl ros-lyrical-generate-parameter-library ros-lyrical-moveit-core ros-lyrical-tf2-kdl \
-    librange-v3-dev libfmt-dev libexpected-dev \
+    libfmt-dev libexpected-dev \
     && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /tmp/range-v3 && git clone --branch 0.12.0 --depth 1 \
+       https://github.com/ericniebler/range-v3.git /tmp/range-v3 \
+    && cd /tmp/range-v3 && git checkout a81477931a8aa2ad025c6bda0609f38e09e4d7ec \
+    && cmake -S /tmp/range-v3 -B /tmp/range-v3/build \
+       -DRANGE_V3_TESTS=OFF -DRANGE_V3_EXAMPLES=OFF \
+    && cmake --build /tmp/range-v3/build --parallel "$(nproc)" \
+    && sudo cmake --install /tmp/range-v3/build \
+    && rm -rf /tmp/range-v3 \
     && mkdir -p /tmp/pick_ik_ws/src && cd /tmp/pick_ik_ws/src \
     && git clone https://github.com/PickNikRobotics/pick_ik.git && cd pick_ik && git checkout 7c97fe2 \
     && cd /tmp/pick_ik_ws && . /opt/ros/lyrical/setup.sh \

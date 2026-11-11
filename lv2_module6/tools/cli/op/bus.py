@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 import math
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -830,10 +831,43 @@ class Bus:
 
     @staticmethod
     def map_args(action: str, name: str | None = None, file: str | None = None,
-                 localize: bool | None = None):
+                 localize: bool | None = None, to: str | None = None):
         return argparse.Namespace(
             action=action, name=name, file=file, map_dir=None,
-            format='pgm', topic='/map', localize=localize)
+            format='pgm', topic='/map', localize=localize, to=to)
+
+    def _map_edit(self, args, map_dir: Path) -> int:
+        """delete·rename — 지도 폴더(<map_dir>/<이름>)를 지우거나 이름을 바꾼다 (map.yaml의 image는 상대 경로라 폴더째 옮겨도 됨).
+        지금 쓰는 지도(모드 NONE이 아닐 때의 map_name)는 거부 — MAPPING은 거기에 쓰고 LOCALIZATION은 거기서 읽는다.
+        state_manager는 2초마다 폴더를 다시 읽으니 목록(map_list)은 여기서 바로 고쳐 둔다."""
+        self._poll(0.5)
+        name = (args.name or '').strip()
+        src = map_dir / name
+        if not name or '/' in name or name.startswith('.') or not src.is_dir():
+            print(f'거부: 지도 없음 "{name}" ({map_dir})', file=sys.stderr)
+            return 2
+        if name == self.state.values.get('map_name') and self.state.map_mode not in (None, '', 'NONE'):
+            print(f'거부: "{name}"은(는) 지금 쓰는 지도 ({self.state.map_mode}) — 다른 지도로 전환하거나 NONE에서 하세요',
+                  file=sys.stderr)
+            return 2
+        if args.action == 'delete':
+            shutil.rmtree(src)
+            print(f'지도 삭제: {src}')
+            new = None
+        else:
+            new = (getattr(args, 'to', None) or '').strip()
+            if not new or '/' in new or new.startswith('.'):
+                print(f'거부: 새 이름이 올바르지 않음 "{new}" (빈칸·/·.으로 시작 안 됨)', file=sys.stderr)
+                return 2
+            if (map_dir / new).exists():
+                print(f'거부: 이미 있는 이름 "{new}"', file=sys.stderr)
+                return 2
+            src.rename(map_dir / new)
+            print(f'지도 이름 바꿈: {name} → {new}')
+        old = (self.state.values.get('map_list') or '').splitlines()
+        if name in old:
+            self.state.values['map_list'] = '\n'.join(sorted([n for n in old if n != name] + ([new] if new else [])))
+        return 0
 
     @staticmethod
     def default_map_dir(explicit: str | None = None) -> Path:
@@ -910,6 +944,9 @@ class Bus:
                 return 2
             return self._map_restart_reply(lambda: self._send_map_name(args.name), f'지도 → {args.name}')
 
+        if args.action in ('delete', 'rename'):
+            return self._map_edit(args, map_dir)
+
         if args.action == 'save':
             self._poll(0.6)   # 일회성 프로세스도 /state/map_mode·map_name을 먼저 받는다
             rc = self._map_save(args, map_dir)
@@ -974,14 +1011,17 @@ class Bus:
         vals = self.param_get_vals(cli, ['map_dir'])
         return str(getattr(vals[0], 'string_value', '') or '') if vals else ''
 
+    def _local_map_path(self, path: Path) -> Path:
+        """로봇 쪽 지도 경로 → 이 컴퓨터에서 보이는 경로. 도커는 CLI(호스트)와 지도(컨테이너 /ws/map)가 다른 곳에 있다:
+        /ws/map/<이름>/… → 호스트 lv2_module6/ros2_ws/map/<이름>/… (compose 바인드). 그 밖은 그대로."""
+        try:
+            return self.default_map_dir() / path.relative_to('/ws/map')
+        except ValueError:
+            return path
+
     def _nvblox_exists(self, path: Path) -> bool:
-        """nvblox.nvblx가 있는가 — 도커는 CLI(호스트)와 지도(컨테이너 /ws/map)가 다른 곳에 있다."""
-        if path.is_file():
-            return True
-        # /ws/map/<이름>/nvblox.nvblx → 호스트 lv2_module6/ros2_ws/map/<이름>/nvblox.nvblx (compose 바인드)
-        if path.parent.parent == Path('/ws/map'):
-            return (self.default_map_dir() / path.parent.name / 'nvblox.nvblx').is_file()
-        return False
+        """nvblox.nvblx가 있는가."""
+        return path.is_file() or self._local_map_path(path.parent / 'nvblox.nvblx').is_file()
 
     def _save_nvblox_map(self, path: Path) -> int:
         """nvblox 정본(.nvblx) 저장 — map_saver의 pgm/yaml과 별개다.
@@ -1065,9 +1105,9 @@ class Bus:
             path = path.with_suffix('')
         if not robot_dir:  # 이 컴퓨터 경로일 때만
             path = path.resolve()
-        # 새 이름("wow")의 폴더는 아직 없다 — map_saver는 폴더를 안 만든다. 로봇 위에서 돌 때만 만들어진다(원격 CLI는 건너뜀).
+        # 새 이름("wow")의 폴더는 아직 없다 — map_saver는 폴더를 안 만든다. 로봇 위·도커(바인드된 /ws/map)에서 만들어진다(원격 CLI는 건너뜀).
         try:
-            path.parent.mkdir(parents=True, exist_ok=True)
+            self._local_map_path(path.parent).mkdir(parents=True, exist_ok=True)
         except OSError:
             pass
 

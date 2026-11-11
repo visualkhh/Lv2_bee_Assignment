@@ -1,4 +1,4 @@
-# faker/world에 커밋된 코스 지도 — 원점 = 출발 칸 (map = odom 원점)
+# tools/cli/ros/fake/real/map/dice_maze via tools/course/build_world.py — 실세계(fake_opencr 충돌 모델 — 로봇 지도 아님) · 원점 = 출발 칸, 로봇 앞 = +x
 image: dice_maze.pgm
 mode: trinary
 resolution: 0.01

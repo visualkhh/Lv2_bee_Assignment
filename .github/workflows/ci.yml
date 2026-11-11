@@ -132,12 +132,17 @@ jobs:
       # 테스트 로그(monitor_manager 기록·input/hardware/serial·output/hardware/serial)는 실패했을 때만 원인 확인용으로 올린다.
       - name: Collect debug (실패 시)
         # launch 로그 · 토픽 기록 · input/hardware/serial·output/hardware/serial · 패키지 테스트 결과
+        # testbed 컨테이너가 없을 수도(Build 실패·docker run 실패) → 이 step 자체는 절대 실패 금지 (진짜 원인 가림 방지).
+        # /debug는 호스트 lv2_module6/debug에 바인드 마운트라 컨테이너 없이도 로그가 남아있음.
         if: failure()
         run: |
           docker exec testbed bash -c 'cp /tmp/*.log /debug/ 2>/dev/null; mkdir -p /debug/test_results && for d in /ws/build/*/test_results; do cp -r "$d" "/debug/test_results/$(basename "$(dirname "$d")")"; done' || true
-          docker cp testbed:/debug ./debug && find ./debug -type f | sort
+          docker cp testbed:/debug ./debug 2>/dev/null || cp -r lv2_module6/debug ./debug 2>/dev/null || mkdir -p ./debug || true
+          docker logs testbed 2>&1 | tail -n 200 > ./debug/container.log 2>/dev/null || echo "(컨테이너 없음 — Build/test-all 이전 단계 로그 확인)" > ./debug/container.log || true
+          find ./debug -type f | sort || true
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: debug-${{ matrix.label }}
           path: debug
+          if-no-files-found: warn

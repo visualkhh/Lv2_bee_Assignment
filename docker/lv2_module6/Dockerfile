@@ -81,6 +81,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-lyrical-nav2-navfn-planner \
     ros-lyrical-nav2-controller \
     ros-lyrical-nav2-dwb-controller \
+    ros-lyrical-nav2-mppi-controller \
     ros-lyrical-nav2-behaviors \
     ros-lyrical-nav2-costmap-2d \
     ros-lyrical-nav2-velocity-smoother \
@@ -100,11 +101,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # pick_ik — MoveIt IK 플러그인 (config/moveit/kinematics.yaml). Lyrical apt에 없어 소스로 빌드해 /opt/ros/lyrical에 설치.
 #   팔이 5축이라 기본 KDL은 "위치 + 위→아래 방향" 목표를 못 풀었음 (축이 모자란 팔 — pick_ik는 오차 비용을 줄여 해를 찾음).
-#   커밋 고정 (재현성): PickNikRobotics/pick_ik 7c97fe2 (2026-09-18)
+#   Noble arm64에는 librange-v3-dev apt 패키지가 없어 range-v3도 소스로 설치한다.
+#   커밋 고정 (재현성): range-v3 a8147793, PickNikRobotics/pick_ik 7c97fe2 (2026-09-18)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git ros-lyrical-rsl ros-lyrical-generate-parameter-library ros-lyrical-moveit-core ros-lyrical-tf2-kdl \
-    librange-v3-dev libfmt-dev libexpected-dev \
+    libfmt-dev libexpected-dev \
     && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /tmp/range-v3 && git clone --branch 0.12.0 --depth 1 \
+       https://github.com/ericniebler/range-v3.git /tmp/range-v3 \
+    && cd /tmp/range-v3 && git checkout a81477931a8aa2ad025c6bda0609f38e09e4d7ec \
+    && cmake -S /tmp/range-v3 -B /tmp/range-v3/build \
+       -DRANGE_V3_TESTS=OFF -DRANGE_V3_EXAMPLES=OFF \
+    && cmake --build /tmp/range-v3/build --parallel "$(nproc)" \
+    && cmake --install /tmp/range-v3/build \
+    && rm -rf /tmp/range-v3 \
     && mkdir -p /tmp/pick_ik_ws/src && cd /tmp/pick_ik_ws/src \
     && git clone https://github.com/PickNikRobotics/pick_ik.git && cd pick_ik && git checkout 7c97fe2 \
     && cd /tmp/pick_ik_ws && . /opt/ros/lyrical/setup.sh \

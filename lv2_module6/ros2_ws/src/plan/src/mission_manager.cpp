@@ -102,6 +102,8 @@ MissionManager::MissionManager()
   match_radius_ = declare_parameter<double>("match_radius", 0.04);
   stand_check_s_ = declare_parameter<double>("stand_check_s", 1.0);
   verify_radius_ = declare_parameter<double>("verify_radius", 0.15);
+  walls_ = declare_parameter<std::vector<double>>("arena_walls", std::vector<double>{});
+  wall_clearance_ = declare_parameter<double>("wall_clearance", 0.22);
   place_tol_ = declare_parameter<double>("place_tol", 0.010);
   place_search_ = declare_parameter<double>("place_search", 0.05);
   corr_max_ = declare_parameter<double>("tag_correction_max", 0.05);
@@ -133,6 +135,8 @@ MissionManager::MissionManager()
   goals_pub_ = create_publisher<SubGoalArray>("/task/sub_goals", rclcpp::QoS(10).reliable().transient_local());
   state_pub_ = create_publisher<MissionState>("/mission/state", latched);
   markers_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>("/mission/markers", latched);
+  walls_pub_ = create_publisher<nav_msgs::msg::OccupancyGrid>("/arena/walls", latched);
+  publish_walls();
   cmd_sub_ = create_subscription<std_msgs::msg::String>("/cmd/mission", rclcpp::QoS(10).reliable(),
     [this](std_msgs::msg::String::ConstSharedPtr m) { on_command(m->data); });
   barcode_sub_ = create_subscription<std_msgs::msg::String>("/mission/qr", latched,
@@ -757,6 +761,12 @@ void MissionManager::go_near(const Box & box, double px, double py, Done done, s
         return da != db ? da < db : std::hypot(a.x - r.x, a.y - r.y) < std::hypot(b.x - r.x, b.y - r.y);
       });
     }
+    // 벽에 막힌 변은 처음부터 뺌 (예: 시작 박스 1 서쪽 — x 1.101 벽과 박스 사이 0.27 m. 다가설 자리가 벽 위라 Nav2가 벽으로 몰고 감)
+    poses.erase(std::remove_if(poses.begin(), poses.end(), [this](const Pose2 & p) {
+      const bool blocked = wall_distance(p.x, p.y, walls_) < wall_clearance_;
+      if (blocked) RCLCPP_INFO(get_logger(), "다가설 자리 (%.2f, %.2f) — 벽에서 %.2f m 안이라 뺌", p.x, p.y, wall_clearance_);
+      return blocked;
+    }), poses.end());
   }
   if (k >= poses.size() || static_cast<int>(k) >= approach_tries_) { done(false, "approach_failed"); return; }
   // Nav2로 변 앞 standoff까지 → approach로 approach_gap까지 직선으로 붙음 (Nav2 원형 footprint로는 못 붙는 거리)
@@ -902,6 +912,42 @@ bool MissionManager::robot_arena(Pose2 & p) const {
   } catch (const std::exception &) {
     return false;
   }
+}
+
+// 경기장 벽을 map 격자로 (/arena/walls, latched) — nvblox_map이 /map에 겹쳐 Nav2가 매핑 처음부터 벽을 앎.
+//   격자 = 경기장 네 모서리(+여유)를 map으로 옮긴 범위 · 벽 칸 100 · 나머지 −1(모름 — 겹칠 때 nvblox 값을 안 덮음)
+void MissionManager::publish_walls() {
+  if (walls_.size() < 4) return;
+  const double res = 0.05, pad = 0.3;
+  double x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+  for (size_t i = 0; i + 1 < walls_.size(); i += 2) {
+    const auto m = to_map(walls_[i], walls_[i + 1], 0.0);
+    x0 = std::min(x0, m.x); y0 = std::min(y0, m.y); x1 = std::max(x1, m.x); y1 = std::max(y1, m.y);
+  }
+  x0 -= pad; y0 -= pad;
+  nav_msgs::msg::OccupancyGrid g;
+  g.header.frame_id = "map";
+  g.header.stamp = now();
+  g.info.resolution = res;
+  g.info.width = static_cast<uint32_t>(std::ceil((x1 + pad - x0) / res));
+  g.info.height = static_cast<uint32_t>(std::ceil((y1 + pad - y0) / res));
+  g.info.origin.position.x = x0;
+  g.info.origin.position.y = y0;
+  g.info.origin.orientation.w = 1.0;
+  g.data.assign(static_cast<size_t>(g.info.width) * g.info.height, -1);
+  for (size_t i = 0; i + 3 < walls_.size(); i += 4) {
+    const double len = std::hypot(walls_[i + 2] - walls_[i], walls_[i + 3] - walls_[i + 1]);
+    const int n = std::max(1, static_cast<int>(std::ceil(len / (res / 2))));
+    for (int k = 0; k <= n; ++k) {
+      const double t = static_cast<double>(k) / n;
+      const auto m = to_map(walls_[i] + t * (walls_[i + 2] - walls_[i]), walls_[i + 1] + t * (walls_[i + 3] - walls_[i + 1]), 0.0);
+      const int cx = static_cast<int>(std::floor((m.x - x0) / res)), cy = static_cast<int>(std::floor((m.y - y0) / res));
+      if (cx >= 0 && cy >= 0 && cx < static_cast<int>(g.info.width) && cy < static_cast<int>(g.info.height))
+        g.data[static_cast<size_t>(cy) * g.info.width + cx] = 100;
+    }
+  }
+  walls_pub_->publish(g);
+  RCLCPP_INFO(get_logger(), "경기장 벽 %zu개 → /arena/walls (%ux%u)", walls_.size() / 4, g.info.width, g.info.height);
 }
 
 void MissionManager::write_log(const std::string & name, const std::string & json) const {

@@ -85,6 +85,45 @@ def body_twist(prev, cur, dt):
     return (c * dx + s * dy) / dt, (-s * dx + c * dy) / dt, dyaw / dt
 
 
+class MapGate:
+    """map→odom 보정 거르기 — cuVSLAM(RGB-D 한 대 · IMU 없음)이 벽 앞·빠른 회전에서 튀어도 지도 위치가 따라 튀지 않게.
+    표준(Isaac ROS VIO)은 IMU 융합으로 버티고 map→odom은 루프 클로저 때만 바뀜 — 여기선 대신:
+      ① 보정이 한 번에 jump_m · jump_deg 넘게 바뀌면 받지 않고 잠금(locked) — 그 뒤 이동은 EKF(바퀴+IMU)만. /initialpose로 풀림
+      ② 그 밖의 보정은 초당 rate_m · rate_deg까지만 따라감 (튀는 프레임이 지도에 바로 안 들어감)
+    11-10 시뮬 기록 재생(정답을 odom으로 봄): 4.8 m 점프 → 최대 3.5 cm · 정상 실행은 그대로. 점진적 밀림(13→56 cm)은 못 고침 → VIO 필요"""
+
+    def __init__(self, jump_m=0.30, jump_deg=15.0, rate_m=0.02, rate_deg=2.0):
+        self.jump_m, self.jump_rad = jump_m, math.radians(jump_deg)
+        self.rate_m, self.rate_rad = rate_m, math.radians(rate_deg)
+        self.held = None   # 지금 내는 map→odom (x, y, yaw)
+        self.t = None
+        self.locked = False
+        self.rejected = 0
+
+    def reset(self):
+        self.held, self.t, self.locked = None, None, False
+
+    def update(self, cand, t):
+        """후보 map→odom, 시각 t [s] → (낼 map→odom, 후보를 그대로 받았는지)"""
+        if self.held is None:
+            self.held, self.t = tuple(cand), t
+            return self.held, True
+        dt = max(t - self.t, 1e-3)
+        self.t = t
+        d = math.hypot(cand[0] - self.held[0], cand[1] - self.held[1])
+        r = abs(math.remainder(cand[2] - self.held[2], 2 * math.pi))
+        if self.locked or d > self.jump_m or r > self.jump_rad:
+            self.locked = True
+            self.rejected += 1
+            return self.held, False
+        k = min(1.0, self.rate_m * dt / d if d > 1e-9 else 1.0, self.rate_rad * dt / r if r > 1e-9 else 1.0)
+        x, y, yaw = self.held
+        self.held = (x + k * (cand[0] - x), y + k * (cand[1] - y), yaw + k * math.remainder(cand[2] - yaw, 2 * math.pi))
+        if k < 1.0:
+            self.rejected += 1
+        return self.held, k >= 1.0
+
+
 def image(m, dtype, ch):
     """sensor_msgs/Image → numpy (row step 패딩 제거, cv_bridge 없이)"""
     a = np.frombuffer(bytes(m.data), dtype).reshape(m.height, m.step // np.dtype(dtype).itemsize)
@@ -109,6 +148,12 @@ class CuvslamSlam(Node):
         # EKF에 주는 속도 분산 — 실측으로 맞출 값 (σ 0.05 m/s · 0.05 rad/s에서 시작)
         self.lin_var = float(self.declare_parameter('linear_variance', 0.0025).value)
         self.ang_var = float(self.declare_parameter('angular_variance', 0.0025).value)
+        # map→odom 거르기 (MapGate) — 큰 점프는 받지 않고 잠금(/initialpose로 풀림) · 그 밖은 초당 rate까지만 따라감. map_gate:=false면 끔
+        self.gate = MapGate(float(self.declare_parameter('gate_jump_m', 0.30).value),
+                            float(self.declare_parameter('gate_jump_deg', 15.0).value),
+                            float(self.declare_parameter('gate_rate_m', 0.02).value),
+                            float(self.declare_parameter('gate_rate_deg', 2.0).value)) \
+            if bool(self.declare_parameter('map_gate', True).value) else None
         self.tracker = self.base_from_cam = None
         self.last_ns = 0
         self.prev = None  # (ns, (x, y, yaw)) — 직전 오도메트리 자세. 추적을 잃으면 None (cuVSLAM 좌표가 새로 시작하므로 그 사이 속도는 안 냄)
@@ -136,7 +181,8 @@ class CuvslamSlam(Node):
         self.sync = ApproximateTimeSynchronizer([color, depth], 10, 0.02)
         self.sync.registerCallback(self.on_rgbd)
         self.create_timer(10.0, lambda: self.get_logger().info(
-            f'추적 {self.ok} · 잃음 {self.lost}' + (f' · 경로 {len(self.path.poses)}' if self.publish_map_tf else '')))
+            f'추적 {self.ok} · 잃음 {self.lost}' + (f' · 경로 {len(self.path.poses)}' if self.publish_map_tf else '')
+            + (f' · 보정 거름 {self.gate.rejected}' + (' · 잠금' if self.gate.locked else '') if self.gate else '')))
 
     def on_info(self, m):
         self.info = m
@@ -158,6 +204,8 @@ class CuvslamSlam(Node):
         self.apply_initialpose(desired)
 
     def apply_initialpose(self, desired):
+        if self.gate is not None:
+            self.gate.reset()  # 사람이 위치를 다시 맞춤 — 잠금 풀고 새 보정부터
         self.map_offset = compose(desired, inverse(self.last_base))
         self.path.poses.clear()
         self.get_logger().warning(
@@ -246,6 +294,13 @@ class CuvslamSlam(Node):
         self.last_base = base_raw
         base = compose(self.map_offset, base_raw)
         x, y, yaw = map_to_odom(base, odom_from_base)
+        if self.gate is not None:
+            (x, y, yaw), ok = self.gate.update((x, y, yaw), Time.from_msg(stamp).nanoseconds * 1e-9)
+            if not ok:
+                if self.gate.locked:
+                    self.get_logger().error('map→odom 보정 잠금 — cuVSLAM 위치가 크게 튐, 바퀴+IMU로만 이어 감 '
+                                            '(/initialpose로 다시 맞추면 풀림)', throttle_duration_sec=5.0)
+                base = compose((x, y, yaw), planar(odom_from_base))  # 낸 보정 기준 로봇 자세 (경로 표시)
         tf = TransformStamped()
         tf.header.stamp = (Time.from_msg(stamp) + self.map_tf_tolerance).to_msg()
         tf.header.frame_id, tf.child_frame_id = self.map, self.odom

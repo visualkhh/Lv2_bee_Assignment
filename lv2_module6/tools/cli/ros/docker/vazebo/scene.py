@@ -161,7 +161,10 @@ def traffic_light(x, y, tid, rng=random):
 
 
 def maze_cells(course):
-    """spawn이 있는 절반의 칸 중심 (미로는 y=0 벽으로 위·아래가 막혀 있음). 칸 = 안쪽 기둥 격자 사이"""
+    """spawn이 있는 절반의 칸 중심 (미로는 y=0 벽으로 위·아래가 막혀 있음). 칸 = 안쪽 기둥 격자 사이
+    기둥이 없는 실세계(isaac_maze — RealWorld)는 course['cells'] (벽에서 떨어진 빈 곳)을 그대로."""
+    if course.get('cells'):
+        return list(course['cells'])
     xs = sorted({round(x, 3) for x, _ in course['posts']})
     inner = [(round(x, 3), round(y, 3)) for x, y in course['posts'] if xs[0] < x < xs[-1]]
     count = {}

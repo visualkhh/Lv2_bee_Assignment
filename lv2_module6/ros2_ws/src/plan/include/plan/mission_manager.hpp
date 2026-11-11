@@ -36,6 +36,7 @@
 #include "perception/msg/tracked_object_array.hpp"
 #include "plan/mission_solver.hpp"
 #include "plan/plan_next.hpp"
+#include "nav_msgs/msg/occupancy_grid.hpp"
 #include "plan/msg/basket_state.hpp"
 #include "plan/msg/mission_state.hpp"
 #include "plan/msg/sub_goal_array.hpp"
@@ -121,6 +122,8 @@ private:
   Pose2 start_;
   std::vector<double> start_zone_, footprint_;
   std::vector<Box> start_boxes_, loc_boxes_;
+  std::vector<double> walls_;    // 경기장 벽 선분 [x0, y0, x1, y1, …] (arena, m) — 다가설 자리 거르기 · /arena/walls
+  double wall_clearance_ = 0.22; // [m] 다가설 자리가 벽에서 이보다 가까우면 그 변은 안 감 (로봇 반경 0.16 + 여유)
   std::vector<std::pair<double, double>> locations_;
   std::vector<int> loc_tags_;
   std::vector<double> puck_dx_;
@@ -182,6 +185,8 @@ private:
   rclcpp::Publisher<SubGoalArray>::SharedPtr goals_pub_;
   rclcpp::Publisher<MissionState>::SharedPtr state_pub_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr markers_pub_;
+  rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr walls_pub_;  // /arena/walls (map, latched) → nvblox_map이 /map에 겹침
+  void publish_walls();
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr cmd_sub_, barcode_sub_;
   rclcpp::Subscription<perception::msg::MissionSignal>::SharedPtr signal_sub_, signal_status_sub_;
   std::map<int, perception::msg::TrackedObject> last_seen_;  // 태그 → 마지막으로 본 트랙 (locate memory)

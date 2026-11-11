@@ -105,6 +105,7 @@ class OperatorTool(Node):
         if not rclpy.ok():   # 종료 신호 — 메뉴 루프를 끝낸다
             raise SystemExit(0)
         self.poll(seconds)
+        self.bus.nav.tick()   # docker 웨이포인트 result 파일 — 다음 goal을 바로 보낸다
         self.check_cli_reconnect()
 
     def _on_navigate(self, name: str, params: dict):
@@ -437,8 +438,9 @@ ROS 층 선택 (모든 명령 앞에 붙임):
     gripper.add_argument('--force', action='store_true', help='MANUAL 상태 확인을 건너뜀 (위험)')
 
     map_parser = sub.add_parser('map', help='지도 모드·지도 전환·저장')
-    map_parser.add_argument('action', type=str.lower, choices=('status', 'list', 'mode', 'switch', 'save'))
-    map_parser.add_argument('name', nargs='?', help='mode: mapping/localization · switch: 지도 이름')
+    map_parser.add_argument('action', type=str.lower, choices=('status', 'list', 'mode', 'switch', 'save', 'delete', 'rename'))
+    map_parser.add_argument('name', nargs='?', help='mode: mapping/localization · switch·delete·rename: 지도 이름')
+    map_parser.add_argument('--to', help='rename 새 이름')
     map_parser.add_argument('--file', help='save 출력 경로 (기본: <map_dir>/<현재 지도>/map)')
     map_parser.add_argument('--map-dir', help='save 기본 지도 폴더 (기본: ros2_ws/map)')
     map_parser.add_argument('--format', default='pgm', choices=('pgm', 'png', 'bmp'),

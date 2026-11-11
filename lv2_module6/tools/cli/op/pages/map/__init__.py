@@ -3,6 +3,7 @@
   window.navigate('map', mode=…, source=…, …)  또는  MapPage(app, …)
     mode    'view'  지도 보기만 (기본)
             'goals' A/B 경로 goal 찍기 — start·goals(이미 있는 경로) · 저장하면 on_save(goals)
+            'goal'  이동 목표 (Nav2) — 여러 웨이포인트를 찍어 g로 순서대로 보낸다 (구간 경로는 Nav2 planner)
             'pose'  로봇 위치 지정 — 십자선 위치(+방향)를 on_pose(x, y, yaw_deg)로 보냄
     source  None = 지금 /map(live · 로봇 점 표시) · 경로 = 저장된 지도 yaml(map_server 형식)
     title   화면 제목 (기본 = mode에 따라)
@@ -13,8 +14,10 @@ goals 모드는 고친 게 있으면 저장 여부를 묻는다.
 """
 from __future__ import annotations
 
+import math
 import sys
 import time
+from collections import deque
 from pathlib import Path
 
 from ...defs import BACK, MAIN, QUIT, STAY
@@ -26,6 +29,15 @@ from ...menus import ActionItem, Menu
 
 YAW_STEP = 15.0
 CELL_TXT = {UNKNOWN: '미확인', FREE: '빈 곳', OCC: '벽'}
+SNAP_SEARCH_M = 1.2      # 웨이포인트를 옮길 최대 거리 — 벽 사이 가운데까지
+SNAP_MARGIN_M = 1.2      # 벽까지 거리 계산 여유 (검색 반경 밖 벽도 거리 계산에 포함)
+SNAP_LAMBDA = 0.7        # 가운데 선호 vs 찍은 자리 유지 — 클수록 가운데로 더 간다
+SNAP_MIN_GAIN_M = 0.05   # 이만큼도 안 넓어지면 찍은 자리 그대로
+
+
+def _onoff(flag: bool) -> str:
+    """메뉴에서 한눈에 보이게 — 켜짐 ● / 꺼짐 ○."""
+    return '● 켜짐' if flag else '○ 꺼짐'
 TITLES = {'view': '지도 보기', 'goals': 'A/B 경로 — 지도에서 찍기', 'pose': '로봇 위치 지정', 'goal': '이동 목표 (Nav2)'}
 
 
@@ -51,6 +63,9 @@ class MapPage(Menu):
         self._robot_at = 0.0
         self._fitted = False
         self.cost_mode = 0            # 0 OFF · 1 global_costmap · 2 local_costmap
+        self.snap = True              # goal 웨이포인트를 벽 사이 가운데로 (s로 끄기)
+        self._canceled = False        # x로 취소 — 상태줄에 '취소'를 남긴다
+        self._show_goals = True       # 취소하면 지도 표시만 숨기고 목록은 남긴다 (Backspace로 수정)
         self._cost: dict = {'global': None, 'local': None}
         self._cost_at: dict = {'global': 0.0, 'local': 0.0}
         self._cost_inbox: dict = {'global': [], 'local': []}
@@ -61,7 +76,7 @@ class MapPage(Menu):
 
     # ---------------------------------------------------------------- 동작 (키 · 메뉴 공용)
     def pick(self) -> None:
-        """십자선 위치에서 mode의 동작 — goals: goal 추가 · pose: 로봇 위치 지정 · view: 없음."""
+        """십자선 위치에서 mode의 동작 — goals/goal: 웨이포인트 추가 · pose: 로봇 위치 지정 · view: 없음."""
         x, y = self.view.center
         if self.mode == 'view':
             self.msg = '보기 전용 — 찍는 화면은 A/B 경로 · 위치 지정에서'
@@ -70,31 +85,205 @@ class MapPage(Menu):
         elif self.mode == 'goals':
             self.goals.append({'x': round(x, 3), 'y': round(y, 3), 'yaw_deg': round(self.yaw, 1)})
             self.msg = f'G{len(self.goals)} 추가 {fmt_pose(self.goals[-1])}'
+        elif self.mode == 'goal':
+            self._canceled = False   # 새로 찍기 시작 — 지난 취소 표시는 지운다
+            self._show_goals = True
+            note = ''
+            if self.snap:
+                sx, sy, clear = self._center_point(x, y)
+                if round(sx, 3) != round(x, 3) or round(sy, 3) != round(y, 3):
+                    x, y = sx, sy
+                    note = f' → 가운데 (벽 {clear:.2f} m)' if clear is not None else ' → 가운데'
+            goal = {'x': round(x, 3), 'y': round(y, 3), 'yaw_deg': round(self.yaw, 1)}
+            if self.goals:
+                last = self.goals[-1]
+                if math.hypot(goal['x'] - last['x'], goal['y'] - last['y']) < 0.08:
+                    self.msg = '바로 전 웨이포인트와 같은 자리 — 추가 안 함'
+                    return
+            self.goals.append(goal)
+            self.msg = f'웨이포인트 {len(self.goals)}개 추가 {fmt_pose(self.goals[-1])}{note} — 전송: g'
         else:
             self._send_pose(x, y)
 
     def _send_pose(self, x: float, y: float) -> None:
+        """위치 지정(initialpose) — faker는 텔레포트, 실기는 /initialpose."""
         pose = {'x': round(x, 3), 'y': round(y, 3), 'yaw_deg': round(self.yaw, 1)}
-        goal = self.mode == 'goal'
-        prompt = '여기를 이동 목표로 보낼까요?' if goal else '여기를 로봇 위치로 지정할까요?'
-        cg = self._cost_grid('global')  # goal 검증은 전역 costmap 기준
-        bad = bool(goal and cg and cg.code(x, y) == 2)   # 내접/치명 — planner가 거부하는 자리
-        body = [fmt_pose(pose)]
-        if bad:
-            body.append('WARN: costmap 내접/치명 — planner가 거부할 가능성이 큽니다')
-            body.append('회색(자유) 칸을 고르세요. 지금 보내면 backup(후진)으로 복구할 수 있습니다')
-        if not self.ui.confirm(prompt, default=not bad, body=body):
-            self.msg = '취소' + (' (costmap 내접)' if bad else '')
+        if not self.ui.confirm('여기를 로봇 위치로 지정할까요?', body=[fmt_pose(pose)]):
+            self.msg = '취소'
             return
         try:
             with self.ui.capture() as (out, err):
                 self.on_pose(pose['x'], pose['y'], pose['yaw_deg'])
-            self.msg = f'이동 목표 전송 {fmt_pose(pose)}' if goal else f'위치 지정 {fmt_pose(pose)}'
+            self.msg = f'위치 지정 {fmt_pose(pose)}'
         except Exception as exc:
             self.msg = f'FAIL: {exc}'
 
     def undo_goal(self) -> None:
-        self.msg = '마지막 goal 취소' if self.goals and self.goals.pop() else '취소할 goal 없음'
+        p = self.bus.nav.nav_progress() if hasattr(self.bus.nav, 'nav_progress') else None
+        if p and p['state'] == 'running':
+            self.msg = '주행 중에는 목록을 고칠 수 없음 — 먼저 취소(x)'
+            return
+        if self.goals:
+            self.goals.pop()
+            self._show_goals = True
+            self.msg = ('마지막 웨이포인트 취소' if self.mode == 'goal' else '마지막 goal 취소')
+        else:
+            self.msg = '취소할 웨이포인트 없음' if self.mode == 'goal' else '취소할 goal 없음'
+
+    def clear_goals(self) -> None:
+        p = self.bus.nav.nav_progress()
+        if p and p['state'] == 'running':
+            self.msg = '주행 중에는 못 지움 — 먼저 취소(x)'
+            return
+        self.goals.clear()
+        self._show_goals = True
+        self.msg = '웨이포인트 전체 지움'
+
+    def send_waypoints(self) -> None:
+        """찍어 둔 웨이포인트를 순서대로 Nav2에 보낸다 — 구간 경로는 planner가 채운다."""
+        if not self.goals:
+            self.msg = '웨이포인트 없음 — Enter로 먼저 찍으세요'
+            return
+        cg = self._cost_grid('global')
+        bad = [f'{i}) {fmt_pose(g)}' for i, g in enumerate(self.goals, 1)
+               if cg is not None and cg.code(g['x'], g['y']) == 2]
+        body = [f'{i}) {fmt_pose(g)}' for i, g in enumerate(self.goals, 1)]
+        if bad:
+            body.append('WARN: costmap 내접/치명 웨이포인트 — planner가 거부할 수 있습니다')
+            body += bad
+        if not self.ui.confirm(f'웨이포인트 {len(self.goals)}개를 순서대로 보낼까요?',
+                               default=not bad, body=body):
+            self.msg = '취소' + (' (costmap 내접)' if bad else '')
+            return
+        try:
+            with self.ui.capture() as (out, err):
+                self.bus.nav.send_nav_waypoints(self.goals, 'map')
+            self._canceled = False
+            self._show_goals = True
+            self.msg = f'웨이포인트 {len(self.goals)}개 전송 — Nav2가 구간 경로를 계획'
+        except Exception as exc:
+            self.msg = f'FAIL: {exc}'
+
+    def cancel_nav(self) -> None:
+        """주행 취소 + 지도에 남은 경로·웨이포인트 표시를 모두 지운다 (x)."""
+        active = self.bus.nav.cancel_nav()
+        self._canceled = True
+        self._plans = {'plan': None, 'local_plan': None}
+        self._waypoints = None
+        self.plan_on = False
+        self._show_goals = False   # 지도 표시만 숨김 — 목록은 남겨 Backspace로 수정
+        self.msg = ('Nav2 주행 취소 — 경로 표시 지움 (웨이포인트 목록은 유지: Backspace)' if active
+                    else '주행 중인 웨이포인트 없음 — 경로 표시 지움 (목록은 유지: Backspace)')
+
+    def toggle_snap(self) -> None:
+        self.snap = not self.snap
+        self.msg = ('웨이포인트 가운데 스냅 ● 켜짐 — Enter로 찍을 때 벽 사이 가운데로'
+                    if self.snap else '웨이포인트 가운데 스냅 ○ 꺼짐 — 찍은 자리 그대로')
+
+    def _center_point(self, x: float, y: float) -> tuple[float, float, float | None]:
+        """찍은 점 근처에서 '벽까지 가장 먼, 갈 수 있는' 칸으로 — 벽 사이 가운데.
+        지도 가장자리·모르는 칸은 벽으로 본다. 벽 너머로는 BFS가 못 건너가게 한다.
+        반환: (x, y, 벽까지 거리[m]) — 못 옮기면 찍은 점 그대로."""
+        g = self.view.grid if self.view else None
+        if g is None or g.res <= 0:
+            return x, y, None
+        w, h, raw = g.level(0)
+        c0 = math.floor((x - g.ox) / g.res)
+        r0 = math.floor((y - g.oy) / g.res)
+        if not (0 <= c0 < w and 0 <= r0 < h):
+            return x, y, None
+        if raw[r0 * w + c0] != FREE:
+            return x, y, None
+        sr = max(1, int(round(SNAP_SEARCH_M / g.res)))       # 옮길 수 있는 반경
+        mr = max(sr + 1, int(round(SNAP_MARGIN_M / g.res)))  # 거리 계산 여유
+        win = sr + mr
+        ca, ra = c0 - win, r0 - win
+        ww = wh = 2 * win + 1
+        INF = 1e9
+        dist = [INF] * (ww * wh)
+
+        def code_at(cc: int, rr: int) -> int:
+            gc, gr = ca + cc, ra + rr
+            return raw[gr * w + gc] if 0 <= gc < w and 0 <= gr < h else OCC
+
+        for rr in range(wh):
+            for cc in range(ww):
+                if code_at(cc, rr) != FREE:   # 벽·모름·지도 밖 = 장애물
+                    dist[rr * ww + cc] = 0.0
+        s2 = math.sqrt(2.0)
+        for rr in range(wh):   # 1패스 — 왼쪽/위에서
+            base = rr * ww
+            for cc in range(ww):
+                i = base + cc
+                d = dist[i]
+                if d == 0.0:
+                    continue
+                if rr:
+                    up = i - ww
+                    d = min(d, dist[up] + 1.0)
+                    if cc:
+                        d = min(d, dist[up - 1] + s2)
+                    if cc + 1 < ww:
+                        d = min(d, dist[up + 1] + s2)
+                if cc:
+                    d = min(d, dist[i - 1] + 1.0)
+                dist[i] = d
+        for rr in range(wh - 1, -1, -1):   # 2패스 — 오른쪽/아래에서 (근사 유클리드)
+            base = rr * ww
+            for cc in range(ww - 1, -1, -1):
+                i = base + cc
+                d = dist[i]
+                if d == 0.0:
+                    continue
+                if rr + 1 < wh:
+                    dn = i + ww
+                    d = min(d, dist[dn] + 1.0)
+                    if cc:
+                        d = min(d, dist[dn - 1] + s2)
+                    if cc + 1 < ww:
+                        d = min(d, dist[dn + 1] + s2)
+                if cc + 1 < ww:
+                    d = min(d, dist[i + 1] + 1.0)
+                dist[i] = d
+
+        # 찍은 칸에서 갈 수 있는 빈 칸만 (벽 너머·다른 통로로 순간이동 금지)
+        start = (r0 - ra, c0 - ca)
+        seen = {start}
+        q = deque([start])
+        while q:
+            rr, cc = q.popleft()
+            for dr, dc in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                nr, nc = rr + dr, cc + dc
+                if not (0 <= nr < wh and 0 <= nc < ww) or (nr, nc) in seen:
+                    continue
+                if abs(nr - start[0]) > sr or abs(nc - start[1]) > sr:
+                    continue
+                if code_at(nc, nr) != FREE:
+                    continue
+                seen.add((nr, nc))
+                q.append((nr, nc))
+
+        best = None
+        for rr, cc in seen:
+            i = rr * ww + cc
+            if dist[i] <= 0.0:
+                continue
+            wx = g.ox + (ca + cc + 0.5) * g.res
+            wy = g.oy + (ra + rr + 0.5) * g.res
+            moved = math.hypot(wx - x, wy - y)
+            if moved > SNAP_SEARCH_M:
+                continue
+            clear = min(dist[i], mr) * g.res
+            score = clear - SNAP_LAMBDA * moved
+            if best is None or score > best[0]:
+                best = (score, wx, wy, clear, moved)
+        click_clear = min(dist[start[0] * ww + start[1]], mr) * g.res
+        if best is None:
+            return x, y, click_clear
+        _, bx, by, bclear, bmoved = best
+        if bmoved < 1e-9 or bclear - click_clear < SNAP_MIN_GAIN_M:
+            return x, y, click_clear
+        return bx, by, bclear
 
     def turn(self, delta: float) -> None:
         self.yaw = (self.yaw + delta + 180) % 360 - 180
@@ -116,8 +305,16 @@ class MapPage(Menu):
         """지도가 모르는 키."""
         if k in ('enter', ' '):
             self.pick()
-        elif k == 'backspace' and self.mode == 'goals':
+        elif k == 'backspace' and self.mode in ('goals', 'goal'):
             self.undo_goal()
+        elif k in ('g', 'G') and self.mode == 'goal':
+            self.send_waypoints()
+        elif k in ('d', 'D') and self.mode == 'goal':
+            self.clear_goals()
+        elif k in ('s', 'S') and self.mode == 'goal':
+            self.toggle_snap()
+        elif k in ('x', 'X') and self.mode == 'goal':
+            self.cancel_nav()
         elif k in ('[', ']', '{', '}') and self.mode != 'view':   # [ ] = 15° · { } = 1° (미세) — 왼쪽 키([ {)는 좌회전(반시계, +) · 오른쪽 키(] })는 우회전(시계, −)
             self.turn({'[': YAW_STEP, ']': -YAW_STEP, '{': 1.0, '}': -1.0}[k])
         elif k in ('c', 'C'):
@@ -140,11 +337,26 @@ class MapPage(Menu):
 
     def toggle_map_origin(self) -> None:
         self.view.show_map = not self.view.show_map
-        self.msg = 'M(map 원점) ' + ('표시' if self.view.show_map else '숨김')
+        self.msg = 'M(map 원점) ' + ('● 표시' if self.view.show_map else '○ 숨김')
+        if self.view.show_map and not self._on_screen((0.0, 0.0)):
+            self.msg += ' — 화면 밖, f 전체 보기'
 
     def toggle_odom(self) -> None:
         self.view.show_odom = not self.view.show_odom
-        self.msg = 'O(odom 원점) ' + ('표시' if self.view.show_odom else '숨김')
+        self.msg = 'O(odom 원점) ' + ('● 표시' if self.view.show_odom else '○ 숨김')
+        if not self.view.show_odom:
+            return
+        odom = getattr(self, '_odom', None)
+        if odom is None:
+            self.msg += ' — odom 데이터 대기'
+        elif not self._on_screen(odom):
+            self.msg += ' — 화면 밖, f 전체 보기'
+
+    def _on_screen(self, p: tuple[float, float]) -> bool:
+        """지도 중심 p가 지금 화면 안에 있나 — M·O 토글 때 '안 보이는 이유'를 알려 주려고."""
+        cols, rows = self.view.size
+        c, r = self.view.vp.to_screen(p[0], p[1], cols, rows * 2)
+        return 0 <= c < cols and 0 <= r < rows * 2
 
     PLAN_FRESH_S = 15.0   # Nav2는 주행이 끝나도 빈 경로를 안 내서 — 이보다 오래된 경로는 안 그림
 
@@ -200,13 +412,19 @@ class MapPage(Menu):
         v, act = self.view, ActionItem
         rows = {'goals': [('goal 추가 — 십자선 위치 (Enter)', self.pick), ('마지막 goal 취소 (Backspace)', self.undo_goal)],
                 'pose': [('로봇 위치로 지정 — 십자선 위치 (Enter)', self.pick)],
-                'goal': [('이동 목표로 — 십자선 위치 (Enter)', self.pick)], 'view': []}[self.mode]
+                'goal': [('웨이포인트 추가 — 십자선 위치 (Enter)', self.pick),
+                         ('마지막 웨이포인트 취소 (Backspace)', self.undo_goal),
+                         ('웨이포인트 전송 — 순서대로 주행 (g)', self.send_waypoints),
+                         ('웨이포인트 전체 지우기 (d)', self.clear_goals),
+                         (lambda: f'가운데 스냅 (s) — {_onoff(self.snap)}', self.toggle_snap),
+                         ('Nav2 주행 취소 (x)', self.cancel_nav)],
+                'view': []}[self.mode]
         rows += [('확대 (+)', lambda: self.zoom(+1)), ('축소 (-)', lambda: self.zoom(-1)), ('전체 보기 (f)', self.fit),
-                 (lambda: f'로봇 따라가기 (r) — {"켜짐" if v.following else "꺼짐"}', self.toggle_follow),
+                 (lambda: f'로봇 따라가기 (r) — {_onoff(v.following)}', self.toggle_follow),
                  (lambda: 'costmap 겹쳐 보기 (c) — ' + self.COST_LABELS[self.cost_mode], self.toggle_cost),
-                 (lambda: f'Nav2 경로 겹쳐 보기 (p) — {"켜짐" if self.plan_on else "꺼짐"}', self.toggle_plan),
-                 (lambda: f'M map 원점 표시 (m) — {"켜짐" if v.show_map else "꺼짐"}', self.toggle_map_origin),
-                 (lambda: f'O odom 원점 표시 (o) — {"켜짐" if v.show_odom else "꺼짐"}', self.toggle_odom)]
+                 (lambda: f'Nav2 경로 겹쳐 보기 (p) — {_onoff(self.plan_on)}', self.toggle_plan),
+                 (lambda: f'M map 원점 표시 (m) — {_onoff(v.show_map)}', self.toggle_map_origin),
+                 (lambda: f'O odom 원점 표시 (o) — {_onoff(v.show_odom)}', self.toggle_odom)]
         if self.mode != 'view':
             rows += [(f'좌회전 +{YAW_STEP:.0f}° ([) · 미세 +1° = {{', lambda: self.turn(YAW_STEP)), (f'우회전 -{YAW_STEP:.0f}° (]) · 미세 -1° = }}', lambda: self.turn(-YAW_STEP))]
         if self.mode == 'goals':
@@ -262,7 +480,7 @@ class MapPage(Menu):
         v.plans, plan_info = self._plan_lines()
         v.waypoints = self._waypoint_pts()
         v.robot, v.start, v.goals, v.yaw = (self._pose(), ((self.start['x'], self.start['y']) if self.start else None),
-                                            self.goals, self.yaw)
+                                            self.goals if self._show_goals else [], self.yaw)
         if not self._fitted:
             if self.mode in ('pose', 'goal') and self._robot:
                 # initialpose/goal은 지도 한가운데가 아니라 로봇의 실제 map 자세에서 시작한다.
@@ -278,9 +496,11 @@ class MapPage(Menu):
         x, y = v.center
         code = v.grid.code(v.vp.k, x, y)
         status = [f'십자선 ({x:+.2f}, {y:+.2f}) m · {CELL_TXT.get(code, "지도 밖")}',
-                  f'한 칸 = {v.vp.scale * 100:.0f} cm · {"따라가기" if v.following else "자유이동"}',
+                  f'한 칸 = {v.vp.scale * 100:.0f} cm · {"● 따라가기" if v.following else "○ 자유이동"}',
                   (f'방향 {self.yaw:+.0f}°' if self.mode == 'pose' else
-                   f'방향 {self.yaw:+.0f}° · goal {len(self.goals)}개' if self.mode == 'goals' else '보기 전용')]
+                   f'방향 {self.yaw:+.0f}° · goal {len(self.goals)}개' if self.mode == 'goals' else
+                   f'방향 {self.yaw:+.0f}° · 웨이포인트 {len(self.goals)}개 (Enter 추가 · g 전송)' if self.mode == 'goal'
+                   else '보기 전용')]
         if plan_info:
             status.append(plan_info)
         cg = self._cost_grid('global')   # goal/시작 판정은 항상 전역 costmap
@@ -296,6 +516,28 @@ class MapPage(Menu):
             status.append('겹침: ' + self.COST_LABELS[self.cost_mode]
                           + (' ON' if v.show_cost else ' 데이터 대기')
                           + ' · 주황=팽창 · 빨강=내접/치명')
+        if self.mode == 'goal':
+            if self._canceled:
+                status.append('Nav2 주행 취소 — 웨이포인트·경로 표시 지움')
+            else:
+                p = self.bus.nav.nav_progress()
+                if p is not None:
+                    head = f'Nav2 웨이포인트 {p["index"]}/{p["total"]}'
+                    if p['state'] == 'running':
+                        if p.get('recoveries') is not None:
+                            head += (f' · 회복 {p["recoveries"]}회'
+                                     f' · 남은 {p["distance_remaining"]:.2f} m ({p["age"]:.1f}s)')
+                        elif p.get('distance_remaining') is not None:
+                            head += f' · 남은 {p["distance_remaining"]:.2f} m'
+                        else:
+                            head += ' · feedback 대기'
+                    elif p['state'] == 'done':
+                        head = f'Nav2 웨이포인트 완료 {p["total"]}/{p["total"]}'
+                    elif p['state'] == 'failed':
+                        head += f' 실패: {p.get("error") or "이유 없음"}'
+                    elif p['state'] == 'canceled':
+                        head += ' 취소'
+                    status.append(head)
         legend = self.term.paint('● 로봇(base_footprint) 짧은 화살표 = 앞(+x) 방향  + 십자선  S 출발  1 2 goal'
                                  + ('  M map원점' if v.show_map else '') + ('  O odom원점' if v.show_odom else '')
                                  + ('' if v.show_map and v.show_odom else '  (' + ('' if v.show_map else 'm = M') + ('' if v.show_map or v.show_odom else ' · ') + ('' if v.show_odom else 'o = O') + ' 표시)'), DIM)
@@ -347,6 +589,8 @@ class MapPage(Menu):
             print('FAIL: /map을 못 받음 — 지도 서버(map_server)·Nav가 떠 있는지 확인', file=sys.stderr)
             return STAY
         self.view = MapView(grid, self.term.color, extra_key=self._extra_key)
+        if self.mode == 'goal':
+            self.view.hints += ' · g 전송 · d 전체 지우기 · s 중앙 스냅 · x 취소 · Backspace 마지막 취소'
         if self.source is None:  # live 지도일 때만 costmap 겹침 — 저장 지도에는 현재 costmap이 없다
             from nav_msgs.msg import OccupancyGrid
             from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy

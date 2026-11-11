@@ -274,7 +274,16 @@ for _ in $(seq "$waits"); do
   sleep 0.1
 done
 for p in "${victims[@]}"; do alive "$p" && kill -9 "$p" 2>/dev/null; done
-[ "$clean" = 1 ] && rm -rf /dev/shm/fastdds_* /dev/shm/sem.fastdds_* 2>/dev/null
+# 남은 프로세스(재시작 대상 밖 — 예: fake_opencr 하드웨어 대역)가 매핑 중인 통로는 남긴다.
+# 다 지우면 그 프로세스는 발행자로 보이지만 데이터가 안 감 (실측: ground_truth 끊김 → map→odom 없음 → Nav2 멈춤)
+if [ "$clean" = 1 ]; then
+  live=" $(cat /proc/[0-9]*/maps 2>/dev/null | grep -o 'fastdds_[0-9A-Za-z]*' | sort -u | tr '\n' ' ')"
+  for f in /dev/shm/fastdds_* /dev/shm/sem.fastdds_*; do
+    [ -e "$f" ] || continue
+    id=$(basename "$f"); id=${id#sem.}; id=${id%%_el}; id=${id%%_mutex}
+    case "$live" in *" $id "*) ;; *) rm -rf "$f" ;; esac
+  done
+fi
 [ -n "$clear" ] && rm -f "$clear"
 if [ -n "$prepare" ]; then
   echo "$(date +%T) [state_manager 재시작] 준비: $prepare" >> "$log"

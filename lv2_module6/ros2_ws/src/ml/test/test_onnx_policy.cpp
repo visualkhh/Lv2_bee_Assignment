@@ -13,14 +13,24 @@
 TEST(OnnxPolicy, AllRepoPoliciesLoadAndMatchExport) {
   if (ml::OnnxPolicy::runtime_version() == "none") GTEST_SKIP() << "ONNX Runtime 없이 빌드";
   int n = 0;
-  for (const auto & e : std::filesystem::recursive_directory_iterator(MODEL_DIR)) {
-    if (e.path().extension() != ".onnx") continue;
-    ml::OnnxPolicy p;
-    std::string why;
-    EXPECT_TRUE(p.load(e.path().string(), why)) << why;
-    std::vector<double> x(p.inputs(), 0.1), y(p.outputs());
-    if (p.loaded()) p.act_into(x.data(), y.data());
-    ++n;
+  // Policy outputs are [1, action_dim]. The YOLO detector under models/yolo is
+  // a perception model with [1, channels, anchors], not a control policy.
+  const std::vector<std::filesystem::path> roots = {
+    std::filesystem::path(MODEL_DIR) / "plan",
+    std::filesystem::path(MODEL_DIR) / "rl_nav_controller",
+    std::filesystem::path(MODEL_DIR) / "skills",
+  };
+  for (const auto & root : roots) {
+    ASSERT_TRUE(std::filesystem::is_directory(root)) << "정책 디렉터리 없음: " << root;
+    for (const auto & e : std::filesystem::recursive_directory_iterator(root)) {
+      if (e.path().extension() != ".onnx") continue;
+      ml::OnnxPolicy p;
+      std::string why;
+      EXPECT_TRUE(p.load(e.path().string(), why)) << why;
+      std::vector<double> x(p.inputs(), 0.1), y(p.outputs());
+      if (p.loaded()) p.act_into(x.data(), y.data());
+      ++n;
+    }
   }
   EXPECT_GE(n, 10);
 }

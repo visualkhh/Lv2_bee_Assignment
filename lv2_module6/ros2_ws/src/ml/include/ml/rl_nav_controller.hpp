@@ -87,7 +87,7 @@ private:
   // inner(바이패스) controller 는 실행 중에 바꿀 수 있다 (~/<name>/set_fallback) — inner_ 를 부르는 동안·바꾸는 동안은 inner_mtx_
   //   잠금 순서: mtx_ → inner_mtx_ (그 반대로 잡지 않는다)
   std::mutex inner_mtx_;
-  std::string inner_key_ = "dwb";          // 지금 쓰는 inner 별칭
+  std::string inner_key_ = "mppi";          // 지금 쓰는 inner 별칭
   bool active_ = false;                    // activate()~deactivate() — 새 inner 도 같은 상태로 만든다
   nav_msgs::msg::Path last_path_;          // 새 inner 에 다시 넘길 마지막 전역 경로
   double last_speed_limit_ = 0.0;
@@ -124,6 +124,7 @@ private:
   double lidar_inflation_ = 0.02;  // [m] 사용자 안전 여유 — 기본 2 cm (학습 1~5 cm)
   double max_lin_ = 0.26, max_ang_ = 1.82, v_min_ratio_ = -0.2;
   double speed_ratio_ = 1.0;
+  bool heading_cap_ = true;     // 경로 방향 속도 상한 (heading_speed_cap)
   double extra_lin_vel_ = 0.0;  // [m/s] 정책 출력에 더하는 추가 선속도 (0~0.10, max_lin 상한 유지)
   double extra_ang_vel_ = 0.0;  // [rad/s] 정책 출력에 더하는 추가 각속도 (0~0.50, max_ang 상한 유지)
   int points_stride_ = 4;
