@@ -36,9 +36,11 @@
 
 실기 확인은 최신 checkout의 빌드와 자동 테스트를 마친 뒤 field runner로 한 단계씩 진행한다. 물리 동작은 실행하지 않았다.
 
-## 2026-11-11 연결 재확인
+## 2026-11-11 최종 재확인
 
-- `/home/ghj/Lv2_bee_Assignment`는 `prep/jetson-all-open-prs`의 `35c0683`로 전환되어 있고, 그 경로에서 9개 ROS 패키지 전체 빌드가 성공했다.
-- 같은 소스 revision의 후보 worktree에서 관련 5개 패키지를 시험했을 때 184 passed, 0 failed, 1 skipped였다. 기존 경로로 전환한 뒤 테스트를 다시 시작했지만 SSH가 시간 초과되어 그 경로의 최종 테스트 결과는 회수하지 못했다. 두 revision의 차이는 문서 변경이다.
-- 현재 Mac에서 Jetson의 과거 LAN 주소로 ping/SSH 응답이 없고, Tailscale 기기 목록에도 Jetson이 없다. Linux PC `pa27`도 Tailscale에서 offline으로 표시된다.
-- Jetson bringup이나 물리 동작은 실행하지 않았다.
+- Jetson은 `bee` (`10.2.12.110`)로 재접속됐고 `/home/ghj/Lv2_bee_Assignment`에서 최신 후보 브랜치의 문서 업데이트까지 fast-forward했다.
+- 실제 지정 경로에서 `plan`, `skills`, `ml`, `perception`, `ros_system` 테스트를 다시 실행해 184 passed, 0 failed, 1 skipped를 확인했다.
+- 최신 `develop` (`b857e9c5`)의 RL Nav Controller 모델(모델 커밋 `6b395c07`)과 후보 브랜치의 `policy.onnx` 및 `policy.onnx.data` blob이 일치한다. Jetson의 `install/ml/share/ml/model/rl_nav_controller/` 설치 파일 SHA-256도 저장소 원본과 일치한다.
+- field runner Python 구문, 실행 도움말, `ros2 bag record --help` 확인 성공.
+- 전체 9개 패키지 빌드 성공. deprecation 및 OpenCV 4.6/4.8 링크 경고는 남아 있다.
+- bringup, 바퀴·팔·그리퍼 동작, 카메라 스트림, 실기 rosbag 기록은 실행하지 않았다.
