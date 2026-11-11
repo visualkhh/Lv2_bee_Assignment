@@ -10,7 +10,7 @@ coordinator가 계획 단계(`SubGoal.skill`)를 skill 노드에 맡기고, skil
 ## 한눈에 보기
 
 skill은 coordinator가 실행하는 `SubGoal` 한 단계입니다. 세 부분으로 나뉩니다.
-- **skill을 조합해 보내는 쪽**: 미션 흐름(mission_manager — [03-plan.md](03-plan.md)), vlm_task_planner, ai-service
+- **skill을 조합해 보내는 쪽**: 미션 흐름(mission_manager — [03-plan.md](03-plan.md))
 - **skill을 실행하는 coordinator**: 이 문서의 대상
 - **skill이 읽는 값**: 인지, 적재함 표, 그리퍼 상태
 
@@ -18,15 +18,12 @@ skill은 coordinator가 실행하는 `SubGoal` 한 단계입니다. 세 부분�
 flowchart LR
   subgraph CALLER["① 계획을 보내는 쪽 — 단계를 다 적어 보냄"]
     MM["mission_manager<br/>주사위 미션 흐름 (03-plan.md)"]
-    VLM["vlm_task_planner<br/>일반 명령 · 템플릿"]
-    AIS["ai-service<br/>VLM · 사람 화면"]
   end
   subgraph CO["② coordinator — skill 실행 (05-arm.md)"]
     direction TB
     subgraph KEEP["그대로 (이번 PR 변경 없음)"]
       NAV["navigate · approach"]
       INS["inspect"]
-      SAY["say"]
     end
     subgraph ARM["팔 skill — PR #48"]
       POSE["pose<br/>stow · carry_left · carry_right"]
@@ -123,7 +120,6 @@ carry 방향은 **칸이 정합니다**. basket.yaml `basket_carry`에서 칸 0�
 | `navigate` | 물체 id · `"x,y[,yaw]"` | Nav2로 이동 (`relation front`와 `offset_m`을 주면 물체 앞으로, 좌표면 그 자세로) | — |
 | `approach` | `"x,y,yaw"` (map) | 박스 앞 마지막 몇 cm를 `/cmd_vel_nav`로 저속 직선. 목표 뒤 `approach_pre_m` 자리에서 돌고 직선으로 들어감 (박스 바로 앞 제자리 회전 안 함). 4초 동안 진행 없으면 `approach_blocked` | — |
 | `inspect` | 퍽 id · `"x,y,z"` | 손끝을 퍽 윗면(또는 그 점) `inspect_height_m`(0.15m) 위로 옮겨 gripper_cam이 16mm 태그를 읽게 함. 좌표면 손 방향 = 로봇 → 점. 집지 않음 | 그 자리 |
-| `say` | 말할 내용 | `/robot/say` | — |
 | `pose` | `stow` · `carry_left` · `carry_right` · `scan` | 이름 있는 관절 자세로 이동 | 그 자세 |
 | `pick` | 퍽 id | 위에서 집기: 접근 → 벌림 → 내려감 → 닫기 → **잡기 판정** → 들어올림. 파지 후보는 grasp_scorer가 냄 | 들어올린 자리 |
 | `load` | 칸 `0`~`11` · `next` | 손에 든 퍽을 적재함 칸에 싣기: **carry(칸 방향) → q_over → q_low → 벌림 → q_lift → stow** | `stow` |
@@ -159,7 +155,7 @@ flowchart LR
   CO ==>|"/coordinator/basket"| UI["화면<br/>/mission/state tray"]
   CO -.->|"저장 · 다시 뜨면 읽음"| FILE[("~/.ros/beebot_basket.txt")]
 ```
-- **옛 `tray` (호환)**: `place tray`는 `load next`, `pick tray`는 `unload last`와 같습니다. 그래서 vlm_task_planner와 ai-service의 기존 계획이 그대로 돌아갑니다. 적재함 용량(`tray_capacity`)은 4에서 12로 바꿨습니다.
+- **옛 `tray` (호환)**: `place tray`는 `load next`, `pick tray`는 `unload last`와 같습니다. 그래서 기존 계획이 그대로 돌아갑니다. 적재함 용량(`tray_capacity`)은 4에서 12로 바꿨습니다.
 
 ## 4. skill 안에서 쓰는 값
 
@@ -196,7 +192,7 @@ flowchart LR
 
 ## 5. 흐름
 
-계획을 보내는 쪽(미션 흐름, VLM)이 단계를 다 적어 보냅니다. coordinator는 단계를 끼워 넣지 않습니다. `load`·`unload` 안의 carry 경유만 예외입니다(칸이 방향을 정하므로).
+계획을 보내는 쪽(미션 흐름)이 단계를 다 적어 보냅니다. coordinator는 단계를 끼워 넣지 않습니다. `load`·`unload` 안의 carry 경유만 예외입니다(칸이 방향을 정하므로).
 
 | 흐름 | 단계 (`/task/sub_goals`) | 팀원 스펙의 표기 |
 |---|---|---|
@@ -220,7 +216,7 @@ flowchart LR
 | `load_failed` · `unload_failed` | 칸 경유 자세 중 하나를 못 감 |
 | `basket_table_missing` | basket.yaml 표가 안 들어옴 (launch 확인) |
 | `place_failed` · `place_no_target` · `inspect_no_target` · `inspect_failed` | 놓기·보기 실패, 대상 없음 |
-| `manual_*` · `explore_*` · `estop*` · `cancelled` | 모드 전환·비상정지·정지 요청 |
+| `manual_*` · `estop*` · `cancelled` | 모드 전환·비상정지·정지 요청 |
 | `stand_no_grip` · `stand_grip_timeout` | 위치형 쥐기: 손가락이 `stand_empty_m`보다 닫힘(빈손) · `stand_grip_timeout_s` 안에 판단 못 함 — 벌리고 실패 |
 | `stand_failed` · `stand_not_lying` · `stand_no_target` · `stand_no_yaw` · `stand_no_tf` | 세우기 실패 · 대상이 누운 퍽이 아님 · 대상 없음 · 긴 축 방향을 못 구함 · TF 없음 |
 | `stand_ik_unreachable` · `stand_table_missing` · `stand_table_out_of_limits` | 경유점 계산 실패 (ik) · 표 없음 · 표 값이 관절 한계 밖 (table) |
@@ -343,7 +339,7 @@ flowchart TB
 ## 8. 정할 것 (팀원 확인)
 
 1. ~~`stand` 경유점~~ — **정함 (11-02)**: 둘 다 만들고 `stand_waypoints`로 고름, 기본 `ik`(해석 IK). 표(`table`)는 팀원 `right_env`와 같은 표. 남은 것: 세우기 성공률.
-2. ~~꺼내 놓기 뒤 자세~~ — **정함 (11-02)**: `place`는 놓은 자리 위에서 끝나고, **주행 전에 부르는 쪽이 `pose stow`를 넣습니다**. mission_manager는 다가가기·물러나기·복귀 이동 앞에 항상 넣습니다. 같은 장소에 연달아 놓을 때(`unload → place → unload …`) stow 왕복을 줄이기 위해서입니다(시뮬: 기본 자세 경유 시 한 사이클 14.7초 → 23.6초). VLM 일반 명령 계획은 단계에 stow를 넣어야 합니다.
+2. ~~꺼내 놓기 뒤 자세~~ — **정함 (11-02)**: `place`는 놓은 자리 위에서 끝나고, **주행 전에 부르는 쪽이 `pose stow`를 넣습니다**. mission_manager는 다가가기·물러나기·복귀 이동 앞에 항상 넣습니다. 같은 장소에 연달아 놓을 때(`unload → place → unload …`) stow 왕복을 줄이기 위해서입니다(시뮬: 기본 자세 경유 시 한 사이클 14.7초 → 23.6초).
 3. ~~`reset_sag` 단위~~ — **정함 (11-02)**: **skill마다 한 번**(팔 skill 시작 때, skill 중간에는 안 부름). 처짐은 자세마다 달라서 앞 skill에서 쌓인 보정을 넘기지 않습니다(팀원 `rl_arm_correction.hpp` 주석·학습 조건과 같음).
 4. **잡기 판정 기준**: 위치·전류 문턱값 (지금 3mm · 0.25A — 실측: 원기둥 3.85mm · 직육면체 5.11mm에서 멈춤, 쥐는 전류 0.3~0.4A). "다시 잡은 뒤 판정"은 `stand_pick`(세운 뒤 다시 잡기)의 판정으로 봄 — 팀원 `stand_dummy.py`도 다시 잡은 뒤 손가락이 퍽 폭에서 멈췄는지로 판정.
 5. ~~이름 표기~~ — **정함**: 스펙의 `right`·`right-pick`은 `stand`·`stand_pick`으로 씁니다 (right = "바로 세우다"지만 오른쪽 `carry_right`와 헷갈림). 팀원 학습 쪽 이름(`right_env`, `right_*.onnx`)은 그대로.

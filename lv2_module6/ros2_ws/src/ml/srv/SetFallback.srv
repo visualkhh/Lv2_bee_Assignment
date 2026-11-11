@@ -1,0 +1,8 @@
+# RlNavController 의 바이패스(inner) controller 를 실행 중에 바꾼다 — 서비스 ~/FollowPath/set_fallback
+#   controller: dwb | mppi | rpp | rotation_shim | 전체 pluginlib 클래스명. 빈 문자열이면 바꾸지 않고 지금 값만 알려 준다.
+#   각 inner 의 파라미터는 nav2_params.yaml FollowPath.inner_<이름>.* (예: inner_mppi) — 실패하면 이전 inner 를 그대로 둔다.
+string controller
+---
+bool success
+string message
+string active    # 지금 쓰는 inner 별칭 (dwb | mppi | rpp | rotation_shim | custom)

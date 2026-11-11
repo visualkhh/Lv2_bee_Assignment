@@ -117,9 +117,11 @@ controller_server:
       extra_ang_vel: 0.0       # [rad/s] 0~0.50 — 정책 출력에 더하는 추가 각속도 (max_ang 상한 유지, 0 = 끄기)
       v_min_ratio: -0.2        # 후진 허용 비율 (음수 = 후진)
       # 바이패스 controller — dwb(기본) · mppi · rpp · rotation_shim 또는 전체 pluginlib 클래스명.
-      #   선택한 플러그인의 파라미터는 아래 inner.* 블록에 맞출 것.
+      #   처음 쓸 것은 여기서 고르고, 실행 중에는 서비스 /controller_server/FollowPath/set_fallback 으로 바꾼다
+      #   (CLI: ./run-cli controller fallback mppi). 각 inner 의 파라미터는 FollowPath.inner_<이름>.* — 아래 블록 하나씩:
+      #   inner_dwb(아래) · inner_mppi · inner_rpp · inner_rotation_shim. 안 쓰는 블록은 읽지 않는다.
       fallback_controller: "dwb"
-      inner:                   # ← 기존 DWB 설정 (이름 앞에 inner. 붙임)
+      inner_dwb:               # ← DWB 설정 (예전 이름 inner — 바꿔 줌)
 
         # ── 속도 한계 [m/s · rad/s] — ml.yaml max_vel_x · max_vel_theta와 같은 값
         # 전진 최소 속도. 0이면 경로 추종 중 후진하지 않는다 (pole_front_cam이 뒤를 못 봄).
@@ -200,6 +202,109 @@ controller_server:
         RotateToGoal.slowing_factor: 5.0
         # 미래 위치로 회전 시작 시점을 미리 판단할 시간(초). -1 = 사용 안 함 (현재 위치로 판단).
         RotateToGoal.lookahead_time: -1.0
+
+      # ── MPPI (nav2_mppi_controller) — Nav2 Lyrical 기준 yaml 형식(motion_model: "diff_drive" + 플러그인 블록).
+      #   CPU 연산이 무겁다 (batch_size × time_steps 궤적을 20 Hz로 샘플링). Orin Nano는 이미 부하가 높아 가볍게 시작 —
+      #   기본(2000 × 56)의 절반 이하. 로봇 한계는 DWB·velocity_smoother와 같게 (vx 0.26 · wz 1.82 · 가속 2.5/3.2).
+      #   ⚠ 값은 Lyrical 기준 yaml에서 가져와 로봇 한계에 맞춘 것이고 실기 튜닝 전이다.
+      inner_mppi:
+        time_steps: 40
+        model_dt: 0.05
+        batch_size: 800
+        iteration_count: 1
+        temperature: 0.3
+        gamma: 0.015
+        visualize: false
+        publish_optimal_trajectory: false
+        regenerate_noises: true
+        open_loop: false
+        ax_max: 2.5
+        ax_min: -2.5
+        ay_max: 0.0
+        ay_min: 0.0
+        az_max: 3.2
+        vx_std: 0.1
+        vy_std: 0.1
+        wz_std: 0.3
+        vx_max: 0.26
+        vx_min: 0.0              # 후진 안 함 (DWB min_vel_x와 같게 — pole_front_cam이 뒤를 못 봄)
+        vy_max: 0.0
+        wz_max: 1.82
+        motion_model: "diff_drive"
+        diff_drive:
+          plugin: "mppi::DiffDriveMotionModel"
+        TrajectoryValidator:
+          plugin: "mppi::DefaultOptimalTrajectoryValidator"
+          collision_lookahead_time: 1.5
+          consider_footprint: false
+        critics:
+          ["ConstraintCritic", "CostCritic", "GoalCritic", "GoalAngleCritic",
+           "PathAlignCritic", "PathFollowCritic", "PathAngleCritic", "PreferForwardCritic"]
+        ConstraintCritic: {enabled: true, cost_power: 1, cost_weight: 4.0}
+        GoalCritic: {enabled: true, cost_power: 1, cost_weight: 5.0, threshold_to_consider: 1.0}
+        GoalAngleCritic: {enabled: true, cost_power: 1, cost_weight: 3.0, threshold_to_consider: 0.5}
+        PreferForwardCritic: {enabled: true, cost_power: 1, cost_weight: 5.0, threshold_to_consider: 0.5}
+        CostCritic:
+          enabled: true
+          cost_power: 1
+          cost_weight: 3.81
+          near_collision_cost: 253
+          critical_cost: 300.0
+          consider_footprint: false
+          collision_cost: 1000000.0
+          near_goal_distance: 0.5
+          trajectory_point_step: 2
+        PathAlignCritic:
+          enabled: true
+          cost_power: 1
+          cost_weight: 14.0
+          max_path_occupancy_ratio: 0.05
+          trajectory_point_step: 4
+          threshold_to_consider: 0.5
+          offset_from_furthest: 20
+          use_path_orientations: false
+        PathFollowCritic: {enabled: true, cost_power: 1, cost_weight: 5.0, offset_from_furthest: 5, threshold_to_consider: 1.0}
+        PathAngleCritic: {enabled: true, cost_power: 1, cost_weight: 2.0, offset_from_furthest: 4, threshold_to_consider: 0.5}
+
+      # ── RPP (nav2_regulated_pure_pursuit_controller) — 경로를 따라 앞쪽 점(lookahead)을 쫓는 단순 추종. 가볍다.
+      #   파라미터 이름은 설치된 Lyrical 라이브러리에서 확인 (desired_linear_vel · lookahead_* · rotate_to_heading_*).
+      #   use_rotate_to_heading 과 allow_reversing 은 동시에 true 일 수 없다 (후진 안 함 → rotate_to_heading 사용).
+      inner_rpp:
+        desired_linear_vel: 0.20
+        lookahead_dist: 0.40
+        min_lookahead_dist: 0.20
+        max_lookahead_dist: 0.80
+        lookahead_time: 1.5
+        use_velocity_scaled_lookahead_dist: false
+        rotate_to_heading_angular_vel: 1.0
+        rotate_to_heading_min_angle: 0.785
+        use_rotate_to_heading: true
+        allow_reversing: false
+        max_angular_accel: 3.2
+        regulated_linear_scaling_min_speed: 0.05
+
+      # ── RotationShim (nav2_rotation_shim_controller) — 목표 방향이 많이 틀어져 있으면 먼저 제자리에서 돌고, 그 뒤 primary 에 넘김.
+      #   primary 의 파라미터는 반드시 primary_controller: 아래 (Kilted 이후 네임스페이스 필수). 여기서는 RPP 를 primary 로.
+      inner_rotation_shim:
+        angular_dist_threshold: 0.785
+        angular_disengage_threshold: 0.3925
+        forward_sampling_distance: 0.5
+        rotate_to_heading_angular_vel: 1.0
+        max_angular_accel: 3.2
+        simulate_ahead_time: 1.0
+        rotate_to_goal_heading: false
+        rotate_to_heading_once: false
+        primary_controller:
+          plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
+          desired_linear_vel: 0.20
+          lookahead_dist: 0.40
+          min_lookahead_dist: 0.20
+          max_lookahead_dist: 0.80
+          lookahead_time: 1.5
+          use_velocity_scaled_lookahead_dist: false
+          use_rotate_to_heading: false
+          allow_reversing: false
+          regulated_linear_scaling_min_speed: 0.05
 
 
 # ═════════════════════════════════════════════════════════════════════════════

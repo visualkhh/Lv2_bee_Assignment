@@ -2,8 +2,9 @@
 
 skill: unload_slot
 kind: arm            # arm (rl_arm_correction이 계산) | base (skill_approach가 계산)
-layout: unload_slot   # 정책 입력 모양 (ml/arm_obs.hpp place 39 · pick 41 · unload_slot 58) — 이전 pick(41)은 hand_target slot_puck과 안 맞아 실기에서 안 돌았음
-use: false            # 11-08: v03도 시뮬 앞먹임 조건 학습 (pick 새벽본처럼 처짐 적분 범위 밖 가능) — 첫 실기 시험은 정책 없이
+layout: pick          # 정책 입력 모양 (ml/arm_obs.hpp place 39 · pick 41)
+use: true
+runtime: onnx         # onnx (기본, ONNX Runtime) | policy (같은 정책의 .policy · 실측에서 ONNX가 나쁘면)
 node: skill_unload
 sim_baseline: 32.5      # [%] 잔차 0 (5단계 전부 켠 평가 조건, 1024판)
 sim_policy: 97.0        # [%] 5단계 (중심 오차 p90 5.8 mm)

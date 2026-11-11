@@ -121,9 +121,7 @@ void ArmIO::settle(std::function<void()> go) {
   const uint64_t gen = gen_;
   auto hist = std::make_shared<std::vector<Q5>>();
   auto ticks = std::make_shared<int>(0);
-  // 노드 시계(Isaac에선 시뮬 시간)로 잼 — wall 타이머는 시뮬이 실시간보다 느릴 때(0.7배) 아직 처지는 팔을 멈췄다고 봐서
-  //   start point deviates (joint3)로 거부됐음 (11/09 Isaac: inspect 바로 뒤 stand)
-  settle_timer_ = node_.create_timer(std::chrono::duration<double>(DT), [this, go, gen, hist, ticks]() {
+  settle_timer_ = node_.create_wall_timer(std::chrono::duration<double>(DT), [this, go, gen, hist, ticks]() {
     if (gen != gen_) { settle_timer_->cancel(); return; }
     Q5 q;
     if (arm_now(q)) {
@@ -203,7 +201,7 @@ void ArmIO::move_arm(const geometry_msgs::msg::PoseStamped & target, Cb done, do
 
 void ArmIO::move_joints(const std::vector<double> & q5, Cb done, bool retry) {
   if (q5.size() != 5) { done(false); return; }
-  if (settle_) { settle([this, q5, done, retry]() { move_joints(q5, done, retry); }); return; }
+  if (settle_) { settle([this, q5, done]() { move_joints(q5, done); }); return; }
   auto req = std::make_shared<GetMotionPlan::Request>();
   auto & r = req->motion_plan_request;
   r.group_name = "arm";

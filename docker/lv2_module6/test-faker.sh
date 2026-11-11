@@ -1,14 +1,13 @@
 #!/bin/bash
 # 더미 전체 흐름 검사 (컨테이너 안에서 실행): test-faker [초|0] [launch 인자...]
-#   faker launch = bringup(🛠 노드) + ros_system(controller_manager ↔ 가상 시리얼 ↔ fake_opencr · EKF) + 대역(📦) + 파일 연동 → user_input 명령 한 번
-#   /task_status 에 SUCCEEDED(state 1)가 오고 /robot_say 가 나오고,
+#   faker launch = bringup(🛠 노드) + ros_system(controller_manager ↔ 가상 시리얼 ↔ fake_opencr · EKF) + 대역(📦) + 파일 연동 
 #   controller_manager(fake_opencr S 상태)가 /joint_states(팔 5축 + 그리퍼)·EKF가 /odometry/filtered 를 내면 PASS
 #   초: SUCCEEDED 뒤 더 돌릴 시간 (기본 1). 0이면 Ctrl+C까지 띄워 둠 (판정 없음)
 #   예) test-faker                       정상 흐름
 #       test-faker 1                        파지까지 전체 흐름 (진짜 move_group)
 #       test-faker 0                      띄워 두고 다른 터미널에서 ros2 topic echo … ([ROS 재시작] = /cmd/restart → state_manager가 다시 띄움)
 #       test-faker 1 mock_hardware:=true    OpenCR 없이 mock (물리 없음)
-# 배관(joint_states · odom · Nav2 · monitor)은 항상 본다. 작업 흐름(카메라 → 인지 → 작업 성공)은 호스트 카메라 입력이 있을 때만.
+# 배관(joint_states · odom · Nav2 · monitor)은 항상 본다. 작업 흐름은 검사하지 않는다 (user_input · vlm_task_planner 삭제).
 # 토픽·노드·패키지 기록은 monitor_manager가 debug/topic · node · pkg · output/topic 에 남긴다.
 # NOTE: set -u 사용 금지 — setup.bash가 미설정 변수를 참조해서 죽음.
 # shellcheck disable=SC1091
@@ -91,18 +90,6 @@ for i in 1 2; do
   JS=$(timeout 30 ros2 topic echo --once /joint_states sensor_msgs/msg/JointState 2>/dev/null)
 done
 
-# 카메라 = 호스트에서 외부로 넣는 파일 (테스트가 띄우지 않음). 갱신되면 /robot_description을 받은 뒤 렌더 시작 → 최대 20초 기다림
-# 꺼져 있으면 카메라 → 인지 → 작업 흐름 검사는 건너뛰고 배관(joint_states · odom · Nav2 · monitor)만 본다
-META=$DEBUG_DIR/input/hardware/camera/pole_front_cam.json
-for _ in $(seq 20); do
-  [ -f "$META" ] && [ $(( $(date +%s) - $(stat -c %Y "$META") )) -lt 3 ] && break
-  sleep 1
-done
-CAM_OK=0
-[ -f "$META" ] && [ $(( $(date +%s) - $(stat -c %Y "$META") )) -lt 3 ] && CAM_OK=1
-# 매핑 중(MAPPING)에는 지도가 아직 없어 미션 흐름을 판정하지 않는다 — 배관만 본다
-MAP_MODE=$(python3 -c "import json; print(json.load(open('$DEBUG_DIR/output/topic/state/map_mode/message'))['data']['data'])" 2>/dev/null || true)
-[ "$MAP_MODE" = MAPPING ] && CAM_OK=0
 # Nav2 서버가 다 active인지 — 관리자 둘의 마지막 서버: collision_monitor(lifecycle_manager_base) · bt_navigator(lifecycle_manager_navigation)
 NAV2=
 # 차가운 첫 기동은 60초를 넘길 수 있다 (실측 63초) — 여유 있게 90초
@@ -136,10 +123,6 @@ if [ "$DUR" = 0 ]; then
   exit 0
 fi
 
-# 타입을 명시해야 /task_status가 아직 안 생겼을 때 바로 끝나지 않고 기다림. transient_local로 받아야 놓친 것도 옴
-DONE=
-[ "$CAM_OK" = 1 ] && DONE=$(timeout 60 ros2 topic echo --once --filter 'm.state == 1' \
-  --qos-reliability reliable --qos-durability transient_local /task_status plan/msg/TaskStatus 2>/dev/null)
 ODOM=$(timeout 10 ros2 topic echo --once /odometry/filtered nav_msgs/msg/Odometry 2>/dev/null)
 sleep "$DUR"
 if [ "$MONITOR" = 1 ]; then  # monitor_manager의 그래프 발견이 늦으면 첫 파일까지 기다림 (기동 직후 flaky)
@@ -148,7 +131,7 @@ fi
 stop_all
 
 echo "--- 흐름 (faker.log) ---"
-grep -E '\] \[(user_input|vlm_task_planner|coordinator|grasp_scorer|controller_server|move_group|arm_safety_monitor|spawner_[a-z_]+)\]' /tmp/faker.log \
+grep -E '\] \[(coordinator|grasp_scorer|controller_server|move_group|arm_safety_monitor|spawner_[a-z_]+)\]' /tmp/faker.log \
   | sed -E 's/^\[[^]]+\] //' | head -60
 [ "$(echo "$NAV2" | grep -o 'active \[3\]' | wc -l)" = 2 ] || { echo "FAIL: Nav2 서버가 active 아님 (collision_monitor / bt_navigator: ${NAV2:-응답 없음})"; grep -E "lifecycle_manager|ERROR" /tmp/faker.log | tail -20; exit 1; }
 echo "$JS" | grep -q gripper_left_joint || { echo "FAIL: /joint_states에 gripper_left_joint 없음 (controller_manager·BeebotSystemHardware)"; grep -E "controller_manager|spawner|ros2_control" /tmp/faker.log | tail -20; exit 1; }
@@ -157,13 +140,7 @@ if [ "$MONITOR" = 1 ]; then
   [ -s "$DEBUG_DIR/output/topic/joint_states/message" ] || { echo "FAIL: monitor_manager 파일 없음 ($DEBUG_DIR/output/topic/joint_states/message)"; exit 1; }
   echo "기록 (monitor_manager): $DEBUG_DIR/topic · $DEBUG_DIR/node · $DEBUG_DIR/pkg (그래프) · $DEBUG_DIR/output/topic (message·image)"
 fi
-if [ "$CAM_OK" = 1 ]; then
-  [ -n "$DONE" ] || { echo "FAIL: /task_status SUCCEEDED 없음 (60초)"; tail -n 40 /tmp/faker.log; exit 1; }
-  grep -q '🔊' /tmp/faker.log || { echo "FAIL: /robot_say 없음"; exit 1; }
-  echo "PASS: faker 흐름 (카메라 → 인지 → vlm → coordinator → Nav2·grasp·move_group → task_status SUCCEEDED)"
-else
-  echo "건너뜀: 작업 흐름 — 호스트 카메라 입력 없음 ($META 갱신 없음). 흐름까지 보려면 카메라 파일을 넣고 다시 실행"
-fi
+# 작업 흐름(user_input → vlm_task_planner → SUCCEEDED)은 노드를 지워서 검사 안 함 — 배관만 본다
 if [ "$MONITOR" = 1 ]; then
   echo "PASS: faker 배관 (controller_manager ↔ fake_opencr → /joint_states · EKF /odometry/filtered · Nav2 active · monitor_manager)"
 else

@@ -100,10 +100,10 @@ class CuvslamSlam(Node):
         self.map = self.declare_parameter('map_frame', 'map').value
         # true = 단독 SLAM(루프 클로저 + TF map→odom) · false = 시각 오도메트리만 (SLAM이 map→odom)
         self.publish_map_tf = bool(self.declare_parameter('publish_map_tf', True).value)
-        # map→odom을 이만큼 미래 시각으로 냄 (AMCL·slam_toolbox transform_tolerance와 같은 관례) — 영상 처리 지연 때문에
+        # map→odom을 이만큼 미래 시각으로 냄 (0.5 s — 영상 지연 + 발행 간격 최대 0.33 s 때문에 0.2로는 Nav2 controller가 '미래 외삽'으로 목표를 중단함, 실기 2026-11-09)
         # 최신 map→odom이 방금 들어온 depth 영상보다 옛 시각이라, nvblox가 그 영상 시각으로 TF를 찾으면 '미래 외삽'으로 실패해
         # depth를 버렸음 (실기 2026-10-29: 지도가 시작 몇 프레임 뒤로 안 자람). map→odom은 천천히 바뀌어 미래로 내도 안전
-        self.map_tf_tolerance = Duration(seconds=float(self.declare_parameter('map_tf_tolerance', 0.2).value))
+        self.map_tf_tolerance = Duration(seconds=float(self.declare_parameter('map_tf_tolerance', 0.5).value))
         self.depth_scale = float(self.declare_parameter('depth_scale_factor', 1000.0).value)  # 16UC1 mm → m
         self.min_depth = float(self.declare_parameter('min_depth', 0.5).value)  # [m] 이 안 픽셀(자기 팔)은 추적에서 뺌
         # EKF에 주는 속도 분산 — 실측으로 맞출 값 (σ 0.05 m/s · 0.05 rad/s에서 시작)
@@ -160,7 +160,7 @@ class CuvslamSlam(Node):
     def apply_initialpose(self, desired):
         self.map_offset = compose(desired, inverse(self.last_base))
         self.path.poses.clear()
-        self.get_logger().warn(
+        self.get_logger().warning(
             f'initialpose 적용: map ({desired[0]:+.2f}, {desired[1]:+.2f}, {math.degrees(desired[2]):+.1f}°)')
 
     def start(self, frame):

@@ -5,7 +5,7 @@
 #include <sstream>
 
 #include "ml/arm_obs.hpp"
-#include "ml/mlp_policy.hpp"
+#include "ml/policy.hpp"
 #include "skills/arm_io.hpp"
 #include "skills/model.hpp"
 
@@ -26,7 +26,7 @@ TEST(SkillModel, MissingFolderIsNotUsed) {
   EXPECT_FALSE(why.empty());
 }
 
-// 저장소의 skill 정책 폴더마다: meta가 있고, use: true면 .policy가 있고 kind·layout·입력 크기가 맞음
+// 저장소의 skill 정책 폴더마다: meta가 있고, use: true면 정책 파일(.onnx · runtime: policy면 .policy)이 있고 kind·layout·입력 크기가 맞음
 TEST(SkillModel, RepoFoldersAreConsistent) {
   int n = 0;
   for (const auto & e : std::filesystem::directory_iterator(MODEL_DIR)) {
@@ -38,16 +38,20 @@ TEST(SkillModel, RepoFoldersAreConsistent) {
     EXPECT_EQ(m.meta.at("skill"), name);
     if (m.meta.at("use") != "true") { ++n; continue; }
     ASSERT_TRUE(m.use) << name << ": " << why;
-    ml::MlpPolicy p;
+    if (ml::OnnxPolicy::runtime_version() == "none" && !(m.meta.count("runtime") && m.meta.at("runtime") == "policy")) { ++n; continue; }  // ONNX 없이 빌드
+    ml::Policy p;
     ASSERT_TRUE(p.load(m.policy, why)) << why;
     if (m.kind == "base") {
-      EXPECT_EQ(p.obs_dim(), 13u) << name;
-      EXPECT_EQ(p.act_dim(), 2u) << name;
+      EXPECT_EQ(p.inputs(), 13u) << name;
+      EXPECT_EQ(p.outputs(), 2u) << name;
+    } else if (m.kind == "hand") {  // 세우기 방식 C: ml/stand_c_obs.hpp 28 → 손 속도 3
+      EXPECT_EQ(p.inputs(), 28u) << name;
+      EXPECT_EQ(p.outputs(), 3u) << name;
     } else {
       ml::ArmLayout l;
       ASSERT_TRUE(ml::arm_layout_from(m.layout, l)) << name << " " << m.layout;
-      EXPECT_EQ(p.obs_dim(), ml::arm_obs_size(l)) << name << " " << m.layout;
-      EXPECT_EQ(p.act_dim(), 5u) << name;
+      EXPECT_EQ(p.inputs(), ml::arm_obs_size(l)) << name << " " << m.layout;
+      EXPECT_EQ(p.outputs(), 5u) << name;
     }
     ++n;
   }

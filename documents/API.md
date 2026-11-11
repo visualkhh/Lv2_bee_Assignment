@@ -29,44 +29,43 @@ C++ 헤더는 타입명을 snake_case로: `TrackedObjectArray` → `perception/m
 uint32 id
 string class_name
 float32 confidence
-geometry_msgs/PoseWithCovariance pose   # map 기준 — 두 카메라 융합 위치 + 위치 공분산 · 퍽·상자는 방향(yaw)을 구하면 orientation + 공분산 yaw 대각, 모르면 단위 쿼터니언 (필드 뜻: documents/API.md)
+geometry_msgs/PoseWithCovariance pose   # map 기준 — 두 카메라 융합 위치 + 위치 공분산 · 퍽은 방향(yaw)을 구하면 orientation + 공분산 yaw 대각, 모르면 단위 쿼터니언 (필드 뜻: documents/API.md)
 geometry_msgs/Vector3 size              # m — x·y = 카메라 영상 박스 가로·세로 폭 환산 (map 축 아님), z = 클래스 기본값
 builtin_interfaces/Time last_seen       # 마지막 관측 영상 시각
 string[] cameras                        # 본 카메라 전부 (pole_front_cam | gripper_cam) — 오래 전에 본 것부터, 마지막 = 가장 최근
-                                        # 빈 배열([]) = 지도에 위치는 기억하지만 현재 어느 카메라에도 안 잡힘 (벽 뒤·시야 밖·집어 든 직후 등)
-                                        #   → pose(마지막 위치)·last_seen(마지막 시각)은 유효 — 그 위치로 navigate 가능
-                                        #   → 물체 삭제 정책: 퍽·location_box·start_box·barcode는 miss_count번 연속 미검출 시 삭제 / 사람·장애물·신호등은 TRACK_TIMEOUT_S(2초) 후 삭제
-int32[2] px                             # 마지막 카메라(cameras 끝) 영상 속 박스 중심 픽셀 [u, v] — VLM 이미지 마킹용
+int32[2] px                             # 마지막 카메라(cameras 끝) 영상 속 박스 중심 픽셀 [u, v]
 string color                            # 퍽: red | orange | yellow | green | blue | purple | white | black | unknown (영상 색 — 태그 번호와 무관) · 신호등 상태: red | yellow | green | off | all(두 색 이상 동시) · 그 외 빈 값 (박스 가운데 HSV)
-diagnostic_msgs/KeyValue[] details      # 클래스별 속성 — puck: posture · tag(AprilTag 0~11 — 번호는 무작위, 색과 무관) · shape(box | cyl) · yaw_period(90 | 180 deg — 방향 대칭 주기, 방향을 알 때만) · distance(로봇 중심~물체 바닥 위 m, /tracked_objects만) / location_box: tag(12~14) · yaw_period(360 = 태그 법선 · 태그 방향을 못 구했으면 90 = 윗면 변) / start_box: yaw_period 90 / barcode: content(작업 지시) / traffic_light: state · 그 외 빈 배열
+diagnostic_msgs/KeyValue[] details      # 클래스별 속성 — puck: posture · tag(AprilTag 0~11 — 번호는 무작위, 색과 무관) · shape(box | cyl) · yaw_period(90 | 180 deg — 방향 대칭 주기, 방향을 알 때만) · distance(로봇 중심~물체 바닥 위 m, /tracked_objects만) / location_box: tag(12~14) · yaw_period(360 태그 법선 · 못 구했으면 90 윗면 변) / start_box: yaw_period 90 / barcode: content(작업 지시) / traffic_light: state · 그 외 빈 배열
 ```
 
-표식 (발제 「AprilTag와 바코드 실제 배포 표식」, tag36h11 — OpenCV aruco로 읽음): 퍽 16mm 번호 0~11 → 그 퍽의 `tag`(**번호는 무작위 — 색과 무관**, 색은 `color` · 한 번 읽으면 기억 · gripper_cam이 위에서 봐야 읽힘 — coordinator `inspect`) ·
-장소 48mm L1~L3 = 12~14 (상자 옆면) · 줄무늬 바코드(P2-01 …) = 장소 작업 지시 → class `barcode` 물체(`content`) + `/mission/qr`.
+표식 (발제 「AprilTag와 바코드 실제 배포 표식」, tag36h11 — OpenCV aruco로 읽음): 퍽 16mm 번호 0~11 → 그 퍽의 `tag`(**번호는 무작위 — 색과 무관**, 색은 `color` · 트랙이 살아 있는 동안 유지 · gripper_cam이 위에서 봐야 읽힘 — coordinator `inspect`) ·
+장소 48mm L1~L3 = 12~14 (상자 **윗면** — 윗면 어디에 붙는지는 미정) · 줄무늬 바코드(P2-01 …) = 장소 작업 지시 → class `barcode` 물체(`content`) + `/mission/qr`.
 
 **상자** (205×205×70mm): depth로 바닥 위 상자 윗면(약 7cm 판)을 찾아 위치 = **윗면 가운데**, `size` = 잰 가로·세로·높이(붙은 상자는 큰 판 하나로).
-- 장소 태그(12~14)가 붙어 있으면 class **`location_box`** (L1~L3 — 놓는 곳) · `tag` · 방향 = 태그 법선(상자 밖 = 로봇이 다가오는 쪽, `yaw_period` 360). 태그를 비스듬히 봐서 법선을 못 구했으면 윗면 변 방향(`yaw_period` 90) — 나중에 태그를 정면으로 보면 360으로 바뀜. **받는 쪽은 `yaw_period`로 판단.**
-  태그만 보이고 윗면을 못 찾으면 태그에서 상자 안쪽으로 반 변(`location_box_size`) 옮긴 곳 · 기본 크기 · 그때 z는 태그 높이 · `yaw_period` 360. 태그 법선도 못 구했으면 태그 위치 그대로 · 방향 없음(단위 쿼터니언, `yaw_period` 없음).
-- 태그가 없으면 class **`start_box`** (퍽이 처음 있던 곳) · 방향 = 윗면 변 방향(`yaw_period` 90). 같은 자리에 `location_box`가 있으면 지움 (장소 상자를 뒤·옆에서 본 것).
-- 퍽·상자·바코드는 안 보여도 기억.
+- 장소 태그(12~14)가 윗면(가장자리 8cm 여유 포함) 안에 있으면 class **`location_box`** (L1~L3 — 놓는 곳) · `tag`. 방향 = 윗면 변 방향(`yaw_period` 90 — 네 옆면 중 어느 면인지만 앎, 정해진 앞면 없음).
+  (태그가 옆면에 붙어 정면으로 보이면 그 태그 법선 방향 · `yaw_period` 360 — 윗면 태그에는 해당 없음.) **받는 쪽은 `yaw_period`로 판단.**
+  태그만 보이고 윗면을 못 찾으면(멀거나 일부만 보임) **태그 위치 그대로** · 기본 크기 · 방향 없음(단위 쿼터니언, `yaw_period` 없음) — 태그가 윗면 가운데가 아니면 상자 가운데와 최대 약 10cm 어긋남. 가까이 가서 윗면을 찾으면 윗면 가운데로 바뀜.
+- 태그가 없으면 class **`start_box`** (퍽이 처음 있던 곳) · 방향 = 윗면 변 방향(`yaw_period` 90). 같은 자리에 `location_box`가 있으면 지움 (장소 상자를 태그가 안 보이는 쪽에서 본 것).
+- 윗면이 화면 가장자리에 잘린 상자는 방향 없음 (가운데·크기만) — 잘린 사각형 방향은 크게 틀림.
+- **모든 물체는 어느 카메라에도 2초(`TRACK_TIMEOUT_S`) 안 보이면 목록에서 빠짐** — 지금 보이는 것만 발행, 안 보이는 물체의 긴 기억은 통합(판단) 노드가 맡음.
 
 물체 하나 = 추적 트랙 하나. 카메라마다 YOLO 박스 → 박스 중심 픽셀 + 박스 안 정렬 depth 중앙값으로 3D 점 1개 → 영상 시각의 TF로 map 변환 →
 **자기 몸이면 버림** — 3D: 팔 링크를 잇는 선분 6cm 안 · 차체 반경 0.2m 안 바닥 위 / 영상: 팔(TF 링크를 화면에 투영, 두께 4cm)과 겹치는 박스(퍽 제외 — 박스 일부만 팔이면 depth가 팔 뒤 바닥이라 3D로는 못 거름) → 같은 클래스·0.4m 안의 트랙에 1:1로 붙여 **칼만 갱신(두 카메라 융합)**. 포인트 클라우드는 쓰지 않는다 (객체 단위 융합). 구현: [perception_node.py](../lv2_module6/ros2_ws/src/perception/scripts/perception_node.py), 파라미터: [perception.yaml](../lv2_module6/ros2_ws/src/perception/config/perception.yaml).
 
 | 필드 | 뜻 | 주의 |
 | --- | --- | --- |
-| `id` | 추적 번호 (1부터 증가) — VLM·coordinator·grasp_scorer가 같은 물체를 이 번호로 가리킴 (`SubGoal.target`) | **기억하는 물체**(`puck*` · `goal_zone` · `station_zone` · `qr_board` · `location_box` · `start_box` · `barcode`, `remember_min_hits`번 이상 잡힌 것)는 안 보여도 남음 — 그 자리가 잘 보이는데 `miss_count`번 연속 못 찾을 때만 삭제(옮겨짐·집어 감). 그 밖(사람·장애물·신호등)은 어느 카메라에도 **2초** 안 보이면 삭제 → 다시 보이면 **새 번호**. 번호는 재사용 안 함 |
-| `class_name` | YOLO: `puck` · `puck_lying` · `goal_zone` · `station_zone` · `qr_board` · `obstacle` · `person` · `traffic_light` / 표식·depth: `location_box`(장소 상자 — AprilTag 12~14) · `start_box`(태그 없는 상자) · `barcode`(바코드 P2-xx) | YOLO 클래스는 모델의 `names`를 따름 (`puck_red`처럼 색이 붙은 이름은 `puck` + color로 나눔). 다른 클래스끼리는 가까워도 합치지 않음 |
+| `id` | 추적 번호 (1부터 증가) — mission_manager·coordinator·grasp_scorer가 같은 물체를 이 번호로 가리킴 (`SubGoal.target`) | **모든 물체**는 어느 카메라에도 **2초** 안 보이면 삭제 → 다시 보이면 **새 번호**. 번호는 재사용 안 함. 안 보이는 동안 기억할 물체는 받는 쪽(통합 노드)이 따로 저장 |
+| `class_name` | YOLO: `puck`(서 있는 퍽) · `puck_lying`(누운 퍽) · `traffic_light` · `person` · `obstacle` / 표식·depth: `location_box`(장소 상자 — AprilTag 12~14) · `start_box`(태그 없는 상자) · `barcode`(바코드 P2-xx) — 이 8개만 나감 | 모델 이름(`bee_yolo11n_v5.pt`: `puck_red_box` · `puck_green_cyl` … · `traffic_light_red` · `traffic_light_off` …)은 나눠서 냄: 퍽 → `puck` + `color` + `details.shape`(+ 자세), 신호등 → `traffic_light` + 상태(`color` · `details.state`). 다른 클래스끼리는 가까워도 합치지 않음 |
 | `confidence` | 마지막 관측의 YOLO 신뢰도 (0~1, `confidence` 파라미터 이상만) | 평균 아님 |
 | `pose.pose.position` | map 좌표 [m] — 원점 = map 원점(시뮬레이터: 출발 칸 `spawn`), x 앞 · y 왼쪽 · z 위(바닥 ≈ 0). **추적은 odom 기준, 발행 순간의 map ← odom(cuVSLAM 최신 보정)으로 바꿔 냄** — 보정이 바뀌면(맞든 틀리든) 로봇 위치와 함께 옮겨져 로봇과의 상대 위치는 유지. 위치추정 자체가 틀리면 map 좌표는 그만큼 통째로 어긋남 | 박스 중심 방향의 **카메라 쪽 앞면 점** — 실제 중심보다 카메라 쪽으로 물체 반지름쯤 당겨짐 (퍽 2~3cm). z도 앞면 점 높이. 두 카메라가 다른 방향에서 보면 일부 상쇄 |
-| `pose.pose.orientation` | 바닥 위 회전(yaw)만 `(0, 0, sin(yaw/2), cos(yaw/2))` — 퍽(모양·태그로 구했을 때) · `location_box`(태그 법선, 못 구했으면 윗면 변) · `start_box`(윗면 변). 모르면 `(0, 0, 0, 1)` | 방향 주기는 `details.yaw_period` — 90이면 90°마다 같은 자세(사각 퍽·시작 상자), 180이면 누운 퍽 긴 축, 360이면 구분됨(태그 법선을 구한 장소 상자). 같은 `location_box`도 처음엔 90이었다가 태그를 정면으로 보면 360이 됨 공분산 yaw 대각(35)이 작으면 아는 방향 |
+| `pose.pose.orientation` | 바닥 위 회전(yaw)만 `(0, 0, sin(yaw/2), cos(yaw/2))` — 퍽(모양·태그로 구했을 때) · `location_box`·`start_box`(윗면 변). 모르면 `(0, 0, 0, 1)` | 방향 주기는 `details.yaw_period` — 90이면 90°마다 같은 자세(사각 퍽·상자), 180이면 누운 퍽 긴 축, 360이면 구분됨(옆면 태그 법선 — 윗면 태그 상자는 해당 없음). 공분산 yaw 대각(35)이 작으면 아는 방향. 상자 면 앞에 설 때: 면 방향 = yaw + k·90°, 면 위치 = 가운데 + 0.1025m × 그 방향 |
 | `pose.covariance` | 6×6 행 우선. **위치 3×3 블록**(인덱스 0~2·6~8·12~14) = 융합 위치 불확실성 [m²], 회전 대각(21·28·35) = 1e3(모름) | 관측 잡음만 반영 — 위의 앞면 쏠림(바이어스)은 안 들어감. 관측 σ: depth 축 `depth_sigma0 + depth_sigma_k·z²`, 가로·세로 `pixel_sigma·z/f` |
 | `size` | [m] x = 박스 가로 폭 · y = 박스 세로 높이 (픽셀 × 거리 / 초점거리), z = 클래스 기본값(퍽 0.06 — 발제 30×30×60mm, 누운 퍽 0.03 등). 크기를 못 재면 셋 다 클래스 기본값. **상자(`location_box`·`start_box`)는 잰 윗면 가로·세로 · 높이(바닥~윗면)** | 퍽은 **map 축 크기가 아님** (카메라 영상 기준). 관측마다 칼만 이득 비율로 갱신 |
 | `last_seen` | 마지막으로 관측된 **영상 시각** (카메라 header.stamp) | `TrackedObjectArray.header.stamp`(발행 시각)과 다름 |
-| `cameras` | 이 트랙을 본 카메라 전부 `pole_front_cam` · `gripper_cam` — 마지막으로 본 시각 순, **끝 = 가장 최근에 본 카메라** | **빈 배열(`[]`) = 지도에 위치는 기억하고 있지만 현재 어느 카메라에도 잡히지 않음** (벽 뒤·시야 밖·집어 든 직후 등). 비어 있어도 `pose`(마지막 관측 위치)·`last_seen`(마지막 관측 시각)은 유효 — 그 위치로 navigate 가능. 따로 `camera` 필드는 없음 — `cameras[-1]`. **물체 종류별 삭제 정책**: 퍽·목표구역·QR판은 안 보여도 유지(옮겨졌다고 판단되면 `miss_count`번 연속 미검출 시 삭제) / 사람·장애물·신호등은 `TRACK_TIMEOUT_S`(2초) 안 보이면 삭제. 수신 측 판별 패턴: `cameras` 비어 있으면 "알고 있지만 현재 미관측" / `last_seen` 기준 경과 시간으로 얼마나 전에 봤는지 구분 |
-| `px` | `cameras` 끝 카메라 영상(640×480) 속 박스 중심 픽셀 `[u, v]` — VLM이 그 영상에 표시할 때 씀 (planner가 ai-service에 `camera` + `px {카메라: [u, v]}`로 보냄) | 다른 카메라 영상의 좌표가 아님 |
+| `cameras` | 이 트랙을 본 카메라 전부 `pole_front_cam` · `gripper_cam` — 마지막으로 본 시각 순, **끝 = 가장 최근에 본 카메라** | 목록에 있는 물체는 늘 2초 안에 본 것이라 빈 배열은 나오지 않음. 따로 `camera` 필드는 없음 — `cameras[-1]`. 얼마나 전에 봤는지는 `last_seen`으로 |
+| `px` | `cameras` 끝 카메라 영상(640×360) 속 박스 중심 픽셀 `[u, v]` — 그 영상에 표시할 때 씀 | 다른 카메라 영상의 좌표가 아님 |
 | `color` | 퍽: `red` · `orange` · `yellow` · `green` · `blue` · `purple` · `white` · `black` · `unknown` / 신호등: `red` · `yellow` · `green` · `off` · `all`(두 색 이상 동시 — 신호등 미션 단계 구분) / 그 외 `""` | 박스 가운데(가장자리 20%씩 뺌 — 바닥 안 섞이게) HSV 다수결, 채도 없는 화소가 대부분이면 흰색·검정. 마지막 관측 값. 퍽으로 보는 색은 `puck_colors`(빨강·초록). 태그 번호와 무관 |
-| `details` | `puck`: `posture`(standing·lying) · `tag` · `shape`(box 사각기둥 · cyl 원기둥) · `yaw_period` · `distance` / `location_box`: `tag` · `yaw_period`(360 태그 법선 · 90 윗면 변) / `start_box`: `yaw_period`(90) / `barcode`: `content` / `traffic_light`: `state` | `tag`·`content`·`shape`는 한 번 읽으면 기억 (멀어져 못 읽어도 덮지 않음). `distance` = 로봇(base_footprint) 중심~물체 바닥 위 거리 [m], 발행 순간 · `/tracked_objects`에만 |
+| `details` | `puck`·`puck_lying`: `posture`(standing·lying) · `tag`(0~11) · `shape`(box 사각기둥 · cyl 원기둥) · `yaw_period`(90 · 180) / `location_box`: `tag`(12~14) · `yaw_period`(90 윗면 변 · 옆면 태그면 360) / `start_box`: `yaw_period`(90) / `barcode`: `content`(작업 지시 문자열) / `traffic_light`: `state`(red · yellow · green · off · all) / **모든 클래스**: `distance` (로봇 TF가 있을 때). 값이 없으면 그 key가 없음 (빈 값을 넣지 않음) | key·value는 모두 문자열 (`yaw_period`는 도 단위 정수, `distance`는 소수 셋째 자리 m). `tag`·`content`·`shape`는 트랙이 살아 있는 동안 유지 (멀어져 못 읽어도 덮지 않음 — 2초 안 보여 트랙이 지워지면 같이 사라짐). `distance` = 로봇(base_footprint) 중심~물체 바닥 위 거리 [m], 발행 순간 · `/tracked_objects`에만 |
 
 <a id="api-msg-trackedobjectarray"></a>
 ### perception/msg/TrackedObjectArray ([파일](../lv2_module6/ros2_ws/src/perception/msg/TrackedObjectArray.msg))
@@ -76,57 +75,41 @@ std_msgs/Header header                   # frame_id: map
 TrackedObject[] objects
 ```
 
-- 내는 쪽: perception → `/tracked_objects` (10Hz · reliable). 받는 쪽: vlm_task_planner · coordinator · grasp_scorer.
+- 내는 쪽: perception → `/tracked_objects` (10Hz · reliable). 받는 쪽: coordinator · grasp_scorer.
 - `header.stamp` = **발행 시각**(10Hz 타이머), `header.frame_id` = `map`. `objects` = 지금 살아 있는 트랙 전부 (id 오름차순, 없으면 빈 배열).
 - 같은 타입을 `/perception/<cam>/detections`로도 낸다 — **융합 전** 그 카메라 한 프레임 검출. `id` = 그 검출이 붙은 트랙 id, `pose.covariance` = 그 관측의 공분산, `header.stamp` = 영상 시각. 디버그·시뮬레이터 표시용 (받는 노드 없음).
 
 #### `cameras` 필드 활용 패턴
 
-`cameras` 빈 배열 여부로 **"현재 보이는지 / 지도에만 기억된 상태인지"** 를 구분할 수 있다.
+`cameras` = 그 물체를 본 카메라 (끝이 가장 최근). `/tracked_objects`에 있는 물체는 모두 2초 안에 본 것이라 빈 배열은 없다.
 
 ```
-cameras = ["pole_front_cam"]              → 지금 pole_front_cam에 잡힘
-cameras = ["pole_front_cam","gripper_cam"]→ 두 카메라 모두 잡힘 (끝이 가장 최근)
-cameras = []                              → 지도에 위치는 있지만 현재 어느 카메라에도 안 잡힘
+cameras = ["pole_front_cam"]              → pole_front_cam만 봄
+cameras = ["pole_front_cam","gripper_cam"]→ 두 카메라 모두 봄 (끝이 가장 최근)
 ```
 
-수신 측 판별 예시 (Python):
+수신 측 예시 (Python):
 
 ```python
 from rclpy.time import Time
 
 for obj in tracked_objects.objects:
-    # ① 지금 카메라에 잡히는 것만
-    if obj.cameras:
-        latest_cam = obj.cameras[-1]   # 가장 최근에 본 카메라
+    latest_cam = obj.cameras[-1]   # 가장 최근에 본 카메라 (px는 이 카메라 영상 좌표)
 
-    # ② 지도엔 알지만 지금 안 보이는 것 (벽 뒤·시야 밖·집어 든 직후)
-    if not obj.cameras:
-        # pose(마지막 위치)·last_seen(마지막 시각)은 여전히 유효
-        # → 그 위치로 navigate하면 가까이 갔을 때 cameras가 다시 채워짐
-        pass
-
-    # ③ 최근 N초 이내에 본 것 (now는 node.get_clock().now())
-    last = Time.from_msg(obj.last_seen)
-    age_s = (now - last).nanoseconds / 1e9
-    if age_s < 2.0:
-        pass  # 2초 이내 관측
+    # 얼마나 전에 봤는지 (now는 node.get_clock().now()) — 2초를 넘으면 목록에서 빠짐
+    age_s = (now - Time.from_msg(obj.last_seen)).nanoseconds / 1e9
 ```
 
-물체 종류별 삭제 정책:
-
-| 클래스 | 안 보일 때 | 삭제 조건 |
-|--------|-----------|-----------|
-| `puck` · `location_box` · `start_box` · `barcode` · `goal_zone` | `cameras=[]` 유지 | `miss_count`번 연속 미검출 (그 자리가 잘 보이는데 없는 경우 — 옮겨지거나 집어 감) |
-| `person` · `obstacle` · `traffic_light` | `cameras=[]` 유지 | `TRACK_TIMEOUT_S`(2.0초) 안 보이면 트랙 삭제 |
+삭제 정책: **모든 클래스**가 어느 카메라에도 `TRACK_TIMEOUT_S`(2.0초) 안 보이면 트랙 삭제 → 다시 보이면 새 `id`.
+안 보이는 물체(시야 밖 퍽·지나온 상자 등)를 기억해야 하면 받는 쪽(통합·판단 노드)이 마지막 `pose`·`details`를 저장해서 쓴다.
 
 <a id="api-msg-subgoal"></a>
 ### plan/msg/SubGoal ([파일](../lv2_module6/ros2_ws/src/plan/msg/SubGoal.msg))
 
 ```text
 uint32 step
-string skill        # navigate | pick | place | inspect | say | pose | load | unload | stand | stand_pick  (정의: documents/project/ros/05-arm.md)
-string target       # 물체 id (/tracked_objects의 id) · "x,y"(navigate) · 자세 이름(pose) · 칸 0~11 · next(load) · last(unload) · "tray"(pick·place — unload last·load next와 같음) · 말할 내용(say)
+string skill        # navigate | pick | place | inspect | pose | load | unload | stand | stand_pick  (정의: documents/project/ros/05-arm.md)
+string target       # 물체 id (/tracked_objects의 id) · "x,y"(navigate) · 자세 이름(pose) · 칸 0~11 · next(load) · last(unload) · "tray"(pick·place — unload last·load next와 같음)
 string relation     # front | on | ...
 float32 offset_m
 ```
@@ -143,7 +126,6 @@ float32 offset_m
 | `inspect` | 퍽 id · `"x,y,z"` | 손끝을 퍽 윗면(좌표면 그 점) 위 `inspect_height_m`로 (좌표면 손 방향 = 로봇 → 점) → `inspect_wait_s` 기다림 — gripper_cam이 윗면 16mm AprilTag(번호)를 읽게. 못 읽어도 성공 (읽었는지는 `details.tag`). **relation `box`** + `"x,y,z"`(상자 가운데, 퍽 윗면 높이): `pose_look` 자세로 → 상자 위 퍽이 2개 미만이거나 태그를 못 읽었으면 본 퍽을 한 장에 담는 자세(look_plan)로 다시 → 그래도 모자라면 `inspect_partial` (미션 SURVEY) |
 | `stand` | 누운 퍽 id (`puck_lying`) | 누운 퍽 세우기 — 먼 끝을 위치형으로 쥐고(`stand_pinch_m`, 닫는 전류 `stand_close_current_a` → 쥔 뒤 `stand_pinch_current_a`) 대각선으로 끌어(`stand_drag_m`, 실기 방식 · 0이면 호) 세운 뒤 벌리고 위로 (손은 빈 채 끝). 경유점 `stand_waypoints` ik(기본) · table |
 | `stand_pick` | 아무 값 (직전 `stand`의 퍽) | 세운 퍽 다시 집기 — 같은 손목으로 바로 아래로 → 닫기 → 잡기 판정 → 들어올림. 성공하면 그 퍽을 손에 든 것으로 장부에 |
-| `say` | 말할 내용 | `/robot/say`로 알림 |
 
 <a id="api-msg-basketstate"></a>
 ### plan/msg/BasketState · BasketSlot ([파일](../lv2_module6/ros2_ws/src/plan/msg/BasketState.msg))
@@ -180,7 +162,7 @@ uint32 plan_id
 SubGoal[] goals
 ```
 
-- 내는 쪽: vlm_task_planner(일반 명령, plan_id 1부터) · mission_manager(주사위 미션, plan_id 1000000 + n) → `/task/sub_goals` (reliable + transient_local). 받는 쪽: coordinator.
+- 내는 쪽: mission_manager(주사위 미션, plan_id 1000000 + n) → `/task/sub_goals` (reliable + transient_local). 받는 쪽: coordinator.
 
 <a id="api-msg-taskstatus"></a>
 ### plan/msg/TaskStatus ([파일](../lv2_module6/ros2_ws/src/plan/msg/TaskStatus.msg))
@@ -195,8 +177,8 @@ uint8 state
 string reason       # grasp_failed_all | nav_failed | arm_contact ...
 ```
 
-- 내는 쪽: coordinator → `/task/status` (reliable + transient_local). 받는 쪽: vlm_task_planner(자기 계획이 FAILED면 재계획) · mission_manager(자기 계획 결과로 다음 단계) · user_input(표시).
-- reason (coordinator.cpp): 이동 `nav_failed` · `approach_failed` / 집기 `no_grasp` · `grasp_failed_all` · `arm_contact` / 놓기 `place_failed` · `place_no_target` / 자세 `pose_failed` / 적재함 `slot_invalid` · `slot_full` · `slot_empty` · `load_failed` · `unload_failed` · `basket_table_missing` / 잡기 판정 `grasp_empty` / 세우기 `stand_failed` · `stand_no_grip` · `stand_grip_timeout` · `stand_not_lying` · `stand_no_yaw` · `stand_ik_unreachable` · `stand_table_missing` · `stand_pick_no_stand` · `stand_pick_failed` · `hand_full` / 보기 `inspect_no_target` · `inspect_failed` · `inspect_partial`(상자 보기에서 퍽·태그가 모자람) / 멈춤 `manual_override`·`manual_mode` · `explore_override`·`explore_mode` · `estop`·`estop_blocked` · `cancelled` — `manual`·`explore`·`estop`·`cancelled`로 시작하면 planner는 재계획하지 않음.
+- 내는 쪽: coordinator → `/task/status` (reliable + transient_local). 받는 쪽: mission_manager(자기 계획 결과로 다음 단계).
+- reason (coordinator.cpp): 이동 `nav_failed` · `approach_failed` / 집기 `no_grasp` · `grasp_failed_all` · `arm_contact` / 놓기 `place_failed` · `place_no_target` / 자세 `pose_failed` / 적재함 `slot_invalid` · `slot_full` · `slot_empty` · `load_failed` · `unload_failed` · `basket_table_missing` / 잡기 판정 `grasp_empty` / 세우기 `stand_failed` · `stand_no_grip` · `stand_grip_timeout` · `stand_not_lying` · `stand_no_yaw` · `stand_ik_unreachable` · `stand_table_missing` · `stand_pick_no_stand` · `stand_pick_failed` · `hand_full` / 보기 `inspect_no_target` · `inspect_failed` · `inspect_partial`(상자 보기에서 퍽·태그가 모자람) / 멈춤 `manual_override`·`manual_mode` · `estop`·`estop_blocked` · `cancelled` — `manual`·`estop`·`cancelled`로 시작하면 재계획하지 않음.
 - 주의: [노드 사전](project/ros/10-catalog.md)의 reason 예시(`nav_blocked`)와 파일(`nav_failed`)이 다릅니다 — 파일이 정본.
 
 <a id="api-msg-missionstate"></a>
@@ -335,7 +317,7 @@ string message
 | `/pole_front_cam/aligned_depth_to_color/image_nvblox` | sensor_msgs/Image (16UC1, mm) | pole_depth_gate (scan_cam_gate) → nvblox_node | pole_front_cam 정렬 depth에서 카메라 0.5m 안(자기 팔·폴대) 픽셀을 0(측정 없음)으로 |
 | `/gripper_cam/aligned_depth_to_color/image_nvblox` | sensor_msgs/Image (16UC1, mm) | gripper_depth_gate (scan_cam_gate) → nvblox_node | gripper_cam 정렬 depth — 팔이 스캔 자세(`scan_pose.yaml`)에 멈춰 있을 때만(0.5m 안은 0), 아니면 전부 0 (지도 만들 때 두 번째 카메라) |
 | `/gripper_cam/depth/color/points` | sensor_msgs/PointCloud2 | realsense2_camera (gripper_cam) → grasp_scorer | 근접 파지용 |
-| `/tracked_objects` | perception/TrackedObjectArray | perception → vlm_task_planner, coordinator, grasp_scorer | 10Hz · reliable — 두 카메라 융합 결과 ([필드 뜻](#api-msg-trackedobject)) |
+| `/tracked_objects` | perception/TrackedObjectArray | perception → coordinator, grasp_scorer | 10Hz · reliable — 두 카메라 융합 결과 ([필드 뜻](#api-msg-trackedobject)) |
 | `/perception/pole_front_cam/detections` · `/perception/gripper_cam/detections` | perception/TrackedObjectArray | perception → hand_relative, (시뮬레이터·디버그) | 추론마다(카메라당 ≤4Hz) · reliable — 융합 전 카메라별 검출, `id` = 붙은 트랙 |
 | `/skill_context` | ml/SkillContext | 팔 skill 노드 → rl_arm_correction | 단계 바뀔 때마다 · reliable — 지금 skill·단계 (학습 보정을 켜고 입력을 만듦) |
 | `/hand_relative/target` | perception/HandTarget | 팔 skill 노드 → hand_relative | 닿는 구간 시작 전 한 번 · reliable + transient_local — 무엇을 잴지 (`puck` 퍽 번호 · `cell` 상자 태그와 계획 칸 · `slot` 적재함 칸 · `none`) |
@@ -347,16 +329,14 @@ string message
 
 | 이름 | 타입 | 보내는 쪽 → 받는 쪽 | 주기 · QoS |
 | --- | --- | --- | --- |
-| `/cmd/user_command` | std_msgs/String | user_input → vlm_task_planner | 명령마다 · reliable |
 | `/cmd/mission` | std_msgs/String | 운영자 → mission_manager | `start` · `abort` — 주사위 미션 시작·정지 · reliable |
-| `/mission/qr` | std_msgs/String | perception → mission_manager | 바코드 원문(예 `P2-01` — 정렬 방향) · QR — 읽은 내용이 바뀔 때만 · reliable + transient_local. vlm_task_planner는 받지 않음 (미션과 계획이 겹치지 않게) |
+| `/mission/qr` | std_msgs/String | perception → mission_manager | 바코드 원문(예 `P2-01` — 정렬 방향) · QR — 읽은 내용이 바뀔 때만 · reliable + transient_local |
 | `/mission/signal` | perception/MissionSignal | signal_decoder (perception) → mission_manager | 신호등 12회 점멸 확정 답 {sequence, red, yellow, green, ok, raw} — 두 사이클 같게 읽혀 새 답이 확정될 때만 · reliable + transient_local. 해석(L1~L3 배정)은 mission_manager |
 | `/mission/signal_status` | perception/MissionSignal | signal_decoder (perception) → mission_manager | 사이클마다 결과 · `ok=false`면 `error` = count · unknown · range · unconfirmed · reliable (래치 없음) |
-| `/robot/say` | std_msgs/String | coordinator → user_input | 알릴 때 · reliable |
-| `/task/sub_goals` | plan/SubGoalArray | vlm_task_planner → coordinator | 계획마다 · reliable + transient_local. target = 물체 id · `"x,y"`(navigate) · **`"tray"`(pick·place — 로봇 뒤 적재함 12칸: place tray = `load next`, pick tray = `unload last`)** · 칸 번호·`next`·`last`(load·unload) · 자세 이름(pose) · 퍽 id(inspect) · 말할 내용(say) |
+| `/task/sub_goals` | plan/SubGoalArray | mission_manager → coordinator | 계획마다 · reliable + transient_local. target = 물체 id · `"x,y"`(navigate) · **`"tray"`(pick·place — 로봇 뒤 적재함 12칸: place tray = `load next`, pick tray = `unload last`)** · 칸 번호·`next`·`last`(load·unload) · 자세 이름(pose) · 퍽 id(inspect) |
 | `/mission/state` | plan/MissionState | mission_manager → (운영 화면 · RViz) | 단계 · 지금 하는 일 · 바코드 · R·Y·G 횟수 · L1~L3 그룹 · 적재함 칸 → tag · 놓은 수 · 결과 · 오류 — 바뀔 때마다 · reliable + transient_local ([03-plan.md](project/ros/03-plan.md)) |
 | `/mission/markers` | visualization_msgs/MarkerArray | mission_manager → RViz | 출발 구역 · 박스 · 장소 3×3 칸(배정 뒤 그룹 색) — 1Hz · reliable + transient_local |
-| `/task/status` | plan/TaskStatus | coordinator → vlm_task_planner, mission_manager, user_input | 단계 완료·실패 시 · reliable + transient_local |
+| `/task/status` | plan/TaskStatus | coordinator → mission_manager | 단계 완료·실패 시 · reliable + transient_local |
 | `/speed_limit` | nav2_msgs/SpeedLimit | (현재 발행자 없음) → controller_server | 값이 오면 컨트롤러에 전달 · reliable |
 | `/arm_safety_event` | control/ArmSafetyEvent | arm_safety_monitor → coordinator | 접촉 시 |
 | `/motor_status` | control/MotorStatus | BeebotSystemHardware → state_manager | 모터별 Hardware Error (0 정상 · −1 응답 없음 · 비트 1 입력전압 4 과열 8 엔코더 16 전기충격 32 과부하) + 사람이 읽는 이름 + 온도 °C — 바뀔 때만 · reliable + transient_local (펌웨어 `E` 줄 · `S` 끝 온도) |
@@ -403,16 +383,15 @@ string message
 
 | 이름 | 타입 | 보내는 쪽 → 받는 쪽 | 주기 · QoS |
 | --- | --- | --- | --- |
-| `/cmd/operation_mode` | std_msgs/String | 시뮬레이터 · 운영자 → state_manager | MANUAL · AUTO · EXPLORE(자동 탐사 — 지도 모드 MAPPING일 때만 허락) · TEACH(팔 토크 끄고 손으로 자세 — MAPPING이 아닐 때만) — 조작 모드 명령 (외부 명령은 `/cmd/<이름>`(보내고 끝 — cmd_vel 관례), 결과는 `/state/<이름>` — 둘 다 state_manager만 구독·발행) |
+| `/cmd/operation_mode` | std_msgs/String | 시뮬레이터 · 운영자 → state_manager | MANUAL · AUTO · TEACH(팔 토크 끄고 손으로 자세 — MAPPING이 아닐 때만) — 조작 모드 명령 (외부 명령은 `/cmd/<이름>`(보내고 끝 — cmd_vel 관례), 결과는 `/state/<이름>` — 둘 다 state_manager만 구독·발행) |
 | `/cmd/manual/cmd_vel` | geometry_msgs/TwistStamped | teleop_twist_keyboard · 시뮬레이터 → manual_control | 수동일 때만 넘김, 0.5초 끊기면 0 |
 | `/cmd/manual/arm` | sensor_msgs/JointState | 시뮬레이터 · 운영자 → manual_control | joint1~5 rad · gripper_left_joint m (그 칸 `effort` = 쥐는 힘 한계 A, 없으면 gripper_controller `max_effort`) |
 | `/cmd/beep` | std_msgs/Int32MultiArray | 운영자(`run-cli beep`) → BeebotSystemHardware | OpenCR 부저 — `[]` 기본음(2000 Hz · 150 ms) · `[Hz, ms]` (펌웨어가 100~8000 · 10~2000으로 자름) → 펌웨어 `B` 줄. 모드와 무관 |
 | `/cmd/manual/reboot_motors` | std_msgs/Empty | 시뮬레이터 · 운영자 → manual_control | 수동 모드에서만. Hardware Error(과부하·과열 등) 난 DYNAMIXEL만 재부팅 → 📞 `/beebotsystem/reboot_motors` (std_srvs/Trigger) → 펌웨어 `R`. 결과는 manual_control 진단 |
-| `/state/operation_mode` | std_msgs/String (transient_local) | state_manager → manual_control · coordinator · explorer · vlm_task_planner | AUTO · MANUAL · EXPLORE · TEACH (TEACH면 manual_control이 팔 토크를 끄고 나갈 때 켬, AUTO가 아니면 coordinator는 작업 멈춤, EXPLORE면 explorer가 탐사, planner의 주기 수납 확인은 AUTO일 때만) |
+| `/state/operation_mode` | std_msgs/String (transient_local) | state_manager → manual_control · coordinator | AUTO · MANUAL · TEACH (TEACH면 manual_control이 팔 토크를 끄고 나갈 때 켬, AUTO가 아니면 coordinator는 작업 멈춤) |
 | `/state/devices` | std_msgs/String (transient_local) | state_manager → 시뮬레이터 · 누구나 | **장치 이름만 쉼표 구분** — `pole_front_cam,gripper_cam,opencr,imu,wheels,arm,gripper` · 상태가 아니라 목록 (2초마다 확인, 바뀔 때만) |
 | `/state/devices/<이름>` | std_msgs/String (transient_local) | state_manager → 시뮬레이터 · 누구나 | 장치별 상세 — `종류\|active · disconnected · error\|세부 토픽·관절` (예: `camera\|disconnected\|/pole_front_cam/...`) · 장치마다 동적 토픽. `wheels`·`arm`·`gripper`는 그 관절 DYNAMIXEL에 Hardware Error가 있으면 `error` + 세부 끝에 `joint2:과부하` (원본은 `/motor_status`, 재부팅 `/cmd/manual/reboot_motors`) |
 | `/state/topics` | std_msgs/String (transient_local) | state_manager → 시뮬레이터 · 누구나 | 전체 ROS 그래프 — `토픽\|타입\|publisher 수` 줄들. `/state/devices`에 없는 새 센서도 여기서 찾음 |
-| `/explore/result` | std_msgs/String | explorer → state_manager | 탐사 끝: `DONE …`(프론티어 없음) · `FAILED …` → state_manager가 AUTO로 되돌림 |
 | `/state/map_list` | std_msgs/String (transient_local) | state_manager → 시뮬레이터 · 누구나 | 가진 지도 폴더 이름들 (줄바꿈 구분, `<map_dir>/<이름>/nvblox.nvblx` 있는 것) — 2초마다 확인 · 바뀔 때만 |
 | `/cmd/restart` | std_msgs/String | 시뮬레이터 [ROS 재시작] · `ros-faker-restart` · 운영자(`ros2 topic pub --once`) → state_manager | **`all [이름:=값 …]`** = 이 launch 전체를 정상 종료 → 같은 명령줄로 다시 (인자를 주면 그 인자만 바꿈, `map:=`을 바꾸면 `map_name:=` 버림 · 테스트베드는 그 사이 `build-ws`) · **`node <이름>`** = 그 노드 프로세스만 같은 명령줄·환경(파라미터 파일·리매핑 그대로)으로 다시 (Nav2 수명주기 노드는 다시 활성화 필요). 실기 bringup · 테스트베드 같은 길. 같은 요청이 두 번 오지 않게 하는 건 보내는 쪽 — 테스트베드 input_manager는 읽은 파일을 지움. 도는 중엔 새 요청 거절 |
 | `/state/restartable` | std_msgs/String (transient_local) | state_manager → 시뮬레이터 진단 칸 · 누구나 | `node`로 재시작할 수 있는 노드 `"이름 pid"` 줄들 (이 launch 아래 ROS 노드 프로세스 — 컨트롤러·costmap 하위·내부 노드는 프로세스가 아니라 없음). 2초마다 확인 · 바뀔 때만 |
@@ -478,7 +457,7 @@ coordinator가 계획 단계마다 skill 노드 하나에 맡김 — 한 노드�
 
 | 이름 | 타입 | 요청 → 서버 | 용도 |
 | --- | --- | --- | --- |
-| `/navigate_to_pose` | nav2_msgs/action/NavigateToPose | skill_navigate · explorer → bt_navigator | 이동 단계마다 (explorer = 탐색 모드 목표). feedback: 남은 거리 |
+| `/navigate_to_pose` | nav2_msgs/action/NavigateToPose | skill_navigate → bt_navigator | 이동 단계마다. feedback: 남은 거리 |
 | `/compute_path_to_pose` | nav2_msgs/action/ComputePathToPose | bt_navigator → planner_server | 약 1Hz 재계획 |
 | `/follow_path` | nav2_msgs/action/FollowPath | bt_navigator → controller_server | 경로 변경 시 |
 | `/spin`, `/backup`, `/wait` | nav2_msgs/action/Spin · BackUp · Wait | bt_navigator → behavior_server | 복구 시. BackUp은 0.1m 이하로 제한 (뒤를 못 봄) |

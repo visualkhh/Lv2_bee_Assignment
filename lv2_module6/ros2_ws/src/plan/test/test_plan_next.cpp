@@ -9,7 +9,7 @@
 TEST(PlanNext, MatchesPythonPlanner) {
   plan::PlanNext p;
   std::string why;
-  ASSERT_TRUE(p.load(std::string(MODEL_DIR) + "/plan/plan_next.policy", why)) << why;
+  ASSERT_TRUE(p.load(std::string(MODEL_DIR) + "/plan/plan_next.onnx", why)) << why;
   std::ifstream f(std::string(CASES));
   ASSERT_TRUE(f.good());
   std::string line;

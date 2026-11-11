@@ -100,7 +100,6 @@ Coordinator::Coordinator(const rclcpp::NodeOptions & options)
   tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
   const auto latched = rclcpp::QoS(10).reliable().transient_local();
   status_pub_ = create_publisher<TaskStatus>("/task/status", latched);
-  say_pub_ = create_publisher<std_msgs::msg::String>("/robot/say", rclcpp::QoS(10).reliable());
   goals_sub_ = create_subscription<SubGoalArray>("/task/sub_goals", latched,
     [this](SubGoalArray::ConstSharedPtr m) { on_plan(*m); });
   objects_sub_ = create_subscription<TrackedObjectArray>("/tracked_objects", rclcpp::QoS(5).reliable(),
@@ -154,7 +153,7 @@ void Coordinator::on_mode(const std::string & mode) {
   if (mode == mode_) return;
   mode_ = mode;
   RCLCPP_WARN(get_logger(), "운영 모드: %s", mode.c_str());
-  if (mode != "AUTO" && running_) {  // 수동 · 자동 탐사(EXPLORE) · TEACH — 작업 실행과 동시에 하면 안 됨
+  if (mode != "AUTO" && running_) {  // 수동 · TEACH — 작업 실행과 동시에 하면 안 됨
     cancel_all();
     running_ = false;
     status(idx_ < plan_.goals.size() ? plan_.goals[idx_].step : 0, TaskStatus::FAILED,
@@ -181,7 +180,7 @@ bool same_goals(const SubGoalArray & a, const SubGoalArray & b) {
 }  // namespace
 
 void Coordinator::on_plan(const SubGoalArray & plan) {
-  // transient_local 재수신은 무시 — 단, 같은 id에 내용이 다르면 다른 계획 (VLM 카운터와 sim 직접 발행 충돌 대비)
+  // transient_local 재수신은 무시 — 단, 같은 id에 내용이 다르면 다른 계획 (mission_manager 카운터와 sim 직접 발행 충돌 대비)
   if (estop_) {
     RCLCPP_WARN(get_logger(), "계획 %u 거부: 비상정지 중", plan.plan_id);
     status(0, TaskStatus::FAILED, "estop_blocked");
@@ -225,10 +224,10 @@ void Coordinator::on_plan(const SubGoalArray & plan) {
 }
 
 bool Coordinator::validate(const SubGoalArray & plan, std::string & why) const {
-  static const std::set<std::string> allowed = {"navigate", "approach", "pick", "place", "inspect", "say", "pose", "load", "unload",
+  static const std::set<std::string> allowed = {"navigate", "approach", "pick", "place", "inspect", "pose", "load", "unload",
                                                 "stand", "stand_pick"};
   // target이 물체 id가 아님 (stand_pick은 직전 stand의 퍽 — 세운 사이 인지 id가 바뀌어도 됨)
-  static const std::set<std::string> not_object = {"say", "pose", "load", "unload", "stand_pick"};
+  static const std::set<std::string> not_object = {"pose", "load", "unload", "stand_pick"};
   if (plan.goals.empty()) { why = "empty"; return false; }
   for (const auto & g : plan.goals) {
     if (!allowed.count(g.skill)) { why = "skill " + g.skill; return false; }
@@ -285,15 +284,12 @@ void Coordinator::run_step() {
   if (idx_ >= plan_.goals.size()) {
     running_ = false;
     status(plan_.goals.back().step, TaskStatus::SUCCEEDED, "");
-    const bool carried = std::any_of(plan_.goals.begin(), plan_.goals.end(), [](const SubGoal & s) { return s.skill == "place"; });
-    if (carried) say("퍽을 옮겼어요");  // inspect만 한 계획(퍽 번호 보기)은 말 없이 — planner가 이어서 계획
     return;
   }
   const auto & g = plan_.goals[idx_];
   status(g.step, TaskStatus::RUNNING, "");
   RCLCPP_INFO(get_logger(), "step %u: %s %s", g.step, g.skill.c_str(), g.target.c_str());
-  if (g.skill == "say") { say(g.target); next(); }
-  else if (g.skill == "navigate") navigate(g);
+  if (g.skill == "navigate") navigate(g);
   else if (g.skill == "approach") approach(g);
   else if (g.skill == "pick") g.target == "tray" ? unload(g) : pick(g);   // pick tray = unload last (호환)
   else if (g.skill == "place") g.target == "tray" ? load(g) : place(g);   // place tray = load next (호환)
@@ -354,7 +350,7 @@ void Coordinator::next() {
   run_step();
 }
 
-// 규칙 3: 같은 단계 max_step_failures회 연속 실패면 알리고 정지. 그 전엔 FAILED만 보내고 VLM 재계획을 기다린다
+// 규칙 3: 같은 단계 max_step_failures회 연속 실패면 알리고 정지. 그 전엔 FAILED만 보내고 다음 계획을 기다린다
 void Coordinator::fail(const std::string & reason) {
   if (!running_) return;  // 이미 멈춤 (수동 전환으로 취소된 goal의 결과 등)
   const auto & g = plan_.goals[idx_];
@@ -362,10 +358,7 @@ void Coordinator::fail(const std::string & reason) {
   running_ = false;
   RCLCPP_WARN(get_logger(), "step %u 실패 (%s) %d/%d", g.step, reason.c_str(), n, max_step_failures_);
   status(g.step, TaskStatus::FAILED, reason);
-  if (n >= max_step_failures_) {
-    failures_.clear();
-    say(g.skill == "navigate" ? "목표까지 갈 수 없어요" : "퍽을 잡을 수 없어요");
-  }
+  if (n >= max_step_failures_) failures_.clear();
 }
 
 std::string Coordinator::key(const SubGoal & g) { return g.skill + ":" + g.target; }
@@ -443,7 +436,7 @@ void Coordinator::approach(const SubGoal & g) {
 
 void Coordinator::pick(const SubGoal & g) {
   if (!is_id(g.target) || !find(std::stoul(g.target))) { fail("pick_no_target"); return; }
-  if (approach_if_far(g)) return;  // 집을 퍽이 팔 밖이면 먼저 다가감 (VLM이 navigate를 빼먹어도)
+  if (approach_if_far(g)) return;  // 집을 퍽이 팔 밖이면 먼저 다가감 (계획에 navigate가 빠져 있어도)
   const auto o = *find(std::stoul(g.target));
   Skill::Goal sg;
   sg.target = g.target;
@@ -711,12 +704,6 @@ void Coordinator::status(uint32_t step, uint8_t state, const std::string & reaso
   s.state = state;
   s.reason = reason;
   status_pub_->publish(s);
-}
-
-void Coordinator::say(const std::string & text) {
-  std_msgs::msg::String m;
-  m.data = text;
-  say_pub_->publish(m);
 }
 
 }  // namespace plan

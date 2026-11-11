@@ -26,7 +26,7 @@ TOPICS = (
     '/state/devices/pole_front_cam', '/state/devices/gripper_cam', '/state/devices/opencr',
     '/state/devices/imu', '/state/devices/wheels', '/state/devices/arm', '/state/devices/gripper',
     '/joint_states', '/odom', '/odometry/filtered', '/imu',
-    '/diagnostics_agg', '/robot/say', '/tracked_objects', '/motor_status', '/task/status',
+    '/diagnostics_agg', '/tracked_objects', '/motor_status', '/task/status',
     '/pole_front_cam/color/camera_info', '/gripper_cam/color/camera_info',
     '/robot_description', '/fake_opencr/ground_truth',
 )

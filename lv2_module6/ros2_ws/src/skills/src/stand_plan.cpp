@@ -266,16 +266,10 @@ std::vector<Q5> sample_via(const Q5 & from, const Q5 & via, const Q5 & to, doubl
     len += linf(prev, q);
     prev = q;
   }
-  // 최소 저크(5차) 시간 — 끝에서 속도와 가속도가 둘 다 0이라 도착하며 덜 흔들림 (3차 move_s는 끝에서 가속도가 확 0이 됨:
-  // 11/08 실기 carry → 칸 위 끝에 팔이 떨림). 시간은 예전과 같은 사다리꼴 시간 — 정점 속도 1.875 L/T가 팀 한계를 ~17 % 넘음
-  // (11/08 사용자: 한계에 맞춰 T를 늘리면(+0.27 s) 느림). 닿는 구간(sample_move)은 시뮬 학습과 같은 move_s 그대로
   const double t = trapezoid_duration(len, vel_scale);
   const int n = std::max(1, static_cast<int>(std::ceil(t / dt - 1e-9)));
   std::vector<Q5> out;
-  for (int k = 1; k <= n; ++k) {
-    const double x = std::min(k * dt, t) / t;
-    out.push_back(at(x * x * x * (10 - 15 * x + 6 * x * x)));
-  }
+  for (int k = 1; k <= n; ++k) out.push_back(at(move_s(std::min(k * dt, t), t)));
   return out;
 }
 

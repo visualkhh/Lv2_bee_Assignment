@@ -22,6 +22,7 @@ def _finite(raw: str) -> str | None:
 
 class TeleopItem(MenuItem):
     shows_busy = False  # 전체 화면 텔레오퍼
+    resumable = False   # 재연결 뒤 저절로 텔레오퍼를 다시 열지 않음 (모드 전환·주행 입력)
     key = '1'
 
     def label(self):

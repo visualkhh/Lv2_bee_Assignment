@@ -116,6 +116,8 @@ private:
   std::atomic<uint32_t> reboot_mask_{0};         // 서비스가 고른 모터 — write()가 R 줄로 보냄
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr reboot_srv_;
   std::atomic<int> torque_req_{-1};    // 서비스가 고른 팔·그리퍼 토크 (0 끄기 · 1 켜기 · −1 없음) — write()가 T 줄로 보냄
+  std::atomic<bool> arm_nan_{false};    // 마지막 S에서 팔·그리퍼 값이 NaN (모터 응답 없음 · 팔을 뽑음)
+  std::atomic<bool> arm_absent_{false}; // 활성화 때 팔이 없었음 → 팔 명령을 계속 막는다 (나중에 꽂혀도 0rad로 튀지 않게 — 스택 재시작해야 팔 사용)
   std::atomic<bool> arm_torque_{true}; // 마지막으로 보낸 팔 토크 (펌웨어는 부팅 때 켬) — 진단 표시
   rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr torque_srv_;
   std::atomic<uint64_t> beep_req_{0};  // /cmd/beep — 최상위 비트 = 요청 있음 · Hz<<32 | ms (0 = 펌웨어 기본) — write()가 B 줄로

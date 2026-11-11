@@ -131,17 +131,26 @@ def _save(state) -> None:
 def _seed(app: 'ot.OperatorTool'):
     """가짜 bringup 상태 — status/menu가 볼 화면용."""
     st = app.state
+    if SOURCE == 'fake':   # 저장 지도 폴더 = ros/fake/map/<이름> (실기 ros2_ws/map 대신) — 목록·전환·보기·저장이 이걸 씀
+        from ros.fake.FakeRos import MAP_DIR, fake_map_names
+        os.environ['BEEBOT_MAP_DIR'] = str(MAP_DIR)
     st.values.update({
         'operation_mode': 'MANUAL',
         'map_mode': 'NONE',
         'map_name': '',
-        'map_list': 'default\n20261017_223015',
+        'map_list': '\n'.join(__import__('ros.fake.FakeRos', fromlist=['x']).fake_map_names()) if SOURCE == 'fake' else 'default\n20261017_223015',
         'devices': 'pole_front_cam, gripper_cam, opencr, imu, wheels, arm, gripper',
         'topics': '/joint_states · /odom · /tracked_objects (42개)',
         'restartable': 'all · perception · coordinator · manual_control',
         'restart': '',
     })
     st.values.update(_load_saved().get('values', {}))
+    if SOURCE == 'fake':   # 지난 실행이 저장해 둔 목록이 아니라 지금 폴더 기준
+        st.values['map_list'] = '\n'.join(fake_map_names())
+        name = st.values.get('map_name')
+        if name in fake_map_names():
+            from ros.fake.FakeRos import CURRENT
+            CURRENT['name'] = name
     st.emergency = _load_saved().get('emergency', False)
     st.on_emergency(False)
     st.on_devices(['pole_front_cam', 'gripper_cam', 'opencr', 'imu', 'wheels', 'arm', 'gripper'])
@@ -161,7 +170,11 @@ def _seed(app: 'ot.OperatorTool'):
                          values=[KeyValue(key='모드', value='AUTO')]),
         DiagnosticStatus(level=1, name='beebot: opencr', message='모터 에러 없음 · S 줄 지연',
                          values=[KeyValue(key='받은 S 줄', value='48 Hz')])])
-    st.on_say('컵 가져왔어요')
+    if SOURCE == 'fake':   # 움직이는 가짜 세계 — 이동·미션·경로·costmap이 명령에 반응
+        from ros.fake.FakeRos import fake_map
+        from ros.fake.FakeWorld import FakeWorld, attach
+        app.world = FakeWorld(app, fake_map())
+        attach(app, app.world)
     try:
         st.on_objects([1, 2, 3])
     except Exception:  # noqa: BLE001

@@ -7,10 +7,8 @@
 //   상태를 바꾸는 일(지도 모드 전환 = 다시 띄우기 등)도 여기서 직접 해서, 발행 값 = 진짜 상태. 건강·오류는 상태가 아니라 diagnostics 몫.
 //   새 상태를 늘릴 때도 /state/<이름> (std_msgs, transient_local) 하나씩.
 //   조작 모드
-//     입력: ✉️ /cmd/operation_mode (std_msgs/String "MANUAL" | "AUTO" | "EXPLORE") — 시뮬레이터 [수동 조작] · [자동 탐사] · bee.py manual
-//           EXPLORE(자동 탐사 — plan/explorer가 프론티어로 Nav2 목표를 보냄)는 지도 모드 MAPPING · 비상정지 아님일 때만 허락.
-//           ✉️ /explore/result (std_msgs/String "DONE …" | "FAILED …", explorer) · MAPPING이 끝남 · 지도 바꿈 · 비상정지 → AUTO로 되돌림
-//   출력: ✉️ /state/operation_mode (std_msgs/String "AUTO" | "MANUAL" | "EXPLORE", transient_local) → manual_control(수동 명령 통과) · coordinator(자동 실행 멈춤)
+//     입력: ✉️ /cmd/operation_mode (std_msgs/String "MANUAL" | "AUTO") — 시뮬레이터 [수동 조작] · bee.py manual
+//   출력: ✉️ /state/operation_mode (std_msgs/String "AUTO" | "MANUAL", transient_local) → manual_control(수동 명령 통과) · coordinator(자동 실행 멈춤)
 //         ✉️ /state/emergency (std_msgs/Bool, transient_local) — /cmd/e_stop 그대로. coordinator는 이것만 본다 (원본 직접 구독 금지)
 //   지도 모드
 //     입력: ✉️ /cmd/map_mode (std_msgs/String "MAPPING" | "LOCALIZATION") — 시뮬레이터 [스캔 시작] · [위치추정으로]
@@ -89,7 +87,7 @@ private:
   bool joints_fresh() const;
   bool recent(const std::string & key) const;
 
-  std::string operation_ = "AUTO", map_mode_, map_name_, map_dir_, map_list_, map_error_, explore_note_;
+  std::string operation_ = "AUTO", map_mode_, map_name_, map_dir_, map_list_, map_error_;
   std::string restart_prepare_, restart_log_, restart_marker_, restart_registry_, restart_note_, restartable_;
   bool restartable_published_ = false;
   // 연결된 장치·토픽 상태 (/state/devices · /state/topics)
@@ -113,7 +111,7 @@ private:
   rclcpp::TimerBase::SharedPtr map_list_timer_, device_timer_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr estop_pub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr estop_sub_;
-  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr op_req_sub_, map_req_sub_, map_name_sub_, explore_sub_, restart_sub_;
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr op_req_sub_, map_req_sub_, map_name_sub_, restart_sub_;
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_state_sub_;
   rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr front_cam_info_sub_, gripper_cam_info_sub_;
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;

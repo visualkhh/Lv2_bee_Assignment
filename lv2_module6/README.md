@@ -9,7 +9,7 @@
 
 코드 구조: 노드마다 `include/<패키지>/<노드>.hpp`(선언) · `src/<노드>.cpp`(구현) · `src/<노드>_main.cpp`(main), 클래스는 `namespace <패키지>`.
 
-인지(YOLO) · 계획(VLM/규칙) · 학습 정책(ONNX) · MoveIt/Nav2까지 붙어 있다. 남은 것은 실기 튜닝(URDF 실측 · 펌웨어 영점 · 주행/팔 파라미터)과 MTC 태스크 구성, 현장 데이터 보강이다.
+인지(YOLO) · 계획(규칙) · 학습 정책(ONNX) · MoveIt/Nav2까지 붙어 있다. 남은 것은 실기 튜닝(URDF 실측 · 펌웨어 영점 · 주행/팔 파라미터)과 MTC 태스크 구성, 현장 데이터 보강이다.
 
 ## 미션 · 코스 · 로봇
 
@@ -46,8 +46,7 @@ flowchart TB
         PER["🛠 perception<br/>퍽 · 목표 구역 · 장애물"]
     end
     subgraph S1["① 작업 계획 — plan"]
-        UI["🛠 user_input<br/>텍스트 명령"]
-        VLM["🛠 vlm_task_planner"]
+        MM["🛠 mission_manager"]
     end
     subgraph S2["② 임무 관리 — plan · control"]
         CO["🛠 coordinator"]
@@ -74,16 +73,13 @@ flowchart TB
         HWI["🛠 BeebotSystemHardware"]
         OCR{{"OpenCR 🛠 beebot_opencr<br/>바퀴 2 · 팔 5 · 그리퍼 · IMU"}}
     end
-    U -->|"텍스트 명령"| UI
     U -->|"/cmd/operation_mode · cmd_vel · arm<br/>/cmd/e_stop"| MAN
-    UI -->|"/cmd/user_command"| VLM
+    U -->|"/cmd/mission"| MM
     PCH --> PER
     GCH --> PER
-    PER -->|"/tracked_objects"| VLM
     PER -->|"/tracked_objects"| CO
-    VLM -->|"/sub_goals"| CO
-    CO -->|"/task_status"| VLM
-    CO -->|"/robot_say"| UI
+    MM -->|"/sub_goals"| CO
+    CO -->|"/task_status"| MM
     MAN -->|"/state/operation_mode<br/>AUTO · MANUAL"| CO
     CO -.->|"📞 /score_grasps"| GS
     CO ==>|"🎬 /navigate_to_pose"| NAV
@@ -105,8 +101,7 @@ flowchart TB
     classDef ai fill:#d1c4e9,stroke:#4527a0,color:#1b1b1b;
     classDef hw fill:#fff9c4,stroke:#f9a825,color:#1b1b1b;
     classDef safe fill:#ffcdd2,stroke:#c62828,color:#1b1b1b;
-    class PER,UI,CO,MAN,NAV,MTC,SLAM,CM,HWI std;
-    class VLM ai;
+    class PER,MM,CO,MAN,NAV,MTC,SLAM,CM,HWI std;
     class GS,RLA rl;
     class MUX,SAFE,ASM safe;
     class PCH,GCH,OCR hw;
@@ -117,26 +112,25 @@ flowchart TB
 ```mermaid
 sequenceDiagram
     autonumber
-    participant U as 운영자 (user_input · 시뮬레이터)
-    participant V as vlm_task_planner
+    participant U as 운영자 (시뮬레이터)
+    participant V as mission_manager
     participant C as coordinator
     participant P as perception
     participant N as Nav2
     participant G as grasp_scorer
     participant M as MoveIt (MTC)
-    U->>V: /cmd/user_command "빨간 퍽을 목표 구역으로 옮겨"
+    U->>V: /cmd/mission start
     P-->>V: /tracked_objects (puck · goal_zone · obstacle)
     V->>C: /sub_goals [navigate(퍽) → pick(퍽) → navigate(목표 구역) → place(목표 구역)]
     C->>C: 검증 (허용 동작 · 대상 id가 인지 목록에 있는지)
     C->>N: 🎬 navigate_to_pose (퍽 앞)
-    N-->>C: 성공 (막히면 Nav2 복구 → 그래도 안 되면 FAILED → VLM 재계획)
+    N-->>C: 성공 (막히면 Nav2 복구 → 그래도 안 되면 FAILED)
     C->>G: 📞 score_grasps → 후보 [0.87, 0.62, …]
     C->>M: 🎬 execute_task_solution 1순위 (실패하면 2순위 — 재시도는 coordinator)
     M-->>C: 성공 · 퍽 attach
     C->>N: 🎬 navigate_to_pose (목표 구역)
     C->>M: 🎬 place · detach
     C->>V: /task_status SUCCEEDED
-    C->>U: /robot_say "퍽을 옮겼어요"
     Note over U,C: 언제든 수동 모드로 바꾸면 (/cmd/operation_mode) coordinator가 진행 중 이동·팔을 취소하고 멈춘다 (FAILED manual_override)
 ```
 
@@ -144,7 +138,6 @@ sequenceDiagram
 
 | 무엇 | 토픽 | 받는 쪽 |
 | --- | --- | --- |
-| 자동 탐사 | `/cmd/operation_mode` EXPLORE (지도 모드 MAPPING일 때만) | state_manager → `/state/operation_mode` EXPLORE → explorer가 프론티어로 Nav2 목표 · coordinator 멈춤 → 끝나면 `/explore/result` → AUTO |
 | 수동 모드 켜기·끄기 | `/cmd/operation_mode` (std_msgs/String MANUAL·AUTO) | state_manager → `/state/operation_mode` "MANUAL"·"AUTO" → manual_control 수동 명령 통과 · coordinator 자동 실행 멈춤·재개 |
 | 지도 모드 (스캔 ↔ 위치추정) | `/cmd/map_mode` (std_msgs/String MAPPING·LOCALIZATION) | state_manager → launch를 지도 모드 인자로 재시작 → `/state/map_mode` |
 | 원격 조종 | `/cmd/manual/cmd_vel` (TwistStamped) | manual_control → `/cmd_vel_manual` → twist_mux(자동보다 우선) → 안전 체인 → 바퀴 |
@@ -162,7 +155,7 @@ sequenceDiagram
 | 묶음 | 노드 · 주요 값 |
 | --- | --- |
 | 인지 | perception — pole_cam 영상 끊김, 발행 수 · signal_decoder — 깜빡임·단계·확정 |
-| 계획·임무 | user_input — 못 보낸 명령 · vlm_task_planner — 계획 보류·재계획·신호등 미션·수납 확인 · coordinator — 모드·단계·연속 실패·서버 대기 |
+| 계획·임무 | mission_manager — 계획 보류·신호등 미션·수납 확인 · coordinator — 모드·단계·연속 실패·서버 대기 |
 | 학습 | grasp_scorer — enabled·요청 |
 | 제어 | arm_safety_monitor — 접촉 감지 · manual_control — 모드·모터 재부팅 결과 · **beebotsystem: OpenCR 연결** — 마지막 S 수신·송수신 줄 수·모터 Hardware Error · controller_manager |
 | 제공 패키지 | EKF · twist_mux · … |
@@ -219,7 +212,7 @@ lv2_module6/
 │       ├── control/      🛠 arm_safety_monitor · manual_control · BeebotSystemHardware(ros2_control)  + msg ArmSafetyEvent · MotorStatus
 │       ├── manager/      🛠 state_manager (상태의 주인 — /state/operation_mode · /state/map_mode · /state/map_name · /state/emergency · /state/devices(모터 에러 포함))
 │       ├── ml/           🛠 grasp_scorer · rl_nav_controller(Nav2 플러그인) · rl_arm_correction  + srv ScoreGrasps
-│       ├── plan/         🛠 user_input · vlm_task_planner · explorer · coordinator  + msg SubGoal(Array) · TaskStatus
+│       ├── plan/         🛠 mission_manager · coordinator  + msg SubGoal(Array) · TaskStatus
 │       ├── ros_system/   🛠 scan_cam_gate · 📦 robot_state_publisher · controller_manager · twist_mux · RealSense ×2 · EKF · cuVSLAM · nvblox · Nav2
 │       ├── bringup/      전체 실행 = ros_system + 🛠 노드 전부 + diagnostic_aggregator
 │       └── faker/        도커에 없는 📦·ML(GPU) 대역 + 호스트 파일 연동

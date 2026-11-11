@@ -48,35 +48,18 @@ void RlNavController::configure(
   auto node = parent.lock();
   logger_ = node->get_logger();
 
-  // 바이패스 controller 선택 — fallback_controller (별칭 또는 전체 pluginlib 클래스)
-  //   dwb | mppi | rpp | rotation_shim
-  //   dwb_core::DWBLocalPlanner · nav2_mppi_controller::MPPIController ·
-  //   nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController ·
-  //   nav2_rotation_shim_controller::RotationShimController
-  //   선택한 플러그인의 파라미터는 <name>.inner.* 에 둔다.
-  const auto fallback = param<std::string>(node, name + ".fallback_controller", "");
-  std::string inner;
-  if (!fallback.empty()) {
-    std::string f = fallback;
-    std::transform(f.begin(), f.end(), f.begin(),
-                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    if (f == "dwb" || f == "dwb_core::dwblocalplanner") inner = "dwb_core::DWBLocalPlanner";
-    else if (f == "mppi" || f == "nav2_mppi_controller::mppicontroller") inner = "nav2_mppi_controller::MPPIController";
-    else if (f == "rpp" || f == "regulated_pure_pursuit" ||
-             f == "nav2_regulated_pure_pursuit_controller::regulatedpurepursuitcontroller")
-      inner = "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController";
-    else if (f == "rotation_shim" || f == "nav2_rotation_shim_controller::rotationshimcontroller")
-      inner = "nav2_rotation_shim_controller::RotationShimController";
-    else inner = fallback;  // 전체 pluginlib 클래스명 그대로
-    RCLCPP_INFO(logger_, "[%s] fallback_controller=%s → %s", name_.c_str(), fallback.c_str(), inner.c_str());
-  } else {
-    // 예전 이름 호환 — fallback_controller가 없을 때만
-    inner = param<std::string>(node, name + ".inner_plugin", "dwb_core::DWBLocalPlanner");
-  }
-  if (inner.find("DWBLocalPlanner") != std::string::npos) inner_kind_ = 1;
-  else if (inner.find("MPPIController") != std::string::npos) inner_kind_ = 2;
-  else if (inner.find("RegulatedPurePursuit") != std::string::npos) inner_kind_ = 3;
-  else if (inner.find("RotationShim") != std::string::npos) inner_kind_ = 4;
+  // 바이패스(inner) controller — fallback_controller: dwb | mppi | rpp | rotation_shim (또는 전체 pluginlib 클래스명)
+  //   각 inner 의 파라미터 공간은 <name>.inner_<별칭> (include/ml/fallback_controller.hpp) — nav2_params.yaml 에 블록별로 둔다.
+  //   실행 중에는 서비스 ~/<name>/set_fallback 으로 바꾼다 (switch_inner).
+  std::string want = param<std::string>(node, name + ".fallback_controller", "");
+  if (want.empty()) want = param<std::string>(node, name + ".inner_plugin", "dwb_core::DWBLocalPlanner");  // 예전 이름 호환
+  Fallback fb;
+  resolve_fallback(want, fb);
+  RCLCPP_INFO(logger_, "[%s] fallback_controller=%s → %s (파라미터 %s.*)", name_.c_str(), want.c_str(), fb.cls.c_str(),
+              inner_namespace(name, fb).c_str());
+  inner_kind_ = fb.kind;
+  inner_key_ = fb.key;
+  const std::string inner = fb.cls;
   const auto model = param<std::string>(node, name + ".model_path", "rl_nav_controller/policy.onnx");
   enable_requested_ = param<bool>(node, name + ".enable", true);
   enable_ = enable_requested_;
@@ -103,8 +86,8 @@ void RlNavController::configure(
   cloud_timeout_ = param<double>(node, name + ".cloud_timeout", cloud_timeout_);
   ranges_.assign(lidar_rays_, float(lidar_max_));
 
-  inner_ = loader_.createSharedInstance(inner);
-  inner_->configure(parent, name + ".inner", tf, costmap_ros);
+  inner_ = loader_.createSharedInstance(fb.cls);
+  inner_->configure(parent, inner_namespace(name, fb), tf, costmap_ros);
   load_model(model);
   // CLI/파라미터 페이지에서 FollowPath.enable을 바꾸면 toggle 서비스 없이도 즉시 적용한다.
   param_cb_ = node->add_on_set_parameters_callback(
@@ -126,7 +109,10 @@ void RlNavController::configure(
           continue;
         }
         enable_requested_ = on;
-        if (enable_ && !on) inner_->reset();
+        if (enable_ && !on) {
+          std::lock_guard<std::mutex> il(inner_mtx_);
+          inner_->reset();
+        }
         enable_ = on;
         prev_a_[0] = prev_a_[1] = 0.0f;
         RCLCPP_INFO(logger_, "[%s] %s.enable=%s (파라미터 즉시 적용)",
@@ -172,7 +158,10 @@ void RlNavController::configure(
         res->message = "정책 없음 (model_path) — 바이패스 유지";
         return;
       }
-      if (enable_ && !req->data) inner_->reset();
+      if (enable_ && !req->data) {
+        std::lock_guard<std::mutex> il(inner_mtx_);
+        inner_->reset();
+      }
       enable_ = req->data;
       prev_a_[0] = prev_a_[1] = 0.0f;
       res->success = true;
@@ -181,11 +170,29 @@ void RlNavController::configure(
                      " · device=" + policy_.device();
       RCLCPP_INFO(logger_, "[%s] toggle: %s", name_.c_str(), res->message.c_str());
     });
+  fallback_srv_ = node->create_service<ml::srv::SetFallback>(
+    "~/" + name + "/set_fallback",
+    [this](const std::shared_ptr<rmw_request_id_t>, const std::shared_ptr<ml::srv::SetFallback::Request> req,
+           std::shared_ptr<ml::srv::SetFallback::Response> res) {
+      if (req->controller.empty()) {  // 조회만
+        std::lock_guard<std::mutex> il(inner_mtx_);
+        res->success = true;
+        res->active = inner_key_;
+        res->message = "지금 inner=" + inner_key_;
+        return;
+      }
+      const auto r = switch_inner(req->controller);
+      res->success = r.first;
+      res->message = r.second;
+      std::lock_guard<std::mutex> il(inner_mtx_);
+      res->active = inner_key_;
+      RCLCPP_INFO(logger_, "[%s] set_fallback(%s): %s", name_.c_str(), req->controller.c_str(), r.second.c_str());
+    });
   RCLCPP_INFO(logger_, "[%s] RlNavController: inner=%s · model=%s · device=%s · enable=%s · scan=%s "
-              "· toggle=~/%s/toggle · status=~/%s/status · diagnostics=/diagnostics",
+              "· toggle=~/%s/toggle · set_fallback=~/%s/set_fallback · status=~/%s/status · diagnostics=/diagnostics",
               name_.c_str(), inner.c_str(), policy_.loaded() ? model.c_str() : "(없음)",
               policy_.device().c_str(), enable_ ? "true" : "false",
-              use_scan_ ? "scan" : points_topic.c_str(), name_.c_str(), name_.c_str());
+              use_scan_ ? "scan" : points_topic.c_str(), name_.c_str(), name_.c_str(), name_.c_str());
 }
 
 void RlNavController::load_model(const std::string & path) {
@@ -204,7 +211,7 @@ void RlNavController::load_model(const std::string & path) {
   }
   try {
     OnnxPolicy m;
-    m.load(resolved);
+    m.load(resolved, true);  // CUDA EP가 있으면 먼저 시도 (#92)
     const int64_t want = 2 * lookahead_ + lidar_rays_ + 5;
     if (m.inputs() != want || m.outputs() < 2) {
       RCLCPP_ERROR(logger_, "정책 입력 %ld · 출력 %ld — 기대 %ld · 2 (lookahead·lidar_rays 확인): %s",
@@ -510,7 +517,11 @@ geometry_msgs::msg::TwistStamped RlNavController::computeVelocityCommands(
   }
   const bool sensor_ok = use_scan_ ? bool(scan) : (cloud_ok && cloud_age <= cloud_timeout_);
   auto fallback = [&](int reason) -> geometry_msgs::msg::TwistStamped {
-    auto cmd = inner_->computeVelocityCommands(pose, velocity, goal_checker, transformed_global_plan, global_goal);
+    geometry_msgs::msg::TwistStamped cmd;
+    {
+      std::lock_guard<std::mutex> il(inner_mtx_);  // 제어 주기 중에는 inner 를 바꾸지 못하게
+      cmd = inner_->computeVelocityCommands(pose, velocity, goal_checker, transformed_global_plan, global_goal);
+    }
     publish_status(0, reason, cmd);
     return cmd;
   };
@@ -579,28 +590,103 @@ void RlNavController::cleanup() {
     node->remove_on_set_parameters_callback(param_cb_.get());
   }
   param_cb_.reset();
-  inner_->cleanup();
+  {
+    std::lock_guard<std::mutex> il(inner_mtx_);
+    inner_->cleanup();
+  }
   cloud_sub_.reset();
   scan_sub_.reset();
   imu_sub_.reset();
   toggle_srv_.reset();
+  fallback_srv_.reset();
   debug_pub_.reset();
   status_pub_.reset();
   diag_timer_.reset();
   diag_pub_.reset();
 }
-void RlNavController::activate() { inner_->activate(); }
-void RlNavController::deactivate() { inner_->deactivate(); }
-void RlNavController::newPathReceived(const nav_msgs::msg::Path & raw) { inner_->newPathReceived(raw); }
-bool RlNavController::cancel() { return inner_->cancel(); }
+void RlNavController::activate() {
+  std::lock_guard<std::mutex> il(inner_mtx_);
+  active_ = true;
+  inner_->activate();
+}
+void RlNavController::deactivate() {
+  std::lock_guard<std::mutex> il(inner_mtx_);
+  active_ = false;
+  inner_->deactivate();
+}
+void RlNavController::newPathReceived(const nav_msgs::msg::Path & raw) {
+  std::lock_guard<std::mutex> il(inner_mtx_);
+  last_path_ = raw;  // inner 를 바꿀 때 새 inner 에 다시 넘긴다
+  inner_->newPathReceived(raw);
+}
+bool RlNavController::cancel() {
+  std::lock_guard<std::mutex> il(inner_mtx_);
+  return inner_->cancel();
+}
 void RlNavController::reset() {
-  inner_->reset();
+  {
+    std::lock_guard<std::mutex> il(inner_mtx_);
+    inner_->reset();
+  }
   prev_a_[0] = prev_a_[1] = 0.0f;
 }
 void RlNavController::setSpeedLimit(const double & speed_limit, const bool & percentage) {
-  inner_->setSpeedLimit(speed_limit, percentage);
+  {
+    std::lock_guard<std::mutex> il(inner_mtx_);
+    last_speed_limit_ = speed_limit;
+    last_speed_pct_ = percentage;
+    have_speed_limit_ = true;
+    inner_->setSpeedLimit(speed_limit, percentage);
+  }
   speed_ratio_ = percentage ? speed_limit / 100.0 : speed_limit / max_lin_;
   speed_ratio_ = (speed_limit <= 0.0) ? 1.0 : std::clamp(speed_ratio_, 0.0, 1.0);
+}
+
+std::pair<bool, std::string> RlNavController::switch_inner(const std::string & want) {
+  Fallback fb;
+  if (!resolve_fallback(want, fb)) return {false, "controller 이름이 비었음 (dwb | mppi | rpp | rotation_shim | 클래스명)"};
+  {
+    std::lock_guard<std::mutex> il(inner_mtx_);
+    if (fb.kind != 0 && fb.key == inner_key_) return {true, "이미 " + fb.key + " 사용 중 — 바꾸지 않음"};
+  }
+  // 새 inner 를 먼저 만들고 설정한다 — 파라미터는 yaml 의 <name>.inner_<별칭>.* (없으면 그 plugin 의 기본값)
+  nav2_core::Controller::Ptr next;
+  try {
+    next = loader_.createSharedInstance(fb.cls);
+    next->configure(node_, inner_namespace(name_, fb), tf_, costmap_ros_);
+  } catch (const std::exception & e) {
+    return {false, std::string("로드·설정 실패 — 이전 inner 유지 (패키지 설치·파라미터 확인): ") + e.what()};
+  }
+  nav2_core::Controller::Ptr old;
+  std::string old_key;
+  {
+    std::lock_guard<std::mutex> il(inner_mtx_);  // 제어 주기가 끝난 뒤 교체 (compute 가 같은 잠금을 쥠)
+    try {
+      if (active_) {
+        next->activate();
+        if (!last_path_.poses.empty()) next->newPathReceived(last_path_);
+        if (have_speed_limit_) next->setSpeedLimit(last_speed_limit_, last_speed_pct_);
+      }
+    } catch (const std::exception & e) {
+      try { next->cleanup(); } catch (...) {}
+      return {false, std::string("활성화 실패 — 이전 inner 유지: ") + e.what()};
+    }
+    old = inner_;
+    old_key = inner_key_;
+    inner_ = next;
+    inner_key_ = fb.key;
+  }
+  {
+    std::lock_guard<std::mutex> lk(mtx_);
+    inner_kind_ = fb.kind;
+  }
+  try {
+    if (active_) old->deactivate();
+    old->cleanup();
+  } catch (const std::exception & e) {
+    RCLCPP_WARN(logger_, "[%s] 이전 inner(%s) 정리 중 예외: %s", name_.c_str(), old_key.c_str(), e.what());
+  }
+  return {true, old_key + " → " + fb.key + " (" + fb.cls + ") · 파라미터 " + inner_namespace(name_, fb) + ".*"};
 }
 
 }  // namespace ml

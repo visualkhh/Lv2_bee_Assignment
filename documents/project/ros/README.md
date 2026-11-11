@@ -1,7 +1,7 @@
 # 퍽 이송 로봇(beebot) — ROS 2 실전 노드 설계
 
 미로 코스에서 퍽을 찾아 목표 구역으로 옮기고 장애물을 피하는(자율주행 기반 물류 이송 및 장애물 회피) TurtleBot3 Waffle Pi + OpenMANIPULATOR-X(+손목) + pole_front_cam·gripper_cam(RealSense) 모바일 매니퓰레이터의 아키텍처·노드 설계 문서입니다. 구현: [lv2_module6](../../../lv2_module6/README.md).
-VLM이 계획하고, Nav2·MoveIt이 확정 실행하고, 학습 모델은 앞에서 자문·뒤에서 보정만 합니다.
+mission_manager가 계획하고, Nav2·MoveIt이 확정 실행하고, 학습 모델은 앞에서 자문·뒤에서 보정만 합니다.
 
 - 원본(인터랙티브: 노드 클릭·흐름 강조): <https://dooboostore.github.io/ros2?concept=design&sec=arch> — 원본은 "컵 가져오기" 예시 버전이고, 이 문서는 우리 미션(퍽 이송·장애물 회피)과 실제 구현(lv2_module6)에 맞게 고쳤다
 - 원본 소스: `dooboostore.github.io/apps/center/src/pages/ros2/components/RosDesign.ts`, `RosDesignNodes.ts`
@@ -27,12 +27,13 @@ VLM이 계획하고, Nav2·MoveIt이 확정 실행하고, 학습 모델은 앞�
 16. [체크리스트·로드맵](14-check.md)
 17. [검토 반영](15-changes.md)
 18. [API 명세서(토픽·서비스·액션)](../API.md)
+19. [부록: 컴포넌트·액션·프로세스 정리](components-actions.md)
 
 ## 도식 읽는 법
 
 | 구분 | 의미 |
 | --- | --- |
-| 색 | 초록 = 확정 실행 · 주황 = 학습(RL·지도학습) · 보라 = VLM · 빨강 = 안전 · 노랑 = 하드웨어 |
+| 색 | 초록 = 확정 실행 · 주황 = 학습(RL·지도학습) · 빨강 = 안전 · 노랑 = 하드웨어 |
 | 모양 | 사각형 = ROS 노드·컨트롤러 · 육각형 = 하드웨어(토픽 없음, 🔌로 드라이버에 연결) · 이중원 = 사람 · 점선 알약 = 다른 섹션과 잇는 연결점(← 들어옴 · → 나감, 숫자 = 섹션 번호) · 원통 = 파일·데이터셋 · 큰 영역 = 계층·섹터·프로세스 경계 |
 | 노드 표시 | 🛠️ 직접 작성 · 📦 제공 패키지(ROS 2·Nav2·MoveIt·ros2_control 등) |
 | 선 | 실선 = 토픽·데이터 흐름 · 굵은 선 = 액션 · 점선 = 서비스·파라미터·피드백·매핑 단계 전용 · 화살촉 없음 = 체인 결합(같은 프로세스) · 화살표 방향 = 데이터 방향 |

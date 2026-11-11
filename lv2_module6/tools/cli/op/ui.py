@@ -12,6 +12,7 @@ import sys
 import time
 
 from .consts import ARM_JOINTS, DIAG_LEVELS, GRIPPER_JOINT, WHEEL_JOINTS
+from .defs import TIMEOUT
 from .dialog import BusyDialog, InputDialog, KeyDialog, PagerDialog
 from .keys import KeyReader, set_cbreak
 from .terminal import CYAN, DIM, GREEN, RED, YELLOW, Terminal
@@ -195,6 +196,15 @@ class Ui:
                back: bool = True, main: bool = True, timeout: float | None = None) -> str:
         """(key, label) 고르기 — Window.select (키 규약은 op/window/window.py docstring)."""
         return self.window.select(title, items, center, back, main, timeout)
+
+    def choose(self, title: str, items: list[tuple[str, str]], center: list[str],
+               back: bool = True, main: bool = True) -> str:
+        """select 를 사람이 고를 때까지 — select 는 갱신 시간(MENU_REFRESH_S)마다 TIMEOUT 을 돌려주므로
+        그걸 '취소'로 다루면 화면이 몇 초 뒤 이전 페이지로 돌아간다. 고른 key | BACK | MAIN | QUIT."""
+        while True:
+            choice = self.select(title, items, center, back, main)
+            if choice != TIMEOUT:
+                return choice
 
     def poll_key(self) -> str | None:
         """오래 걸리는 작업 중 눌린 키 하나 — 기다리지 않음 (없으면 None). TTY가 아니면(명령줄·파이프) 늘 None.

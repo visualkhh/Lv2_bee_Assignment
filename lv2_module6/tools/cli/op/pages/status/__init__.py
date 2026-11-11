@@ -5,6 +5,8 @@ import argparse
 
 import os
 import subprocess
+import threading
+import time
 from pathlib import Path
 
 from ...defs import BACK, MAIN, QUIT, STAY
@@ -135,14 +137,33 @@ class DiagDetailPage(Page):
                 return choice
 
 
+def _mem_available_mb() -> int | None:
+    """/proc/meminfo의 MemAvailable [MB] (없으면 None)."""
+    try:
+        for line in Path('/proc/meminfo').read_text().splitlines():
+            if line.startswith('MemAvailable:'):
+                return int(line.split()[1]) // 1024
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+def _tail(path: Path, n: int = 2) -> str:
+    try:
+        return ' | '.join(path.read_text(errors='replace').splitlines()[-n:])[:160]
+    except OSError:
+        return '(로그 없음)'
+
+
 class RvizPage(Page):
     title = 'RViz'
+    config: str | None = None  # None = run-rviz 기본(operator.rviz), 아니면 tools/rviz/<config>.rviz
 
     def show(self) -> str:
         if not (os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY')):
             print('거부: DISPLAY/WAYLAND_DISPLAY가 없습니다 — GUI가 있는 터미널에서 실행하세요.')
             return STAY
-        script = Path(__file__).resolve().parents[3] / 'run-rviz'
+        script = Path(__file__).resolve().parents[4] / 'run-rviz'
         if not script.is_file():
             print(f'거부: 실행 파일 없음: {script}')
             return STAY
@@ -155,12 +176,40 @@ class RvizPage(Page):
             with log.open('ab') as out:
                 proc = subprocess.Popen(
                     [str(script)], cwd=str(script.parent),
+                    env={**os.environ, **({'RVIZ_CONFIG': self.config} if self.config else {})},
                     stdout=out, stderr=out, start_new_session=True)
         except OSError as exc:
             print(f'RViz 실행 실패: {exc}')
             return STAY
+        threading.Thread(target=proc.wait, daemon=True).start()  # 끝난 RViz가 좀비로 남지 않게 거둔다
         print(f'RViz 시작: pid {proc.pid} · 로그 {log}')
+        time.sleep(3)  # 메모리가 모자라면 오류 한 줄 없이 곧 죽는다 (실측 2026-11-10) — 말없이 안 뜨지 않게 알림
+        if proc.poll() is not None:
+            print(f'⚠ RViz가 바로 종료됨 (코드 {proc.returncode}) — 로그 끝: {_tail(log)}')
+        avail = _mem_available_mb()
+        if avail is not None and avail < 400:
+            print(f'⚠ 여유 메모리 {avail} MB — RViz(약 260–320 MB)가 안 뜨거나 곧 죽을 수 있음. 다른 RViz·앱을 닫으세요.')
         return STAY
+
+
+class MappingRvizPage(RvizPage):
+    title = '매핑 전용 RViz'
+    config = 'mapping'
+
+
+class NavRvizPage(RvizPage):
+    title = '목표 이동 전용 RViz'
+    config = 'nav'
+
+
+class NvbloxRvizPage(RvizPage):
+    title = 'nvblox 전용 RViz'
+    config = 'nvblox'
+
+
+class CuvslamRvizPage(RvizPage):
+    title = 'cuVSLAM 전용 RViz'
+    config = 'cuvslam'
 
 
 class BeepNowItem(MenuItem):

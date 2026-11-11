@@ -21,7 +21,7 @@ GPU 없는 테스트베드(faker)는 `fake_slam`(기본)으로 `map:=slam|saved`
 
 `map_dir` 기본 `~/.ros/beebot_maps` (실기 start.sh는 `ros2_ws/map`). 폴더에는 사람이 보는 미리보기 `map.pgm` · `map.yaml`도 같이 둔다 (시뮬레이터 [지도 저장]).
 
-위쪽(Nav2 · explorer · state_manager · mission_manager · 시뮬레이터)이 받는 계약:
+위쪽(Nav2 · state_manager · mission_manager · 시뮬레이터)이 받는 계약:
 
 | 계약 | 내는 쪽 |
 |---|---|

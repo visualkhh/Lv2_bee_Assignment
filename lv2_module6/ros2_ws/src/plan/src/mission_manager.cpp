@@ -15,12 +15,16 @@
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
 
-#include "plan/vlm_task_planner.hpp"  // detail()
-
 namespace plan {
 
 namespace {
-constexpr uint32_t PLAN_ID_BASE = 1000000;  // vlm_task_planner(1부터)와 plan_id가 겹치지 않게
+constexpr uint32_t PLAN_ID_BASE = 1000000;
+
+// 물체의 details 값 (없으면 "")
+std::string detail(const perception::msg::TrackedObject & o, const std::string & key) {
+  for (const auto & kv : o.details) if (kv.key == key) return kv.value;
+  return "";
+}
 
 std::vector<Box> boxes(const std::vector<double> & flat, double half) {  // [x, y, …] 또는 half < 0이면 [x, y, half, …]
   std::vector<Box> out;
@@ -109,10 +113,10 @@ MissionManager::MissionManager()
   home_hold_s_ = declare_parameter<double>("home_hold_s", 3.0);
   log_dir_ = declare_parameter<std::string>("log_dir", "~/.ros/mission");
   photo_topic_ = declare_parameter<std::string>("photo_topic", "/gripper_cam/color/image_raw");
-  // 학습된 플래너 (learning/plan/mission_sim.py에서 학습 · models/plan/plan_next.policy) — 기본은 지금 규칙 순서
+  // 학습된 플래너 (learning/plan/mission_sim.py에서 학습 · models/plan/plan_next.onnx) — 기본은 지금 규칙 순서
   planner_ = declare_parameter<std::string>("planner", "rule");
   std::string pn_path = declare_parameter<std::string>("plan_model", "");
-  if (pn_path.empty()) pn_path = ament_index_cpp::get_package_share_directory("ml") + "/model/plan/plan_next.policy";
+  if (pn_path.empty()) pn_path = ament_index_cpp::get_package_share_directory("ml") + "/model/plan/plan_next.onnx";
   if (planner_ == "plan_next") {
     std::string why;
     plan_next_ok_ = plan_next_.load(pn_path, why);

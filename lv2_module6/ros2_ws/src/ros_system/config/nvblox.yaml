@@ -24,16 +24,26 @@ nvblox_node:
     publish_layer_rate_hz: 2.0
     # 경기장(약 4.4 × 6.3 m)을 통째로 기억 — 멀어져도 지우지 않음
     map_clearing_radius_m: -1.0
+    # TSDF 잊기 끔 (nvblox 기본 5 Hz · factor 0.95 = 카메라가 안 보는 곳 가중치가 0.2 s마다 ×0.95 → 약 30 s 뒤 블록 해제).
+    #   맵핑 녹화(bee_diag/1110_110542_slam_mapping_manual)에서 정지하면 /map 아는 칸이 5349 → 약 4445(= 지금 시야)로 줄었고
+    #   움직이면 6938까지 늘었다가 다시 서면 줄었음 — 지나온 복도·저장 지도가 시야 밖이면 사라져 플래너가 벽을 모르는 모름 칸으로 계획함.
+    #   소스: NvbloxNode::shouldProcess — rate <= 0 이면 decayTsdf()를 안 부름. 동적 점유 층(decay_dynamic_occupancy_rate_hz 10)은 그대로.
+    #   단점: 한 번 TSDF에 들어간 가짜 장애물·사람 자국이 안 지워짐 → 꺼 보고 /map 아는 칸 수가 안 주는지 다시 녹화해 확인할 것.
+    decay_tsdf_rate_hz: 0.0
     map_clearing_frame_id: "base_footprint"
     esdf_slice_bounds_visualization_attachment_frame_id: "base_footprint"
     workspace_height_bounds_visualization_attachment_frame_id: "base_footprint"
     static_mapper:
       # 2D 격자로 자르는 높이 (map z = 바닥) — Nav2 costmap(min 0.03 · max 0.6) · 기존 SLAM Grid(0.03~0.6)와 같은 기준
       esdf_slice_height: 0.1
-      esdf_slice_min_height: 0.03
+      # min 0.03 → 0.08: depth 오차(1~3 m에서 수 cm)로 바닥이 3 cm 위로 찍혀 앞이 트여 있어도 검은 부채꼴(가짜 장애물)이 생겼음 (실기 2026-11-09, RViz /map)
+      #   대신 높이 8 cm 미만의 낮은 물체는 지도에 안 남는다 — 낮은 물체를 잡아야 하면 0.05로
+      esdf_slice_min_height: 0.08
       esdf_slice_max_height: 0.3
-      # pole_front_cam 바닥은 화면 맨 아래도 0.59 m — 3 m 넘는 depth는 잡음이 커서 안 씀 (costmap raytrace 3.0과 같게)
-      projective_integrator_max_integration_distance_m: 3.0
+      # pole_front_cam 바닥은 화면 맨 아래도 0.59 m — depth 잡음은 거리에 따라 커진다 (costmap raytrace는 3.0)
+      # 4.5 → 2.5: 경기장(4.4 m 폭) 벽 너머·트랙 밖까지 '비어 있음'으로 칠해졌음 (실기 2026-11-11, /map). 멀수록 depth 잡음도 커짐
+      #   대신 먼 벽은 가까이 가야 지도에 들어온다 — 너무 안 칠해지면 3.0으로 (nvblox 기본 7.0)
+      projective_integrator_max_integration_distance_m: 2.5
       workspace_bounds_type: "height_bounds"
       workspace_bounds_min_height_m: -0.1
       workspace_bounds_max_height_m: 0.8

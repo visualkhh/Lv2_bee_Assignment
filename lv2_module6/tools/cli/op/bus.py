@@ -19,16 +19,19 @@ from geometry_msgs.msg import TwistStamped
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Bool, Empty, Int32MultiArray, String
 
+from . import bagrec
 from .dialog import TeleopDialog
-from .pages.ab.core import AbTest
+from .nav import RobotNav
 from .consts import (ARM_JOINTS, DIAG_LEVELS, GRIPPER_CLOSE, GRIPPER_JOINT,
                     GRIPPER_OPEN, WHEEL_JOINTS)
 from .terminal import BOLD, DIM, GREEN, RED, YELLOW, Terminal
 
 try:
     from nav2_msgs.srv import SaveMap as SaveMapSrv
+    from nav2_msgs.srv import Toggle as ToggleSrv
 except ImportError:  # nav2_msgs가 없는 환경에서도 나머지 명령은 동작
     SaveMapSrv = None
+    ToggleSrv = None
 
 
 # 수동 주행 속도 상한 (텔레오퍼 -/= · 메뉴 속도 설정) — Waffle Pi 사양 (바퀴 상한 ≈ 8 rad/s × 0.033 m)
@@ -51,7 +54,9 @@ class Bus:
         self.pub_restart = node.create_publisher(String, "/cmd/restart", 10)
         self.pub_reboot = node.create_publisher(Empty, "/cmd/manual/reboot_motors", 10)
         self.pub_beep = node.create_publisher(Int32MultiArray, "/cmd/beep", 10)
-        self.ab = AbTest(self)
+        self.pub_mission = node.create_publisher(String, "/cmd/mission", 10)
+        self.pub_goals = None  # /task/sub_goals — 세부 명령을 처음 보낼 때 만든다 (plan 메시지가 없는 환경 보호)
+        self.nav = RobotNav(self)   # 로봇 위치(TF) · initialpose · Nav2 goal
 
     def _poll(self, seconds: float = 0.2):
         """콜백을 잠깐 돌려 상태를 갱신한다."""
@@ -285,8 +290,6 @@ class Bus:
 
     def cmd_mode(self, args) -> int:
         target = args.mode.upper()
-        if target == 'EXPLORE' and self.state.map_mode not in ('MAPPING', ''):
-            print('WARN: EXPLORE는 지도 모드 MAPPING에서만 허용됩니다', file=sys.stderr)
         self._publish(self.pub_operation, String(data=target))
         if self._wait_value('operation_mode', target, 2.5):
             print(f'조작 모드 → {target}')
@@ -313,6 +316,69 @@ class Bus:
             return 0
         print(f'요청 실패: 현재 비상정지 {"ON" if self.state.emergency else "OFF"}', file=sys.stderr)
         return 1
+
+    # --------------------------------------------------------------- collision_monitor
+
+    def collision_status(self) -> str:
+        """manual_control이 마지막으로 반영한 collision_monitor 상태 (진단 값) — 모르면 '-'."""
+        return self.state.collision_enabled()
+
+    def cmd_collision(self, args) -> int:
+        """collision_monitor 켜기/끄기 — /collision_monitor/toggle. 모드가 바뀌면(MANUAL·MAPPING = 끔 · 그 밖 = 켬)
+        manual_control이 다시 정한다. 그 전까지는 이 명령이 정한 대로 유지된다."""
+        if args.state == 'status':
+            self._poll(1.0)
+            print(f'collision_monitor: {self.collision_status()}')
+            return 0
+        if ToggleSrv is None:
+            print('거부: nav2_msgs가 없어 collision 토글을 쓸 수 없습니다', file=sys.stderr)
+            return 2
+        client = self.node.create_client(ToggleSrv, '/collision_monitor/toggle')
+        try:
+            if not client.wait_for_service(timeout_sec=3.0):
+                print('거부: /collision_monitor/toggle 없음 — Nav2(collision_monitor)가 떠 있는지 확인 (지도 모드 NONE이면 안 뜸)', file=sys.stderr)
+                return 1
+            req = ToggleSrv.Request()
+            req.enable = args.state == 'on'
+            future = client.call_async(req)
+            rclpy.spin_until_future_complete(self.node, future, timeout_sec=5.0)
+            res = future.result() if future.done() else None
+        finally:
+            self.node.destroy_client(client)
+        if res is None:
+            print('요청 실패: collision_monitor 응답 없음', file=sys.stderr)
+            return 1
+        if not res.success:
+            print(f'거절: {res.message}', file=sys.stderr)
+            return 1
+        print(f'collision_monitor → {"켬" if args.state == "on" else "끔 (근접 정지 없이 통과 — 주의)"}')
+        return 0
+
+    # --------------------------------------------------------------------- bag
+
+    def cmd_bag(self, args) -> int:
+        """bag 녹화 + 시스템 부하(CPU·메모리·스왑·GPU) — start · stop · status (메뉴 9 토픽 · bag 과 같은 모듈)."""
+        if args.action == 'status':
+            cur = bagrec.current()
+            print(f'녹화 중: {bagrec.describe(cur)}' if cur else '녹화 중 아님')
+            return 0
+        if args.action == 'stop':
+            rec = bagrec.stop()
+            if rec is None:
+                print('녹화 중 아님')
+                return 0
+            print(f'녹화 중지: {bagrec.describe(rec)}')
+            return 0
+        try:
+            rec = bagrec.start(label=args.label, topics=args.topics or None, regex=args.regex,
+                               sys_on=not args.no_sys)
+        except RuntimeError as exc:
+            print(f'거부: {exc}', file=sys.stderr)
+            return 1
+        print(f'녹화 시작: {rec["bag"]}')
+        print(f'  토픽: {"선택 " + str(len(args.topics)) + "개" if args.topics else "진단 프리셋" if not args.regex else args.regex}'
+              f' · 부하 기록 {"켬 (sys.csv)" if rec["sys"] else "끔"} · 멈추려면 run-cli bag stop')
+        return 0
 
     # ------------------------------------------------------------------- drive
 
@@ -461,7 +527,7 @@ class Bus:
               ' — manual_control 진단 "마지막 모터 재부팅"·기구 걸림 확인', file=sys.stderr)
         return 1
 
-    PLAN_YAML = Path(__file__).resolve().parents[3] / 'ros2_ws' / 'src' / 'skills' / 'config' / 'skills.yaml'  # skill_pose가 시작 자세를 가진다
+    SKILLS_YAML = Path(__file__).resolve().parents[3] / 'ros2_ws' / 'src' / 'skills' / 'config' / 'skills.yaml'  # skill_pose가 시작 자세를 가진다
 
     def cmd_capture(self) -> int:
         """지금 팔·그리퍼 자세를 skills.yaml(skill_pose) 형식으로 보여 준다 — 파일은 안 고침, 사람이 붙여 넣는다."""
@@ -476,7 +542,7 @@ class Bus:
         values = [self.state.joints[j] for j in ARM_JOINTS]
         print('  '.join(f'{j}={self._rad_deg(v)}' for j, v in zip(ARM_JOINTS, values)))
         gripper = self.state.joints.get(GRIPPER_JOINT)
-        print(f'\n{self.PLAN_YAML} 의 skill_pose: ros__parameters: 아래에 붙여 넣으세요 (bringup 재시작 후 적용)\n')
+        print(f'\n{self.SKILLS_YAML} 의 skill_pose: ros__parameters: 아래에 붙여 넣으세요 (bringup 재시작 후 적용)\n')
         print('    initial_pose: [' + ', '.join(f'{v:.4f}' for v in values) + ']')
         if gripper is None:
             print('    # initial_gripper: (/joint_states에 gripper_left_joint 없음)')
@@ -496,12 +562,12 @@ class Bus:
                         g if g >= 0.0 else None, 'skill_pose 파라미터')
         try:
             import yaml
-            p = yaml.safe_load(self.PLAN_YAML.read_text())['skill_pose']['ros__parameters']
+            p = yaml.safe_load(self.SKILLS_YAML.read_text())['skill_pose']['ros__parameters']
             g = float(p.get('initial_gripper', -1.0))
             return (dict(zip(p['initial_pose_joints'], map(float, p['initial_pose']))),
-                    g if g >= 0.0 else None, str(self.PLAN_YAML))
+                    g if g >= 0.0 else None, str(self.SKILLS_YAML))
         except Exception as exc:
-            print(f'시작 자세를 못 읽음 (skill_pose 없음 · {self.PLAN_YAML}: {exc})', file=sys.stderr)
+            print(f'시작 자세를 못 읽음 (skill_pose 없음 · {self.SKILLS_YAML}: {exc})', file=sys.stderr)
             return None
 
     def cmd_arm(self, args) -> int:
@@ -597,6 +663,62 @@ class Bus:
             return 2
         self._publish(self.pub_beep, Int32MultiArray(data=data))
         print('삑 ' + (f'{data[0]} Hz {data[1]} ms (B,{data[0]},{data[1]})' if data else '기본음 (B)'))
+        return 0
+
+    def cmd_mission(self, args) -> int:
+        """mission_manager에 start | abort (/cmd/mission) · status는 /mission/state 한 번 출력. 메뉴는 문자열, 명령줄은 args.action.
+        start는 적재함 장부가 남았으면 거부 — 사유는 /mission/state의 '하는 일'에 뜸."""
+        cmd = getattr(args, 'action', args)
+        if cmd == 'skill':
+            a = getattr(args, 'args', [])
+            if len(a) != 2:
+                print('사용: mission skill <navigate|approach|pose|inspect|pick|place|load|unload|stand|stand_pick> <target>', file=sys.stderr)
+                return 2
+            return self.cmd_skill(a[0], a[1])
+        if cmd == 'stop':
+            return self.cmd_skill('stop', '')
+        if cmd == 'status':
+            end = time.monotonic() + 3.0
+            while self.state.mission is None and time.monotonic() < end and rclpy.ok():
+                self._poll(0.2)
+            m = self.state.mission
+            if m is None:
+                print('/mission/state 없음 — mission_manager(plan) 확인', file=sys.stderr)
+                return 1
+            self._poll(1.0)   # 나머지 디버그 토픽(task·적재함·SLAM…)도 받게
+            from .pages.mission import mission_lines
+            color, self.term.color = self.term.color, False
+            try:
+                print('\n'.join(mission_lines(self.state, self.term)))
+            finally:
+                self.term.color = color
+            return 0
+        self._publish(self.pub_mission, String(data=cmd))
+        print(f'미션 {cmd} 전송')
+        return 0
+
+    _skill_seq = 0
+
+    def cmd_skill(self, skill: str, target: str) -> int:
+        """세부 명령 하나 — /task/sub_goals(plan/SubGoalArray)에 skill 한 단계짜리 계획을 보내 coordinator가 /skills/<skill>로 실행.
+        mission_manager와 같은 길(plan_id만 2000000+n으로 구분). skill='stop'이면 전체 취소(plan_id 0 · goals 빔). AUTO·비상정지 해제는 coordinator가 검사."""
+        try:
+            from plan.msg import SubGoal, SubGoalArray  # type: ignore
+        except Exception:
+            print('plan 메시지 없음 — ros2_ws를 빌드·source한 real 환경에서만 보낼 수 있음', file=sys.stderr)
+            return 1
+        if self.pub_goals is None:
+            from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
+            self.pub_goals = self.node.create_publisher(SubGoalArray, '/task/sub_goals', QoSProfile(
+                depth=10, reliability=QoSReliabilityPolicy.RELIABLE, durability=QoSDurabilityPolicy.TRANSIENT_LOCAL))
+        msg = SubGoalArray()
+        msg.header.stamp = self.node.get_clock().now().to_msg()
+        if skill != 'stop':
+            Bus._skill_seq += 1
+            msg.plan_id = 2000000 + Bus._skill_seq
+            msg.goals = [SubGoal(step=1, skill=skill, target=target, relation='', offset_m=0.0)]
+        self._publish(self.pub_goals, msg)
+        print('전체 취소 전송' if skill == 'stop' else f'{skill} {target} 전송 (plan {msg.plan_id}) — 결과는 미션 화면 아래 task 줄')
         return 0
 
     def cmd_recover(self, args=None) -> int:
@@ -808,10 +930,20 @@ class Bus:
                 print('LOCALIZATION 전환 생략 — 실제 nvblox는 나중에 전환/종료할 때 지도를 저장합니다.')
                 return 0
             print('LOCALIZATION으로 전환 — 지도 저장 + 다시 뜨기 (수십 초)')
-            return self.cmd_map(self.map_args('mode', name='localization'))
+            return self.localize_saved()
 
         print(f'모르는 map action: {args.action}', file=sys.stderr)
         return 2
+
+    def localize_saved(self) -> int:
+        """저장 직후 LOCALIZATION — 방금 다른 이름("wow")으로 저장했으면 그 지도로 (map mode는 *현재 작업 폴더*로 가서 nvblx가 없어 NONE이 됨)."""
+        saved = getattr(self, '_saved_name', None)
+        if not saved or saved == self.state.values.get('map_name'):
+            return self.cmd_map(self.map_args('mode', name='localization'))
+        end = time.monotonic() + 5.0   # state_manager의 지도 목록이 갱신될 때까지
+        while time.monotonic() < end and saved not in (self.state.values.get('map_list') or '').splitlines():
+            self._poll(0.3)
+        return self.cmd_map(self.map_args('switch', name=saved))
 
     def _map_restart_reply(self, send, desc: str, timeout: float = 3.0) -> int:
         """지도 모드·지도 바꾸기 = state_manager가 launch 전체를 다시 띄움 (cuVSLAM·nvblox는 실행 중 전환이 없음).
@@ -918,6 +1050,9 @@ class Bus:
                     break
         # 경로는 map_saver가 쓰는 쪽 기준 — CLI가 원격 PC·컨테이너 밖이면 이 컴퓨터 경로가 로봇에 없다.
         #   --file·--map-dir를 주지 않으면 state_manager의 map_dir을 쓴다 (못 읽을 때만 이 컴퓨터의 ros2_ws/map)
+        # 이름만 준 경우("wow") = 기본 지도 폴더의 <이름>/map — 안 그러면 현재 작업 폴더(tools)에 떨어진다
+        if args.file and not any(c in args.file for c in '/\\~.'):
+            name, args.file = args.file, None
         robot_dir = '' if (args.file or args.map_dir) else self._robot_map_dir()
         if args.file:
             path = Path(args.file).expanduser()
@@ -928,9 +1063,13 @@ class Bus:
             path = Path(robot_dir or map_dir) / name / 'map'
         if path.suffix.lower() in ('.yaml', '.pgm'):
             path = path.with_suffix('')
-        if not robot_dir:  # 이 컴퓨터 경로일 때만 — 로봇 쪽 지도 폴더는 bringup이 이미 만듦
+        if not robot_dir:  # 이 컴퓨터 경로일 때만
             path = path.resolve()
+        # 새 이름("wow")의 폴더는 아직 없다 — map_saver는 폴더를 안 만든다. 로봇 위에서 돌 때만 만들어진다(원격 CLI는 건너뜀).
+        try:
             path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass
 
         client = self.node.create_client(SaveMapSrv, '/map_saver/save_map')
         if not client.wait_for_service(timeout_sec=2.0):
@@ -960,6 +1099,7 @@ class Bus:
             print('요청 실패: map_saver가 저장하지 못했습니다', file=sys.stderr)
             return 1
         print(f'지도 저장 → {path}.pgm · {path}.yaml')
+        self._saved_name = None if args.file else name   # 이름으로 저장한 폴더 — 전환할 때 이 지도로 간다
         if self.state.map_mode == 'MAPPING':
             # 위치추정 정본은 nvblox.nvblx — map_saver의 pgm/yaml과 별개로 반드시 저장한다.
             rc = self._save_nvblox_map(path.parent / 'nvblox.nvblx')
@@ -1155,11 +1295,6 @@ class Bus:
                 return 0 if self.lifecycle_activate(name) else 1
         print(f'FAIL: {name} 20초 안에 다시 안 뜸 — /tmp/restart_{name}.log 확인', file=sys.stderr)
         return 1
-
-    def cmd_ab(self, args) -> int:
-        """A/B 테스트 — op/pages/ab/core.py로 위임 (메뉴 13와 같은 구현)."""
-        from .pages.ab.core import AbTest
-        return AbTest(self).cmd(args)
 
     def cmd_node(self, args) -> int:
         if args.action in ('list', 'status'):

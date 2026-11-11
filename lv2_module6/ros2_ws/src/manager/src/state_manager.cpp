@@ -109,11 +109,6 @@ StateManager::StateManager(const rclcpp::NodeOptions & options)
     [this](std_msgs::msg::Bool::ConstSharedPtr m) { set_estop(m->data); });
   map_req_sub_ = create_subscription<std_msgs::msg::String>("/cmd/map_mode", rclcpp::QoS(1).reliable(),
     [this](std_msgs::msg::String::ConstSharedPtr m) { request_map_mode(m->data); });
-  explore_sub_ = create_subscription<std_msgs::msg::String>("/explore/result", rclcpp::QoS(1).reliable(),
-    [this](std_msgs::msg::String::ConstSharedPtr m) {  // explorer: DONE … | FAILED … — 탐사가 끝나면 AUTO로
-      explore_note_ = m->data;
-      if (operation_ == "EXPLORE") set_operation_mode("AUTO");
-    });
   map_name_sub_ = create_subscription<std_msgs::msg::String>("/cmd/map_name", rclcpp::QoS(1).reliable(),
     [this](std_msgs::msg::String::ConstSharedPtr m) { request_map_name(m->data); });
   restart_sub_ = create_subscription<std_msgs::msg::String>("/cmd/restart", rclcpp::QoS(1).reliable(),
@@ -145,7 +140,6 @@ StateManager::StateManager(const rclcpp::NodeOptions & options)
     s.add("지도 폴더", map_name_.empty() ? "-" : map_name_);
     s.add("지도 경로", map_dir_.empty() ? "-" : map_dir_);
     s.add("비상정지", estop_ ? "ON" : "-");
-    s.add("탐사", explore_note_.empty() ? "-" : explore_note_);
     s.add("재시작", restart_note_);
     s.add("재시작 준비", restart_prepare_.empty() ? "-" : restart_prepare_);
     s.add("장치", devices_.empty() ? "-" : devices_);
@@ -164,23 +158,14 @@ void StateManager::set_estop(bool engaged) {
   if (engaged == estop_) return;
   estop_ = engaged;
   RCLCPP_WARN(get_logger(), "비상정지 %s", estop_ ? "ON" : "OFF");
-  if (estop_ && operation_ == "EXPLORE") {
-    explore_note_ = "비상정지로 탐사 멈춤";
-    set_operation_mode("AUTO");
-  }
   std_msgs::msg::Bool m;
   m.data = estop_;
   estop_pub_->publish(m);
 }
 
 void StateManager::request_operation(const std::string & mode) {
-  if (mode != "MANUAL" && mode != "AUTO" && mode != "EXPLORE") {
-    RCLCPP_WARN(get_logger(), "조작 모드 요청 '%s' 모름 (MANUAL | AUTO | EXPLORE)", mode.c_str());
-    return;
-  }
-  if (mode == "EXPLORE" && (map_mode_ != "MAPPING" || estop_)) {  // 탐사 = 매핑하며 스스로 돌아다님
-    explore_note_ = estop_ ? "비상정지 중엔 탐사 못 함" : "지도 모드가 MAPPING일 때만 탐사 (지금 " + map_mode_ + ")";
-    RCLCPP_WARN(get_logger(), "조작 모드 요청 EXPLORE 거절: %s", explore_note_.c_str());
+  if (mode != "MANUAL" && mode != "AUTO") {
+    RCLCPP_WARN(get_logger(), "조작 모드 요청 '%s' 모름 (MANUAL | AUTO)", mode.c_str());
     return;
   }
   set_operation_mode(mode);
@@ -188,7 +173,6 @@ void StateManager::request_operation(const std::string & mode) {
 
 void StateManager::set_operation_mode(const std::string & mode) {
   if (mode == operation_) return;
-  if (mode == "EXPLORE") explore_note_ = "탐사 중";
   operation_ = mode;
   RCLCPP_WARN(get_logger(), "조작 모드 → %s", operation_.c_str());
   publish(operation_pub_, operation_);
@@ -205,10 +189,6 @@ void StateManager::request_map_mode(const std::string & mode) {
   } else if (mode == "LOCALIZATION" && map_name_.empty()) {
     map_error_ = "지금 지도 폴더가 없음 — /cmd/map_name으로 고를 것";
   } else {
-    if (operation_ == "EXPLORE") {
-      explore_note_ = "지도 모드를 바꿔 탐사 멈춤 (다시 띄움)";
-      set_operation_mode("AUTO");
-    }
     // 지도 선택/위치추정 = 바로 자율 주행 가능한 AUTO · 지도 없음/매핑 = MANUAL
     if (mode == "NONE") request_restart("all map:=none operation:=MANUAL");
     else if (mode == "MAPPING") request_restart("all map:=slam operation:=MANUAL");
@@ -246,10 +226,6 @@ void StateManager::request_map_name(const std::string & name) {
   } else if (name == map_name_ && map_mode_ == "LOCALIZATION") {
     return;  // 이미 그 지도
   } else {
-    if (operation_ == "EXPLORE") {
-      explore_note_ = "지도를 바꿔 탐사 멈춤 (다시 띄움)";
-      set_operation_mode("AUTO");
-    }
     request_restart("all map:=saved map_name:=" + name + " operation:=AUTO");
   }
   if (!map_error_.empty()) RCLCPP_WARN(get_logger(), "지도 바꾸기 %s: %s", name.c_str(), map_error_.c_str());

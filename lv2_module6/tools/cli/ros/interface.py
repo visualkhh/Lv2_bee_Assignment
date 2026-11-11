@@ -146,14 +146,15 @@ def _mod(name, **attrs):
 def _install_custom_msgs() -> None:
     """operator_tool이 import하는 커스텀 msg — 파일/가짜 JSON을 그대로 받는 빈 클래스."""
     for pkg_name, classes in (
-            ('perception', ('TrackedObjectArray',)),
+            ('perception', ('TrackedObjectArray', 'MissionSignal')),
             ('control', ('MotorStatus',)),
-            ('plan', ('TaskStatus',))):
+            ('plan', ('TaskStatus', 'SubGoal', 'SubGoalArray', 'MissionState', 'BasketState')),
+            ('ml', ('SkillContext',))):
         pkg = types.ModuleType(pkg_name)
         pkg.__path__ = []  # 패키지처럼
         msg = types.ModuleType(f'{pkg_name}.msg')
         for cname in classes:
-            setattr(msg, cname, type(cname, (msgs._Msg,), {}))
+            setattr(msg, cname, getattr(msgs, cname, None) or type(cname, (msgs._Msg,), {}))
         pkg.msg = msg
         sys.modules[pkg_name] = pkg
         sys.modules[f'{pkg_name}.msg'] = msg
@@ -167,6 +168,7 @@ def install_modules(node_cls, *, parameter_client_cls, spin_once=None,
          spin_until_future_complete=spin_until_future_complete
          or (lambda node, fut, timeout_sec=1.0: None))
     _mod('rclpy.node', Node=node_cls)
+    _mod('rclpy.time', Time=lambda *a, **k: None)  # operator_tool이 import — fake는 TF가 없어 실제로 안 쓰임
     _mod('rclpy.parameter', Parameter=msgs.Parameter)
     _mod('rclpy.parameter_client', AsyncParameterClient=parameter_client_cls)
     qos = _mod('rclpy.qos')
@@ -183,15 +185,16 @@ def install_modules(node_cls, *, parameter_client_cls, spin_once=None,
                                   Point=msgs.Point, Quaternion=msgs.Quaternion,
                                   Pose=msgs.Pose, PoseStamped=msgs.PoseStamped))
     _mod('sensor_msgs', msg=_mod('sensor_msgs.msg', JointState=msgs.JointState,
-                                 Header=msgs.Header, Imu=msgs.Imu, CameraInfo=msgs.CameraInfo))
+                                 Header=msgs.Header, Imu=msgs.Imu, CameraInfo=msgs.CameraInfo,
+                                 PointCloud2=msgs.PointCloud2))
     _mod('nav_msgs', msg=_mod('nav_msgs.msg', Odometry=msgs.Odometry,
-                              OccupancyGrid=msgs.OccupancyGrid))
+                              OccupancyGrid=msgs.OccupancyGrid, Path=msgs.Path))
     _mod('diagnostic_msgs', msg=_mod('diagnostic_msgs.msg', DiagnosticArray=msgs.DiagnosticArray,
                                      DiagnosticStatus=msgs.DiagnosticStatus,
                                      KeyValue=msgs.KeyValue))
     _mod('rcl_interfaces',
          msg=_mod('rcl_interfaces.msg', ParameterType=msgs.ParameterType,
                   ParameterValue=msgs._ParamValue))
-    _mod('nav2_msgs', srv=_mod('nav2_msgs.srv', SaveMap=msgs.SaveMap))
+    _mod('nav2_msgs', srv=_mod('nav2_msgs.srv', SaveMap=msgs.SaveMap, Toggle=msgs.Toggle))
     if custom_msgs:
         _install_custom_msgs()

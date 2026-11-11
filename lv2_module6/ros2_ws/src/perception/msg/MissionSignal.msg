@@ -12,8 +12,3 @@ bool ok                 # true = 12개 · 각 1~6회 · 모르는 색 없음 · 
 string error            # ok=false 이유 — count(12개 아님) | unknown(모르는 색) | range(1~6 벗어남) | unconfirmed(아직 confirm번 못 봄) · ok면 빈 값
 int32 cycles            # 같은 답이 연달아 나온 사이클 수 (정상 사이클이 아니면 0)
 string raw              # 읽은 그대로 (예: "R G R R G R G G Y G Y G" · 모르는 색은 ?) — 로그·확인용
-# ---- 옛 3단계 규칙 칸 — vlm_task_planner가 아직 읽어서 빌드용으로만 남김 (값 안 채움: "" · 0). planner가 위 칸으로 옮기면 삭제
-string color
-int32 count
-int32 sum
-int32 dest_tag

@@ -136,7 +136,7 @@ def ensure_stow(bus, move: bool = True) -> bool:
         if err() <= STOW_TOL:
             print('팔: 시작 자세 도달')
             return True
-    print(f'거부: 팔이 시작 자세에 못 감 (오차 {err():.2f} rad) — 걸렸는지 확인 (arm reboot · TEACH)', file=sys.stderr)
+    print(f'거부: 팔이 시작 자세에 못 감 (오차 {err():.2f} rad) — 걸렸는지 확인 (arm reboot)', file=sys.stderr)
     return False
 
 

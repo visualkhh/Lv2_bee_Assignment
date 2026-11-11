@@ -186,7 +186,7 @@ export FASTDDS_DEFAULT_PROFILES_FILE=$PWD/fastdds.xml
 ### 카메라 QoS
 
 RealSense의 color/depth/pointcloud는 `SENSOR_DATA`(best effort, depth 5)로 발행합니다.
-카메라 원본을 최신 값만 쓰는 구독자(body_filter·grasp_scorer·VLM·state_manager)는
+카메라 원본을 최신 값만 쓰는 구독자(body_filter·grasp_scorer·state_manager)는
 queue depth 1로 줄였습니다.
 
 반면 아래 경로는 **일부러 queue를 크게** 둡니다.
@@ -336,7 +336,7 @@ ros2 launch control control.launch.py
 ros2 launch manager manager.launch.py map_mode:=MAPPING
 ros2 launch ml ml.launch.py learning_enabled:=false
 ros2 launch perception perception.launch.py device:=cuda
-ros2 launch plan plan.launch.py command:="빨간 퍽을 목표 구역으로 옮겨"
+ros2 launch plan plan.launch.py
 ```
 
 `BeebotSystemHardware`와 `rl_arm_correction`은 노드가 아니라 `controller_manager`가

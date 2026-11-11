@@ -8,15 +8,18 @@
 """
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 from ..interface import DoneFuture, RosClient, RosNode, RosPublisher, RosSubscription, install_modules
-from ..msgs import OccupancyGrid, SaveMapResponse, _Msg, _Time
+from ..msgs import OccupancyGrid, SaveMapResponse, ToggleResponse, _Msg, _Time
 
 
 # ---------------------------------------------------------------- 가짜 노드/버스
 BUS: dict[str, list] = {}  # topic -> [(node, callback)]
 PUB_LOG: list[tuple[str, object]] = []
+LATEST: dict[str, object] = {}   # 토픽 → 마지막 메시지 (transient_local처럼 늦게 구독해도 바로 받음)
+LATCHED = ('/mission/state', '/task/status', '/global_costmap/costmap', '/local_costmap/costmap')
 
 
 class _Clock:
@@ -60,16 +63,34 @@ class _FakeClient(RosClient):
 
     def call_async(self, req):
         print(f'[SVC {self.topic_name}] 요청 → 가짜 성공')
-        return DoneFuture(SaveMapResponse(result=True))
+        url = getattr(req, 'map_url', '')
+        if url and self.topic_name.endswith('save_map'):
+            import shutil
+            dst, src = Path(url), MAP_DIR / CURRENT['name']
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            for ext in ('yaml', 'pgm'):
+                shutil.copyfile(src / f'map.{ext}', dst.with_suffix(f'.{ext}'))
+            state = getattr(self._node, 'state', None)
+            if state is not None:
+                state.values['map_list'] = '\n'.join(fake_map_names())
+        return DoneFuture(ToggleResponse() if hasattr(req, 'enable') else SaveMapResponse(result=True))
 
     def destroy(self):
         pass
 
 
-# ---------------------------------------------------------------- 가짜 /map (ros/map/map.pgm · map.yaml)
-def fake_map():
-    """ros/map/의 지도 → OccupancyGrid (trinary: 밝음=빈 곳 0 · 어두움=벽 100 · 가운데=미확인 -1) — 지도에서 찍기 시험용."""
-    here = Path(__file__).resolve().parent / 'map'
+# ---------------------------------------------------------------- 가짜 /map — 저장 지도 폴더 ros/fake/map/<이름>/map.yaml + map.pgm
+MAP_DIR = Path(__file__).resolve().parent / 'map'   # 실기 ros2_ws/map과 같은 모양 — 폴더 하나 = 지도 하나 (목록 · 전환 · 보기 · 저장이 이걸 씀)
+CURRENT = {'name': 'default'}                        # 지금 /map으로 내보내는 지도 — 지도 전환·저장하면 바뀜
+
+
+def fake_map_names() -> list[str]:
+    return sorted(p.name for p in MAP_DIR.iterdir() if (p / 'map.yaml').is_file()) if MAP_DIR.is_dir() else []
+
+
+def fake_map(name: str | None = None):
+    """MAP_DIR/<이름>/의 지도 → OccupancyGrid (trinary: 밝음=빈 곳 0 · 어두움=벽 100 · 가운데=미확인 -1) — 지도에서 찍기 시험용."""
+    here = MAP_DIR / (name or CURRENT['name'])
     cfg = {}
     for line in (here / 'map.yaml').read_text().splitlines():
         if ':' in line and not line.lstrip().startswith('#'):
@@ -120,8 +141,28 @@ class FakeRos(RosNode):
         BUS.setdefault(topic, []).append((self, callback))
         self._fake_subs.append((topic, callback))
         if topic == '/map':   # transient_local — 구독하면 마지막 지도가 바로 옴
-            callback(fake_map())
+            callback(LATEST.get('/map') or fake_map())
+        elif topic in LATCHED and topic in LATEST:
+            callback(LATEST[topic])
         return _FakeSub()
+
+    def _deliver(self, topic, msg):
+        """가짜 월드가 내는 토픽 — 구독자 콜백으로 바로 (발행 로그는 안 찍음)."""
+        LATEST[topic] = msg
+        for _node, cb in list(BUS.get(topic, [])):
+            try:
+                cb(msg)
+            except Exception as e:  # noqa: BLE001
+                print(f'[fake] 콜백 에러 {topic}: {e}')
+
+    def _switch_map(self, name):
+        """지도 전환 — /map을 그 폴더 지도로 다시 내보내고, 가짜 월드(벽·경로·costmap)도 그 지도로."""
+        CURRENT['name'] = name
+        grid = fake_map(name)
+        self._deliver('/map', grid)
+        world = getattr(self, 'world', None)
+        if world is not None:
+            world.reload(grid)
 
     def destroy_subscription(self, sub):
         pass
@@ -147,7 +188,7 @@ class FakeRos(RosNode):
 
     def get_node_names(self):
         return ['operator_tool', 'state_manager', 'manual_control',
-                'vlm_task_planner', 'coordinator', 'perception',
+                'coordinator', 'perception',
                 'pole_front_cam', 'gripper_cam',
                 'joint_state_broadcaster', 'controller_manager']
 
@@ -159,6 +200,9 @@ class FakeRos(RosNode):
         state = getattr(self, 'state', None)
         if state is None:
             return
+        world = getattr(self, 'world', None)
+        if world is not None:
+            world.on_publish(topic, msg)
         vals = state.values
         data = getattr(msg, 'data', None)
         if topic == '/cmd/operation_mode' and isinstance(data, str):
@@ -178,7 +222,8 @@ class FakeRos(RosNode):
             vals['restart'] = f'all: 재시작 중 — launch pid 4242 · 바꾼 인자 {arg} (가짜)'
             vals['map_mode'] = data
         elif topic == '/cmd/map_name' and isinstance(data, str):
-            if data in (vals.get('map_list') or '').splitlines():
+            if data in fake_map_names():
+                self._switch_map(data)
                 vals['restart'] = f'all: 재시작 중 — launch pid 4242 · 바꾼 인자 map:=saved map_name:={data} (가짜)'
                 vals['map_mode'], vals['map_name'] = 'LOCALIZATION', data
         elif topic == '/cmd/restart' and isinstance(data, str):
@@ -190,15 +235,25 @@ class FakeRos(RosNode):
                 mode = m.group(1)
                 if mode == 'slam':
                     vals['map_mode'] = 'MAPPING'
-                    vals['map_list'] = 'default\n20261017_223015'
+                    vals['map_list'] = '\n'.join(fake_map_names())
                 elif mode == 'saved':
                     vals['map_mode'] = 'LOCALIZATION'
                     nm = _re.search(r'map_name:=(\S+)', data)
                     vals['map_name'] = nm.group(1) if nm else 'default'
+                    if vals['map_name'] in fake_map_names():
+                        self._switch_map(vals['map_name'])
 
     @classmethod
     def install(cls):
-        install_modules(cls, parameter_client_cls=AsyncParameterClient)
+        install_modules(cls, parameter_client_cls=AsyncParameterClient, spin_once=_spin, custom_msgs=True)
+
+
+def _spin(node, timeout_sec=0.0):
+    """rclpy.spin_once 대용 — 가짜 월드를 한 걸음 굴리고 잠깐 쉰다 (바쁜 대기 방지)."""
+    world = getattr(node, 'world', None)
+    if world is not None:
+        world.step()
+    time.sleep(min(max(timeout_sec, 0.0), 0.02))
 
 
 class AsyncParameterClient:

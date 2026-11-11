@@ -3,7 +3,7 @@
 //     contact_mode sim: 칸 위 5 cm까지 MoveIt → 닿는 구간 (place_cell 정책: 내려가기 → 벌림 → 올리기) — 손 안 퍽 바닥이 면에 닿는 자리에서 벌림 (시뮬 place_m 0)
 //     moveit: 위 place_approach_m → 퍽 바닥 + place_release_m까지 내려가 벌림 → 다시 위 (예전)
 //   target "over" (물체 위 — location_box · 판): 면 + held_bottom + place_release 위로 values[0](다가가는 높이)만큼 위에서 MoveIt → 벌림
-//   정책: models/skills/place_cell/ (팀원 pip_env) — 상수 오프셋만으로 시뮬 Δ = 0 99.7 %라 meta.yaml use: false
+//   정책: model/skills/place_cell/ (팀원 pip_env) — 상수 오프셋만으로 시뮬 Δ = 0 99.7 %라 meta.yaml use: false
 //   손가락은 늘 로봇 y 방향으로 닫고(시뮬 place_env와 같음), 놓을 때 36 mm만 벌리고, 목표를 로봇 앞쪽으로 place_offset_x_m만큼 뒤로 옮긴다
 #include "rclcpp_components/register_node_macro.hpp"
 #include "skills/arm_io.hpp"

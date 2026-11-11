@@ -25,7 +25,7 @@
 
 | 계층 | 역할 | 대표 노드 | 결정 주기 | 학습 |
 | --- | --- | --- | --- | --- |
-| ① 작업 계획 | 무엇을, 어떤 순서로 | vlm_task_planner (신호는 perception signal_decoder가 12회 점멸을 세어 `/mission/signal`로 — 그룹·배정 해석은 계획 쪽) | 명령·신호·단계 완료·최종 실패마다 (수 초) + 수납 확인 주기 | 신호등 미션은 규칙 · 일반 명령·바코드 지시는 사전학습 VLM(또는 사람 — ai-service human), 추가 학습 없음 |
+| ① 작업 계획 | 무엇을, 어떤 순서로 | mission_manager (신호는 perception signal_decoder가 12회 점멸을 세어 `/mission/signal`로 — 그룹·배정 해석은 계획 쪽) | 명령·신호·단계 완료·최종 실패마다 (수 초) + 수납 확인 주기 | 신호등 미션은 규칙 · 추가 학습 없음 |
 | ② 임무 관리 | 검증·실행·재시도·안전 규칙 | coordinator | 이벤트마다 | 없음 |
 | ③ 앞단 판단 보조 | 어떤 방식으로 할지 고르기 | grasp_scorer | pick 직전 1회 | 지도학습 |
 | ④ 확정 실행 | 궤적·속도 계산, 충돌 회피 | Nav2, MoveIt 2 (+MTC) | 20~100Hz | 없음 |
@@ -38,12 +38,12 @@
 - **보정은 범위를 제한한다.** 선속도 Δ ±0.05m/s, 각속도 Δ ±0.10rad/s, 관절 Δ ±0.05rad. 그리고 Δ를 더한 결과는 **현재 프리셋 속도 상한으로 다시 클리핑**한다.
 - **안전장치는 학습 노드보다 뒤에 둔다.** RL 출력까지 포함한 최종 명령을 마지막에 거른다.
 - **학습 노드는 끌 수 있어야 한다.** 노드를 내리지 않고 `enabled:=false`(Δ=0, 기본 프리셋)로 바꾸면 원래 시스템과 같아야 한다.
-- **위는 느리고 추상적, 아래는 빠르고 구체적.** VLM은 제어 루프에 넣지 않는다.
-- **판단 권한은 한 층에 하나.** 파지점 2순위 선택 같은 실행 세부는 coordinator가 하고, VLM은 작업 순서만 다시 짠다.
+- **위는 느리고 추상적, 아래는 빠르고 구체적.** 계획 노드는 제어 루프에 넣지 않는다.
+- **판단 권한은 한 층에 하나.** 파지점 2순위 선택 같은 실행 세부는 coordinator가 하고, mission_manager는 작업 순서만 짠다.
 
 **토픽 이름 규칙 — 명령은 /cmd, 상태는 /state**
 
-- **외부에서 들어오는 명령은 전부 `/cmd/...`.** 보내고 끝 (cmd_vel 관례 — 응답 없음). `/cmd/user_command` · `/cmd/manual/cmd_vel` · `/cmd/manual/arm` · `/cmd/manual/reboot_motors` · `/cmd/e_stop` · `/cmd/operation_mode` · `/cmd/map_mode` · `/cmd/fake_opencr/set_pose`(테스트베드).
+- **외부에서 들어오는 명령은 전부 `/cmd/...`.** 보내고 끝 (cmd_vel 관례 — 응답 없음). `/cmd/manual/cmd_vel` · `/cmd/manual/arm` · `/cmd/manual/reboot_motors` · `/cmd/e_stop` · `/cmd/operation_mode` · `/cmd/map_mode` · `/cmd/fake_opencr/set_pose`(테스트베드).
 - **상태는 `/state/<이름>`, 발행은 state_manager 하나만.** 다른 노드는 구독만 한다. 상태를 바꾸고 싶으면 `/cmd/<이름>`을 보내고 결과는 `/state/<이름>`으로 본다 (`/cmd/operation_mode` → `/state/operation_mode`, `/cmd/map_mode` → `/state/map_mode`, `/cmd/e_stop` → `/state/emergency`). ROS에는 발행자 제한 기능이 없으므로 규칙으로 지키고, 테스트베드 input_manager(호스트 파일 → 토픽)는 `/state/*` 를 거부한다.
 - **연결 장치 상태도 같은 규칙.** `/state/devices`는 장치 이름만 쉼표로 내고, 장치별 상세(`active`/`disconnected`/`error`(모터 Hardware Error) + 세부 토픽)는 `/state/devices/<이름>`, 전체 그래프는 `/state/topics`로 낸다. 장치가 없어도 state_manager는 계속 뜬다.
 - **응답이 꼭 필요한 요청은 토픽이 아니라 서비스** (예: `/map_saver/save_map`, `/beebotsystem/reboot_motors`).

@@ -150,7 +150,7 @@ void SignalDecoderNode::on_objects(const perception::msg::TrackedObjectArray & m
   last_ = out;
   have_ = true;
   status_pub_->publish(out);  // 사이클마다 — ok든 오류든 (통합이 오류 대응·로그용으로 구독)
-  if (!out.ok) {  // 확정 전·오류 사이클 — /mission/signal에는 안 냄 (planner가 받을 때마다 다시 계획하므로)
+  if (!out.ok) {  // 확정 전·오류 사이클 — /mission/signal에는 안 냄 (받을 때마다 mission_manager가 다시 계획하므로)
     RCLCPP_WARN(get_logger(), "신호 사이클 %s [%s] (%zu개)", out.error.c_str(), out.raw.c_str(), out.sequence.size());
     return;
   }

@@ -72,7 +72,7 @@ jobs:
         #   firmware/                      lv2_module6/firmware 폴더 전체 (스케치·upload.sh·README)
         #   firmware/build/<스케치>/*.bin  test-firmware가 컴파일한 결과 (/debug/firmware에서 복사 — OpenCR용이라 아키텍처 무관)
         #   *.sh                           lv2_module6/ros2_ws의 실행 스크립트 전부 + docker/lv2_module6/*.sh (entrypoint.sh 제외)
-        #   tools/cli·tools/rviz  run-cli · A/B · 리포트 (tests·bag·artifacts 제외)
+        #   tools/cli·tools/rviz  run-cli (tests·bag·artifacts 제외)
         #   ARCH                           이 패키지의 아키텍처 (start.sh가 확인)
         #   TARGET                         이 패키지의 OS·아키텍처 (예: ubuntu-24.04-aarch64)
         # - install: test-bringup이 --symlink-install로 빌드 → cp -L로 링크 대상 실제 파일을 담음.
@@ -90,7 +90,7 @@ jobs:
           cp lv2_module6/ros2_ws/fastdds.xml lv2_module6/ros2_ws/fastdds_local_only.xml ros2_ws/   # _local = 실기 기기 안 격리 (SHM만)
           cp docker/lv2_module6/*.sh ros2_ws/   # test-*.sh · build-ws.sh · ros-kill.sh · ros-restart.sh (entrypoint.sh 제외 — 컨테이너 전용)
           rm -f ros2_ws/entrypoint.sh
-          # tools/ (run-cli · A/B · 리포트) — 실기에서 wget 묶음으로 바로 실행. tests·log·bag·artifacts·__pycache__ 제외.
+          # tools/ (run-cli) — 실기에서 wget 묶음으로 바로 실행. tests·log·bag·artifacts·__pycache__ 제외.
           mkdir -p ros2_ws/tools && cp -r lv2_module6/tools/cli lv2_module6/tools/rviz ros2_ws/tools/
           cp lv2_module6/tools/run-cli lv2_module6/tools/run-rviz lv2_module6/tools/requirements.txt lv2_module6/tools/setting-venv.sh ros2_ws/tools/
           [ -f lv2_module6/tools/README.md ] && cp lv2_module6/tools/README.md ros2_ws/tools/

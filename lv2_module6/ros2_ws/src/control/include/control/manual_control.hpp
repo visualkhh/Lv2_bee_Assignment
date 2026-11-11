@@ -1,7 +1,7 @@
 #pragma once
 
 // manual_control (🛠 직접 작성, 담당: 김현하) — 수동 조작 (원격 조종 · 팔 직접 움직이기)
-//   입력: ✉️ /state/operation_mode (std_msgs/String "AUTO" | "MANUAL" | "EXPLORE", transient_local) — 모드는 manager/state_manager가 정함 (/cmd/operation_mode → 거기)
+//   입력: ✉️ /state/operation_mode (std_msgs/String "AUTO" | "MANUAL", transient_local) — 모드는 manager/state_manager가 정함 (/cmd/operation_mode → 거기)
 //         ✉️ /cmd/manual/cmd_vel (geometry_msgs/TwistStamped) — 바퀴 (teleop_twist_keyboard · 시뮬레이터 조작판)
 //         ✉️ /cmd/manual/arm (sensor_msgs/JointState) — 관절 목표 (joint1~5 rad, gripper_left_joint m). 이름이 있는 것만 움직임
 //            gripper_left_joint의 effort(있으면) = 쥐는 힘 한계 [A] → 그리퍼 액션 goal effort (없으면 controllers.yaml max_effort)

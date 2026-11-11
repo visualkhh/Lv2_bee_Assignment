@@ -7,7 +7,7 @@
 //         ✉️ /tracked_objects (퍽 tag·color·shape(box|cyl) · 장소 상자 location_box(tag · 윗면 가운데) · barcode · last_seen)
 //         ✉️ /task/status (coordinator 결과)
 //         ✉️ photo_topic (사진 찍을 때만 잠깐 구독) · TF map → base_footprint
-//   출력: ✉️ /task/sub_goals (SubGoalArray, plan_id = PLAN_ID_BASE + n — vlm_task_planner와 겹치지 않게) → coordinator
+//   출력: ✉️ /task/sub_goals (SubGoalArray, plan_id = PLAN_ID_BASE + n) → coordinator
 //         ✉️ /mission/state (plan/MissionState, latched) · /mission/markers (RViz)
 //         ✉️ 기록 log_dir/<시작 시각>/ signal · allocation · build · verify · return · error .json + photos/ · /diagnostics
 //   단계 (순서와 실패 시 갈 곳은 mission_solver next_phase):

@@ -117,12 +117,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 #   (Jetson 설치: documents/jetson-orin-nano/CUVSLAM.md)
 
 # YOLO perception (CPU 추론용) — torch CPU + ultralytics. libGL은 cv2용.
-# 모델 가중치는 models/yolo/*.pt 로 커밋 (약 6MB) → perception이 share에 설치.
+# 모델 가중치는 models/yolo/*.pt · *.onnx 로 커밋 → perception이 share에 설치.
+# onnx · onnxruntime: perception.yaml model_path가 .onnx일 때 ultralytics가 파이썬으로 읽는 데 필요
+#   (ros-lyrical-onnxruntime-vendor는 C++ 라이브러리라 파이썬에서 못 씀 · 없으면 실행 중 자동 설치 시도 → 실패 → 빈 목록 발행)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 libglib2.0-0 python3-pip ros-lyrical-ament-cmake-pytest \
     && rm -rf /var/lib/apt/lists/* \
     && pip install --break-system-packages --ignore-installed --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
-    && pip install --break-system-packages --ignore-installed --no-cache-dir "numpy<2" ultralytics pytest
+    && pip install --break-system-packages --ignore-installed --no-cache-dir "numpy<2" ultralytics onnx onnxruntime pytest
 
 # Arduino CLI (OpenCR 펌웨어 빌드·업로드용, Linux ARM64/x86_64 지원)
 # 근거: https://docs.arduino.cc/arduino-cli/installation (install.sh + BINDIR)
@@ -182,8 +184,7 @@ COPY docker/lv2_module6/build-ws.sh /usr/local/bin/build-ws
 COPY docker/lv2_module6/ros-restart.sh /usr/local/bin/ros-restart
 COPY docker/lv2_module6/ros-faker-restart.sh /usr/local/bin/ros-faker-restart
 COPY docker/lv2_module6/ros-kill.sh /usr/local/bin/ros-kill
-COPY docker/lv2_module6/test-ab-nav-policy.sh /usr/local/bin/test-ab-nav-policy
-# run-cli·A/B 도구 — Jetson 실기에서도 같은 경로(/ws/tools)로 동작 (개발 컨테이너는 compose 마운트로 덮어씀)
+# run-cli 도구 — Jetson 실기에서도 같은 경로(/ws/tools)로 동작 (개발 컨테이너는 compose 마운트로 덮어씀)
 COPY lv2_module6/tools /ws/tools
 RUN chmod +x /entrypoint.sh /usr/local/bin/test-* /usr/local/bin/build-ws /usr/local/bin/ros-restart /usr/local/bin/ros-faker-restart /usr/local/bin/ros-kill \
     && echo "source /opt/ros/lyrical/setup.bash" >> /root/.bashrc \

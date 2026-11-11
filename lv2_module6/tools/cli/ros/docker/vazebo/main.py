@@ -3,7 +3,7 @@
   [지도: 미로 · 실제 로봇 · /odom · 경로 · 인지 물체 · 점구름 · 퍽 · 장애물]   │ [pole_front_cam:    SIM 영상 │ SIM 깊이 ‖ ROS 영상+인지 │ ROS 점구름]
   [퍽 · 배경 · 카메라 송출]                                                  │ [gripper_cam: SIM 영상 │ SIM 깊이 ‖ ROS 영상+인지 │ ROS 점구름]
   [환경: 미끄럼 · 마찰 · 이동물체 추가 · 바닥 장애물 · 신호등 · 통신 끊기 · 팔 붙잡기]   │ [상태 · 진단(/diagnostics_agg)]
-  [수동 조작 탭 · 비상정지]                                             │ [명령 입력 → /cmd/user_command]
+  [수동 조작 탭 · 비상정지]                                             │
 
 SIL(Software-in-the-Loop): 실기 대신 이 시뮬레이터가 세상(코스·퍽·장애물·이동물체·카메라 장면·로봇 몸)을 만들고,
 ROS 쪽은 실제 노드·컨트롤러가 그대로 돈다.
@@ -1384,7 +1384,6 @@ def status_lines(sim=None):
 
     add('작업', 'task_status', lambda d: f"plan {d['plan_id']} step {d['step']} {STATE_NAMES.get(d['state'], d['state'])} {d['reason']}")
     add('계획', 'sub_goals', lambda d: f"plan {d['plan_id']}: " + ' → '.join(f"{g['skill']}({g['target']})" for g in d['goals']))
-    add('로봇 말', 'robot_say', lambda d: d['data'])
     add('재시작 (state_manager)', 'state/restart', lambda d: d['data'], latched=True)
     # Nav2 관리자 — 기동 때 가끔(약 4번에 1번) 서버 응답을 못 받고 멈춤 → 꺼짐이면 빨간불, 사람이 [ROS 재시작]
     for label, mgr in (('Nav2 바퀴 체인 (velocity_smoother · collision_monitor)', 'lifecycle_manager_base'),
@@ -1399,7 +1398,6 @@ def status_lines(sim=None):
     add('조작 모드', 'state/operation_mode', lambda d: d['data'], True)  # state_manager 발행
     add('지도 모드', 'state/map_mode', lambda d: d['data'], True)        # state_manager 발행
     add('지도 폴더', 'state/map_name', lambda d: d['data'] or '-', True)
-    add('탐사 결과', 'explore/result', lambda d: d['data'], True)  # explorer: DONE · FAILED
     add('지도 목록', 'state/map_list', lambda d: (lambda n: f"{len(n)}개 {', '.join(n)}" if n else '없음')([x for x in d['data'].split('\n') if x]), True)
     add('비상정지', 'state/emergency', lambda d: 'ON' if d['data'] else '-', True)
     try:  # /state/* 전체 원문 (state_manager가 늘리면 자동 표시)
@@ -1666,10 +1664,6 @@ class App:
         row.pack(fill=tk.X)
         for text, mode in (('스캔 시작', 'MAPPING'), ('위치추정으로', 'LOCALIZATION')):
             tk.Button(row, text=text, command=lambda m=mode: self.map_mode_request(m)).pack(side=tk.LEFT, fill=tk.X, expand=True)
-        row = tk.Frame(slambox)
-        row.pack(fill=tk.X)
-        tk.Button(row, text='자동 탐사', command=self.start_explore).pack(side=tk.LEFT, fill=tk.X, expand=True)
-        tk.Button(row, text='탐사 멈춤', command=lambda: self.stop_explore()).pack(side=tk.LEFT, fill=tk.X, expand=True)
         tk.Button(slambox, text='지도 저장', command=self.save_map).pack(fill=tk.X)  # → ros2_ws/map/<지금 지도 폴더>/map.pgm·yaml
         # 위치추정이 어긋났을 때 — 실제 위치를 /initialpose로 (위치추정 모드에서만. 지도 오른쪽 클릭 [여기가 로봇 위치]는 찍은 곳으로)
         tk.Button(slambox, text='실제 위치로 맞추기 (/initialpose)', command=self.snap_to_real_pose).pack(fill=tk.X)
@@ -1849,24 +1843,6 @@ class App:
             if w.get('1.0', 'end-1c') != text:
                 w.delete('1.0', tk.END)
                 w.insert(tk.END, text)
-
-    def start_explore(self):
-        """[자동 탐사] → /cmd/operation_mode EXPLORE — state_manager가 지도 모드 MAPPING일 때만 허락,
-        plan/explorer가 /map 프론티어로 Nav2 목표를 차례로 보냄 (끝나면 /explore/result → AUTO). 수동 조작을 만지면 바로 멈춤"""
-        mode = (read_msg('state/map_mode')[0] or {}).get('data')
-        if mode == 'COURSE':
-            self.restart_ros('map:=slam', '지금은 코스 지도(COURSE)라 탐사할 수 없습니다 (매핑 중에만).\n'
-                                          'SLAM 매핑 모드(map:=slam)로 다시 띄운 뒤 [자동 탐사]를 다시 누르세요. 다시 띄울까요?')
-            return
-        if mode != 'MAPPING':
-            self.sent.config(text=f'자동 탐사는 매핑 중에만 — 지금 지도 모드 {mode}. 먼저 [스캔 시작]')
-            return
-        send('/cmd/operation_mode', 'std_msgs/msg/String', {'data': 'EXPLORE'})
-        self.sent.config(text='요청: 자동 탐사 (/cmd/operation_mode EXPLORE → state_manager → explorer)')
-
-    def stop_explore(self):
-        send('/cmd/operation_mode', 'std_msgs/msg/String', {'data': 'AUTO'})
-        self.sent.config(text='요청: 탐사 멈춤 (/cmd/operation_mode AUTO)')
 
     def map_mode_request(self, mode):
         # COURSE(코스 지도, SLAM 없음)면 모드를 바꿀 대상이 없음 → SLAM 모드로 ROS 재시작을 물어봄

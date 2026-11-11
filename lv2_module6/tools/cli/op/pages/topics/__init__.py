@@ -3,7 +3,8 @@
 rosbag2는 노드 단위가 아니라 **토픽 단위**다. 노드별로 묶고 싶으면 그 노드가 발행하는 토픽을
 골라서 녹화하면 된다. 여기서는 /state/topics의 `이름|타입|publisher 수`를 그대로 보여 준다.
 
-  s = 선택 토픽 녹화 시작/중지
+  s = 선택 토픽 녹화 시작/중지      d = 진단 프리셋 녹화 시작/중지 (명령 체인 · odom · TF · 지도 · 코스트맵)
+  u = 시스템 부하(CPU · 메모리 · GPU) 같이 기록 켜기/끄기 — bag 폴더에 sys.csv · tegrastats.log
   p = 최근 bag 재생/중지
   x = 선택 해제
   숫자/↑↓ = 토픽 선택 토글
@@ -17,6 +18,7 @@ import subprocess
 import time
 from pathlib import Path
 
+from ... import bagrec
 from ...defs import STAY
 from ...terminal import DIM
 from ...menus import ActionItem, Menu
@@ -31,8 +33,7 @@ class TopicBagMenu(Menu):
         self.selected: set[str] = set()
         self._topics: list[tuple[str, str]] = []
         self._at = 0.0
-        self._proc = None
-        self._bag: Path | None = None
+        self.sys_on = True   # 녹화할 때 부하(sys.csv)도 같이
         self._play = None
         self._docker_topics: set[str] = set()
         self._bag_dir = Path.home() / '.cache' / 'beebot' / 'bags'
@@ -55,14 +56,23 @@ class TopicBagMenu(Menu):
         else:
             self.selected.add(name)
 
+    def _toggle_sys(self) -> None:
+        self.sys_on = not self.sys_on
+
     def _recording(self) -> bool:
-        return bool(self._docker_topics) or (self._proc is not None and self._proc.poll() is None)
+        return bool(self._docker_topics) or bagrec.current() is not None
 
     def _playing(self) -> bool:
         return self._play is not None and self._play.poll() is None
 
     def _record_label(self) -> str:
         return '녹화 중지' if self._recording() else f'선택 토픽 녹화 시작 ({len(self.selected)}개)'
+
+    def _diag_label(self) -> str:
+        return '녹화 중지' if self._recording() else '진단 녹화 시작 (프리셋 토픽)'
+
+    def _sys_label(self) -> str:
+        return f'부하 기록 (CPU · 메모리 · GPU): {"켬" if self.sys_on else "끔"}'
 
     def _play_label(self) -> str:
         return 'bag 재생 중지' if self._playing() else '최근 bag 재생'
@@ -87,17 +97,13 @@ class TopicBagMenu(Menu):
                     self._docker_write(topic, 'stop')
                 print(f'docker bag 중지: {len(self._docker_topics)} topics')
                 self._docker_topics.clear()
-            if self._proc is not None:
-                try:
-                    os.killpg(self._proc.pid, signal.SIGINT)
-                except Exception:  # noqa: BLE001
-                    self._proc.send_signal(signal.SIGINT)
-                print(f'녹화 중지: {self._bag}')
-                self._proc = None
+            rec = bagrec.stop()
+            if rec is not None:
+                print(f'녹화 중지: {bagrec.describe(rec)}')
             return
         topics = sorted(self.selected)
         if not topics:
-            print('토픽을 하나 이상 골라라 (숫자/↑↓ Enter)')
+            print('토픽을 하나 이상 골라라 (숫자/↑↓ Enter) — 토픽 없이 하려면 d (진단 프리셋)')
             return
         if os.environ.get('CLI_SOURCE') == 'docker':
             # 토픽별 파일 브리지 — 각 토픽 폴더에 같은 명령을 쓴다.
@@ -108,27 +114,25 @@ class TopicBagMenu(Menu):
             print(f'docker bag 녹화: {len(topics)} topics')
             print('저장: debug/output/topic/<토픽>/bags/<시각>/')
             return
-        if not topics:
-            print('토픽을 하나 이상 골라라 (숫자/↑↓ Enter)')
-            return
-        stamp = time.strftime('%Y%m%d_%H%M%S')
-        self._bag_dir.mkdir(parents=True, exist_ok=True)
-        bag = self._bag_dir / f'{stamp}_{len(topics)}topics'
-        cmd = ['ros2', 'bag', 'record', '-s', 'mcap', '--disable-keyboard-controls',
-               '-o', str(bag), '--topics', *topics]
-        log = self._bag_dir / f'{stamp}.log'
-        with open(log, 'wb') as f:
-            f.write((' '.join(cmd) + '\n').encode())
-            f.flush()
-            self._proc = subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT,
-                                          stdin=subprocess.DEVNULL, start_new_session=True)
-        time.sleep(1.0)
+        self._start(topics=topics, label=f'{len(topics)}topics')
+
+    def toggle_diag(self) -> None:
+        """진단 프리셋 녹화 시작/중지 — 토픽을 안 골라도 된다."""
         if self._recording():
-            self._bag = bag
-            print(f'녹화 시작: {bag} ({len(topics)} topics)')
-            print(f'로그: {log}')
+            self.toggle_record()
+        elif os.environ.get('CLI_SOURCE') == 'docker':
+            print('docker 소스에서는 진단 녹화를 쓸 수 없음 — 실기(real)에서 실행')
         else:
-            print(f'녹화 시작 실패: {log} 확인')
+            self._start(topics=None, label='diag')
+
+    def _start(self, topics, label: str) -> None:
+        try:
+            rec = bagrec.start(label=label, topics=topics, sys_on=self.sys_on)
+        except RuntimeError as exc:
+            print(f'녹화 시작 실패: {exc}')
+            return
+        print(f'녹화 시작: {rec["bag"]}')
+        print(f'  {"선택 " + str(len(topics)) + "개" if topics else "진단 프리셋"} · 부하 기록 {"켬" if rec["sys"] else "끔"}')
 
     def toggle_play(self) -> None:
         if self._playing():
@@ -160,6 +164,8 @@ class TopicBagMenu(Menu):
         self._refresh()
         items = [
             ActionItem(self.app, 's', self._record_label, self.toggle_record),
+            ActionItem(self.app, 'd', self._diag_label, self.toggle_diag),
+            ActionItem(self.app, 'u', self._sys_label, self._toggle_sys),
             ActionItem(self.app, 'p', self._play_label, self.toggle_play),
             ActionItem(self.app, 'x', '선택 모두 해제', self.selected.clear),
         ]
@@ -173,7 +179,8 @@ class TopicBagMenu(Menu):
         self._refresh()
         lines = ['[토픽 · bag]', f' 토픽 {len(self._topics)}개 · 선택 {len(self.selected)}개']
         if self._recording():
-            lines.append(f' 녹화 중: {self._bag or str(len(self._docker_topics)) + " docker topics"}')
+            cur = bagrec.current()
+            lines.append(f' 녹화 중: {bagrec.describe(cur) if cur else str(len(self._docker_topics)) + " docker topics"}')
             debug = getattr(self.bus.node, 'debug_dir', None)
             if self._docker_topics and debug:
                 for topic in sorted(self._docker_topics)[:3]:
@@ -183,10 +190,10 @@ class TopicBagMenu(Menu):
                     except (OSError, ValueError):
                         pass
         else:
-            lines.append(f' 저장 폴더: {self._bag_dir}')
+            lines.append(f' 저장 폴더: {self._bag_dir} · 부하 기록 {"켬" if self.sys_on else "끔"}')
         if self._playing():
             lines.append(' 재생 중')
-        lines.append(self.term.paint(' s 녹화 · p 재생 · x 선택해제 · 숫자/Enter 토픽 선택', DIM))
+        lines.append(self.term.paint(' s 선택 녹화 · d 진단 녹화 · u 부하 기록 · p 재생 · x 선택해제 · 숫자/Enter 토픽 선택', DIM))
         return lines + self.ui.center_summary()
 
 

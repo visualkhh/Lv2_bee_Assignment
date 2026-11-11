@@ -22,7 +22,7 @@ class StateManagerFeature(NodeFeature):
         for diag_name, values in st.diag_values.items():
             if 'state_manager' in diag_name:
                 d = dict(values)
-                for key in ('끊긴 장치', '지도 경로', '재시작 준비', '재시작', '탐사'):
+                for key in ('끊긴 장치', '지도 경로', '재시작 준비', '재시작'):
                     v = d.get(key)
                     if v and v != '-':
                         lines.append(f' {key}: {v}')

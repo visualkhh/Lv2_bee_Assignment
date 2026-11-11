@@ -152,12 +152,6 @@ class HandRelativeNode(Node):
         m.face_yaw = fy
         m.axis.x, m.axis.y, m.axis.z = (float(v) for v in ax)
         m.is_box = bool(h.get("is_box", False))
-        if h["kind"] == "puck" and self.target.box_tag == -2:
-            # stand (stand_grasp 정책, 11-08): rel = 쥘 끝 − 손 = (본 퍽 가운데 − 손) + 계획한 (쥘 끝 − 퍽 가운데)
-            #   HandTarget point = 계획한 쥘 끝 · box_point = 계획한 퍽 가운데 (map) — isaac stand_grasp_env._cam_rel과 같음
-            p, c = self.target.point, self.target.box_point
-            off = base_R.T @ np.array([p.x - c.x, p.y - c.y, 0.0])
-            m.rel.x, m.rel.y = float(rel[0] + off[0]), float(rel[1] + off[1])
         if h["kind"] == "puck":  # 계획이 겨냥한 퍽 − 지금 손 (HandTarget.point, map)
             p = self.target.point
             ins = hg.to_base(hg.aimed_centre((p.x, p.y, p.z)), base_t, base_R) - ee_t

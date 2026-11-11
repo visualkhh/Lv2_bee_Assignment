@@ -36,7 +36,7 @@ MOVEIT_CODES = {1: '성공', -1: '계획 실패 (길 없음)', -2: '계획이 �
                 -15: '그룹 이름 틀림', -16: '목표 제약 틀림', -21: '프레임 틀림', -31: '닿을 수 없음 (IK 해 없음)',
                 99999: '실패 — 그 자리에 손끝을 둘 자세가 없음 (닿지 않음 · 몸과 겹침)'}
 
-# 마지막 행동이 모드다: 수동 조작을 하면 수동 모드 (명령을 내리면 main.send_command가 자동으로 바꿈).
+# 마지막 행동이 모드다: 수동 조작을 하면 수동 모드.
 # state_manager가 같은 값은 무시하므로 중복 발행 무해.
 _send_twist, _send_arm = send_twist, send_arm
 
@@ -99,24 +99,9 @@ class ManualPanel(tk.Frame):
         self.drag_from = None
         self.arm_cam = robot_view.OrbitView(target=(0.05, 0, 0.18), dist=1.0, yaw=-2.0, pitch=0.35)  # 몸체·팔 전체 + 앞 바닥 물체
 
-        # --- 명령 (자연어 → 자동 모드)
+        # --- 모드 표시 (직접 만지면 수동 모드 — 마지막 행동이 모드다)
         top = tk.Frame(self)
         top.pack(side=tk.TOP, fill=tk.X, padx=8, pady=(8, 0))
-        tk.Label(top, justify=tk.LEFT, anchor=tk.W, fg='#555',
-                 text='말로 시키면 자동 모드 (예: 빨간 퍽을 목표 구역으로 옮겨)\n'
-                      '직접 만지면 수동 모드 — 마지막 행동이 모드다').pack(anchor=tk.W)
-        cmdrow = tk.Frame(top)
-        cmdrow.pack(fill=tk.X, pady=4)
-        self.cmd_entry = tk.Entry(cmdrow)
-        self.cmd_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        self.cmd_entry.bind('<Return>', lambda _: self.send_command())
-        tk.Button(cmdrow, text='보내기', command=self.send_command).pack(side=tk.LEFT, padx=(4, 0))
-        self.cmd_status = tk.Label(top, justify=tk.LEFT, anchor=tk.W, fg='#555')
-        self.cmd_status.pack(anchor=tk.W)
-        self.resp_label = tk.Label(top, justify=tk.LEFT, anchor=tk.W, fg='#1b5e20', font=('Menlo', 10), wraplength=520)
-        self.resp_label.pack(anchor=tk.W)
-        self.last_sent = None  # (시각, 텍스트) — 보내면 표시, 틱에서 보이는 물체 수와 함께 갱신
-        self.last_sent_t = 0.0
         self.mode_label = tk.Label(top, font=('', 13, 'bold'), anchor=tk.W)
         self.mode_label.pack(anchor=tk.W)
 
@@ -1147,55 +1132,6 @@ class ManualPanel(tk.Frame):
             self.set_wheels(0, 0)
 
     # ---------- 그리기 · 보내기
-    def send_command(self):
-        text = self.cmd_entry.get().strip()
-        if not text:
-            return
-        cmd_manual_mode(False)  # 명령을 내리면 자동 모드
-        send('/cmd/user_command', 'std_msgs/msg/String', {'data': text})
-        self.cmd_entry.delete(0, tk.END)
-        self.last_sent = (time.strftime('%H:%M:%S'), text)
-        self.last_sent_t = time.time()  # 이 뒤에 바뀐 /sub_goals · /task_status만 응답으로
-        self.refresh_cmd_status()
-
-    def refresh_response(self):
-        """planner 응답 — 내가 [보내기] 한 뒤에 온 것만 (파일엔 이전 실행 계획이 남아 있으므로 수정 시각으로 거름).
-        단계마다 한 줄: 계획 /sub_goals → 1. skill target … · 진행 /task_status → step · 상태"""
-        if not self.last_sent:
-            self.resp_label.config(text='응답: 아직 보낸 명령 없음')
-            return
-        sent_t = self.last_sent_t
-        plan, p_age = read_msg('sub_goals')
-        st, s_age = read_msg('task_status')
-        now = time.time()
-        lines = []
-        if plan and p_age is not None and now - p_age >= sent_t:
-            goals = plan.get('goals', [])
-            lines.append(f"계획  /sub_goals  plan {plan.get('plan_id', '?')} · {len(goals)}단계")
-            for g in goals:
-                rel = f" ({g.get('relation')})" if g.get('relation') else ''
-                lines.append(f" {g.get('step', '?')}. {g.get('skill', '?')}  {g.get('target', '')}{rel}")
-        if st and s_age is not None and now - s_age >= sent_t:
-            state = {0: '진행 중', 1: '성공', 2: '실패'}.get(st.get('state', -1), '?')
-            reason = st.get('reason', '')
-            lines.append(f"진행  /task_status")
-            lines.append(f" - plan {st.get('plan_id', '?')} step {st.get('step', '?')} {state}" + (f' — {reason}' if reason else ''))
-        self.resp_label.config(text='\n'.join(lines) if lines else '응답 대기 중… (planner가 계획을 만들면 여기에)')
-
-    def refresh_cmd_status(self):
-        """명령줄 상태 — 보낸 명령 + 지금 카메라에 보이는 물체 (퍽이 안 보이면 planner가 계획 보류)"""
-        tobjs, tage = read_msg('tracked_objects')
-        objs = (tobjs or {}).get('objects', []) if tobjs else []
-        kinds = {}
-        for o in objs:
-            k = o.get('label', o.get('class', '?'))
-            kinds[k] = kinds.get(k, 0) + 1
-        seen = ', '.join(f'{k} {v}' for k, v in sorted(kinds.items())) or '없음'
-        if tage is not None and tage > 3:
-            seen += ' (끊김?)'
-        sent = f'보냄 {self.last_sent[0]} "{self.last_sent[1]}" · ' if self.last_sent else ''
-        self.cmd_status.config(text=f'{sent}보이는 물체: {seen}')
-
     def show(self):
         # 창을 열기만으론 모드 안 바꿈 — 직접 만져야 수동 (send_twist/send_arm이 /cmd/operation_mode MANUAL)
         if not self.shown:
@@ -1281,9 +1217,6 @@ class ManualPanel(tk.Frame):
 
         if bool(self.col_var.get()) != bool(self.sim.show_collision):  # 본창에서 바꾼 것도 따라감
             self.col_var.set(bool(self.sim.show_collision))
-        if self.ticks % 10 == 0:  # 1초마다 — 보낸 명령 + 보이는 물체 + planner 응답 갱신
-            self.refresh_cmd_status()
-            self.refresh_response()
         mode, _ = read_msg('state/operation_mode')
         mode = (mode or {}).get('data') if mode else None
         if mode is None:
