@@ -35,3 +35,10 @@
 - 실기 bringup, 바퀴·팔·그리퍼 동작, 카메라 스트림, rosbag 실기 기록은 실행하지 않았다.
 
 실기 확인은 최신 checkout의 빌드와 자동 테스트를 마친 뒤 field runner로 한 단계씩 진행한다. 물리 동작은 실행하지 않았다.
+
+## 2026-11-11 연결 재확인
+
+- `/home/ghj/Lv2_bee_Assignment`는 `prep/jetson-all-open-prs`의 `35c0683`로 전환되어 있고, 그 경로에서 9개 ROS 패키지 전체 빌드가 성공했다.
+- 같은 소스 revision의 후보 worktree에서 관련 5개 패키지를 시험했을 때 184 passed, 0 failed, 1 skipped였다. 기존 경로로 전환한 뒤 테스트를 다시 시작했지만 SSH가 시간 초과되어 그 경로의 최종 테스트 결과는 회수하지 못했다. 두 revision의 차이는 문서 변경이다.
+- 현재 Mac에서 Jetson의 과거 LAN 주소로 ping/SSH 응답이 없고, Tailscale 기기 목록에도 Jetson이 없다. Linux PC `pa27`도 Tailscale에서 offline으로 표시된다.
+- Jetson bringup이나 물리 동작은 실행하지 않았다.
