@@ -67,6 +67,16 @@ fi
 # shellcheck disable=SC1091
 source "$HERE/install/setup.bash"
 
+# YOLO ONNX Python dependencies live in an isolated venv so apt's numpy/cv2 stay
+# available to ROS cv_bridge. Keep the ROS system interpreter and add only the
+# venv's package directory; the perception node uses /usr/bin/env python3.
+YOLO_SOURCE_VENV="${YOLO_SOURCE_VENV:-$HERE/../../.venv-yolo}"
+YOLO_SITE_PACKAGES="$YOLO_SOURCE_VENV/lib/python3.12/site-packages"
+if [ -d "$YOLO_SITE_PACKAGES" ]; then
+  export PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$YOLO_SITE_PACKAGES"
+  echo "YOLO ONNX Python packages: $YOLO_SOURCE_VENV"
+fi
+
 # CUDA ONNX Runtime(/opt/onnxruntime)이 있으면 ROS vendor(CPU 전용)보다 먼저 로드되게 한다.
 # 같은 libonnxruntime.so.1 이름이라 LD_LIBRARY_PATH 순서가 곧 우선순위. 없으면 vendor(CPU)로 계속.
 [ -f /opt/onnxruntime/lib/libonnxruntime_providers_cuda.so ] &&

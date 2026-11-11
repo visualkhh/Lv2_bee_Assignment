@@ -11,6 +11,7 @@ build/
 **/cmake-build-debug/
 
 .venv/
+/.venv-yolo/
 
 # CLI 시나리오 실패 화면 덤프 (가짜 상태는 ~/.cache/beebot/cli-fake-state.json)
 lv2_module6/tools/cli/tests/.scenario-*.bin
