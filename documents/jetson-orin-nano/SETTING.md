@@ -297,6 +297,7 @@ cd lv2_module6/ros2_ws
 
 - `setup-yolo-onnx.sh`는 프로젝트 루트 `.venv-yolo/`에 PyTorch 2.10 · torchvision 0.25 · Python ONNX Runtime 1.24.2 · Ultralytics 8.4.210 · `zxing-cpp`를 설치하고, 합성 이미지로 ONNX 모델을 스모크 테스트한다.
 - ROS 노드 실행 시 `start.sh`가 venv의 site-packages만 `PYTHONPATH`에 추가한다. venv는 `--system-site-packages`로 만들어 apt의 NumPy 1.x·OpenCV 4.6을 `cv_bridge`와 공유하고, pip OpenCV/NumPy로 대체하지 않는다.
+- `pip check`에서 `opencv-python`이 없다고 나올 수 있다. 이는 의도적이며, ROS `cv_bridge`와 호환되는 Ubuntu apt `cv2`를 사용한다. pip OpenCV를 추가해 시스템 OpenCV와 섞지 않는다.
 - 현재 Python ONNX Runtime은 `CPUExecutionProvider`를 사용한다. 테스트 Jetson에서 384×640 합성 입력은 워밍업 뒤 약 0.08~0.11초/frame이었다. 실카메라 부하와 10 Hz 유지 여부는 실측 bag으로 확인한다. 기존 `/opt/onnxruntime` CUDA provider는 C++ RL 정책용이며 Python YOLO의 CUDA 실행을 뜻하지 않는다.
 - PyTorch/Ultralytics/ONNX 패키지를 system Python에 전역 설치하지 않는다. `cv2`가 `aruco`를 포함하는지 확인한다 (`python3 -c "import cv2; print(cv2.__version__, hasattr(cv2, 'aruco'))"`).
 - **AprilTag**(퍽 윗면 16mm 0~11 · 장소 48mm 12~14)는 OpenCV `aruco`(tag36h11)로 읽는다 — 따로 설치할 라이브러리 없음.

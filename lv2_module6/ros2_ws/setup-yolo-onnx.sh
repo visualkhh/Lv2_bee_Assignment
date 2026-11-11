@@ -21,7 +21,8 @@ YOLO_PY="$YOLO_SOURCE_VENV/bin/python"
   'onnxruntime==1.24.2' 'onnx==1.17.0'
 # Ultralytics depends on opencv-python, but the ROS node must keep using the
 # system cv2 built for cv_bridge, so install it without its dependency set.
-"$YOLO_PY" -m pip install --no-cache-dir --no-deps 'ultralytics==8.4.210'
+"$YOLO_PY" -m pip install --no-cache-dir --no-deps \
+  'ultralytics==8.4.210' 'nvidia-ml-py>=12.0.0' 'ultralytics-platform>=0.1.102'
 "$YOLO_PY" -m pip install --no-cache-dir 'polars' 'ultralytics-thop' 'zxing-cpp'
 
 MODEL="$PROJECT_ROOT/lv2_module6/models/yolo/bee_yolo11n_v5.onnx"
