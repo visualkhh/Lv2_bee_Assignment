@@ -393,6 +393,17 @@ def _(s):
     s.finish()
 
 
+@scenario('mission-page')
+def _(s):
+    s.step(b'9', wait=0.4)                         # 9) 미션
+    s.step(ENTER, '[실패 이력 0/10]')               # 디버그 줄 (아직 미션 없음)
+    s.expect('[SLAM]')
+    s.step(ENTER, '미션을 시작할까요?')              # 1) 미션 시작 — 확인
+    s.step(b'y', "[PUB /cmd/mission] 'start'")
+    s.step(ESC, '· 놓음 ')                          # 가짜 세계가 /mission/state로 응답 → 단계·바코드·신호 줄
+    s.step(ESC, '메인 메뉴')
+    s.finish()
+
 def main() -> int:
     only = sys.argv[1:]
     run = [fn for fn in SCENARIOS if not only or fn.__name__ in only]

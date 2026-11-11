@@ -40,6 +40,7 @@ cli/
     └── pages/         # Page → Menu → 각 화면 (MenuItem 객체)
         ├── page.py    # Page 베이스만
         ├── mainmenu/ status/ mode/ manual/ arm/ map/ mapmenu/ params/ devices/ topics/  # 화면별 package
+        ├── mission/   # 미션 디버그 화면 (메인 9) — mission_lines()는 `run-cli mission status`와 공용
         ├── nodes/     # 노드별 추가 상태 (feature.py + <node>.py)
         └── calibration/  # 칼리브레이션 화면 + core.py + wheel/
 ```
@@ -120,8 +121,8 @@ Dialog (op/dialog/dialog.py — 하위 클래스는 op/dialog/<이름>_dialog.py
 ```text
 State (op/bars/state/state.py)  — text()만 정함 (빈 문자열 = 그 칸 안 보임)
  ├─ OperationState · MapState · EstopState · DeviceState · ConnectionState     (줄 1)
- ├─ PerceptionState · TaskState · DiagState                        (줄 2)
- ├─ TopicRateState (키·라벨·기준 Hz를 받아 joint·odom·imu·카메라·인지 6개)  (줄 3)
+ ├─ TaskState(미션 · Enter → 미션 화면) · PerceptionState(보이는 물체) · ControllerState · CollisionState · SlamState(cuVSLAM Hz · 점프) · DiagState  (줄 2)
+ ├─ TopicRateState (키·라벨·기준 Hz를 받아 joint·odom·imu·카메라·점구름·인지 7개)  (줄 3)
  ├─ RobotState                                                               (줄 4)
  └─ NoDataState  (상태를 하나도 못 받았을 때만)
 StateBar (bars/state/state_bar.py)  — State를 줄(row)로 받아 ' | '로 이어 그림 · add(state, row)로 칸·줄 추가
@@ -266,7 +267,7 @@ class HelloMenu(Menu):
         return ['[예시]', f' 조작: {self.state.operation or "-"}']
 ```
 
-부모 메뉴의 `items()`에 `GoMenu(self.app, '키', '라벨', HelloMenu(self.app))`를 넣습니다. 메인 메뉴는 `pages/mainmenu.py`의 `ENTRIES`와 `operator_tool.py`의 `screen()`.
+부모 메뉴의 `items()`에 `GoMenu(self.app, '키', '라벨', HelloMenu(self.app))`를 넣습니다. 메인 메뉴는 `pages/mainmenu/__init__.py`의 `ENTRIES`와 `operator_tool.py`의 `screen()`.
 
 ## 4. 시험
 
@@ -276,6 +277,7 @@ cd tools
 ./run-cli --source docker status          # 도커 test-faker가 쓰는 debug/ 파일로 실제 스택 조작
 python3 cli/tests/scenarios.py            # 전체 시나리오
 python3 cli/tests/scenarios.py teleop-hud
+python3 cli/tests/test_mission_state.py  # 미션 상태(실패 이력 · SLAM 점프) 단위 시험
 ```
 
 - `scenarios.py`는 `pty.fork`로 진짜 터미널을 만들어 `python -m cli --source fake menu`를 띄우고, 키 바이트(`\x1b[B`, `\r`…)를 써 넣은 뒤 화면 출력에서 기대 문자열을 찾습니다. `expect`/`absent`는 **마지막 키를 보낸 뒤의 출력만** 봅니다 (앞 화면에 남은 글자로 통과하지 않게).
@@ -318,3 +320,12 @@ self.ui.window.navigate('map', mode='pose', on_pose=fn)                       # 
 - 전송 경로는 기존 `cmd_arm` 그대로라 MANUAL 전환 확인 · MAPPING/E-STOP 거절 · manual_control 쪽 속도 제한이 그대로 적용된다.
 - 목표는 `consts.ARM_LIMITS`(URDF `<limit lower upper>`와 같은 값) 밖으로 못 간다. `tests/test_arm_view.py`가 URDF와 어긋나면 알려 준다.
 - 새 관절·그리퍼를 더하려면 `ArmView(joints, limits, current_fn)`에 이름과 한계를 넘긴다.
+
+## 7. 미션 화면 (MissionMenu) — 실기 시험 때 이것만 보고 디버깅
+
+`pages/mission/`(메인 `9`, 상단 미션 칸 Enter). 구독은 `OperatorTool._wire_mission()` 한 곳 — msg 패키지가 없는 환경이면 그 줄만 빠진다.
+값은 `StateStore`에 (msg, 받은 시각)으로 두고, 파생(지금 skill · 실패 이력 · SLAM 점프)도 StateStore가 계산한다.
+
+- 실패 이력: `/task/status` FAILED(같은 plan·step 재수신은 한 번만)와 `/mission/state` ERROR 진입 때 `failures`(최근 10)에 남긴다. 이유 문자열은 목록 없이 그대로 보여 준다 (`<skill>_timeout` · `nav_no_progress` 등 새 이유도 그대로).
+- SLAM 점프: 0.5초마다 TF map→odom을 보고 `SLAM_JUMP_M`(5 cm)·`SLAM_JUMP_RAD`(3°)를 넘게 바뀌면 센다 (`op/state.py` — 실기에서 보며 조정).
+- 새 줄을 더하려면: 구독 → `StateStore.on_*` → `mission_lines()`에 한 줄. fake 시험 값은 `__main__._seed`, docker용 빈 msg 클래스는 `ros/interface.py _install_custom_msgs`.

@@ -1,4 +1,4 @@
-"""OperationState — 조작 모드 칸 (TEACH는 MANUAL의 토크 꺼짐 상태로 표시)."""
+"""OperationState — 조작 모드 칸 (AUTO · MANUAL)."""
 from __future__ import annotations
 
 from ...terminal import BOLD, CYAN, GREEN, RED, YELLOW

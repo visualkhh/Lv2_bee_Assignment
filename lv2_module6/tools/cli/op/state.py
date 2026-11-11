@@ -29,6 +29,12 @@ class Rate:
         return (len(recent) - 1) / (recent[-1] - recent[0]) if len(recent) > 1 and recent[-1] > recent[0] else 0.0
 
 
+# map→odom이 TF 한 번 조회(0.5 s) 사이에 이만큼 넘게 바뀌면 'SLAM 점프'로 센다 — 실기에서 보며 조정
+SLAM_JUMP_M = 0.05
+SLAM_JUMP_RAD = math.radians(3.0)
+TASK_STATES = {0: 'RUNNING', 1: 'SUCCEEDED', 2: 'FAILED'}
+
+
 class StateStore:
     """ROS 토픽 최신값 보관소."""
 
@@ -53,11 +59,27 @@ class StateStore:
         # 상시 상태바용 (없으면 0/빈 값으로 표시, 보드 미동작 아님)
         self.tracked_count = 0
         self.task_status = ''
-        self.mission = None  # 마지막 /mission/state (plan/MissionState) — 미션 메뉴가 보여줌
         self.rates: dict[str, Rate] = {}  # 상단 생존 표시 — 키는 bars/state/top_state_bar.py TOPIC_RATES
         self.rl_status: list[float] = []  # controller_server FollowPath RL/DWB 상태
         self.rl_status_time = 0.0
         self.map_pose: tuple[float, float, float] | None = None  # TF map → base_footprint (x, y, yaw[rad]) — 없으면 None
+        # 미션 디버그 (pages/mission · 상단 미션 칸) — (msg, 받은 시각 monotonic) 또는 None
+        self.class_counts: dict[str, int] = {}   # /tracked_objects class_name별 지금 보이는 수
+        self.mission = None                      # /mission/state (plan/MissionState)
+        self.mission_since = 0.0                 # 지금 phase가 시작된 시각
+        self.mission_phase = ''
+        self.task: tuple | None = None           # /task/status (plan_id, step, state, reason)
+        self.task_since = 0.0                    # 지금 step이 시작된 시각
+        self.sub_goals: tuple[int, dict] = (0, {})  # /task/sub_goals (plan_id, {step: (skill, target)})
+        self.failures: deque = deque(maxlen=10)  # 최근 실패 (HH:MM:SS, monotonic, 출처, 이유) — 오래된 것부터
+        self.basket = None                       # /coordinator/basket (plan/BasketState)
+        self.signal = None                       # /mission/signal_status (perception/MissionSignal), 시각
+        self.skill_ctx = None                    # /skill_context (ml/SkillContext), 시각
+        self.collision = None                    # /collision_monitor_state (action_type, polygon), 시각
+        self.nav = None                          # Nav2 feedback (남은 m, 회복 수, 경과 s), 시각
+        self.map_odom: tuple | None = None       # TF map → odom (x, y, yaw) 지난 값
+        self.slam_jumps = 0                      # map→odom이 SLAM_JUMP_M·SLAM_JUMP_RAD 넘게 바뀐 횟수
+        self.slam_last_jump: tuple | None = None  # (크기 m, 각 deg, HH:MM:SS)
 
     def tick(self, key: str):
         self.rates.setdefault(key, Rate()).tick()
@@ -173,15 +195,90 @@ class StateStore:
             self.tracked_count = len(objects)
         except Exception:
             self.tracked_count = 0
+        counts: dict[str, int] = {}
+        for o in objects or ():
+            name = getattr(o, 'class_name', '') or '?'
+            counts[name] = counts.get(name, 0) + 1
+        self.class_counts = counts
+
+    def _fail(self, source: str, reason: str):
+        self.failures.append((time.strftime('%H:%M:%S'), time.monotonic(), source, reason))
 
     def on_task(self, plan_id, step, state, reason):
         self._touch()
-        names = {0: 'RUNNING', 1: 'SUCCEEDED', 2: 'FAILED'}
         try:
-            label = names.get(int(state), str(state))
-            self.task_status = f'plan={plan_id} step={step} {label} {reason}'
+            state = int(state)
         except Exception:
-            self.task_status = ''
+            return
+        prev = self.task
+        if prev is None or (prev[0], prev[1]) != (plan_id, step):
+            self.task_since = time.monotonic()
+        # latched라 같은 FAILED가 다시 와도 한 번만 남긴다
+        if state == 2 and (prev is None or prev[:3] != (plan_id, step, 2)):
+            skill = self.sub_goals[1].get(step, ('', ''))[0] if self.sub_goals[0] == plan_id else ''
+            self._fail('skill', f'{skill or "step"}#{step}: {reason or "?"}')
+        self.task = (plan_id, step, state, reason)
+        skill = self.current_skill()
+        self.task_status = (f'plan={plan_id} step={step}{" " + skill[0] if skill else ""} '
+                            f'{TASK_STATES.get(state, state)} {reason}').strip()
+
+    def on_sub_goals(self, msg):
+        self._touch()
+        self.sub_goals = (msg.plan_id, {g.step: (g.skill, g.target) for g in msg.goals})
+
+    def current_skill(self) -> tuple[str, str] | None:
+        """지금 step의 (skill, target) — /task/sub_goals에서 찾음. 모르면 None."""
+        if self.task is None or self.sub_goals[0] != self.task[0]:
+            return None
+        return self.sub_goals[1].get(self.task[1])
+
+    def on_mission(self, msg):
+        self._touch()
+        if msg.phase != self.mission_phase:   # 단계는 문자열로 따로 둠 — 같은 msg 객체를 고쳐 다시 보내는 발행자(fake)도 있음
+            self.mission_phase = msg.phase
+            self.mission_since = time.monotonic()
+            if msg.phase == 'ERROR':
+                self._fail('미션', msg.error or msg.note or 'ERROR')
+        self.mission = msg
+
+    def on_basket(self, msg):
+        self._touch()
+        self.basket = msg
+
+    def on_signal_status(self, msg):
+        self._touch()
+        self.signal = (msg, time.monotonic())
+
+    def on_skill_context(self, msg):
+        self._touch()
+        self.skill_ctx = (msg, time.monotonic())
+
+    def on_collision_state(self, msg):
+        self._touch()
+        self.collision = ((int(msg.action_type), msg.polygon_name), time.monotonic())
+
+    def on_nav_feedback(self, fb):
+        t = getattr(fb, 'navigation_time', None)
+        self.nav = ((fb.distance_remaining, fb.number_of_recoveries,
+                     (t.sec + t.nanosec * 1e-9) if t is not None else 0.0), time.monotonic())
+
+    def on_map_odom(self, x: float, y: float, yaw: float):
+        prev, self.map_odom = self.map_odom, (x, y, yaw)
+        if prev is None:
+            return
+        dist = math.hypot(x - prev[0], y - prev[1])
+        dyaw = abs(math.atan2(math.sin(yaw - prev[2]), math.cos(yaw - prev[2])))
+        if dist > SLAM_JUMP_M or dyaw > SLAM_JUMP_RAD:
+            self.slam_jumps += 1
+            self.slam_last_jump = (dist, math.degrees(dyaw), time.strftime('%H:%M:%S'))
+
+    def collision_enabled(self) -> str:
+        """manual_control이 마지막으로 반영한 collision_monitor 켬/끔 (진단 값) — 모르면 '-'."""
+        for kvs in self.diag_values.values():
+            for k, v in kvs:
+                if k == 'collision_monitor':
+                    return v
+        return '-'
 
     # ---------------------------------------------------------------- 파생
     def device_info(self, name: str) -> tuple[str, str, list[str]]:

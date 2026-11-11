@@ -321,11 +321,7 @@ class Bus:
 
     def collision_status(self) -> str:
         """manual_control이 마지막으로 반영한 collision_monitor 상태 (진단 값) — 모르면 '-'."""
-        for kvs in self.state.diag_values.values():
-            for k, v in kvs:
-                if k == 'collision_monitor':
-                    return v
-        return '-'
+        return self.state.collision_enabled()
 
     def cmd_collision(self, args) -> int:
         """collision_monitor 켜기/끄기 — /collision_monitor/toggle. 모드가 바뀌면(MANUAL·MAPPING = 끔 · 그 밖 = 켬)
@@ -531,7 +527,7 @@ class Bus:
               ' — manual_control 진단 "마지막 모터 재부팅"·기구 걸림 확인', file=sys.stderr)
         return 1
 
-    PLAN_YAML = Path(__file__).resolve().parents[3] / 'ros2_ws' / 'src' / 'skills' / 'config' / 'skills.yaml'  # skill_pose가 시작 자세를 가진다
+    SKILLS_YAML = Path(__file__).resolve().parents[3] / 'ros2_ws' / 'src' / 'skills' / 'config' / 'skills.yaml'  # skill_pose가 시작 자세를 가진다
 
     def cmd_capture(self) -> int:
         """지금 팔·그리퍼 자세를 skills.yaml(skill_pose) 형식으로 보여 준다 — 파일은 안 고침, 사람이 붙여 넣는다."""
@@ -546,7 +542,7 @@ class Bus:
         values = [self.state.joints[j] for j in ARM_JOINTS]
         print('  '.join(f'{j}={self._rad_deg(v)}' for j, v in zip(ARM_JOINTS, values)))
         gripper = self.state.joints.get(GRIPPER_JOINT)
-        print(f'\n{self.PLAN_YAML} 의 skill_pose: ros__parameters: 아래에 붙여 넣으세요 (bringup 재시작 후 적용)\n')
+        print(f'\n{self.SKILLS_YAML} 의 skill_pose: ros__parameters: 아래에 붙여 넣으세요 (bringup 재시작 후 적용)\n')
         print('    initial_pose: [' + ', '.join(f'{v:.4f}' for v in values) + ']')
         if gripper is None:
             print('    # initial_gripper: (/joint_states에 gripper_left_joint 없음)')
@@ -566,12 +562,12 @@ class Bus:
                         g if g >= 0.0 else None, 'skill_pose 파라미터')
         try:
             import yaml
-            p = yaml.safe_load(self.PLAN_YAML.read_text())['skill_pose']['ros__parameters']
+            p = yaml.safe_load(self.SKILLS_YAML.read_text())['skill_pose']['ros__parameters']
             g = float(p.get('initial_gripper', -1.0))
             return (dict(zip(p['initial_pose_joints'], map(float, p['initial_pose']))),
-                    g if g >= 0.0 else None, str(self.PLAN_YAML))
+                    g if g >= 0.0 else None, str(self.SKILLS_YAML))
         except Exception as exc:
-            print(f'시작 자세를 못 읽음 (skill_pose 없음 · {self.PLAN_YAML}: {exc})', file=sys.stderr)
+            print(f'시작 자세를 못 읽음 (skill_pose 없음 · {self.SKILLS_YAML}: {exc})', file=sys.stderr)
             return None
 
     def cmd_arm(self, args) -> int:
@@ -689,7 +685,13 @@ class Bus:
             if m is None:
                 print('/mission/state 없음 — mission_manager(plan) 확인', file=sys.stderr)
                 return 1
-            print(f'단계 {m.phase} · {m.note or "-"} · 놓은 퍽 {m.placed}/{m.total}' + (f' · ERROR {m.error}' if m.error else ''))
+            self._poll(1.0)   # 나머지 디버그 토픽(task·적재함·SLAM…)도 받게
+            from .pages.mission import mission_lines
+            color, self.term.color = self.term.color, False
+            try:
+                print('\n'.join(mission_lines(self.state, self.term)))
+            finally:
+                self.term.color = color
             return 0
         self._publish(self.pub_mission, String(data=cmd))
         print(f'미션 {cmd} 전송')

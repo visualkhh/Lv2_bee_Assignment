@@ -234,6 +234,10 @@ class CameraInfo(_Msg):
     pass
 
 
+class PointCloud2(_Msg):  # CLI는 수신 시각만 씀 (raw 구독)
+    pass
+
+
 class _QosEnum:
     RELIABLE = 1
     BEST_EFFORT = 2

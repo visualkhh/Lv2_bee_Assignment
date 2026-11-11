@@ -45,7 +45,7 @@ from rclpy.qos import (
     qos_profile_sensor_data,
 )
 from nav_msgs.msg import Odometry
-from sensor_msgs.msg import CameraInfo, Imu, JointState
+from sensor_msgs.msg import CameraInfo, Imu, JointState, PointCloud2
 from std_msgs.msg import Bool, String
 
 from op.bus import Bus
@@ -170,8 +170,15 @@ class OperatorTool(Node):
         # 상단 생존 표시용 — 수신 시각만 (카메라는 영상 대신 가벼운 camera_info)
         for key, topic, typ in (('odom', '/odom', Odometry), ('imu', '/imu', Imu),
                                 ('front_cam', '/pole_front_cam/color/camera_info', CameraInfo),
-                                ('gripper_cam', '/gripper_cam/color/camera_info', CameraInfo)):
+                                ('gripper_cam', '/gripper_cam/color/camera_info', CameraInfo),
+                                ('cuvslam', '/cuvslam/odom', Odometry)):
             self.create_subscription(typ, topic, lambda _m, key=key: self.state.tick(key), qos_profile_sensor_data)
+        # 점구름은 크니 풀지 않고(raw) 수신 시각만 — raw를 못 받는 대역(fake/docker)이면 이 칸은 ✗
+        try:
+            self.create_subscription(PointCloud2, '/pole_front_cam/depth/color/points_filtered',
+                                     lambda _m: self.state.tick('points'), qos_profile_sensor_data, raw=True)
+        except TypeError:
+            pass
         self.create_subscription(DiagnosticArray, '/diagnostics_agg',
                                  lambda m: self.state.on_diagnostics(m.status), LIVE)
         # 커스텀 msg가 빌드 전이면 해당 줄만 비활성 (cli 동작에는 지장 없음)
@@ -200,10 +207,10 @@ class OperatorTool(Node):
             pass
         try:
             from plan.msg import MissionState  # type: ignore
-            self.create_subscription(MissionState, '/mission/state',
-                                     lambda m: setattr(self.state, 'mission', m), LATCHED)
+            self.create_subscription(MissionState, '/mission/state', self.state.on_mission, LATCHED)
         except Exception:
             pass
+        self._wire_mission()
         # 로봇 map 위치 — tf2_ros가 없는 호스트면 칸이 '-'로 남는다
         try:
             from tf2_ros import Buffer, TransformListener
@@ -216,14 +223,44 @@ class OperatorTool(Node):
         from op.pages.nodes import wire_all
         wire_all(self)
 
-    def _update_map_pose(self):
-        try:
-            tr = self._tf_buf.lookup_transform('map', 'base_footprint', rclpy.time.Time())
+    def _wire_mission(self):
+        """미션 화면 디버그 줄·상단 미션 칸용 구독 — msg가 없는 환경이면 그 줄만 빠진다."""
+        subs = (  # (패키지.msg, 클래스, 토픽, QoS, 콜백) — QoS는 발행 쪽과 맞춤 (mission_manager.cpp · coordinator.cpp)
+            ('plan.msg', 'SubGoalArray', '/task/sub_goals', LATCHED, self.state.on_sub_goals),
+            ('plan.msg', 'BasketState', '/coordinator/basket', LATCHED, self.state.on_basket),
+            ('perception.msg', 'MissionSignal', '/mission/signal_status', LIVE, self.state.on_signal_status),
+            ('ml.msg', 'SkillContext', '/skill_context', LIVE, self.state.on_skill_context),
+            # nav2 collision_monitor — 동작이 바뀔 때만 발행
+            ('nav2_msgs.msg', 'CollisionMonitorState', '/collision_monitor_state', LIVE, self.state.on_collision_state),
+        )
+        import importlib
+        for mod, cls, topic, qos, cb in subs:
+            try:
+                typ = getattr(importlib.import_module(mod), cls)
+            except Exception:
+                continue
+            self.create_subscription(typ, topic, cb, qos)
+        try:  # Nav2 주행 진행 (navigate skill이 보낸 goal)
+            from nav2_msgs.action import NavigateToPose  # type: ignore
+            self.create_subscription(NavigateToPose.Impl.FeedbackMessage, '/navigate_to_pose/_action/feedback',
+                                     lambda m: self.state.on_nav_feedback(m.feedback), LIVE)
         except Exception:
-            self.state.map_pose = None
-            return
+            pass
+
+    def _lookup(self, parent: str, child: str):
+        """TF parent → child (x, y, yaw[rad]) — 없으면 None."""
+        try:
+            tr = self._tf_buf.lookup_transform(parent, child, rclpy.time.Time())
+        except Exception:
+            return None
         t, q = tr.transform.translation, tr.transform.rotation
-        self.state.map_pose = (t.x, t.y, math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z)))
+        return (t.x, t.y, math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z)))
+
+    def _update_map_pose(self):
+        self.state.map_pose = self._lookup('map', 'base_footprint')
+        mo = self._lookup('map', 'odom')   # SLAM 보정 — 튀면 cuVSLAM이 위치를 고친 것 (루프 클로저 · 재위치)
+        if mo is not None:
+            self.state.on_map_odom(*mo)
 
     def _on_devices(self, msg: String):
         names = [n.strip() for n in msg.data.split(',') if n.strip()]
@@ -342,8 +379,8 @@ ROS 층 선택 (모든 명령 앞에 붙임):
                         help='/diagnostics_agg 요약 · 이름 일부를 주면 그 항목 상세(값 전부) — 예: --diagnostics signal_decoder')
     status.add_argument('--topics', action='store_true', help='/state/topics 전체 출력')
 
-    mode = sub.add_parser('mode', help='조작 모드 AUTO/MANUAL/TEACH 전환 (TEACH = 팔 토크 끄고 손으로 자세)')
-    mode.add_argument('mode', type=str.lower, choices=('auto', 'manual', 'teach'))
+    mode = sub.add_parser('mode', help='조작 모드 AUTO/MANUAL 전환')
+    mode.add_argument('mode', type=str.lower, choices=('auto', 'manual'))
 
     estop = sub.add_parser('estop', help='비상정지 on/off/status')
     estop.add_argument('state', type=str.lower, choices=('on', 'off', 'status'))
@@ -388,7 +425,7 @@ ROS 층 선택 (모든 명령 앞에 붙임):
     arm.add_argument('action', type=str.lower, choices=('show', 'set', 'delta', 'home', 'initial', 'reboot', 'capture'),
                      help='initial = skills.yaml(skill_pose) 시작 자세(initial_pose·initial_gripper)로 · '
                           'reboot = Hardware Error(과부하 등) 난 모터만 재부팅 (/cmd/manual/reboot_motors) · '
-                          'capture = 지금 팔·그리퍼 자세를 skills.yaml(skill_pose) initial_pose·initial_gripper 형식으로 출력 (보통 mode teach로 손으로 잡은 뒤)')
+                          'capture = 지금 팔·그리퍼 자세를 skills.yaml(skill_pose) initial_pose·initial_gripper 형식으로 출력')
     arm.add_argument('targets', nargs='*', help='관절 목표: joint1=0.0 joint2=0.4 (all=0.0 가능)')
     arm.add_argument('--force', action='store_true', help='MANUAL/MAPPING 확인을 건너뜀 (위험)')
 

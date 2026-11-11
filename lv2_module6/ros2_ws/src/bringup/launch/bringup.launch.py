@@ -174,7 +174,7 @@ def generate_launch_description():
         DeclareLaunchArgument('learning_enabled', default_value='true',
                               description='false면 학습 노드가 Δ=0 · 기본 프리셋 (노드는 그대로 뜸)'),
         DeclareLaunchArgument('operation', default_value='MANUAL',
-                              description='초기 조작 모드: MANUAL(기본) | AUTO | TEACH'),
+                              description='초기 조작 모드: MANUAL(기본) | AUTO'),
         DeclareLaunchArgument('start_pose', default_value='',
                               description='mission_manager 출발 자세 arena [x, y, yaw] YAML (비면 plan.yaml start_pose_arena)'),
         DeclareLaunchArgument('grasp_check', default_value='true',
