@@ -21,7 +21,7 @@ isaac/
 │   │   ├── assets/         로봇 설정 (beebot.py)
 │   │   ├── tasks/          Isaac Lab 학습 환경 (*_env.py)
 │   │   └── data/           slot_table
-│   ├── scripts/        train.py · train_queue.sh · teach_c.py · slot_table.py · stand_plan.py
+│   ├── scripts/        train.py · train_queue.sh · slot_table.py · stand_plan.py
 │   │   └── pick_far/   먼 퍽 도달성 분석 (45° 기울여 진입 vs 수직 하강) — REPORT.md · 스크립트 · 그림
 │   ├── policies/       학습한 정책 (.pt · .onnx) · export_onnx.py — 새 결과물은 git 제외
 │   └── logs/           rsl_rl 학습 런 (git 제외)

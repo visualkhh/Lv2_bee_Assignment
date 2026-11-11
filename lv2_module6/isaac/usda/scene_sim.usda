@@ -7,8 +7,8 @@
                 double radius = 5
             }
             dictionary Perspective = {
-                double3 position = (-0.3321603676609302, -3.8599483016406757, 0.9119804949270236)
-                double3 target = (-0.7224208174515804, -2.2306889574595674, -0.003749752974889442)
+                double3 position = (-0.7319110326186159, -2.895747569853096, 3.7127147108519027)
+                double3 target = (-0.722420821010328, -2.230689006624769, -0.0037497731257247757)
             }
             dictionary Right = {
                 double3 position = (0, -5, 0)
@@ -44,9 +44,9 @@ def Xform "World"
         prepend payload = @./beebot/beebot.usda@
     )
     {
-        quatf xformOp:orient = (0.08636859, 0, 0, 0.99626327)
+        quatf xformOp:orient = (0.70816374, 0, 0, 0.70604825)
         float3 xformOp:scale = (1, 1, 1)
-        double3 xformOp:translate = (-0.6808730737752141, -2.597499998994426, 0.0000013708473702855883)
+        double3 xformOp:translate = (-1.2533819028979472, -2.6893812549332266, 0.0000013708473880491565)
         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
 
         over "Geometry"
@@ -979,7 +979,7 @@ def "Render" (
                 bool omni:rtx:scene:useViewLightingMode
                 rel orderedVars = </Render/Vars/LdrColor>
                 custom bool overrideClipRange = 0
-                uniform int2 resolution = (1280, 720)
+                uniform int2 resolution = (1285, 654)
             }
 
             def RenderProduct "Replicator" (
@@ -1083,10 +1083,10 @@ over "OmniverseKit_Persp" (
     float exposure:time = 0.02
     float focalLength = 18.147562
     float focusDistance = 400
-    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -1.9092802613012985)
-    float3 xformOp:rotateXYZ = (61.33937, -1.0098261e-12, 13.4704)
+    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -3.775513371358495)
+    float3 xformOp:rotateXYZ = (10.146661, -1.0155039e-12, -0.8175403)
     float3 xformOp:scale = (1, 1, 1)
-    double3 xformOp:translate = (-0.3321603676609302, -3.8599483016406757, 0.9119804949270236)
+    double3 xformOp:translate = (-0.7319110326186159, -2.895747569853096, 3.7127147108519027)
     uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
 }
 

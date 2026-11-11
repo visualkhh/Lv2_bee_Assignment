@@ -8,5 +8,5 @@ node: skill_load
 sim_baseline: 94.8      # [%] 학습 없이 기준 동작만 (1024판)
 sim_policy: 99.0        # [%] 학습 뒤
 irreversible: 0.49      # [%] 되돌릴 수 없는 실패 (놓침·넘어뜨림)
-source: isaac/lab slot_env LoadEnv · 재학습 w_fail 20 (feature/skill-envs 700a86f, 11-03)
+source: isaac/rl/policies/load_slot/v01 (.pt 없음) · isaac/lab slot_env LoadEnv · 재학습 w_fail 20 (feature/skill-envs 700a86f, 11-03)
 note: 놓침 5/1024

@@ -8,4 +8,4 @@ node: skill_unload
 sim_baseline: 32.5      # [%] 잔차 0 (5단계 전부 켠 평가 조건, 1024판)
 sim_policy: 97.0        # [%] 5단계 (중심 오차 p90 5.8 mm)
 irreversible: 0.0      # [%] 떨어뜨림 0/1024
-source: isaac/rl/policies/v03/unload_slot.pt (slot_env UnloadEnv scenario_v2 커리큘럼 5단계, 11-08 새벽) · 이전 11-03본
+source: (학습본 삭제됨, 11-10 · slot_env UnloadEnv scenario_v2 커리큘럼 5단계, 11-08 새벽) · 이전 11-03본

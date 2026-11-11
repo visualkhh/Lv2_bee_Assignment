@@ -94,7 +94,8 @@ uint8_t motor_id(size_t i)
 
 float rpm_to_rad_s(float rpm) { return rpm * 2.0f * PI / 60.0f; }
 float rad_s_to_rpm(float rad_s) { return rad_s * 60.0f / (2.0f * PI); }
-int32_t rad_to_raw(float rad, float dir) { return lroundf(2048.0f + dir * rad * RAW_PER_RAD); }
+float rad_to_raw_f(float rad, float dir) { return 2048.0f + dir * rad * RAW_PER_RAD; }  // 반올림 전 (히스테리시스용)
+int32_t rad_to_raw(float rad, float dir) { return lroundf(rad_to_raw_f(rad, dir)); }
 float raw_to_rad(int32_t raw, float dir) { return dir * (raw - 2048) / RAW_PER_RAD; }
 
 // 단조 표 구간별 직선 (xs 오름·내림 둘 다, 표 밖은 끝값)
@@ -133,6 +134,8 @@ void enable_motor(size_t i, bool recover)
             recover_since[i] = millis() | 1;
         }
     }
+    if (is_position_motor(i) && i != GRIPPER_INDEX && ARM_POSITION_D_GAIN[i - 2] > 0)  // RAM이라 전원 복귀 때마다
+        dxl.write(id, ADDR_POSITION_D_GAIN, reinterpret_cast<const uint8_t *>(&ARM_POSITION_D_GAIN[i - 2]), 2);
     dxl.torqueOn(id);
     torque_state[i] = true;
 }
@@ -343,8 +346,14 @@ void apply_command(char *text)
     {
         if (isnan(v[i]) || !torque_state[i])
             continue;
-        bw_value[i] = i == GRIPPER_INDEX ? rad_to_raw(gripper_m_to_servo_rad(v[i]), 1.0f)
-                                         : rad_to_raw(v[i], ARM_DIR[i - 2]);
+        const float f = i == GRIPPER_INDEX ? rad_to_raw_f(gripper_m_to_servo_rad(v[i]), 1.0f)
+                                           : rad_to_raw_f(v[i], ARM_DIR[i - 2]);
+        // 목표가 지금 목표에서 GOAL_HYSTERESIS_RAW 안이면 다시 쓰지 않음 (2026-11-10 떨림 시험)
+        //   - 같은 Goal Position을 10 ms마다 쓰면 1 tick 떨림
+        //   - 정지 중 보정(처짐 적분·앞먹임·정책)의 tick 이하 흔들림이 반올림 경계에서 목표를 뒤집음
+        if (fabsf(f - static_cast<float>(goal_raw[i])) < GOAL_HYSTERESIS_RAW)
+            continue;
+        bw_value[i] = lroundf(f);
         goal_raw[i] = bw_value[i];
         send[i] = true;
     }

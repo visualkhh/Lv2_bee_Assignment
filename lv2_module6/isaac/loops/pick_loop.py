@@ -77,7 +77,7 @@ if args.auto:
 
 FIELDS = ["round", "puck_n", "slot", "inspect", "id", "tag", "color", "shape", "posture", "perc_x_mm", "perc_y_mm", "true_x_mm", "true_y_mm", "perc_err_mm", "all_err_mm",
           "stand", "stand_reason", "pick", "reason", "hand_rel_x_mm", "hand_rel_y_mm", "hand_rel_z_mm", "hand_age_s", "in_hand_off_mm", "load", "load_reason", "load_seated",
-          "seconds", "true_posture"]
+          "seconds", "true_posture", "sim_puck", "sim_inhand_x_mm", "sim_inhand_y_mm", "sim_inhand_z_mm", "sim_seated", "sim_tilt_deg"]
 out = Path(__file__).resolve().parent / "logs" / f"pick_loop_{time.strftime('%Y%m%d_%H%M%S')}.csv"
 out.parent.mkdir(exist_ok=True)
 BAG_SH = Path(__file__).resolve().parent / "manipulator-record.sh"
@@ -244,6 +244,36 @@ def sim_truth(seen, max_m=0.06):
     return xy, post
 
 
+def sim_pucks():
+    """use_sim: Isaac puck truth {name: {x, y, z, tilt, yaw}} in base_link [m, deg], {} if missing or older than 2 s."""
+    try:
+        with open(SIM_TRUTH) as f:
+            d = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return d["pucks"] if time.time() - d["t"] <= 2.0 else {}
+
+
+def sim_inhand():
+    """use_sim: (puck name, puck centre - end_effector_link in the end effector frame [mm, x y z]) for the puck nearest the
+    fingertip, or None. The full TF rotation is used (the tool points down, so a yaw-only frame would be wrong)."""
+    pucks = sim_pucks()
+    try:
+        t = tf_buf.lookup_transform("base_link", "end_effector_link", Time())
+    except Exception:
+        return None
+    if not pucks:
+        return None
+    p, q = t.transform.translation, t.transform.rotation
+    w, x, y, z = q.w, q.x, q.y, q.z
+    R = [[1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+         [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+         [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)]]
+    name, c = min(pucks.items(), key=lambda kv: math.dist((kv[1]["x"], kv[1]["y"], kv[1]["z"]), (p.x, p.y, p.z)))
+    d = (c["x"] - p.x, c["y"] - p.y, c["z"] - p.z)
+    return name, [round(1000 * sum(R[r][i] * d[r] for r in range(3)), 1) for i in range(3)]  # R^T d
+
+
 def ask_mm(prompt, pairs=1):
     """'x y' pairs in mm -> list of (x, y); Enter = [] (skip), 'q' quits. Accepts 1 pair or `pairs` pairs."""
     while True:
@@ -389,6 +419,12 @@ with open(out, "w", newline="") as fh:
                                hand_rel_z_mm=round(h.rel.z * 1000, 1), hand_age_s=round(h.age, 2))
                     print(f"  last hand residual (puck - fingertip): {h.rel.x * 1000:.0f}, {h.rel.y * 1000:.0f},"
                           f" {h.rel.z * 1000:.0f} mm")
+                if ok and args.use_sim:  # Isaac truth: puck in the hand (end effector frame)
+                    spin(0.5)
+                    m = sim_inhand()
+                    if m:
+                        row.update(sim_puck=m[0], sim_inhand_x_mm=m[1][0], sim_inhand_y_mm=m[1][1], sim_inhand_z_mm=m[1][2])
+                        print(f"  sim in-hand (puck - end effector, ee frame): {m[1]} mm ({m[0]})")
                 if ok:
                     if not args.auto:  # auto: no questions — straight to the load
                         while True:  # one number: puck centre - gripper centre along the finger pads [mm]
@@ -416,8 +452,13 @@ with open(out, "w", newline="") as fh:
                             row.update(load="ok" if lok else "fail", load_reason=lwhy)
                             print(f"  load slot {row['slot']}: {'ok' if lok else 'FAIL ' + lwhy}")
                             ok = lok
-                            if not args.auto:
-                                spin(1.0)
+                            if not args.auto or args.use_sim:
+                                spin(1.5 if args.use_sim else 1.0)
+                            if args.use_sim and row.get("sim_puck"):  # Isaac truth: the loaded puck upright (< 10 deg)?
+                                pk = sim_pucks().get(row["sim_puck"])
+                                if pk:
+                                    row.update(sim_seated="y" if pk["tilt"] < 10 else "n", sim_tilt_deg=round(pk["tilt"], 1))
+                                    print(f"  sim slot: tilt {pk['tilt']:.1f} deg -> {'seated' if pk['tilt'] < 10 else 'NOT seated'}")
                             bag.pause()
                             v = "" if args.auto else input("  puck seated upright in the slot? y/n (Enter = skip, q = quit): ").strip().lower()
                             if v == "q":

@@ -16,7 +16,7 @@ from isaaclab.app import AppLauncher
 parser = argparse.ArgumentParser()
 parser.add_argument("--mode", choices=["zero", "train", "eval"], default="zero")
 parser.add_argument("--task", help="pick_standing = 서 있는 퍽 집기 (pick_env.py) · stand_lying = 누운 퍽 세우기 (right_env.py); 예전 이름 pick · stand · right도 됨",
-                    choices=["place", "pick", "right", "pip", "load", "unload", "reach", "drive", "stand", "pick_standing", "stand_lying", "stand_c", "stand_grasp"], default="place")
+                    choices=["place", "pick", "right", "pip", "load", "unload", "reach", "drive", "stand", "pick_standing", "stand_lying", "stand_grasp"], default="place")
 parser.add_argument("--num_envs", type=int, default=4096)  # RTX 5060 Laptop: ~91 % GPU, 4.3 GB (512: 75 %)
 parser.add_argument("--iters", type=int, default=600)
 parser.add_argument("--episodes", type=int, default=1024, help="zero / eval: finished episodes to collect")
@@ -58,7 +58,6 @@ from bee_isaac.constants import LOG_DIR, POLICY_DIR  # noqa: E402
 from bee_isaac.tasks import pick_env  # noqa: E402
 from bee_isaac.tasks import pip_env  # noqa: E402
 from bee_isaac.tasks import right_env  # noqa: E402
-from bee_isaac.tasks import stand_c_env  # noqa: E402
 from bee_isaac.tasks import stand_grasp_env  # noqa: E402
 from bee_isaac.tasks import slot_env  # noqa: E402
 from bee_isaac.tasks import reach_env  # noqa: E402
@@ -101,7 +100,7 @@ def make_env():
     cfg = {"pick": pick_env.PickDesignEnvCfg, "right": right_env.RightEnvCfg, "pip": pip_env.PipEnvCfg,
            "load": slot_env.LoadEnvCfg, "unload": slot_env.UnloadEnvCfg,
            "reach": reach_env.ReachEnvCfg, "drive": drive_env.DriveEnvCfg,
-           "stand": right_env.RightEnvCfg, "stand_c": stand_c_env.StandCEnvCfg,
+           "stand": right_env.RightEnvCfg,
            "stand_grasp": stand_grasp_env.StandGraspEnvCfg}.get(args.task, place_env.PlaceEnvCfg)()
     cfg.scene.num_envs = args.num_envs
     cfg.sim.device = args.device  # --device cpu: CPU PhysX (another run holds the 8 GB GPU)
@@ -192,9 +191,20 @@ def rollout(env, act_fn, label):
     u = env.unwrapped
     t0 = time.time()
     k = 0
+    track = hasattr(u, "delta") and hasattr(u, "t")  # per-episode max |Delta| per joint (real bags: rl_arm_correction/debug)
+    if track:
+        ep_max, t_prev, dmax, dfin, d_prev = torch.zeros_like(u.delta), u.t.clone(), [], [], u.delta.clone()
     while n_ended(u) < args.episodes:
         with torch.inference_mode():
             obs, *_ = env.step(act_fn(obs))
+        if track:
+            new = u.t < t_prev  # episode restarted in this step
+            if new.any():
+                dmax += ep_max[new].tolist()
+                dfin += d_prev[new].tolist()  # signed Delta held at the end (frozen after the release / close)
+            d_prev = u.delta.clone()
+            ep_max = torch.where(new[:, None], u.delta.abs(), torch.maximum(ep_max, u.delta.abs()))
+            t_prev = u.t.clone()
         k += 1
         if k % 50 == 0 and hasattr(u, "_phase"):  # drive env has no arm phase clock
             ph = u._phase()
@@ -202,6 +212,15 @@ def rollout(env, act_fn, label):
                   f"done {len(u.stats['success'])} in_hand {u.in_hand.sum().item()} t_end {u.t_ph[:, 5].max().item():.2f} t {u.t.max().item():.2f}", flush=True)
     print(f"[{label}] {time.time() - t0:.0f} s")
     report(env, label)
+    if track and dmax:
+        d = np.array(dmax) * 1000
+        lim = 1000 * getattr(u.cfg, "residual_rad", 0.05)
+        print(f"[{label}] max |Delta| per episode mrad (joint1..5) median {np.round(np.median(d, 0)).astype(int).tolist()}, "
+              f"p90 {np.round(np.percentile(d, 90, 0)).astype(int).tolist()}; at the limit (>= {0.98 * lim:.0f}) in joints 2-5: "
+              f"{100 * np.mean(d[:, 1:].max(1) >= 0.98 * lim):.1f} % of {len(d)} episodes")
+        f = np.array(dfin) * 1000
+        print(f"[{label}] final signed Delta mrad (joint1..5) mean {np.round(f.mean(0)).astype(int).tolist()}, "
+              f"sd {np.round(f.std(0)).astype(int).tolist()}")
     if args.stats:
         np.savez(args.stats, **{k: np.array(v, dtype=float) for k, v in env.unwrapped.stats.items()
                                 if isinstance(v, list) and v and not isinstance(v[0], (tuple, list))})
@@ -221,7 +240,7 @@ def main():
         agent.max_iterations = args.iters
         agent.seed = args.seed
         agent.experiment_name = f"bee_{args.task}_residual"
-        if args.task in ("load", "unload", "reach", "drive", "stand_c"):  # new skill envs: std in log space (scalar std hit 0.00 on dock)
+        if args.task in ("load", "unload", "reach", "drive"):  # new skill envs: std in log space (scalar std hit 0.00 on dock)
             agent.actor.distribution_cfg.std_type = "log"
             agent.algorithm.entropy_coef = 0.005
         agent = handle_deprecated_rsl_rl_cfg(agent, version("rsl-rl-lib"))

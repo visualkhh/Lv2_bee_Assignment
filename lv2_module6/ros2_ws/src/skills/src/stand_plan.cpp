@@ -110,7 +110,7 @@ std::vector<V3> waypoints(const V3 & centre, double yaw, bool is_box, const Para
   const double ee_up = GRASP_Z - PUCK_H + GRIP_DEPTH / 2;  // 손끝이 손가락 접촉 중심 위 (손 아래 향함)
   const V3 u = {std::cos(yaw), std::sin(yaw), 0.0};
   const V3 pivot = plus(centre, u, -PUCK_L / 2);  // 가까운 끝 아래 모서리
-  close_yaw = yaw + M_PI / 2;                      // 닫는 축 = 퍽 축과 직각 (perp)
+  close_yaw = yaw + M_PI / 2 + (p.flip_roll ? M_PI : 0.0);  // 닫는 축 = 퍽 축과 직각 (perp) · flip_roll이면 같은 축에서 손목만 반 바퀴
   const auto on_arc = [&](double f, double h) {
     V3 q = plus(pivot, u, a + p.arc_k * (a * std::cos(f) - b * std::sin(f) - a));  // 축 방향만 arc_k배 (타원)
     q[2] += a * std::sin(f) + b * std::cos(f) + ee_up + h;
@@ -185,6 +185,13 @@ bool plan_ik(const V3 & centre, double yaw, bool is_box, const Params & p, std::
     near = q;
   }
   return true;
+}
+
+double limit_slack(const std::vector<Q5> & qs) {
+  double m = 1e9;
+  for (const auto & q : qs)
+    for (int i = 0; i < 5; ++i) m = std::min({m, q[i] - LO[i], HI[i] - q[i]});
+  return m;
 }
 
 bool Table::ready(std::string & why) const {

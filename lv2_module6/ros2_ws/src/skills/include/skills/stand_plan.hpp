@@ -40,6 +40,7 @@ struct Params {               // right_env RightEnvCfg 값 (tilt)
   double regrasp_lift_m = 0.05;
   double drag_m = 0.0;         // > 0이면 호 대신 잡은 채 로봇 쪽으로 곧게 끌고 눌러 놓음 (실기 11/03~04 — 호는 너무 높이 듦)
   double drag_lift_m = 0.0;    // 끌면서 끝까지 올리는 양 (0 = 수평 — 수평은 퍽이 안 들림)
+  bool flip_roll = false;      // true면 손목 roll을 180° 돌려 파지 (닫는 축은 같고 gripper_cam이 반대쪽 — 퍽 몸통 쪽)
 };
 
 // 팔 기구 (urdf/beebot_mesh/beebot.urdf) — FK: 손끝(end_effector_link) 위치 + 손가락 닫는 축(gripper_link y) 방향
@@ -60,6 +61,8 @@ double away_yaw(double yaw);
 
 // ik: 경유점마다 ik_down (앞 경유점을 near로 이어 감). 실패하면 why = "stand_ik_unreachable"
 bool plan_ik(const V3 & centre, double yaw, bool is_box, const Params & p, std::vector<Q5> & qs, std::string & why);
+// 경유점 전체에서 관절 한계까지 가장 가까운 여유 [rad] (작을수록 해가 좁고 보정할 여지가 없음)
+double limit_slack(const std::vector<Q5> & qs);
 
 // table: 팀원 표 (right_env 표와 같은 배열 — 모양마다 [ycs][yaw_bins][W][5] q, [ycs][yaw_bins][W][5][3] P, 평탄화)
 struct Table {

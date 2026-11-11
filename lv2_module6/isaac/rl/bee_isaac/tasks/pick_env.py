@@ -77,6 +77,13 @@ class PickEnvCfg(pe.PlaceEnvCfg):
     start_jitter_rad = 0.01  # transit = False: jitter around the above pose instead
     nb_prob = 0.7
     cam_bias_m, cam_noise_m = 0.002, 0.001
+    # hand camera mount error in the hand frame (11-10 real: stand x error flips with the gripper axis, camera reads the box
+    # top 13-29 mm high, growing with the distance). Both > 0: the base-frame cam_bias above is replaced by
+    # R_hand * b_h + pitch * d * camera_y (rotates with the hand, grows with the camera-puck distance d). 0 = off.
+    cam_bias_h_m, cam_pitch_err_rad = 0.0, 0.0
+    # design: the top tag is lost once the fingertip is less than this far above the puck centre (per episode, uniform);
+    # 11-10 real: last wrist detection at puck - fingertip z -55 .. -80 mm (hold above the puck at about -75). None = off
+    tag_lost_dz_range: tuple | None = None
     cam_yaw_noise = math.radians(2.0)
     lift_m = 0.03  # puck bottom above the box top that counts as lifted (design note: 0.05)
 
@@ -234,6 +241,8 @@ class PickEnv(pe.PlaceEnv):
         self.meas_valid = torch.ones(n, device=dev)
         self.cam_off, self.cam_z, self.cam_x, self.cam_y = (torch.tensor(v, device=dev).repeat(n, 1) for v in (bc.CAM_OFF_G, *bc.CAM_AXES_G))
         self.z_up, self.tag_bias = torch.tensor([0.0, 0.0, 1.0], device=dev).repeat(n, 1), z(3)
+        self.cam_frame_err = cfg.cam_bias_h_m > 0 or cfg.cam_pitch_err_rad > 0
+        self.cam_bias_h, self.cam_pitch, self.tag_lost_dz = z(3), z(), z()
         self.a_old1, self.a_old2 = z(5), z(5)
         self.mh_n = int(math.ceil((cfg.det_delay_range[1] + cfg.vid_delay_range[1]) / self.step_dt)) + 2  # measurement ring buffer (policy steps)
         self.mh, self.mh_i = torch.zeros(self.mh_n, n, 6, device=dev), 0
@@ -330,9 +339,17 @@ class PickEnv(pe.PlaceEnv):
         self.robot.write_joint_stiffness_to_sim_index(stiffness=(force / bc.GRIP_STOP).expand(m, len(self.grip_ids)).contiguous(),
                                                       joint_ids=self.grip_ids, env_ids=env_ids)
 
+    def _cam_bias_now(self, d):
+        """Camera bias in the base frame for camera-puck distance d [n]: fixed base bias, or the hand-frame mount error."""
+        if not self.cam_frame_err:
+            return self.cam_bias
+        g_quat = self.robot.data.body_quat_w.torch[:, self.ee_id]  # robot root = world yaw (base not rotated at spawn)
+        rot = lambda v: math_utils.quat_apply(g_quat, v)
+        return rot(self.cam_bias_h) + (self.cam_pitch * d)[:, None] * rot(self.cam_y)
+
     def _legacy_cam(self, rel, face, is_box):
         """Non-design camera observation: puck - hand with a fixed bias and noise, face error. (UnloadEnv overrides it.)"""
-        cam = rel + self.cam_bias + self.cfg.cam_noise_m * torch.randn_like(rel)
+        cam = rel + self._cam_bias_now(rel.norm(dim=1)) + self.cfg.cam_noise_m * torch.randn_like(rel)
         return cam, face + self.cam_yaw_bias + self.cfg.cam_yaw_noise * torch.randn_like(face), is_box
 
     def _cam_view(self):
@@ -358,12 +375,15 @@ class PickEnv(pe.PlaceEnv):
         near = (d < cfg.d_min_m)[:, None]
         e1 = (pad(self.b1) + noise) * ratio  # far bias shrinks with the distance
         e2 = noise + near * (pad(self.b2) + cfg.s2_jitter_m * torch.randn(n, 3, device=dev))  # true until d < d_min
-        err = torch.where(s == 1, e1, torch.where(s == 2, e2, self.cam_bias + noise))
+        cb = self._cam_bias_now(d)
+        err = torch.where(s == 1, e1, torch.where(s == 2, e2, cb + noise))
         # closer than the depth Min-Z the reading is the tag solvePnP: calibration bias + tag placement + small noise (the far
         # bias of situation 1 is gone, the switch is a jump); situation 2 keeps its wrong near readings
         dc, vis = self._cam_view()
+        if cfg.tag_lost_dz_range is not None:
+            vis = vis & ((self._ee_b()[0][:, 2] - pm[:, 2]) > self.tag_lost_dz)
         pnp = (dc < cfg.cam_minz_m)[:, None] & ~((s == 2) & near)
-        e_pnp = self.cam_bias + self.tag_bias + cfg.pnp_noise_m * (dc / cfg.cam_d0_m)[:, None] * torch.randn(n, 3, device=dev)
+        e_pnp = cb + self.tag_bias + cfg.pnp_noise_m * (dc / cfg.cam_d0_m)[:, None] * torch.randn(n, 3, device=dev)
         err = torch.where(pnp, e_pnp, err)
         yaw = self._puck_yaw_b() + self.cam_yaw_bias + cfg.cam_yaw_noise * torch.randn(n, device=dev)  # face error: _get_observations
         meas = torch.cat([pm + err, yaw[:, None]], 1)
@@ -690,6 +710,13 @@ class PickEnv(pe.PlaceEnv):
         self.q_above[env_ids], self.q_down[env_ids], self.q_ref[env_ids] = q_above, q_down, q0
         self.cam_bias[env_ids] = 0.0
         self.cam_bias[env_ids, :2] = cfg.cam_bias_m * u(2)
+        if self.cam_frame_err:
+            self.cam_bias_h[env_ids] = 0.0
+            self.cam_bias_h[env_ids, :2] = cfg.cam_bias_h_m * u(2)
+            self.cam_pitch[env_ids] = cfg.cam_pitch_err_rad * u()
+        if cfg.tag_lost_dz_range is not None:
+            lo, hi = cfg.tag_lost_dz_range
+            self.tag_lost_dz[env_ids] = lo + (hi - lo) * torch.rand(m, device=dev)
         self.cam_yaw_bias[env_ids] = math.radians(3.0) * u()
         self.tag_bias[env_ids, :2] = cfg.tag_bias_m * u(2)
         for buf in (self.delta, self.prev_act):

@@ -1,0 +1,11 @@
+# skill 정책 폴더 — 이 skill 노드가 읽음 (skills/include/skills/model.hpp). 한 줄 "키: 값"
+
+skill: stand_grasp
+kind: arm            # arm (rl_arm_correction이 계산) — 누운 퍽 먼 끝 모서리 쥐기 보정, 위 멈춤·내려가기만 (원호는 기준 동작)
+layout: pick         # 정책 입력 모양 (ml/arm_obs.hpp pick 41) — 카메라 = 쥘 끝 − 손끝 (hand_relative box_tag −2)
+use: false
+node: skill_stand
+sim_baseline: 61.6      # [%] Δ = 0, 학습 조건 (계획 위치 ±8 mm · yaw ±6°), 1024판 — 닫을 때 옆 오차 p90 8.1 mm
+sim_policy: 83.4        # [%] 학습 뒤 같은 조건 (옆 p90 3.9 · 축 p90 2.5 mm) · ±12 mm ±10°: 84.4 % (Δ = 0 35.8 %) · 인식 오차 0: 84.5 % (Δ = 0 79.9 %)
+source: isaac/rl stand_grasp_env StandGraspEnv (11-08 밤, 4096 env × 2000) · (삭제됨, 11-10)
+note: 실기 확인 전 — use true면 내려가기가 contact 속도 0.3으로 느려짐 (stand_vel_scale 0.7 대신)

@@ -16,7 +16,6 @@ Isaac Lab 6.1 (`~/pa-course/IsaacLab-6.1/.venv`)에서 돈다. 로봇·퍽·상�
 | `pick` (= `pick_standing`) | pick_env.py `PickDesignEnvCfg` | 서 있는 퍽 집기. 11-09에 `pick_v2`를 합침 |
 | `load` / `unload` | slot_env.py | 적재함 칸에 넣기 / 꺼내기 |
 | `stand` (= `stand_lying`, `right`) | right_env.py | 누운 퍽 세우기 (`--cfg regrasp=1`이면 세운 뒤 다시 쥐기까지) |
-| `stand_c` | stand_c_env.py | 세우기 방식 C (설계 방식 C): 정책이 손 속도(3개)를 내고 규칙 그리퍼가 닫기·열기. 11-08 |
 | `stand_grasp` | stand_grasp_env.py | 누운 퍽 먼 끝 모서리를 정확히 쥐는 작은 보정 (11-08 방향 전환, 원호는 실기 그대로) |
 | `reach` / `drive` | reach_env.py / drive_env.py | 팔 자세 이동 / 주행 |
 
@@ -124,7 +123,6 @@ $PY rl/scripts/train.py --task <task> [--cfg k=v,...] --mode eval  --num_envs 25
 | `pick_standing_puck` | `pick` (= `pick_standing`) | `stage=0~5` | pick_env.py (설계 환경) | 70.2 % (stage 0, 11-09 재측정) |
 | `stand_lying_puck` | `stand_lying` (예전 `stand` · `right`) | | right_env.py (팀원) | |
 | `regrasp_after_stand` | `stand_lying` (예전 `stand` · `right`) | `regrasp=1` | right_env.py (팀원, 세우기 + 다시 집기 한 번에) | |
-| `stand_lying_c` | `stand_c` | | stand_c_env.py | |
 | `stand_grasp` | `stand_grasp` | | stand_grasp_env.py | 61.6 % (학습 조건) |
 | `load_slot` | `load` | | slot_env.py | 93.8 % (192판; 처음 71.1 %는 뒤 칸에서 손이 20° 기운 자세에 퍽을 똑바로 넣은 시작 상태 오류였음) |
 | `unload_slot` | `unload` | | slot_env.py | 90.6 % |

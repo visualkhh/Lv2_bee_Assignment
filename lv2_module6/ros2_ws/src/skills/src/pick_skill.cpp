@@ -2,7 +2,8 @@
 //   octomap 지우기 → 장면 등록 → 📞 /score_grasps → 후보를 점수순으로 max_grasp_tries개까지:
 //     contact_mode sim: 후보 손 방향 ψ로 푼 관절값으로 퍽 위 5 cm까지 MoveIt (pregrasp — 기준선으로 충분, 정책 없음) → 벌림 → 닿는 구간 (pick_standing_puck 정책: 내려가기 → 쥐기 → 잡기 판정 → 올리기)
 //     moveit: 접근 → 벌림 → 파지 위치 → 닫기(grip_current_a) → 잡기 판정 → 들어올리기 (예전)
-//   실패 이유: no_grasp · arm_contact (과전류 접촉) · grasp_empty (빈손) · grasp_failed_all
+//   실패 이유: no_grasp · pick_unreachable (손을 아래로 향한 퍽 위 자세 IK 실패 — 후보 전부, 멀거나 높음 → coordinator가 pick_far로) ·
+//             arm_contact (과전류 접촉) · grasp_empty (빈손) · grasp_failed_all
 //   정책: models/skills/pick_standing_puck/ (팀원 pick_env)
 #include "ml/srv/score_grasps.hpp"
 #include "moveit_msgs/srv/apply_planning_scene.hpp"
@@ -53,6 +54,7 @@ private:
   // objects: coordinator가 기억한 대상(첫째)·옆 퍽 — 대상이 지금 /tracked_objects에 없을 때 (비면 grasp_scorer가 지금 인지에서 찾음)
   void start(uint32_t id, int tag, const std::vector<perception::msg::TrackedObject> & objects, Done done) {
     arm_.clear_flags();
+    unreachable_ = false;
     // 처짐 적분은 여기서 0으로 안 함 — 닿는 구간 시작(ctx phase 0, 새 run_id)에서 rl_arm_correction이 0으로 되돌림 (시뮬 에피소드와 같음).
     //   여기서도 되돌리면 팔이 처졌다 다시 올라올 때까지(~0.45 s) 한 번 더 멈춤 (11/08 실기 pick → load 사이). 앞 skill의 Δ가 빠지는 것만 기다림
     arm_.settle_next();
@@ -77,7 +79,7 @@ private:
 
   void try_grasp(const ScoreGrasps::Response::SharedPtr & cands, size_t i, int tag, Done done) {
     if (i >= cands->grasps.size() || static_cast<int>(i) >= max_tries_) {
-      done(false, arm_.contact() ? "arm_contact" : arm_.grasp_empty() ? "grasp_empty" : "grasp_failed_all");
+      done(false, arm_.contact() ? "arm_contact" : arm_.grasp_empty() ? "grasp_empty" : unreachable_ ? "pick_unreachable" : "grasp_failed_all");
       return;
     }
     stage("후보 " + std::to_string(i) + " (점수 " + std::to_string(cands->scores[i]).substr(0, 4) + ")");
@@ -110,9 +112,11 @@ private:
       double psi;
       ArmIO::Q5 now, q_pre;
       if (!hand_yaw(g.pose.orientation, psi)) { arm_.move_arm(pre, after_pre); return; }  // 손 방향이 없는 후보 — 예전처럼 MoveIt에 맡김
-      if (!arm_.arm_now(now) || !arm_.ik_ee_yaw(pre, psi, now, q_pre)) {  // 손을 아래로 향한 채 퍽 위 5 cm에 못 감 (멀거나 높음)
+      const bool have_q = arm_.arm_now(now);
+      if (!have_q || !arm_.ik_ee_yaw(pre, psi, now, q_pre)) {  // 손을 아래로 향한 채 퍽 위 5 cm에 못 감 (멀거나 높음)
         RCLCPP_WARN(get_logger(), "pick: 퍽 위 %.0f cm 자세 IK 실패 — 손 방향 %.0f° (팔이 못 닿음)", 100 * (pre.pose.position.z - g.pose.position.z),
                     psi * 180 / M_PI);
+        unreachable_ = have_q;  // 관절값을 못 읽은 것은 도달 불가가 아님 · 다른 후보도 막히고 다른 실패가 없으면 pick_unreachable
         done(false);
         return;
       }
@@ -146,6 +150,7 @@ private:
   SkillModel policy_;
   int max_tries_ = 2;
   bool via_carry_ = true;
+  bool unreachable_ = false;  // 이번 pick에서 퍽 위 자세 IK가 실패한 후보가 있음
   std::vector<double> carry_left_, carry_right_;
   rclcpp::Client<ScoreGrasps>::SharedPtr score_;
   rclcpp::Client<std_srvs::srv::Empty>::SharedPtr clear_octomap_;

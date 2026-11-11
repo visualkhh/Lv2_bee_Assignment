@@ -12,8 +12,8 @@ source "$(cd "$(dirname "$0")" && pwd)/common.sh"
 
 echo "=== apt 패키지 ($ARCH)"
 pkgs=(curl ca-certificates bzip2)
+pkgs+=(gcc-arm-none-eabi libnewlib-arm-none-eabi libstdc++-arm-none-eabi-newlib)
 if [ "$ARCH" = arm ]; then
-  pkgs+=(gcc-arm-none-eabi libnewlib-arm-none-eabi libstdc++-arm-none-eabi-newlib)
   [ "$(uname -m)" = aarch64 ] && $SUDO dpkg --add-architecture armhf
   pkgs+=(libc6:armhf)
 fi

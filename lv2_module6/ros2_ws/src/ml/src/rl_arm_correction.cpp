@@ -14,6 +14,8 @@ CallbackReturn RlArmCorrection::on_init() {
   auto_declare<double>("residual_rad", 0.05);       // 행동 1 = 이만큼 [rad] (시뮬 residual_rad)
   auto_declare<double>("max_delta_step", 0.0);      // 정책 한 스텝에 Δ가 움직이는 상한 [rad] (시뮬 delta_step_rad) — 0 = 바로 (11-08 이전 정책) · 재학습본은 0.004
   auto_declare<bool>("sag_enabled", true);
+  // 관절별 처짐 적분 (joint1~5) — joint1은 중력 처짐이 없고, 팔 접은 자세에서 적분이 5~6 Hz 공진을 붙잡음 (2026-11-10 실측)
+  auto_declare<std::vector<bool>>("sag_joints", {false, true, true, true, true});
   auto_declare<double>("sag_gain", 4.2);            // [1/s] 학습: 85 ms마다 오차 30 % 제거 = −ln(0.7)/0.085 (송정혁)
   auto_declare<double>("sag_max", 0.2);             // [rad]
   auto_declare<double>("still_rate", 0.005);        // [rad/s] reference가 이보다 느리면 '멈춤'
@@ -49,6 +51,10 @@ CallbackReturn RlArmCorrection::on_configure(const rclcpp_lifecycle::State &) {
   residual_rad_ = node->get_parameter("residual_rad").as_double();
   max_delta_step_ = node->get_parameter("max_delta_step").as_double();
   sag_enabled_ = node->get_parameter("sag_enabled").as_bool();
+  {
+    const auto m = node->get_parameter("sag_joints").as_bool_array();
+    for (size_t i = 0; i < 5; ++i) sag_joint_[i] = i < m.size() ? m[i] : true;
+  }
   sag_gain_ = node->get_parameter("sag_gain").as_double();
   sag_max_ = node->get_parameter("sag_max").as_double();
   still_rate_ = node->get_parameter("still_rate").as_double();
@@ -300,7 +306,7 @@ return_type RlArmCorrection::update_and_write_commands(const rclcpp::Time & time
   for (size_t i = 0; i < joints_.size() && i < 5; ++i) {
     if (!ok) continue;  // reference가 아직 없음 — 아무것도 안 씀 (예전처럼)
     const double total = delta_[i] + grav[i];  // 둘 다 오차에 넣어 처짐 적분이 지우지 않는다
-    if (sag_enabled_) {
+    if (sag_enabled_ && sag_joint_[i]) {
       // twist_state면 q = 실제 각 → 목표 ref + Δ (앞먹임은 비틀림이 되돌리므로 빼지 않음)
       sag_joint_step(sag_[i], still, rest, ref[i], twist_state_ ? delta_[i] : total, q[i], dt, sag_gain_, sag_max_, windup_s_);
       corr_[i] = sag_[i].corr;

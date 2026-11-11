@@ -56,7 +56,7 @@ def plan_waypoints(ik, centre, yw, cfg, is_box=True):
     u = np.array([math.cos(yw), math.sin(yw), 0.0])
     pivot = centre - u * PUCK_L / 2
     perp = np.array([-u[1], u[0], 0.0])
-    yaw_t = math.atan2(perp[1], perp[0]) - math.atan2(c0[1], c0[0])
+    yaw_t = math.atan2(perp[1], perp[0]) - math.atan2(c0[1], c0[0]) + (math.pi if cfg.flip_roll else 0.0)  # = stand_plan.cpp flip_roll
     rot = pin.utils.rotate("z", yaw_t) @ bc.DOWN
     fs = np.radians(np.arange(0.0, cfg.arc_end_deg + 1e-6, 7.5))  # = stand_plan.cpp (100 deg -> last point 97.5)
     on_arc = lambda f, h: pivot + u * (a * math.cos(f) - b * math.sin(f)) + np.array([0, 0, a * math.sin(f) + b * math.cos(f) + ee_up + h])
@@ -99,7 +99,14 @@ class StandGraspEnvCfg(rt.RightEnvCfg):
     delta_step_rad = 0.004  # = rl_arm_correction max_delta_step
 
     # perception left after the stand_puck_dx_m offset (11-08 real: inspect vs hand camera 1-6 mm, once 16 mm in y)
-    pos_noise_m, yaw_noise = 0.008, math.radians(6.0)
+    pos_noise_m, yaw_noise = 0.008, math.radians(6.0)  # pos_noise_m unused: init_err_m below replaces it
+    # 11-10 user decision: train the reach only. Start above the puck (as after MoveIt) with a per-axis x,y error of
+    # init_err_m (random sign); the episode ends when the down move ends (close would start); success = |lat|, |ax|, |z|
+    # all within reach_tol_m. No close / arc / stand / judging of standing.
+    init_err_m = (0.001, 0.004)
+    reach_tol_m = 0.001
+    flip_roll = True  # = skills.yaml stand_flip_roll (11-10): wrist rolled 180 deg, the camera sits on the puck-body side
+    w_reach = 10.0
     park_m, park_y_m = 0.012, 0.045
     nb_prob = 0.0  # one lying puck (11-08 user decision)
     yaw_min_deg, yaw_max_deg = -180.0, 180.0
@@ -112,7 +119,7 @@ class StandGraspEnvCfg(rt.RightEnvCfg):
     w_align_dense, w_align_close = 0.02, 5.0  # dense while going down / once at the close (main goal: the exact corner)
     w_success, w_fail = 4.0, 2.0  # standing is judged too, but the sim arc alone stands 78-82 % with a perfect grasp (11-08):
     # weighted lower so the policy does not learn a sim-only grasp offset
-    al_lat, al_ax, al_z = 0.003, 0.004, 0.003  # alignment scales [m]: closing axis, puck axis, height
+    al_lat, al_ax, al_z = 0.002, 0.002, 0.002  # alignment scales [m]: closing axis, puck axis, height
     w_push = 2.0  # x puck shift before the close [cm] (a finger on the puck)
     w_up = 0.01
 
@@ -241,6 +248,10 @@ class StandGraspEnv(rt.RightEnv):
                           100.0 * self._box_shift()[:, None], ((self.t - self.cap_t) <= self.cfg.cam_age_max).float()[:, None]], dim=1)
         return {"policy": obs, "critic": torch.cat([obs, priv], dim=1)}
 
+    def _get_dones(self):
+        term, trunc = super()._get_dones()
+        return term | (self._phase() >= 2), trunc  # reach only: end when the down move ends
+
     def _get_rewards(self) -> torch.Tensor:
         cfg = self.cfg
         r = super()._get_rewards()
@@ -251,6 +262,9 @@ class StandGraspEnv(rt.RightEnv):
         at_close = (ph >= 2) & ~self.closed_once
         self.e_close = torch.where(at_close[:, None], torch.stack([lat, ax, dz], 1), self.e_close)
         r = r + cfg.w_align_close * at_close * score
+        reached = (lat.abs() <= cfg.reach_tol_m) & (ax.abs() <= cfg.reach_tol_m) & (dz.abs() <= cfg.reach_tol_m) & ~self.box_moved
+        self.success = torch.where(at_close, reached, self.success)
+        r = r + cfg.w_reach * (at_close & reached)
         self.closed_once = self.closed_once | at_close
         push = (self.puck.data.root_pos_w.torch - self.puck0)[:, :2].norm(dim=1)
         self.pushed = torch.where(ph <= 1, push, self.pushed)
@@ -262,7 +276,7 @@ class StandGraspEnv(rt.RightEnv):
             env_ids = torch.arange(self.num_envs, device=self.device)
         s = self.stats
         if self.common_step_counter > 0 and len(env_ids) > 0:
-            done = self._phase()[env_ids] >= 8
+            done = self._phase()[env_ids] >= 2
             early = (self.fell | self.box_moved | self.fell_over)[env_ids] & ~done
             ended = done | early
             ids = env_ids[ended]
@@ -320,7 +334,8 @@ class StandGraspEnv(rt.RightEnv):
 
         # perception (after the real x offset): aim + yaw error -> yaw bin + position linearization
         aim = torch.zeros(m, 3, device=dev)
-        aim[:, :2] = park + cfg.pos_noise_m * u_(2)
+        lo, hi = cfg.init_err_m
+        aim[:, :2] = park + torch.sign(u_(2)) * (lo + (hi - lo) * torch.rand(m, 2, device=dev))
         y_m = yw + cfg.yaw_noise * u_()
         b = torch.remainder(torch.round((y_m - float(YAWS[0])) / YAW_STEP).long(), len(YAWS))
         b = torch.where(self.yaw_ok[b], b, valid[(valid[None] - b[:, None]).abs().argmin(dim=1)])  # unplanned bin: nearest planned

@@ -2,6 +2,7 @@
 perception:
   ros__parameters:
     rate_hz: 10.0            # /tracked_objects 발행 주기 (설계: 10Hz · reliable)
+    location_box_size: [0.205, 0.205, 0.085]  # TEMP 11/10 실기: 손 카메라 깊이가 상자 윗면(실측 70 mm)을 0.085~0.089로 봄 — 이 기준 높이로 누움/섬 판정 (원인 찾으면 지움, 기본 0.07)
     model_path: "bee_yolo11n_v4.pt"  # 비면 share/perception/model/model.pt(팀 모델) 자동 탐색, 없으면 빈 목록 · 파일 이름만 쓰면 그 폴더에서 찾음
                             #   bee_yolo11n_v4.pt (11/02): 10클래스(빨강·초록 퍽 × 사각·원기둥 · 신호등 상태 4 · person · obstacle) — v3 + 로봇 카메라 실물 531장
                             #     (어둡게 + 노이즈 사본 · 작은 퍽 증강). 로봇 카메라 시험(학습에 안 쓴 녹화, 퍽 366, imgsz 416 · conf 0.4):
