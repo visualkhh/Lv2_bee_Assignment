@@ -5,7 +5,7 @@
   python3 isaac/mission/run_mission.py --seq RGRRGRGGYGYG --code P2-02
   python3 isaac/mission/run_mission.py --clear-basket           # 적재함 장부가 남아 시작이 거부될 때 먼저 비움
 
-환경: ros2_ws/install/setup.bash · ROS_DOMAIN_ID · FASTDDS_DEFAULT_PROFILES_FILE이 Isaac 쪽(isaac/mission/isaac.sh)과 같아야 한다.
+환경: ros2_ws/install/setup.bash · ROS_DOMAIN_ID · FASTDDS_DEFAULT_PROFILES_FILE이 Isaac 쪽(isaac/standalone/isaac_sim.sh)과 같아야 한다 (~/.bashrc).
 흐름 (mission_manager): GO_OBSERVE → BARCODE → READ → SURVEY → BUILD → VERIFY → RETURN → DONE
   BARCODE 단계 동안 /mission/qr, READ 단계 동안 /mission/signal_status(ok=true)를 1초마다 낸다 — 단계가 시작된 뒤에 받은 값만 쓰기 때문.
   나머지(이동 · 인지 · 집기 · 놓기)는 실기와 같은 노드가 그대로 한다.

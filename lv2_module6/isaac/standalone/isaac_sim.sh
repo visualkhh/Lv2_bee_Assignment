@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Isaac Sim + ROS 쪽을 한 번에 띄운다. Isaac을 끄면 ROS 쪽도 꺼진다.
 #
-#   isaac/standalone/isaac_sim.sh
+#   isaac/standalone/isaac_sim.sh                 # 기본 장면 usda/scene_sim.usda
+#   isaac/standalone/isaac_sim.sh lab             # usda/scene_<이름>.usda (sim · lab …) — 전체 이름이나 파일 경로도 됨
 #   ISAACSIM_VENV=<venv 경로> isaac/standalone/isaac_sim.sh   # venv 위치가 다를 때 (기본 ~/pa-course/.venv-isaacsim)
 #   ISAAC_ROS_LAUNCH=isaac_manipulator_demo.launch.py ISAAC_AUTOPLAY=1 isaac/standalone/isaac_sim.sh  # SLAM·Nav2 없는 팔 시연
 #   필요: ros2_ws 빌드(install/), sudo apt install ros-lyrical-depth-image-proc
@@ -12,6 +13,14 @@
 #    BeebotSystemHardware가 S를 3초 안에 못 받아 활성화 실패 → 컨트롤러 전부 안 뜸 (2026-10-29)
 # 3. 실행 중 Stop 금지 — 시뮬레이션 시계가 0으로 돌아가 ROS 노드(TF·EKF·cuVSLAM·nvblox)가 꼬인다. 잠깐 멈추려면 Pause, 처음부터는 isaac/standalone/runtime/reset.sh (Stop → Play → ROS 재시작)
 HERE=$(dirname "$(realpath "$0")")
+# 장면: 인자 1 = usda/scene_<이름>.usda의 <이름> (sim · lab) · usda/ 안 파일 이름 · 파일 경로 → isaac_startup.py가 ISAAC_SCENE으로 받는다
+if [ -n "$1" ]; then
+  U="$HERE/../usda"
+  for c in "$U/scene_$1.usda" "$U/$1" "$U/$1.usda" "$1"; do [ -f "$c" ] && ISAAC_SCENE=$(realpath "$c") && break; done
+  [ -n "$ISAAC_SCENE" ] || { echo "장면 없음: $1 (고를 수 있는 것: $(cd "$U" && ls scene_*.usda | sed 's/^scene_//; s/\.usda$//' | tr '\n' ' '))"; exit 1; }
+  export ISAAC_SCENE
+  echo "[isaac_sim] 장면: $ISAAC_SCENE"
+fi
 PORT=/tmp/opencr
 PID_FILE=/tmp/beebot_isaac_sim.pid
 RESET_FILE=/tmp/beebot_isaac_reset  # isaac_startup.py와 같은 경로

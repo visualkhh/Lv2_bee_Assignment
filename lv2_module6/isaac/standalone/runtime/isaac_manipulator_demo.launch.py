@@ -18,7 +18,9 @@ def generate_launch_description():
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(PathJoinSubstitution([FindPackageShare('bringup'), 'launch', 'stand_test.launch.py'])),
             launch_arguments={'port': '/tmp/opencr', 'use_cameras': 'false',
-                              'grasp_min_effort': '0.0', 'miss_min_range': '0.1', 'perception_device': 'cuda',
+                              # opencr_bridge reports gripper current (BEE_SIM_REAL, default on) → same grasp check as the robot (skills default 0.25 A)
+                              'grasp_min_effort': '0.0' if os.environ.get('BEE_SIM_REAL') == '0' else '0.25',
+                              'miss_min_range': '0.1', 'perception_device': 'cuda',
                               # 상태 = 엔코더 + 비틀림 (기본) · 비틀림 없는 Isaac(OPENCR_TWIST_SCALE=0)이면 엔코더 그대로
                               'twist_state': 'false' if '0' in (os.environ.get('BEEBOT_TWIST_STATE'), os.environ.get('OPENCR_TWIST_SCALE')) else 'true'}.items()),
         ExecuteProcess(cmd=['python3', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'camera_adapter.py'),

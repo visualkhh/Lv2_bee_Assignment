@@ -46,7 +46,7 @@ def Xform "World"
     {
         quatf xformOp:orient = (6.123234e-17, 0, 0, -1)
         float3 xformOp:scale = (1, 1, 1)
-        double3 xformOp:translate = (-2.03289, -2.314902170477975, 0.000001370847368953321)
+        double3 xformOp:translate = (-1.987, -2.468, 0.000001370847368953321)
         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
 
         over "Geometry"

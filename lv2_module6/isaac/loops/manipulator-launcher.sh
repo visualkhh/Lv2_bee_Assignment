@@ -43,6 +43,9 @@ if [ "$USE_SIM" = 1 ]; then
   # Isaac's joint twist on/off (opencr_bridge.py): the launch sets twist_state to match (isaac_manipulator_demo.launch.py)
   SIM_TWIST=$(tr '\0' '\n' < "/proc/$SIM_PID/environ" | sed -n 's/^OPENCR_TWIST_SCALE=//p')
   [ -n "$SIM_TWIST" ] && export OPENCR_TWIST_SCALE="$SIM_TWIST"
+  # real-board emulation on/off (opencr_bridge.py BEE_SIM_REAL): the launch picks the grasp current check to match
+  SIM_REAL=$(tr '\0' '\n' < "/proc/$SIM_PID/environ" | sed -n 's/^BEE_SIM_REAL=//p')
+  [ -n "$SIM_REAL" ] && export BEE_SIM_REAL="$SIM_REAL"
   echo "use_sim: isaac_sim.sh pid $SIM_PID, ROS_DOMAIN_ID=$ROS_DOMAIN_ID — waiting for Play (/tmp/opencr)"
   until [ -e /tmp/opencr ]; do
     kill -0 "$SIM_PID" 2>/dev/null || { echo "use_sim: isaac_sim.sh exited" >&2; exit 1; }

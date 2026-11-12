@@ -20,7 +20,7 @@ import omni.usd
 from pxr import Gf, PhysxSchema, Usd
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SCENE = os.path.join(HERE, "..", "..", "usda", "scene_sim.usda")
+SCENE = os.environ.get("ISAAC_SCENE") or os.path.join(HERE, "..", "..", "usda", "scene_sim.usda")  # isaac_sim.sh <scene>
 RESET_FILE = "/tmp/beebot_isaac_reset"  # isaac_sim.sh와 같은 경로
 TRUTH_FILE = "/tmp/beebot_sim_pucks.json"
 TRUTH_EVERY = 15  # frames (~4 Hz at 60 fps)
@@ -76,6 +76,9 @@ async def _setup():
         scene = PhysxSchema.PhysxSceneAPI.Apply(stage.GetPrimAtPath("/PhysicsScene"))
         scene.CreateEnableGPUDynamicsAttr().Set(False)
         scene.CreateBroadphaseTypeAttr().Set("MBP")
+        # Physics rate = Isaac Lab training (SimulationCfg dt 1/200): the scene default is 60 Hz.
+        # Also lets opencr_bridge send S lines every 10 ms like the firmware. BEE_PHYSICS_HZ=60 if the sim gets too slow.
+        scene.CreateTimeStepsPerSecondAttr().Set(int(os.environ.get("BEE_PHYSICS_HZ", "200")))
     bridge = os.path.join(HERE, "opencr_bridge.py")  # creates the pty now; it attaches to the robot on the first physics step
     exec(compile(open(bridge).read(), bridge, "exec"), {"__name__": "__main__", "__file__": bridge})
     timeline = omni.timeline.get_timeline_interface()

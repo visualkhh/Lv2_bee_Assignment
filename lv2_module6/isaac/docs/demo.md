@@ -6,7 +6,7 @@ Isaac Sim이 beebot 하드웨어 역할을 하고, 실기와 같은 ROS 노드�
 
 ## 전체 미션
 
-`scene_sim.usda` 장면과 전체 ROS 시스템(`isaac_system.launch.py`)을 띄운다. 미션을 시작부터 끝까지 돌리려면(인지 켬 · AUTO · 신호·바코드 넣기) [`isaac/mission/`](../mission/README.md)를 쓴다.
+`scene_sim.usda` 장면과 전체 ROS 시스템(`isaac_system.launch.py`)을 띄운다. 인지를 켜고 AUTO로 띄워 바로 미션을 돌릴 수 있다. 신호·바코드를 넣어 한 판 돌리기 · RViz · Nav2 벽 지도는 [`isaac/mission/`](../mission/README.md).
 
 준비: `ros2_ws` 빌드(`install/`), `sudo apt install ros-lyrical-depth-image-proc`, Isaac Sim venv(기본 `~/pa-course/.venv-isaacsim`, 다르면 `ISAACSIM_VENV=<경로>`).
 
