@@ -7,8 +7,8 @@
                 double radius = 5
             }
             dictionary Perspective = {
-                double3 position = (-0.7319110326186159, -2.895747569853096, 3.7127147108519027)
-                double3 target = (-0.722420821010328, -2.230689006624769, -0.0037497731257247757)
+                double3 position = (-1.9267210734200264, -2.5065436836984656, 2.408491593424651)
+                double3 target = (-2.1739018983191962, -2.3766486606563384, 0.46463423849856356)
             }
             dictionary Right = {
                 double3 position = (0, -5, 0)
@@ -42,14 +42,11 @@ def Xform "World"
 {
     def "beebot" (
         prepend payload = @./beebot/beebot.usda@
-        variants = {
-            string pose = "gaze"
-        }
     )
     {
         quatf xformOp:orient = (0.009779734, 0, 0, -0.9999522)
         float3 xformOp:scale = (1, 1, 1)
-        double3 xformOp:translate = (-2.096337379355188, -2.5118501001997964, 0.0000013708473627360718)
+        double3 xformOp:translate = (-2.032889239541674, -2.314902170477975, 0.000001370847368953321)
         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
 
         over "Geometry"
@@ -231,6 +228,7 @@ def Xform "World"
 
             over "joint1"
             {
+                float drive:angular:physics:targetPosition = 0
                 bool[] isaac:actuator (
                     displayName = "Actuator"
                 )
@@ -242,11 +240,13 @@ def Xform "World"
                 )
                 float physics:lowerLimit = -179.99985
                 float physics:upperLimit = 179.99985
+                float state:angular:physics:position = 0
                 float state:angular:physics:velocity = 0
             }
 
             over "joint2"
             {
+                float drive:angular:physics:targetPosition = -109
                 bool[] isaac:actuator (
                     displayName = "Actuator"
                 )
@@ -258,11 +258,13 @@ def Xform "World"
                 )
                 float physics:lowerLimit = -110
                 float physics:upperLimit = 109.99999
+                float state:angular:physics:position = -109
                 float state:angular:physics:velocity = 0
             }
 
             over "joint3"
             {
+                float drive:angular:physics:targetPosition = 77
                 bool[] isaac:actuator (
                     displayName = "Actuator"
                 )
@@ -274,11 +276,13 @@ def Xform "World"
                 )
                 float physics:lowerLimit = -89.999985
                 float physics:upperLimit = 80
+                float state:angular:physics:position = 77
                 float state:angular:physics:velocity = 0
             }
 
             over "joint4"
             {
+                float drive:angular:physics:targetPosition = 51.7
                 bool[] isaac:actuator (
                     displayName = "Actuator"
                 )
@@ -290,6 +294,7 @@ def Xform "World"
                 )
                 float physics:lowerLimit = -97.402824
                 float physics:upperLimit = 112.87269
+                float state:angular:physics:position = 51.7
                 float state:angular:physics:velocity = 0
             }
 
@@ -306,6 +311,7 @@ def Xform "World"
                 )
                 float physics:lowerLimit = -180.00002
                 float physics:upperLimit = 180.00002
+                float state:angular:physics:position = 0
                 float state:angular:physics:velocity = 0
             }
 
@@ -524,7 +530,7 @@ def Xform "World"
     {
         float3 xformOp:rotateXYZ = (0, 0, 0)
         float3 xformOp:scale = (1, 1, 1)
-        double3 xformOp:translate = (-2.611635884753067, -2.314750165208043, 9.221745402854253e-7)
+        double3 xformOp:translate = (-2.611635884753067, -2.1086272564876127, 9.221745402854253e-7)
         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
 
         over "light"
@@ -563,8 +569,9 @@ def Xform "World"
     )
     {
         float3 xformOp:rotateXYZ = (0, 0, 1.56)
-        double3 xformOp:translate = (-2.7317, -2.42, 0.15)
-        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ"]
+        float3 xformOp:scale = (1, 1, 1)
+        double3 xformOp:translate = (-2.7317, -2.42, 0.23601356360770823)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
     }
 
     def Xform "start_boxes"
@@ -985,7 +992,7 @@ def "Render" (
                 bool omni:rtx:scene:useViewLightingMode
                 rel orderedVars = </Render/Vars/LdrColor>
                 custom bool overrideClipRange = 0
-                uniform int2 resolution = (1285, 738)
+                uniform int2 resolution = (1733, 1018)
             }
 
             def RenderProduct "Replicator" (
@@ -1089,10 +1096,10 @@ over "OmniverseKit_Persp" (
     float exposure:time = 0.02
     float focalLength = 18.147562
     float focusDistance = 400
-    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -3.775513371358495)
-    float3 xformOp:rotateXYZ = (10.146661, -1.0155039e-12, -0.8175403)
+    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -1.9638107071480169)
+    float3 xformOp:rotateXYZ = (8.174556, -9.915379e-13, 62.2778)
     float3 xformOp:scale = (1, 1, 1)
-    double3 xformOp:translate = (-0.7319110326186159, -2.895747569853096, 3.7127147108519027)
+    double3 xformOp:translate = (-1.9267210734200264, -2.5065436836984656, 2.408491593424651)
     uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
 }
 

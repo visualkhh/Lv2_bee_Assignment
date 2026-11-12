@@ -50,12 +50,15 @@
 
 def Xform "beebot" (
     prepend references = @./payloads/base.usda@
-    append variantSets = ["Physics", "pose"]
-    variants = {
-        string pose = "stow"
-    }
+    append variantSets = "Physics"
 )
 {
+    rel isaac:robot:namedPoses = [
+        </beebot/NamedPoses/stow>,
+        </beebot/NamedPoses/gaze>,
+        </beebot/NamedPoses/look>,
+    ]
+
     over "Geometry"
     {
         over "base_footprint"
@@ -344,6 +347,7 @@ def Xform "beebot" (
 
         over "joint1"
         {
+            float drive:angular:physics:targetPosition = 0
             bool[] isaac:actuator (
                 displayName = "Actuator"
             )
@@ -355,11 +359,13 @@ def Xform "beebot" (
             )
             float physics:lowerLimit = -179.99985
             float physics:upperLimit = 179.99985
+            float state:angular:physics:position = 0
             float state:angular:physics:velocity = 0
         }
 
         over "joint2"
         {
+            float drive:angular:physics:targetPosition = -109
             bool[] isaac:actuator (
                 displayName = "Actuator"
             )
@@ -371,11 +377,13 @@ def Xform "beebot" (
             )
             float physics:lowerLimit = -109.99999
             float physics:upperLimit = 109.99999
+            float state:angular:physics:position = -109
             float state:angular:physics:velocity = 0
         }
 
         over "joint3"
         {
+            float drive:angular:physics:targetPosition = 77
             bool[] isaac:actuator (
                 displayName = "Actuator"
             )
@@ -387,11 +395,13 @@ def Xform "beebot" (
             )
             float physics:lowerLimit = -89.999985
             float physics:upperLimit = 79.99998
+            float state:angular:physics:position = 77
             float state:angular:physics:velocity = 0
         }
 
         over "joint4"
         {
+            float drive:angular:physics:targetPosition = 51.7
             bool[] isaac:actuator (
                 displayName = "Actuator"
             )
@@ -403,11 +413,13 @@ def Xform "beebot" (
             )
             float physics:lowerLimit = -97.402824
             float physics:upperLimit = 112.87269
+            float state:angular:physics:position = 51.7
             float state:angular:physics:velocity = 0
         }
 
         over "joint5"
         {
+            float drive:angular:physics:targetPosition = 0
             bool[] isaac:actuator (
                 displayName = "Actuator"
             )
@@ -419,6 +431,7 @@ def Xform "beebot" (
             )
             float physics:lowerLimit = -180.00002
             float physics:upperLimit = 180.00002
+            float state:angular:physics:position = 0
             float state:angular:physics:velocity = 0
         }
 
@@ -909,75 +922,67 @@ def Xform "beebot" (
             }
         }
     }
-    # Arm start pose [deg] (drive target = joint state, so Play starts in it). stow = SRDF stow
-    variantSet "pose" = {
-        "stow" {
-            over "Physics"
-            {
-                over "joint1"
-                {
-                    float drive:angular:physics:targetPosition = 0
-                    float state:angular:physics:position = 0
-                }
-
-                over "joint2"
-                {
-                    float drive:angular:physics:targetPosition = -109
-                    float state:angular:physics:position = -109
-                }
-
-                over "joint3"
-                {
-                    float drive:angular:physics:targetPosition = 77
-                    float state:angular:physics:position = 77
-                }
-
-                over "joint4"
-                {
-                    float drive:angular:physics:targetPosition = 51.7
-                    float state:angular:physics:position = 51.7
-                }
-
-                over "joint5"
-                {
-                    float drive:angular:physics:targetPosition = 0
-                    float state:angular:physics:position = 0
-                }
-            }
+    def Scope "NamedPoses"
+    {
+        def IsaacNamedPose "stow"
+        {
+            rel isaac:robot:pose:endLink = </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link/finger_left_link>
+            bool[] isaac:robot:pose:jointFixed = [0, 0, 0, 0, 0, 0]
+            rel isaac:robot:pose:joints = [
+                </beebot/Physics/joint1>,
+                </beebot/Physics/joint2>,
+                </beebot/Physics/joint3>,
+                </beebot/Physics/joint4>,
+                </beebot/Physics/joint5>,
+                </beebot/Physics/gripper_left_joint>,
+            ]
+            float[] isaac:robot:pose:jointValues = [0, -109, 77, 51.7, 0, 0]
+            rel isaac:robot:pose:startLink = </beebot/Geometry/base_footprint/base_link/arm_base_link>
+            bool isaac:robot:pose:valid = 1
+            quatd xformOp:orient = (0.9852589863389585, 4.838573985921357e-11, 0.17106937142086112, -5.551115123125783e-17)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (0.13356059686455463, 0.03838387149041691, 0.2293848021562215)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
         }
-        "gaze" {
-            over "Physics"
-            {
-                over "joint1"
-                {
-                    float drive:angular:physics:targetPosition = 0
-                    float state:angular:physics:position = 0
-                }
 
-                over "joint2"
-                {
-                    float drive:angular:physics:targetPosition = 3
-                    float state:angular:physics:position = 3
-                }
+        def IsaacNamedPose "gaze"
+        {
+            rel isaac:robot:pose:endLink = </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link/finger_left_link>
+            bool[] isaac:robot:pose:jointFixed = [0, 0, 0, 0, 0, 0]
+            rel isaac:robot:pose:joints = [
+                </beebot/Physics/joint1>,
+                </beebot/Physics/joint2>,
+                </beebot/Physics/joint3>,
+                </beebot/Physics/joint4>,
+                </beebot/Physics/joint5>,
+                </beebot/Physics/gripper_left_joint>,
+            ]
+            float[] isaac:robot:pose:jointValues = [-0.0000058695446, 37.993183, 22.43668, -65.99509, -0.000018358329, 6.59796e-10]
+            rel isaac:robot:pose:startLink = </beebot/Geometry/base_footprint/base_link/arm_base_link>
+            bool isaac:robot:pose:valid = 1
+            quatd xformOp:orient = (0.9988209154915473, -1.6250313022991847e-7, -0.04854666596788898, -5.893927451650072e-8)
+            double3 xformOp:translate = (0.3223867607907629, 0.03838384332569717, 0.21128069368434144)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient"]
+        }
 
-                over "joint3"
-                {
-                    float drive:angular:physics:targetPosition = 48.7
-                    float state:angular:physics:position = 48.7
-                }
-
-                over "joint4"
-                {
-                    float drive:angular:physics:targetPosition = -63.3
-                    float state:angular:physics:position = -63.3
-                }
-
-                over "joint5"
-                {
-                    float drive:angular:physics:targetPosition = 0
-                    float state:angular:physics:position = 0
-                }
-            }
+        def IsaacNamedPose "look"
+        {
+            rel isaac:robot:pose:endLink = </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link/finger_left_link>
+            bool[] isaac:robot:pose:jointFixed = [0, 0, 0, 0, 0, 0]
+            rel isaac:robot:pose:joints = [
+                </beebot/Physics/joint1>,
+                </beebot/Physics/joint2>,
+                </beebot/Physics/joint3>,
+                </beebot/Physics/joint4>,
+                </beebot/Physics/joint5>,
+                </beebot/Physics/gripper_left_joint>,
+            ]
+            float[] isaac:robot:pose:jointValues = [0, -96.39998, 18.599986, 110.39997, 0, 0]
+            rel isaac:robot:pose:startLink = </beebot/Geometry/base_footprint/base_link/arm_base_link>
+            bool isaac:robot:pose:valid = 1
+            quatd xformOp:orient = (0.959805339148252, 7.938460999667996e-11, 0.28066654760143683, -1.6653345369377348e-16)
+            double3 xformOp:translate = (0.042078362813942206, 0.03838387151629217, 0.2900327070154597)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient"]
         }
     }
 
