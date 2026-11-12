@@ -296,7 +296,7 @@ TEST_F(RosTest, ExecutePlanActionCancelFinishesCanceledAfterChildStops) {
   EXPECT_EQ(result->reason, "cancelled");
 }
 
-TEST_F(RosTest, NewExecutePlanPreemptsLegacyActionOnlyAfterChildCancel) {
+TEST_F(RosTest, NewExecutePlanPreemptsActiveActionOnlyAfterChildCancel) {
   auto node = std::make_shared<Coordinator>(rclcpp::NodeOptions().parameter_overrides({{"basket_file", ""}}));
   auto probe = std::make_shared<rclcpp::Node>("probe_execute_replace");
   auto objects_pub = probe->create_publisher<TrackedObjectArray>("/tracked_objects", rclcpp::QoS(5).reliable());
