@@ -151,6 +151,7 @@ private:
   rclcpp_action::ClientGoalHandle<Skill>::SharedPtr stopping_child_;
   std::string stopping_child_action_;
   rclcpp::TimerBase::SharedPtr stop_timer_;
+  rclcpp::TimerBase::SharedPtr action_terminal_timer_;
   std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
   size_t approached_ = static_cast<size_t>(-1);  // 다가가기를 이미 한 단계 (idx_) — 단계마다 한 번만

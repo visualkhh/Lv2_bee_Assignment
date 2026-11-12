@@ -214,11 +214,11 @@ rclcpp_action::CancelResponse Coordinator::on_execute_cancel(const std::shared_p
   }
   if (pending_plan_ && pending_plan_->action == handle) {
     pending_plan_.reset();
-    auto result = std::make_shared<ExecutePlan::Result>();
-    result->success = false;
-    result->final_step = 0;
-    result->reason = "cancelled";
-    handle->canceled(result);
+    // ServerGoalHandle은 cancel callback 안에서 바로 terminal transition할 수 없으므로 한 tick 뒤에 마무리한다.
+    action_terminal_timer_ = create_wall_timer(std::chrono::milliseconds(1), [this, handle]() {
+      action_terminal_timer_->cancel();
+      finish_action(handle, false, true, 0, "cancelled");
+    });
     return rclcpp_action::CancelResponse::ACCEPT;
   }
   return rclcpp_action::CancelResponse::REJECT;
@@ -477,7 +477,11 @@ void Coordinator::begin_stop(const std::string & reason, StopDisposition disposi
     // goal response 전인 경우 해당 skill의 pending goal을 취소하고 응답을 기다린다.
     skills_.at(active_action_)->async_cancel_all_goals();
   } else {
-    finish_stop();
+    // cancel callback 안에서 바로 canceled()를 호출하지 않도록 한 executor tick 뒤에 terminal 처리한다.
+    action_terminal_timer_ = create_wall_timer(std::chrono::milliseconds(1), [this]() {
+      action_terminal_timer_->cancel();
+      finish_stop();
+    });
     return;
   }
   stop_timer_ = create_wall_timer(std::chrono::seconds(2), [this]() {
