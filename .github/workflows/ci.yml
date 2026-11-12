@@ -1,10 +1,14 @@
 name: ci
 
 on:
+  workflow_dispatch:
   push:
     branches: [develop, main, feature/jetson]
   pull_request:
     branches: [develop, main, feature/jetson]
+  schedule:
+    # 매일 03:00 KST (UTC 18:00) — main의 최신 커밋을 정기 검사 (야간 CI)
+    - cron: '0 18 * * *'
 
 jobs:
   testbed:
