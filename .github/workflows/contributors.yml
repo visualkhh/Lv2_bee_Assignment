@@ -1,0 +1,72 @@
+# AI가 작성한 자동화 — README 기여자 리포트( git log --all · GitHub API · Notion 공개 페이지 )
+# 매일 04:00 KST에 돌고, README의 CONTRIBUTORS 블록만 갱신한다. 커밋 메시지 [skip ci]로 CI 재실행을 막는다.
+name: contributors
+
+on:
+  schedule:
+    # 매일 04:00 KST (UTC 19:00) — ci.yml(03:00 KST) 뒤에 실행
+    - cron: '0 19 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: read
+  pull-requests: write
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch all branches (main만 아님)
+        run: git fetch --prune origin '+refs/heads/*:refs/remotes/origin/*'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Playwright (Notion 공개 페이지 수집)
+        run: |
+          python -m pip install --quiet playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Scrape Notion public page (best effort)
+        id: notion
+        continue-on-error: true
+        env:
+          NOTION_TEXT: .notion_cache.txt
+        run: python .github/scripts/notion_scrape.py
+
+      - name: Generate contributors report
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          NOTION_TEXT: .notion_cache.txt
+        # Notion 수집이 실패하면 README를 덮어쓰지 않고 실패한다 (마지막 정상 데이터 보존).
+        run: python .github/scripts/contributors_report.py --require-notion
+
+      - name: Commit README
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add README.md
+          if git diff --cached --quiet; then
+            echo 'README 변경 없음'
+            exit 0
+          fi
+          git commit -m 'docs: update contributors report [skip ci]'
+          if git push origin HEAD:main; then
+            echo 'main에 반영'
+            exit 0
+          fi
+          echo 'main 보호 규칙으로 직접 push 실패 → PR로 올린다'
+          git push -f origin HEAD:automation/contributors-report
+          gh pr create --base main --head automation/contributors-report \
+            --title 'docs: contributors report (auto)' \
+            --body '🤖 AI/CI가 git log·GitHub API·Notion 공개 페이지로 자동 생성한 기여자 리포트입니다. [skip ci]' \
+            || echo '이미 열린 PR이 있음 — 브랜치만 갱신'

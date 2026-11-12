@@ -60,3 +60,6 @@ lv2_module6/tools/artifacts/
 .agents/
 .archify/
 graphify-out/
+
+# 자동 생성 리포트용 Notion 스크래핑 캐시
+.notion_cache.txt
