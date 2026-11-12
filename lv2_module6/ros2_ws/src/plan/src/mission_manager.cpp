@@ -172,9 +172,15 @@ MissionManager::MissionManager()
     [this](std_msgs::msg::String::ConstSharedPtr m) { barcode_msg_ = m->data; barcode_rx_ = now(); });
   // 신호 — 이번 READ 시작 뒤에 끝난 사이클만 (지난 회차의 latched 답은 버림).
   //   /mission/signal은 새 답일 때만 나와서 지난 회차와 같은 신호면 다시 안 옴 → 사이클마다 오는 /mission/signal_status의 ok도 확정으로 봄
+  //   BARCODE(손 카메라) 동안에도 받음 — pole_front_cam 신호 관측을 바코드와 병렬로 (BARCODE 중 오류 사이클은 팔이 가렸을 수 있어 정지 사유로 안 셈)
   const auto on_signal = [this](const perception::msg::MissionSignal & m) {
-    if (phase_ != Phase::READ || signal_ready_ || !signal_error_.empty()) return;
+    const bool barcode = phase_ == Phase::BARCODE;
+    if ((phase_ != Phase::READ && !barcode) || signal_ready_ || !signal_error_.empty()) return;
     if (rclcpp::Time(m.header.stamp, RCL_ROS_TIME) < read_started_) return;
+    if (barcode && !m.ok) {
+      RCLCPP_WARN(get_logger(), "신호 사이클 %s [%s] (바코드 중 — 안 셈)", m.error.c_str(), m.raw.c_str());
+      return;
+    }
     const auto a = signal_action(m.ok, m.error, signal_streak_, signal_error_cycles_);
     if (a == SignalAction::ACCEPT) { signal_ = m; signal_ready_ = true; }
     else if (a == SignalAction::STOP) { signal_ = m; signal_error_ = m.error; }
@@ -220,7 +226,18 @@ MissionManager::MissionManager()
 // ---------- 단계
 void MissionManager::on_command(const std::string & cmd) {
   if (cmd == "abort") { if (active_) stop("aborted"); return; }
-  if (cmd != "start" || active_) return;
+  // "start" = 처음부터 끝까지 · "start:<단계>" = 그 단계 하나만 (TUI 미션 메뉴 — 실기에서 단계별 시험)
+  //   혼자 돌릴 수 있는 단계만: BARCODE · READ · SURVEY · RETURN (BUILD·VERIFY는 SURVEY 결과가 있어야 함)
+  Phase only = Phase::IDLE;
+  if (cmd.rfind("start:", 0) == 0) {
+    const std::string name = cmd.substr(6);
+    for (const Phase p : {Phase::BARCODE, Phase::READ, Phase::SURVEY, Phase::RETURN})
+      if (name == phase_name(p)) only = p;
+    if (only == Phase::IDLE) { note("단계만 실행 거부: " + name + " (BARCODE · READ · SURVEY · RETURN만)"); return; }
+  } else if (cmd != "start") {
+    return;
+  }
+  if (active_) return;
   int left = 0;
   if (basket_) {
     for (const auto & b : basket_->slots) left += b.filled;
@@ -254,12 +271,15 @@ void MissionManager::on_command(const std::string & cmd) {
   std::strftime(stamp, sizeof(stamp), "%Y%m%d_%H%M%S", std::localtime(&t));
   run_dir_ = log_dir_ + "/" + stamp;
   std::filesystem::create_directories(run_dir_ + "/photos");
-  enter(next_phase(Phase::IDLE, true));
+  only_ = only;
+  signal_window_ = false;
+  if (only != Phase::IDLE) note(std::string("단계만 실행: ") + phase_name(only));
+  enter(only != Phase::IDLE ? only : next_phase(Phase::IDLE, true));
 }
 
 void MissionManager::finish(bool ok, const std::string & why) {
   if (!active_) return;
-  const Phase n = next_phase(phase_, ok);
+  const Phase n = only_ != Phase::IDLE ? (ok ? Phase::DONE : Phase::ERROR) : next_phase(phase_, ok);  // 단계만 실행이면 여기서 끝
   if (!ok) result(std::string(phase_name(phase_)) + ": " + why);
   enter(n, why);
 }
@@ -305,8 +325,14 @@ void MissionManager::barcode_phase() {
   //    다가가기는 손 카메라 정면 depth가 barcode_min_gap_m보다 멀 때만 (모르거나 1 s 넘게 안 오면 안 감) · 최대 barcode_advance_max_m
   // ④ 더 다가갈 수 없는 자리에서 barcode_timeout_s 동안 안 읽히면 (gaze에 못 가면 pole_s + timeout_s) stow·후진 뒤 barcode_missing
   // 이번에 실제로 본 바코드만 — /tracked_objects의 barcode(last_seen ≥ 시작) 또는 시작 뒤 받은 /mission/qr
-  note("바코드 — pole_front_cam으로 먼저");
+  note("바코드 — pole_front_cam으로 먼저 (신호 관측도 지금부터 같이)");
   phase_started_ = now();
+  signal_ = perception::msg::MissionSignal();  // 신호 관측 창을 바코드 시작부터 엶 (READ와 병렬)
+  signal_ready_ = false;
+  signal_streak_ = 0;
+  signal_error_.clear();
+  read_started_ = phase_started_;
+  signal_window_ = true;
   gaze_sent_ = false;
   gaze_at_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
   advanced_m_ = 0.0;
@@ -390,12 +416,16 @@ void MissionManager::barcode_done(bool ok, const std::string & why) {
 }
 
 void MissionManager::read_phase() {
-  note("신호 12회 관측 중");
-  signal_ = perception::msg::MissionSignal();
-  signal_ready_ = false;
-  signal_streak_ = 0;
-  signal_error_.clear();
-  read_started_ = now();
+  // 신호는 BARCODE 시작부터 받고 있음 (barcode_phase) — 이미 확정됐으면 바로 다음 · READ만 실행이면 여기서 창을 엶
+  if (!signal_window_) {
+    signal_ = perception::msg::MissionSignal();
+    signal_ready_ = false;
+    signal_streak_ = 0;
+    signal_error_.clear();
+    read_started_ = now();
+    signal_window_ = true;
+  }
+  note(signal_ready_ ? "신호 — 바코드 중에 이미 확정" : "신호 12회 관측 중");
   timer_ = create_wall_timer(std::chrono::milliseconds(500), [this]() {
     if (phase_ != Phase::READ) { timer_->cancel(); return; }
     if (!signal_error_.empty()) {  // 오류 사이클이 이어짐 — 추정하지 않고 정지
@@ -419,6 +449,11 @@ void MissionManager::read_phase() {
       ", \"sequence\": [" + seq + "], \"raw\": " + q(signal_.raw) + ", \"cycles\": " + str(signal_.cycles) + ", \"counts\": {\"R\": " + str(counts_.r) +
       ", \"Y\": " + str(counts_.y) + ", \"G\": " + str(counts_.g) + "}, \"order\": " + q(order_) + "}\n");
     if (!valid_counts(counts_, why)) { finish(false, why); return; }
+    if (only_ == Phase::READ && barcode_.empty()) {  // READ만 실행 — 바코드 없이 신호만 확인
+      RCLCPP_INFO(get_logger(), "신호 R%d Y%d G%d (READ만 — 바코드 없어 장소 배정은 안 함)", counts_.r, counts_.y, counts_.g);
+      finish(true);
+      return;
+    }
     if (!code_ok) { finish(false, "unknown_barcode:" + barcode_); return; }
     RCLCPP_INFO(get_logger(), "신호 R%d Y%d G%d · %s → L1 %c · L2 %c · L3 %c", counts_.r, counts_.y, counts_.g,
                 barcode_.c_str(), order_[0], order_[1], order_[2]);
