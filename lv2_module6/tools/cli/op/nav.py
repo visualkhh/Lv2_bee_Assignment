@@ -462,15 +462,16 @@ class RobotNav:
         self._last_result_poll = now
         self._poll_docker_result()
 
-    def preview_path(self, poses: list[dict], frame_id: str = 'map') -> list[tuple[float, float]]:
-        """이동 없이 planner에 경로만 계산 — [(x, y), …]. 1개면 ComputePathToPose · 여러 개면 ComputePathThroughPoses."""
+    def preview_path(self, poses: list[dict], frame_id: str = 'map', on_wait=None) -> list[tuple[float, float]]:
+        """이동 없이 planner에 경로만 계산 — [(x, y), …]. 1개면 ComputePathToPose · 여러 개면 ComputePathThroughPoses.
+        on_wait(경과초)는 기다리는 동안 주기적으로 불린다 (화면 스피너용)."""
         if not poses:
             raise RuntimeError('웨이포인트 없음')
         if os.environ.get('CLI_SOURCE') == 'docker':
-            return self._preview_path_docker(poses, frame_id)
-        return self._preview_path_real(poses, frame_id)
+            return self._preview_path_docker(poses, frame_id, on_wait)
+        return self._preview_path_real(poses, frame_id, on_wait)
 
-    def _preview_path_real(self, poses: list[dict], frame_id: str) -> list[tuple[float, float]]:
+    def _preview_path_real(self, poses: list[dict], frame_id: str, on_wait=None) -> list[tuple[float, float]]:
         from geometry_msgs.msg import PoseStamped
         from nav2_msgs.action import ComputePathThroughPoses, ComputePathToPose
         from rclpy.action import ActionClient
@@ -503,18 +504,30 @@ class RobotNav:
             goal.use_start = False
 
         send = cli.send_goal_async(goal)
-        rclpy.spin_until_future_complete(self.node, send, timeout_sec=5.0)
-        handle = send.result()
+        wait = self._wait_future(send, 5.0, on_wait)
+        handle = send.result() if wait else None
         if handle is None or not handle.accepted:
             raise RuntimeError('planner가 goal을 거부')
         res = handle.get_result_async()
-        rclpy.spin_until_future_complete(self.node, res, timeout_sec=15.0)
+        if not self._wait_future(res, 20.0, on_wait):
+            raise RuntimeError('planner 응답 시간 초과')
         out = res.result()
         if out is None:
             raise RuntimeError('planner 응답 없음')
         return [(p.pose.position.x, p.pose.position.y) for p in out.result.path.poses]
 
-    def _preview_path_docker(self, poses: list[dict], frame_id: str) -> list[tuple[float, float]]:
+    def _wait_future(self, fut, timeout: float, on_wait=None) -> bool:
+        """future가 끝날 때까지 spin — 기다리는 동안 on_wait(경과초)로 화면을 갱신한다."""
+        start = time.monotonic()
+        while not fut.done():
+            if time.monotonic() - start > timeout:
+                return False
+            rclpy.spin_once(self.node, timeout_sec=0.1)
+            if on_wait:
+                on_wait(time.monotonic() - start)
+        return True
+
+    def _preview_path_docker(self, poses: list[dict], frame_id: str, on_wait=None) -> list[tuple[float, float]]:
         """도커: 컨테이너 안에서 ros2 action send_goal → 결과 YAML의 path를 읽는다 (로봇은 안 움직임)."""
         container = os.environ.get('BEEBOT_CONTAINER', 'lv2_module6')
         stamp = {'sec': 0, 'nanosec': 0}
@@ -532,14 +545,23 @@ class RobotNav:
         script = ('source /opt/ros/lyrical/setup.bash && '
                   f'ros2 action send_goal {action} {typ} {shlex.quote(json.dumps(goal, separators=(",", ":")))}')
         try:
-            run = subprocess.run(['docker', 'exec', container, 'bash', '-lc', script],
-                                 text=True, capture_output=True, timeout=40)
-        except (OSError, subprocess.TimeoutExpired) as exc:
+            proc = subprocess.Popen(['docker', 'exec', container, 'bash', '-lc', script],
+                                    text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            start = time.monotonic()
+            while proc.poll() is None:
+                if time.monotonic() - start > 40:
+                    proc.kill()
+                    raise RuntimeError('planner 응답 시간 초과 (40초)')
+                if on_wait:
+                    on_wait(time.monotonic() - start)
+                time.sleep(0.2)
+            out, err = proc.communicate()
+        except OSError as exc:
             raise RuntimeError(f'도커 미리보기 실패: {exc}') from exc
-        if run.returncode != 0:
-            err = (run.stderr or run.stdout or '').strip().splitlines()[-1:]
-            raise RuntimeError('planner 미리보기 실패: ' + (err[0] if err else 'send_goal 오류'))
-        return self._parse_path_yaml(run.stdout)
+        if proc.returncode != 0:
+            tail = (err or out or '').strip().splitlines()[-1:]
+            raise RuntimeError('planner 미리보기 실패: ' + (tail[0] if tail else 'send_goal 오류'))
+        return self._parse_path_yaml(out)
 
     @staticmethod
     def _parse_path_yaml(text: str) -> list[tuple[float, float]]:

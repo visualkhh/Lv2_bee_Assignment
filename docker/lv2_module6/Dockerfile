@@ -80,6 +80,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-lyrical-nav2-behavior-tree \
     ros-lyrical-nav2-planner \
     ros-lyrical-nav2-navfn-planner \
+    ros-lyrical-nav2-smac-planner \
     ros-lyrical-nav2-controller \
     ros-lyrical-nav2-dwb-controller \
     ros-lyrical-nav2-mppi-controller \

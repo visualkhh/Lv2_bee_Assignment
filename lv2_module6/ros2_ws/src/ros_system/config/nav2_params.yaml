@@ -335,7 +335,8 @@ controller_server:
 # ═════════════════════════════════════════════════════════════════════════════
 
 # ─────────────────────────────────────────────────────────────────────────────
-# planner_server — map 위 전역 경로(/plan). NavFn A* (use_astar) — 목표 쪽으로 거리 추정을 더해 Dijkstra보다 덜 펼쳐 찾음.
+# planner_server — map 위 전역 경로(/plan). SmacPlanner2D — NavFn과 달리 footprint(로봇 몸) 충돌을 검사한다.
+#   NavFn은 로봇을 점으로 보고 팽창 비용만 보므로 벽 모서리에 몸을 붙여 지나갔다 (실측).
 #   이름 GridBased = 기본 BT(navigate_to_pose_w_replanning_and_recovery)가 부르는 planner_id
 # ─────────────────────────────────────────────────────────────────────────────
 planner_server:
@@ -343,11 +344,19 @@ planner_server:
     expected_planner_frequency: 5.0
     planner_plugins: ["GridBased"]
     GridBased:
-      plugin: "nav2_navfn_planner::NavfnPlanner"
+      plugin: "nav2_smac_planner::SmacPlanner2D"
+      # 비용 가중치 — 클수록 벽에서 떨어진(비용 낮은) 칸을 고른다. 1.0이면 모서리에 붙고,
+      # 실측(같은 경로): 1.0 평균 여유 0.424m · 5.0 0.461m (하위 10% 0.220 → 0.293m)
+      cost_travel_multiplier: 5.0
       # 목표가 벽·팽창 영역 안이면 이 거리(m)까지 가까운 빈 곳으로 대신 감 (퍽 앞 접근 자세가 벽에 붙을 때)
       tolerance: 0.20
-      use_astar: true        # A* (false = Dijkstra). 둘 다 최단 경로 — A*는 탐색 칸이 적어 계획이 빠름
+      downsample_costmap: false
+      downsampling_factor: 1
       allow_unknown: true
+      max_iterations: 1000000
+      max_on_approach_iterations: 1000
+      terminal_checking_interval: 5000
+      use_final_approach_orientation: false
 
 
 # ─────────────────────────────────────────────────────────────────────────────
