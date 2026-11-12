@@ -116,8 +116,24 @@ MissionManager::MissionManager()
   barcode_arm_pose_ = declare_parameter<std::string>("barcode_arm_pose", "gaze");
   barcode_pole_s_ = declare_parameter<double>("barcode_pole_s", 3.0);
   barcode_gaze_wait_s_ = declare_parameter<double>("barcode_gaze_wait_s", 3.0);
-  barcode_advance_step_m_ = declare_parameter<double>("barcode_advance_step_m", 0.08);
-  barcode_advance_max_m_ = declare_parameter<double>("barcode_advance_max_m", 0.16);
+  barcode_advance_step_m_ = declare_parameter<double>("barcode_advance_step_m", 0.06);
+  barcode_advance_max_m_ = declare_parameter<double>("barcode_advance_max_m", 0.30);
+  barcode_min_gap_m_ = declare_parameter<double>("barcode_min_gap_m", 0.13);
+  // 손 카메라 정면 거리 — 바코드 단계에서만 계산 (화면 가운데 60×60 px depth 하위 10 %, 0 = 측정 없음은 뺌)
+  grip_depth_sub_ = create_subscription<sensor_msgs::msg::Image>(
+    declare_parameter<std::string>("gripper_depth_topic", "/gripper_cam/aligned_depth_to_color/image_raw"), rclcpp::SensorDataQoS(),
+    [this](sensor_msgs::msg::Image::ConstSharedPtr m) {
+      if (phase_ != Phase::BARCODE || m->encoding != "16UC1" || m->width < 60 || m->height < 60) return;
+      std::vector<uint16_t> v;
+      v.reserve(3600);
+      for (uint32_t y = m->height / 2 - 30; y < m->height / 2 + 30; ++y) {
+        const auto * row = reinterpret_cast<const uint16_t *>(&m->data[y * m->step]);
+        for (uint32_t x = m->width / 2 - 30; x < m->width / 2 + 30; ++x) if (row[x]) v.push_back(row[x]);
+      }
+      if (v.size() < 300) { grip_front_m_ = -1.0; return; }  // 너무 가까워 depth가 비거나 측정 없음
+      std::nth_element(v.begin(), v.begin() + v.size() / 10, v.end());  // 가까운 쪽 10 % — 반투명 판 너머를 재도 가장 가까운 면 기준
+      grip_front_m_ = v[v.size() / 10] * 0.001;
+    });
   // 비우면 출발(관측) 자리에서 그대로 바코드를 봄 — 이동 없음 (실기 11-12: 출발 자리에서 신호등·바코드가 다 보이고,
   //   26 cm 뒤 자리로 가려면 Nav2가 전진만 해서 돌아섰다 다시 돌아 한 바퀴를 돎)
   const auto bp = declare_parameter<std::vector<double>>("barcode_pose_arena", std::vector<double>{});
@@ -312,13 +328,16 @@ void MissionManager::barcode_phase() {
       }
       // gaze에서 안 읽히면 팔은 그대로 한 걸음 앞으로 (바코드 = 출발 자리 정면)
       const bool waited = gaze_at_.nanoseconds() > 0 && (now() - gaze_at_).seconds() > barcode_gaze_wait_s_;
-      if (waited && !moving_ && advanced_m_ + barcode_advance_step_m_ <= barcode_advance_max_m_ + 1e-6) {
+      // 읽힐 때까지 다가감 — 손 카메라 정면이 barcode_min_gap_m보다 가깝거나(또는 depth를 모르면) · 최대 거리면 그만
+      const bool room = grip_front_m_ > barcode_min_gap_m_ + barcode_advance_step_m_ * 0.5 &&
+                        advanced_m_ + barcode_advance_step_m_ <= barcode_advance_max_m_ + 1e-6;
+      if (waited && !moving_ && room) {
         Pose2 r;
         if (robot_arena(r)) {
           moving_ = true;
-          const double d = barcode_advance_step_m_;
+          const double d = std::min(barcode_advance_step_m_, grip_front_m_ - barcode_min_gap_m_);  // 마지막 걸음은 남은 만큼만
           const auto g = to_map(r.x + d * std::cos(r.yaw), r.y + d * std::sin(r.yaw), r.yaw);
-          note(fmt("바코드가 안 읽혀 %.2f m 더 다가감 (팔 그대로)", advanced_m_ + d));
+          note(fmt("바코드가 안 읽혀 다가감 (지금까지 %.2f m · 손 카메라 정면 %.2f m · 팔 그대로)", advanced_m_ + d, grip_front_m_));
           run({SubGoal().set__skill("approach").set__target(fmt("%.4f,%.4f,%.4f", g.x, g.y, g.yaw)).set__relation("drive_straight")},
             [this, d](bool ok, const std::string & why) {
               if (phase_ != Phase::BARCODE || !barcode_.empty()) return;
@@ -329,7 +348,7 @@ void MissionManager::barcode_phase() {
             });
         }
       }
-      const bool out_of_steps = waited && !moving_ && advanced_m_ + barcode_advance_step_m_ > barcode_advance_max_m_ + 1e-6;
+      const bool out_of_steps = waited && !moving_ && !room;
       if (out_of_steps || t > barcode_pole_s_ + barcode_timeout_s_) { timer_->cancel(); barcode_done(false, "barcode_missing"); }
       return;
     }
