@@ -98,7 +98,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-lyrical-moveit-planners-ompl \
     ros-lyrical-moveit-simple-controller-manager \
     ros-lyrical-moveit-ros-visualization \
+    ros-lyrical-moveit-ros-perception \
     && rm -rf /var/lib/apt/lists/*
+# moveit-ros-perception: octomap 센서 플러그인(PointCloudOctomapUpdater) — config/moveit/sensors_3d.yaml (이슈 #126)
+#   없으면 move_group이 센서를 못 올려 점구름 장애물 없이 계획함
 
 # pick_ik — MoveIt IK 플러그인 (config/moveit/kinematics.yaml). Lyrical apt에 없어 소스로 빌드해 /opt/ros/lyrical에 설치.
 #   팔이 5축이라 기본 KDL은 "위치 + 위→아래 방향" 목표를 못 풀었음 (축이 모자란 팔 — pick_ik는 오차 비용을 줄여 해를 찾음).

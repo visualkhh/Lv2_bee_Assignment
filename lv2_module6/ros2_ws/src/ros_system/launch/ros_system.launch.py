@@ -18,7 +18,7 @@
                      → /cmd_vel_mux → velocity_smoother → /cmd_vel_smoothed → collision_monitor → /cmd_vel
           map→odom·/map은 SLAM (faker는 map_server + fake_cuvslam)
 TODO(권형중) 아직 자리만 있는 것 — 설정 패키지가 필요:
-  - move_group (+ MTC capability): config/moveit 으로 해소 (use_moveit:=true) — pick_ik·octomap 센서(pole_front_cam 점구름)는 아직
+  - move_group (+ MTC capability): config/moveit 으로 해소 (use_moveit:=true) — IK는 pick_ik (kinematics.yaml) · octomap 센서는 sensors_3d.yaml (pole_front_cam points_no_floor — body_filter가 몸·바닥 뺀 것)
 테스트베드에서는 faker가 이 패키지들 대신 같은 토픽·액션을 낸다 (ros2 launch faker faker.launch.py).
 """
 
@@ -150,6 +150,7 @@ def move_group_node():
                  'default_planning_pipeline': 'ompl',
                  'ompl': load_yaml('config', 'moveit', 'ompl_planning.yaml')},
                 load_yaml('config', 'moveit', 'moveit_controllers.yaml'),
+                load_yaml('config', 'moveit', 'sensors_3d.yaml'),  # octomap 센서 — 점구름 장애물을 피해 계획 (이슈 #126)
             ])
 
 
@@ -282,10 +283,10 @@ def check_slam(context):
 def slam_nodes():
     """SLAM = cuVSLAM(위치) + nvblox(지도) — use_slam일 때. 위쪽이 받는 것: map→odom TF(cuVSLAM) · /map latched(nvblox_map) · 원점 = 출발 자리
       cuvslam_slam   pole_front_cam RGB-D → map→odom (루프 클로저) + /cuvslam/odom (EKF odom1)
-      depth gate ×2  scan_cam_gate 재사용 — nvblox에 줄 depth에서 카메라 0.5 m 안(자기 팔·손가락·폴대)을 0(측정 없음)으로.
-                     pole_front_cam은 늘, gripper_cam은 팔이 스캔 자세일 때만 (아니면 전부 0 — 팔이 움직이며 본 것은 지도에 안 넣음).
+      depth gate     scan_cam_gate 재사용 — nvblox에 줄 depth에서 카메라 0.5 m 안(자기 팔·손가락·폴대)을 0(측정 없음)으로.
+                     pole_front_cam만 — gripper_cam(팔 끝)은 스캔 자세가 없어져(11-09) 지도에 안 넣음.
                      Nav2 costmap은 몸 뺀 점구름(body_filter)을 쓰지만 nvblox는 depth 영상을 받으므로 영상에서 뺌
-      nvblox_node    depth 2대 + TF(map→카메라) → TSDF → 2D 점유 격자 (config/nvblox.yaml). 매핑이면 끌 때 nvblox_map 파일에 저장
+      nvblox_node    depth(pole_front_cam) + TF(map→카메라) → TSDF → 2D 점유 격자 (config/nvblox.yaml). 매핑이면 끌 때 nvblox_map 파일에 저장
       nvblox_map     ~/static_occupancy_grid → /map (latched, 1 Hz) · 위치추정이면 시작할 때 저장 지도를 load_map"""
     on = IfCondition(LaunchConfiguration('use_slam'))
     loc = ["'", LaunchConfiguration('localization'), "'.lower() == 'true'"]
@@ -293,10 +294,9 @@ def slam_nodes():
     save_path = PythonExpression(["'' if ", *loc, " else ", *nvblox_file])  # 매핑일 때만 저장 (위치추정이면 불러온 지도를 안 덮어씀)
     load_path = PythonExpression([*nvblox_file, " if ", *loc, " else ''"])
 
-    def gate(name, cam, by_pose, cond=on):
-        return Node(package='ros_system', executable='scan_cam_gate', name=name, output='screen', condition=cond,
-                    parameters=[share('config', 'scan_pose.yaml'),
-                                {'gate_by_pose': by_pose, 'depth_min_range': 0.5, 'cloud_in': '',
+    def gate(name, cam):
+        return Node(package='ros_system', executable='scan_cam_gate', name=name, output='screen', condition=on,
+                    parameters=[{'gate_by_pose': False, 'depth_min_range': 0.5, 'cloud_in': '',
                                  'depth_in': f'/{cam}/aligned_depth_to_color/image_raw',
                                  'depth_out': f'/{cam}/aligned_depth_to_color/image_nvblox'}])
 
@@ -309,15 +309,11 @@ def slam_nodes():
         OpaqueFunction(function=check_slam),
         Node(package='ros_system', executable='cuvslam_slam', name='cuvslam_slam', output='screen', condition=on,
              parameters=[{'publish_map_tf': True}]),
-        gate('pole_depth_gate', 'pole_front_cam', False),
-        # 그립퍼 캠이 꺼져 있으면(뽑음 · use_gripper_cam:=false) 입력이 없는 게이트도 안 띄운다
-        gate('gripper_depth_gate', 'gripper_cam', True, IfCondition(PythonExpression(
-            ["'", LaunchConfiguration('use_slam'), "'.lower() == 'true' and '", LaunchConfiguration('use_gripper_cam'),
-             "'.lower() == 'true'"]))),
+        gate('pole_depth_gate', 'pole_front_cam'),
         Node(package='nvblox_ros', executable='nvblox_node', name='nvblox_node', output='screen', condition=on,
              parameters=[share('config', 'nvblox.yaml'),
                          {'after_shutdown_map_save_path': ParameterValue(save_path, value_type=str)}],
-             remappings=camera_remaps(0, 'pole_front_cam') + camera_remaps(1, 'gripper_cam')),
+             remappings=camera_remaps(0, 'pole_front_cam')),
         Node(package='ros_system', executable='nvblox_map', name='nvblox_map', output='screen', condition=on,
              parameters=[{'load_path': ParameterValue(load_path, value_type=str)}]),
     ]

@@ -100,6 +100,10 @@ BodyFilter::BodyFilter(const rclcpp::NodeOptions & options)
   padding_ = declare_parameter<double>("padding", 0.03);
   stride_ = declare_parameter<int>("stride", 1);
   if (stride_ < 1) stride_ = 1;
+  // 바닥 뺀 출력 (MoveIt octomap용, 이슈 #126) — 기존 output_topic은 그대로
+  const auto no_floor = declare_parameter<std::string>("no_floor_topic", "/pole_front_cam/depth/color/points_no_floor");
+  floor_frame_ = declare_parameter<std::string>("floor_frame", "base_footprint");
+  floor_z_ = declare_parameter<double>("floor_z", 0.02);  // 바닥 여유 — depth 잡음(약 1cm)만 뺌 (그보다 높은 물체는 남김)
   tf_ = std::make_shared<tf2_ros::Buffer>(get_clock());
   tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_);
   urdf_sub_ = create_subscription<std_msgs::msg::String>(
@@ -111,6 +115,7 @@ BodyFilter::BodyFilter(const rclcpp::NodeOptions & options)
   // 최신 점구름만 처리한다 — 밀린 프레임을 쌓아 두면 obstacle_layer가 과거 위치를 본다.
   const auto sensor_qos = rclcpp::SensorDataQoS().keep_last(1);
   pub_ = create_publisher<PointCloud2>(out, sensor_qos);
+  no_floor_pub_ = create_publisher<PointCloud2>(no_floor, sensor_qos);
   cloud_sub_ = create_subscription<PointCloud2>(in, sensor_qos,
     [this](PointCloud2::ConstSharedPtr m) { on_cloud(*m); });
   diag_.setHardwareID("beebot");
@@ -121,8 +126,10 @@ BodyFilter::BodyFilter(const rclcpp::NodeOptions & options)
     s.add("충돌 상자", boxes_.size());
     s.add("처리한 점구름", clouds_);
     s.add("뺀 점 (누적)", removed_);
+    s.add("바닥이라 뺀 점 (누적, no_floor 출력)", floor_removed_);
   });
-  RCLCPP_INFO(get_logger(), "%s → %s (padding %.2fm, stride %d)", in.c_str(), out.c_str(), padding_, stride_);
+  RCLCPP_INFO(get_logger(), "%s → %s (padding %.2fm, stride %d) · 바닥 뺀 출력 %s (%s z ≤ %.2fm 뺌)",
+              in.c_str(), out.c_str(), padding_, stride_, no_floor.c_str(), floor_frame_.c_str(), floor_z_);
 }
 
 void BodyFilter::on_cloud(const PointCloud2 & in) {
@@ -178,8 +185,36 @@ void BodyFilter::on_cloud(const PointCloud2 & in) {
   out.point_step = in.point_step;
   out.is_dense = in.is_dense;
   out.data.reserve(in.data.size() / static_cast<size_t>(stride_));
+  // 바닥 뺀 출력: 받는 쪽이 있고 카메라 → floor_frame TF가 있을 때만 (촬영 시각 TF, 없으면 최신)
+  bool want_floor = no_floor_pub_->get_subscription_count() > 0;
+  tf2::Transform to_floor;
+  if (want_floor) {
+    geometry_msgs::msg::TransformStamped ts;
+    try {
+      ts = tf_->lookupTransform(floor_frame_, in.header.frame_id, in.header.stamp, rclcpp::Duration::from_seconds(0.05));
+    } catch (const tf2::TransformException &) {
+      try {
+        ts = tf_->lookupTransform(floor_frame_, in.header.frame_id, tf2::TimePointZero);
+      } catch (const tf2::TransformException & e) {
+        last_error_ = e.what();
+        want_floor = false;  // 높이를 모르면 바닥 뺀 출력은 이번엔 안 냄 (바닥을 장애물로 내보내지 않게)
+      }
+    }
+    if (want_floor) tf2::fromMsg(ts.transform, to_floor);
+  }
+  PointCloud2 out_nf = out;  // 바닥까지 뺀 출력 (같은 필드·헤더)
+  size_t kept_nf = 0;
   const size_t n = static_cast<size_t>(in.width) * in.height;
   size_t kept = 0;
+  // 몸 점이 아닌 점을 출력에 넣음 — 바닥 뺀 출력에는 floor_frame 높이가 floor_z보다 높은 점만
+  auto keep = [&](const uint8_t * p, const tf2::Vector3 & pt) {
+    out.data.insert(out.data.end(), p, p + in.point_step);
+    ++kept;
+    if (want_floor && (to_floor * pt).z() > floor_z_) {
+      out_nf.data.insert(out_nf.data.end(), p, p + in.point_step);
+      ++kept_nf;
+    }
+  };
   // Gazebo RGBD는 depth 픽셀마다 점을 만든다. Nav2/collision_monitor에는
   // 조밀한 원본이 필요 없으므로 stride로 솎아 대역폭과 voxel 비용을 줄인다.
   for (size_t i = 0; i < n; i += static_cast<size_t>(stride_)) {
@@ -191,8 +226,7 @@ void BodyFilter::on_cloud(const PointCloud2 & in) {
     const tf2::Vector3 pt(x, y, z);
     bool body = false;
     if ((pt - sc).length2() > sr2) {  // 몸 영역 밖 — 그대로 통과
-      out.data.insert(out.data.end(), p, p + in.point_step);
-      ++kept;
+      keep(p, pt);
       continue;
     }
     for (size_t k = 0; k < to_box.size() && !body; ++k) {
@@ -200,13 +234,18 @@ void BodyFilter::on_cloud(const PointCloud2 & in) {
       body = std::abs(q.x()) <= half[k].x() && std::abs(q.y()) <= half[k].y() && std::abs(q.z()) <= half[k].z();
     }
     if (body) continue;
-    out.data.insert(out.data.end(), p, p + in.point_step);
-    ++kept;
+    keep(p, pt);
   }
   removed_ += n - kept;
   out.width = static_cast<uint32_t>(kept);
   out.row_step = out.point_step * out.width;
   pub_->publish(out);
+  if (want_floor) {
+    floor_removed_ += kept - kept_nf;
+    out_nf.width = static_cast<uint32_t>(kept_nf);
+    out_nf.row_step = out_nf.point_step * out_nf.width;
+    no_floor_pub_->publish(out_nf);
+  }
 }
 
 }  // namespace perception

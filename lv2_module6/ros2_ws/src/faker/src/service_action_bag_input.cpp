@@ -15,7 +15,7 @@ namespace {
 
 const char * kServices[] = {"score_grasps", "clear_octomap", "apply_planning_scene",
   "diff_drive_controller/set_odometry", "reset", "fake_opencr/set_parameters",
-  "map_saver/save_map", "controller_server/FollowPath/toggle", "set_parameters",
+  "map_saver/save_map", "controller_server/FollowPath/toggle", "collision_monitor/toggle", "set_parameters",
   "controller_server/set_parameters"};
 const char * kActions[] = {"navigate_to_pose", "navigate_through_poses", "execute_task_solution", "move_action"};
 
@@ -63,6 +63,7 @@ ServiceActionBagInput::ServiceActionBagInput()
   rl_toggle_cli_ = create_client<std_srvs::srv::SetBool>("/controller_server/FollowPath/toggle");
   opencr_params_cli_ = create_client<rcl_interfaces::srv::SetParameters>("/fake_opencr/set_parameters");
   save_map_cli_ = create_client<nav2_msgs::srv::SaveMap>("/map_saver/save_map");
+  collision_toggle_cli_ = create_client<nav2_msgs::srv::Toggle>("/collision_monitor/toggle");
   nav_cli_ = rclcpp_action::create_client<nav2_msgs::action::NavigateToPose>(this, "/navigate_to_pose");
   through_cli_ = rclcpp_action::create_client<nav2_msgs::action::NavigateThroughPoses>(this, "/navigate_through_poses");
   mtc_cli_ = rclcpp_action::create_client<moveit_task_constructor_msgs::action::ExecuteTaskSolution>(
@@ -494,6 +495,15 @@ void ServiceActionBagInput::poll_service(const std::string & name) {
       auto req = std::make_shared<std_srvs::srv::SetBool::Request>();
       if (data.IsObject() && data.HasMember("data") && data["data"].IsBool()) req->data = data["data"].GetBool();
       sent = call<std_srvs::srv::SetBool>(st, rl_toggle_cli_, req, [](const auto & res) {
+        return std::string("{\"success\": ") + (res.success ? "true" : "false") +
+               ", \"message\": \"" + escape_json(res.message) + "\"}";
+      });
+    } else if (name == "collision_monitor/toggle") {
+      // data: {"enable": true|false} → collision_monitor 켜기/끄기 (충돌 감시)
+      auto req = std::make_shared<nav2_msgs::srv::Toggle::Request>();
+      req->enable = true;
+      if (data.IsObject() && data.HasMember("enable") && data["enable"].IsBool()) req->enable = data["enable"].GetBool();
+      sent = call<nav2_msgs::srv::Toggle>(st, collision_toggle_cli_, req, [](const auto & res) {
         return std::string("{\"success\": ") + (res.success ? "true" : "false") +
                ", \"message\": \"" + escape_json(res.message) + "\"}";
       });

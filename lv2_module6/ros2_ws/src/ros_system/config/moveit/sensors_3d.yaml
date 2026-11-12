@@ -1,0 +1,20 @@
+# octomap 센서 — move_group이 pole_front_cam 점구름으로 3D 장애물 지도(octomap)를 만들어 팔 경로 계획 때 피함 (이슈 #126)
+#   점구름 → PointCloudOctomapUpdater(moveit_ros_perception 패키지) → octomap 칸 → planning scene 충돌 검사
+#   입력은 body_filter의 바닥 뺀 출력(points_no_floor) — 로봇 몸·팔 점과 바닥(높이 2cm 이하) 점이 빠져 있음
+#     몸: 팔이 자기 몸을 장애물로 보지 않게 · 바닥: 바닥이 장애물 칸이 되면 팔이 바닥 퍽을 집으러 내려가지 못함
+#   (플러그인도 URDF로 자기 몸 점을 한 번 더 지움 — padding_offset · padding_scale)
+/**:
+  ros__parameters:
+    octomap_frame: odom          # octomap 기준 좌표 — 로봇이 움직여도 본 장애물이 제자리에 남음
+    octomap_resolution: 0.025    # 칸 한 변 [m] — 퍽 3 cm보다 작게 (기본 0.1이면 장애물이 크게 부풀음)
+    max_range: 1.5               # 이보다 먼 점은 안 씀 [m] — 팔이 닿는 범위만 (멀수록 depth 잡음 · 젯슨 CPU)
+    sensors: [pole_front_cam]
+    pole_front_cam:
+      sensor_plugin: occupancy_map_monitor/PointCloudOctomapUpdater
+      point_cloud_topic: /pole_front_cam/depth/color/points_no_floor  # body_filter 바닥 뺀 출력 (perception)
+      max_range: 1.5             # [m] 위와 같음
+      point_subsample: 2         # 점 2개 중 1개만 씀 — 칸 2.5 cm면 충분, CPU 절반
+      padding_offset: 0.03       # 자기 몸 지울 때 URDF 모양을 이만큼 키움 [m] (body_filter가 놓친 가장자리 점)
+      padding_scale: 1.0
+      max_update_rate: 2.0       # octomap 갱신 상한 [Hz] — 팔 계획은 가끔이라 낮게 (젯슨 CPU)
+      filtered_cloud_topic: /move_group/filtered_cloud  # 자기 몸을 뺀 뒤 실제로 쓴 점 (RViz 확인용)

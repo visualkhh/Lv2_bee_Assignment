@@ -72,6 +72,7 @@ STATE_TOPICS = {
     'topics': '/state/topics',
     'restartable': '/state/restartable',
     'restart': '/state/restart',
+    'collision': '/state/collision',
 }
 
 
@@ -84,6 +85,7 @@ class OperatorTool(Node):
         self.state = StateStore()
         self.ui = Ui(self.term, self.state)
         self.bus = Bus(self, self.state, self.ui, self.term)
+        self.ui.bus = self.bus   # 상태 칸(예: 충돌감시)이 Enter에서 바로 명령을 보낼 때
         self._device_subs: dict[str, object] = {}
         self._restart_note = ''
         self._restart_armed_at = 0.0
@@ -308,6 +310,12 @@ class OperatorTool(Node):
         if name == '9':
             from op.pages import MissionMenu
             return MissionMenu(self)
+        if name == 'objects':
+            from op.pages import ObjectsPage
+            return ObjectsPage(self)
+        if name == 'basket':
+            from op.pages import BasketPage
+            return BasketPage(self)
         if name == 'diagnostics':
             from op.pages import DiagnosticsMenu
             return DiagnosticsMenu(self)

@@ -54,6 +54,7 @@
 #include "nav2_msgs/action/navigate_through_poses.hpp"
 #include "nav2_msgs/action/navigate_to_pose.hpp"
 #include "nav2_msgs/srv/save_map.hpp"
+#include "nav2_msgs/srv/toggle.hpp"
 #include "rcl_interfaces/srv/set_parameters.hpp"
 #include "rapidjson/document.h"
 #include "rapidjson/stringbuffer.h"
@@ -178,6 +179,7 @@ private:
   std::shared_future<control_msgs::srv::SetOdometry::Response::SharedPtr> odom_fut_;
   rclcpp::Client<rcl_interfaces::srv::SetParameters>::SharedPtr opencr_params_cli_;
   rclcpp::Client<nav2_msgs::srv::SaveMap>::SharedPtr save_map_cli_;
+  rclcpp::Client<nav2_msgs::srv::Toggle>::SharedPtr collision_toggle_cli_;  // collision_monitor/toggle (충돌 감시 켬/끔)
 
   // 액션 상태 (이름별 1 goal)
   struct ActState {

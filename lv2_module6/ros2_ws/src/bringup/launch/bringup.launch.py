@@ -141,7 +141,7 @@ def setup_map(context):
         found = detected_serials() if serial else None
         ug = 'true' if (found is None or serial in found) else 'false'   # 못 알아내면 예전처럼 켬
         if ug == 'false':
-            print(f'WARN: gripper_cam serial {serial} 감지 안 됨 — gripper_cam · gripper_depth_gate · hand_relative를 안 띄움', file=sys.stderr)
+            print(f'WARN: gripper_cam serial {serial} 감지 안 됨 — gripper_cam · hand_relative를 안 띄움', file=sys.stderr)
     # 인지(YOLO 등)는 지도 만들 때(MAPPING) 쓰이지 않는다 — 실기에서는 CPU 코어 하나의 절반을 먹어 주행이 끊겼다 (2026-11-09).
     #   perception:=auto(기본) = 매핑이면 끔 · true/false = 강제. faker 테스트베드(fake_slam)는 그대로 켠다.
     pm = LaunchConfiguration('perception').perform(context).lower()
@@ -229,7 +229,7 @@ def generate_launch_description():
         # coordinator: 계획 단계를 skill 노드에 맡기는 순서 담당 (적재함 장부 · 모드·비상정지 취소)
         node('plan', 'coordinator', condition=IfCondition(LaunchConfiguration('use_mission'))),
         # skill 노드 — 단계마다 액션 서버 /skills/<skill> (팔: arm_skills 컨테이너 · 주행: base_skills). 학습 정책은 skill마다 models/skills/<skill>/
-        #   시작 자세 · 지도 만들 때 스캔 자세(ros_system/config/scan_pose.yaml)는 skill_pose
+        #   시작 자세(stow)는 skill_pose
         GroupAction([IncludeLaunchDescription(
             PythonLaunchDescriptionSource(PathJoinSubstitution([FindPackageShare('skills'), 'launch', 'skills.launch.py'])),
             launch_arguments={'grasp_check': LaunchConfiguration('grasp_check')}.items())],

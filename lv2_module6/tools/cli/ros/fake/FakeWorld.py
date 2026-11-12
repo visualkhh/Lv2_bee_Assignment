@@ -26,7 +26,7 @@ SCAN_FOV, SCAN_RANGE = 87.0, 3.0   # 앞 카메라(pole_front_cam) 시야 [°] �
 WHEEL_R, WHEEL_L = 0.033, 0.287
 ARM = ['joint1', 'joint2', 'joint3', 'joint4', 'joint5', 'gripper_left_joint']
 POSES = {'stow': [0.0, -1.0, 1.3, 0.7, 0.0], 'carry_left': [1.57, -0.5, 0.8, 0.4, 0.0],
-         'carry_right': [-1.57, -0.5, 0.8, 0.4, 0.0], 'scan': [2.618, 0.681, -1.414, 1.082, 0.0],
+         'carry_right': [-1.57, -0.5, 0.8, 0.4, 0.0],
          'look': [0.0, 0.3, 0.3, 0.9, 0.0]}
 SKILL_S = {'inspect': 2.0, 'pose': 1.5, 'pick': 3.0, 'place': 3.0, 'load': 2.5, 'unload': 2.5, 'stand': 3.0,
            'stand_pick': 2.5, 'approach': 2.0}

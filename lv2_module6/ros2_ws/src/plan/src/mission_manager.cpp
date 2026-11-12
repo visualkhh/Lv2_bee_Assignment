@@ -258,10 +258,10 @@ void MissionManager::enter(Phase p, const std::string & why) {
 }
 
 void MissionManager::go_observe() {
-  note("팔 scan 자세 · 바코드 보는 자세로 (출발 구역 안)");
+  // 팔은 stow 그대로 — 예전 pose scan(왼쪽 뒤 150°)은 팔을 뻗은 채 회전해 관성으로 밀리고 무게중심이 쏠림 (11-09 시뮬). stow에서도 pole_front_cam에 신호등이 보임
+  note("바코드 보는 자세로 (출발 구역 안 · 팔 stow)");
   const auto p = to_map(barcode_pose_.x, barcode_pose_.y, barcode_pose_.yaw);
-  run({SubGoal().set__skill("pose").set__target("scan"),
-       SubGoal().set__skill("navigate").set__target(fmt("%.3f,%.3f,%.3f", p.x, p.y, p.yaw))},
+  run({SubGoal().set__skill("navigate").set__target(fmt("%.3f,%.3f,%.3f", p.x, p.y, p.yaw))},
     [this](bool ok, const std::string & why) { finish(ok, "observe_nav_failed:" + why); });
 }
 

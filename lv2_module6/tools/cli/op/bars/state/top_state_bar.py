@@ -1,6 +1,7 @@
 """TopStateBar — 화면 맨 위 상태바 기본 구성 (StateBar 하위 클래스)."""
 from __future__ import annotations
 
+from .basket_state import BasketState
 from .connection_state import ConnectionState
 from .device_state import DeviceState
 from .diag_state import DiagState
@@ -29,7 +30,7 @@ class TopStateBar(StateBar):
     def __init__(self, ui):
         super().__init__(ui, [
             [OperationState(ui), MapState(ui), PoseState(ui), EstopState(ui), DeviceState(ui), ConnectionState(ui)],
-            [TaskState(ui), PerceptionState(ui), ControllerState(ui), CollisionState(ui), SlamState(ui), DiagState(ui)],
+            [TaskState(ui), PerceptionState(ui), BasketState(ui), ControllerState(ui), CollisionState(ui), SlamState(ui), DiagState(ui)],
             [TopicRateState(ui, key, label, low) for key, label, low in TOPIC_RATES],
             [RobotState(ui)],
             [PowerState(ui)],
