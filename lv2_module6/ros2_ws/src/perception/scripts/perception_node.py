@@ -60,7 +60,7 @@ from sensor_msgs.msg import CameraInfo, Image
 from std_msgs.msg import Int32, String
 from tf2_ros import Buffer, TransformListener
 
-QR_GAP_S = 10.0  # 이만큼 QR이 안 보였다가 다시 읽히면 새 미션 지역으로 보고 재발행 [s]
+QR_GAP_S = 10.0  # 바코드가 이만큼 안 보였다가 다시 읽히면 같은 내용도 /mission/qr 재발행 [s] (barcode_once 끔일 때)
 # 모델 없을 때의 기본 클래스 — 모델이 있으면 모델에 저장된 이름(model.names)을 쓴다 (학습 클래스가 바뀌어도 코드 수정 없음)
 CLASSES = ["puck", "puck_lying", "goal_zone", "station_zone", "qr_board", "obstacle", "person", "traffic_light"]
 # YOLO가 아니라 표식 디코드 · depth로 만드는 물체 (클래스 이름):
@@ -548,20 +548,13 @@ def settle_puck_color(roi, color, model_color, puck_colors, use_model_color=True
     return None, "색 없음"
 
 
-def qr_crop(bgr, box):
-    """YOLO qr_board 박스 → 여유 15%를 더해 잘라낸 BGR 영상, 짧은 변 300px 미만이면 확대 (QR 모듈이 뭉개지지 않게)"""
-    x0, y0, x1, y1 = box
-    h, w = bgr.shape[:2]
-    mx, my = int((x1 - x0) * 0.15), int((y1 - y0) * 0.15)
-    crop = bgr[max(0, y0 - my):min(h, y1 + my), max(0, x0 - mx):min(w, x1 + mx)]
-    k = max(1.0, 300.0 / max(1, min(crop.shape[:2])))
-    return cv2.resize(crop, None, fx=k, fy=k, interpolation=cv2.INTER_CUBIC) if k > 1 else crop
-
-
 def tag_detector():
     """AprilTag tag36h11 검출 함수 (OpenCV aruco — 새 라이브러리 없이) · aruco가 없으면 None.
     OpenCV 4.7+ ArucoDetector 클래스 · 4.6 이하(Ubuntu 24.04 apt python3-opencv 4.6) detectMarkers 함수 둘 다.
-    작은 퍽 태그(16mm)도 잡게 둘레 하한을 낮춤 (기본 0.03 = 640px에서 둘레 19px)"""
+    돌려주는 함수(gray, min_px=None) → (corners, ids, rejected)
+      min_px: 태그 후보로 볼 최소 둘레 [화소] — 영상 크기와 상관없이 같은 화소 기준 (minMarkerPerimeterRate = min_px / 긴 변).
+      None이면 예전 값 0.01 (640px에서 둘레 6.4px). 둘레가 작은 후보까지 다 검사하면 느림 — 젯슨 py-spy 11/11: 태그가 노드 CPU의 37%.
+      노드는 tag_min_perimeter_px(16)·tag_half_min_perimeter_px(24)를 씀: 실물 155장 + Isaac 800장에서 찾은 태그 같고 시간 약 1/5"""
     aruco = getattr(cv2, "aruco", None)
     if aruco is None or not hasattr(aruco, "DICT_APRILTAG_36h11"):
         return None
@@ -569,11 +562,21 @@ def tag_detector():
         params = aruco.DetectorParameters()
         params.minMarkerPerimeterRate = 0.01
         det = aruco.ArucoDetector(aruco.getPredefinedDictionary(aruco.DICT_APRILTAG_36h11), params)
-        return det.detectMarkers
+
+        def detect(gray, min_px=None):
+            rate = 0.01 if min_px is None else min_px / max(gray.shape[:2])
+            if params.minMarkerPerimeterRate != rate:  # 바뀔 때만 다시 넣음
+                params.minMarkerPerimeterRate = rate
+                det.setDetectorParameters(params)
+            return det.detectMarkers(gray)
+        return detect
     params = aruco.DetectorParameters_create()
-    params.minMarkerPerimeterRate = 0.01
     dic = aruco.Dictionary_get(aruco.DICT_APRILTAG_36h11)
-    return lambda gray: aruco.detectMarkers(gray, dic, parameters=params)
+
+    def detect_old(gray, min_px=None):
+        params.minMarkerPerimeterRate = 0.01 if min_px is None else min_px / max(gray.shape[:2])
+        return aruco.detectMarkers(gray, dic, parameters=params)
+    return detect_old
 
 
 @functools.lru_cache(maxsize=4)
@@ -595,10 +598,14 @@ def barcode_detector():
         zxingcpp = None
     global BARCODE_LIB
     if zxingcpp is not None:
-        BARCODE_LIB = "zxing-cpp (Code128·Code39·QR 등)"
+        # 1D(줄무늬) 바코드만 찾음 — 발제 바코드는 Code128 · QR 같은 2D 코드는 미션에 없음.
+        # 2D 검색(QR·DataMatrix·Aztec·PDF417)이 빠져 한 번 읽는 시간이 줄어듦 (젯슨 py-spy 11/11: 바코드가 노드 CPU의 17%)
+        formats = getattr(zxingcpp.BarcodeFormat, "LinearCodes", None)  # zxing-cpp 2.x · 없으면(옛 버전) 전부 찾음
+        BARCODE_LIB = "zxing-cpp (1D: Code128·Code39 등)" if formats is not None else "zxing-cpp (Code128·Code39·QR 등)"
 
         def read(bgr):
-            rs = [r for r in zxingcpp.read_barcodes(bgr) if r.text]
+            rs = [r for r in (zxingcpp.read_barcodes(bgr, formats=formats) if formats is not None else zxingcpp.read_barcodes(bgr))
+                  if r.text]
             pts = [np.array([[p.x, p.y] for p in (r.position.top_left, r.position.top_right,
                                                    r.position.bottom_right, r.position.bottom_left)], float) for r in rs]
             return bool(rs), [r.text for r in rs], [str(r.format) for r in rs], (np.array(pts) if rs else None)
@@ -612,20 +619,23 @@ def barcode_detector():
     return det.detectAndDecodeWithType if hasattr(det, "detectAndDecodeWithType") else det.detectAndDecode
 
 
-def detect_tags(detector, bgr, gamma=0.0, half=False):
+def detect_tags(detector, bgr, gamma=0.0, half=False, min_px=None, half_min_px=None):
     """BGR 영상 → [(태그 번호, 중심 (u, v), 박스 (x0, y0, x1, y1), 꼭짓점 4×2)] [px] · 검출기가 없으면 []
     꼭짓점 순서는 aruco 그대로 (태그 기준 왼쪽 위 → 오른쪽 위 → 오른쪽 아래 → 왼쪽 아래) — 방향(tag_yaw)에 씀
     gamma > 0: 어둡게 편 영상(감마)으로 한 번 더 찾아 합침 — 광택 반사로 검은 칸이 회색으로 뜬 태그도 읽히게
     half: 반 크기 영상으로도 한 번 더 — 가까워 크게 찍힌 태그는 원본에서 테두리를 못 찾을 때가 있음
+    min_px · half_min_px: 원본·감마 영상과 반 크기 영상에서 태그 후보 최소 둘레 [px] (tag_detector) — None이면 예전 값
+      반 크기 영상은 크게 찍힌 태그를 찾는 용이라 작은 후보를 볼 필요가 없음
     여러 영상에서 같은 태그(같은 번호, 중심 8 px 안)는 한 번만"""
     if detector is None:
         return []
     gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
     found = []
-    passes = [(gray, 1.0)] + ([(cv2.LUT(gray, gamma_lut(gamma)), 1.0)] if gamma > 0 else []) + \
-        ([(cv2.resize(gray, None, fx=0.5, fy=0.5, interpolation=cv2.INTER_AREA), 2.0)] if half else [])
-    for img, scale in passes:
-        corners, ids, _ = detector(img)
+    # (영상, 배율, 최소 둘레) — 찾은 꼭짓점 = 영상 좌표 × 배율
+    passes = [(gray, 1.0, min_px)] + ([(cv2.LUT(gray, gamma_lut(gamma)), 1.0, min_px)] if gamma > 0 else []) + \
+        ([(cv2.resize(gray, None, fx=0.5, fy=0.5, interpolation=cv2.INTER_AREA), 2.0, half_min_px)] if half else [])
+    for img, scale, px in passes:
+        corners, ids, _ = detector(img) if px is None else detector(img, px)
         if ids is None:
             continue
         for c, i in zip(corners, ids.ravel()):
@@ -973,6 +983,11 @@ PARAMS = (
     ("dice_image_margin", 0.1, "dice_margin", float),     # 윗면 둘레를 이 비율만큼 더 담음 (가장자리 퍽이 잘리지 않게)
     ("tag_gamma", 2.5, "tag_gamma", float),               # AprilTag를 이 감마로 어둡게 편 영상에서 한 번 더 찾음 (0 = 끔) — detect_tags
     ("tag_half", True, "tag_half", bool),                 # 반 크기 영상에서도 한 번 더 찾음 — 가까워 크게 찍힌 태그 (detect_tags)
+    # 태그 후보 최소 둘레 [px] — 이보다 작은 사각형은 검사 안 함 (CPU를 크게 줄임). 16 px = 한 변 4 px, 이보다 작은 태그는 원래 못 읽음.
+    # 실물 녹화 155장 + Isaac 800장: 예전(6.4 · 3.2 px)과 찾은 태그 같음 · 태그 찾기 시간 약 1/5 (11/11)
+    ("tag_min_perimeter_px", 16.0, "tag_min_px", float),       # 원본·감마 영상
+    ("tag_half_min_perimeter_px", 24.0, "tag_half_min_px", float),  # 반 크기 영상 (크게 찍힌 태그용)
+    ("barcode_once", True, "barcode_once", bool),         # 바코드를 한 번 읽으면 그 뒤로 바코드 찾기를 안 하고 읽은 내용만 0.5초마다 다시 냄 (CPU 절약)
 )
 
 
@@ -1027,6 +1042,9 @@ class PerceptionNode(Node):
         self.tf = Buffer()
         TransformListener(self.tf, self)
         self.lock = threading.Lock()
+        # 단계별 처리 시간 — (카메라, 단계) → [합 ms, 횟수, 최대 ms] · on_diag가 1초마다 평균·최대로 내보내고 비움 (prof_add)
+        self.prof = {}
+        self.prof_last = {}  # 카메라 → 직전 추론 시작 시각 (perf_counter) — 추론 간격(실제 Hz) 재기용
         self.frames = {}  # cam → dict(bgr, depth_mm, fx, fy, cx, cy, frame_id, stamp)
         self.tracks = {}  # id → dict(class_name(퍽 계열은 puck), posture, p[3], P[3×3], t, size, last_seen, seen{cam: t}, ...)
         self.next_id = 1
@@ -1034,10 +1052,10 @@ class PerceptionNode(Node):
         self.synced = {}       # cam → 동기화된 컬러·depth 쌍 수
         self.tf_fallback = 0   # 영상 시각 TF가 없어 최신 TF로 대신한 횟수
         self.self_dropped = 0  # 자기 몸(팔·차체)이라 버린 검출 수
-        # QR 문제 (documents/mission/README.md §3-1): A 지역 QR 판을 읽어 /mission/qr 로 — 모델 없이도 동작
-        self.qr = cv2.QRCodeDetector()
-        self.qr_text = ""
-        self.qr_seen = 0.0   # 마지막으로 QR을 읽은 시각 — QR_GAP_S 넘게 안 보였다 다시 보이면 같은 내용도 재발행 (다음 미션 지역)
+        # 바코드 → /mission/qr (토픽 이름은 옛 QR 미션 그대로 — 지금은 바코드 원문을 mission_manager로 보내는 통로)
+        self.qr_text = ""      # 마지막으로 /mission/qr에 낸 바코드 내용
+        self.barcode_text = ""  # 읽은 바코드 내용 — barcode_once면 이게 차면 더 안 읽고 이 값만 다시 냄
+        self.qr_seen = 0.0   # 마지막으로 바코드를 읽은 시각 — QR_GAP_S 넘게 안 보였다 다시 보이면 같은 내용도 재발행
         # 주사위 완성 사진 — 늦게 붙어도 받게 transient_local · 요청 /mission/capture_dice (Int32 태그 번호, 0 = 가장 가까운 장소 상자)
         dice_qos = QoSProfile(depth=1, reliability=QoSReliabilityPolicy.RELIABLE,
                               durability=QoSDurabilityPolicy.TRANSIENT_LOCAL, history=QoSHistoryPolicy.KEEP_LAST)
@@ -1071,7 +1089,7 @@ class PerceptionNode(Node):
         self.create_timer(1.0 / max(self.rate_hz, 0.1), self.on_publish)
         self.create_timer(0.25, self.on_infer)  # 카메라당 최대 4Hz 추론
         self.create_timer(1.0, self.on_diag)
-        self.create_timer(0.5, self.on_qr)
+        self.create_timer(0.5, self.read_barcodes)  # 바코드 2Hz
 
     # ---------- 입력 캐시
     def _slot(self, cam):  # 카메라별 최신 프레임 dict (없으면 만듦)
@@ -1112,33 +1130,46 @@ class PerceptionNode(Node):
                     and s.get("fx") and time.time() - s.get("infer_t", 0.0) > 0.2]
         for cam, s in cams:
             t_start = time.time()
+            t0 = time.perf_counter()  # 처리 시간 재기 시작 (YOLO · 전체)
+            if cam in self.prof_last:  # 직전 추론 시작부터 지금까지 = 추론 간격 (0.25초 목표 · 길면 밀리는 중)
+                self.prof_add(cam, "간격", self.prof_last[cam], t0)
+            self.prof_last[cam] = t0
             try:
                 res = self.model.predict(s["bgr"], imgsz=self.imgsz, conf=self.conf_th, agnostic_nms=self.agnostic_nms,
                                          device=self.device, verbose=False)[0]
             except Exception as e:  # noqa: BLE001
                 self.get_logger().warning(f"추론 실패: {e}", throttle_duration_sec=5.0)
                 continue
+            self.prof_add(cam, "YOLO", t0)
             with self.lock:
                 self.frames[cam]["infer_t"] = t_start
             self.update_tracks(cam, s, res)
+            self.prof_add(cam, "전체", t0)  # YOLO + 태그 + 상자 + 융합 + 발행 (한 카메라 한 프레임)
+
+    def prof_add(self, cam, key, t0, t1=None):
+        """처리 시간 기록: perf_counter 값 t0부터 t1(없으면 지금)까지 [ms] → on_diag가 1초마다 카메라·단계별 평균/최대로 냄"""
+        ms = ((time.perf_counter() if t1 is None else t1) - t0) * 1000.0
+        with self.lock:
+            p = self.prof.setdefault((cam, key), [0.0, 0, 0.0])
+            p[0] += ms
+            p[1] += 1
+            p[2] = max(p[2], ms)
 
     def update_tracks(self, cam, s, res):
         # 한 카메라 한 프레임 처리: YOLO 결과(res) · 태그 · depth 상자 → 검출 목록 → 트랙에 융합(fuse) · 정리(prune)
-        # → /perception/<cam>/detections 발행 (+ 디버그 영상). TF가 없으면 qr_board 박스만 남기고 끝
+        # → /perception/<cam>/detections 발행 (+ 디버그 영상). TF가 없으면 끝 (위치를 못 구함)
         h, w = s["bgr"].shape[:2]
         depth_m = s["depth_mm"].astype(np.float32) / 1000.0
         now_stamp = s["stamp"]
         tf = self.lookup_tf(s["frame_id"], now_stamp)
         obb = getattr(res, "obb", None)  # OBB 모델은 res.obb — xyxy·cls·conf는 같고 회전 꼭짓점 xyxyxyxy가 더 있음 · 보통 모델은 res.boxes
         boxes_in = obb if obb is not None else res.boxes
-        if tf is None:  # 위치는 못 구해도 QR 판 박스는 남김 — QR은 위치 없이 읽힘 (TF·지도가 아직 없을 때도)
-            boxes = [tuple(max(0, int(v)) for v in b.xyxy[0].tolist()) for b in boxes_in
-                     if self.names.get(int(b.cls[0])) == "qr_board"]
-            with self.lock:
-                self.frames[cam]["qr_boxes"] = boxes
+        if tf is None:
             return
         rot, trans = tf
-        tags = detect_tags(self.tag_det, s["bgr"], self.tag_gamma, self.tag_half)
+        t_tag = time.perf_counter()
+        tags = detect_tags(self.tag_det, s["bgr"], self.tag_gamma, self.tag_half, self.tag_min_px, self.tag_half_min_px)
+        self.prof_add(cam, "AprilTag", t_tag)
         # 로봇 몸(차체·팔) — 자기 몸 필터와 상자 찾기에 같이 씀
         body = self.robot_body(now_stamp) if self.self_filter and (len(boxes_in) or self.box_detect) else None
         # 팔을 화면에 투영: 박스 일부만 팔이면 depth 중앙값이 팔 뒤 바닥·벽이라 3D 판정(is_self)을 빠져나감
@@ -1147,7 +1178,6 @@ class PerceptionNode(Node):
         arm_px = arm_all if self.self_arm_hits > 0 else np.zeros((0, 3))  # 퍽 박스에 팔이 걸렸나 (self_arm_hits 0이면 안 봄)
         arm_mask = arm_mask_image(arm_px, depth_m.shape) if len(arm_px) else None  # 퍽 depth에서 손가락을 뺄 때
         dets = []
-        qr_boxes = []
         # 바닥 높이 = 로봇 base_footprint 높이 (TF 없으면 추적 좌표 0) — 퍽 자세(높이 판정)와 상자 윗면 찾기에 같이 씀
         base_now = self.lookup_tf(self.base_frame, now_stamp, quiet=True)
         floor_z = float(base_now[1][2]) if base_now is not None else 0.0
@@ -1231,8 +1261,6 @@ class PerceptionNode(Node):
             u, v = (x0 + x1) / 2.0, (y0 + y1) / 2.0
             px = (u - s["cx"]) * zm / s["fx"]
             py = (v - s["cy"]) * zm / s["fy"]
-            if cls == "qr_board":
-                qr_boxes.append((x0, y0, x1, y1))
             z_map = rot @ np.array([px, py, zm]) + trans
             if cls in PUCK_CLASSES:  # depth는 보이는 표면 — 중심은 시선 방향으로 더 안쪽
                 z_map = puck_center(z_map, trans, self.puck_center_offset, self.puck_center_full_deg)
@@ -1264,12 +1292,15 @@ class PerceptionNode(Node):
             })
         # 상자 윗면 (depth) — 로봇 차체 둘레는 뺌 · 바닥 높이 floor_z는 위에서 구한 것
         avoid = (base_now[1][:2], self.body_radius) if base_now is not None else None
+        t_box = time.perf_counter()  # 상자 시간 = 상자 YOLO(있으면) + depth 윗면 찾기
         rois = self.box_rois(s["bgr"]) if self.box_detect else None  # 상자 YOLO 네모 (모델 없으면 None = 화면 전체)
         # 자기 팔(그리퍼 포함) 투영 점(arm_all, 위에서 구함) — 상자 윗면 점에서 뺌
         boxes = (find_box_tops(depth_m, rot, trans, s["fx"], s["fy"], s["cx"], s["cy"], floor_z, self.box_h,
                                self.box_min_side, self.box_max_side, self.box_cell, avoid=avoid, rois=rois,
                                mask_px=arm_all)
                  if self.box_detect else [])
+        if self.box_detect:
+            self.prof_add(cam, "상자", t_box)
         # 화면 가장자리에 잘린 상자 → 방향 모름 (가운데·크기는 그대로 씀 · 방향은 다른 카메라/앞선 관측 값 유지)
         hh, ww = depth_m.shape[:2]
         boxes = [(c, sz, None if box_cut((c, sz, byaw, tz), rot, trans, s["fx"], s["fy"], s["cx"], s["cy"],
@@ -1313,7 +1344,6 @@ class PerceptionNode(Node):
         now_s = stamp_s(now_stamp)
         dets = merge_overlap_dets(dets, self.det_merge_iou)
         with self.lock:
-            self.frames[cam]["qr_boxes"] = qr_boxes  # on_qr가 이 박스 안만 해독
             tids = self.fuse(cam, now_stamp, dets)
             gone = merge_tracks(self.tracks, self.track_merge_m)
             tids = [gone.get(t, t) for t in tids]
@@ -1699,41 +1729,15 @@ class PerceptionNode(Node):
         with self.lock:
             self.published += 1
 
-    # ---------- QR (2Hz) — 내용이 바뀌었거나, QR_GAP_S 넘게 안 보이다 다시 읽혔을 때 /mission/qr 발행
-    # (미션 지역이 여러 곳 — 같은 내용도 지역마다 한 번씩. transient_local: 늦게 붙어도 받음)
-    def on_qr(self):
-        # QR을 이번에 못 읽었으면 바코드(read_barcodes)를 봄
-        with self.lock:
-            imgs = [(c, s["bgr"], list(s.get("qr_boxes", []))) for c, s in self.frames.items()
-                    if s.get("bgr") is not None]
-        for cam, bgr, boxes in imgs:
-            # YOLO가 찾은 qr_board 박스 안만 (여유 15% + 작으면 확대 — 멀리 있는 판도 모듈이 보이게).
-            # 모델이 없으면(기동 검사 · 모델 없는 CI) 화면 전체
-            crops = [bgr] if self.model is None else [qr_crop(bgr, b) for b in boxes]
-            text = ""
-            for crop in crops:
-                try:
-                    text = self.qr.detectAndDecode(crop)[0]
-                except cv2.error:
-                    text = ""
-                if text:
-                    break
-            if not text:
-                continue
-            now = time.time()
-            fresh = text != self.qr_text or now - self.qr_seen > QR_GAP_S
-            self.qr_seen = now
-            if fresh:
-                self.qr_text = text
-                self.qr_pub.publish(String(data=text))
-                self.get_logger().info(f"QR 문제 ({cam}): {text}")
-            return
-        self.read_barcodes()
-
-    # ---------- 바코드 — on_qr에서 QR을 못 읽었을 때. 작업 지시 문자열 (P2-01 …) → 물체 barcode(위치 = 붙은 곳)로 추적 + /mission/qr
+    # ---------- 바코드 (2Hz) — 작업 지시 문자열 (P2-01 …) → 물체 barcode(위치 = 붙은 곳)로 추적 + /mission/qr
     def read_barcodes(self):
         # 바코드 라이브러리가 없으면 아무것도 안 함 · TF가 없으면 /mission/qr만 (물체는 안 만듦)
         if self.barcode is None:
+            return
+        if self.barcode_once and self.barcode_text:
+            # 이미 읽음 → 바코드 찾기(zxing, CPU 큼)는 더 안 하고 읽은 내용만 다시 냄. mission_manager는 바코드 단계가
+            # 시작된 뒤에 받은 /mission/qr만 쓰므로(mission_manager.cpp barcode_phase), 그 전에 읽었어도 단계 안에서 받게.
+            self.qr_pub.publish(String(data=self.barcode_text))
             return
         with self.lock:
             frames = [(c, dict(s)) for c, s in self.frames.items()
@@ -1762,8 +1766,9 @@ class PerceptionNode(Node):
                 if text != self.qr_text or now - self.qr_seen > QR_GAP_S:
                     self.qr_text = text
                     self.qr_pub.publish(String(data=text))
-                    self.get_logger().info(f"바코드 ({cam}): {text}")
+                    self.get_logger().info(f"바코드 ({cam}): {text}" + (" — 이제 바코드는 안 읽음 (barcode_once)" if self.barcode_once else ""))
                 self.qr_seen = now
+                self.barcode_text = text
             if dets:
                 with self.lock:
                     self.fuse(cam, s["stamp"], dets)
@@ -1788,6 +1793,7 @@ class PerceptionNode(Node):
             synced = dict(self.synced)
             fallback = self.tf_fallback
             dropped = self.self_dropped
+            prof, self.prof = self.prof, {}  # 지난 1초 처리 시간 (가져가고 비움)
         s.values = [KeyValue(key="추적 물체", value=str(n)),
                     KeyValue(key="두 카메라 융합 물체", value=str(fused)),
                     KeyValue(key="동기화 프레임",
@@ -1795,9 +1801,14 @@ class PerceptionNode(Node):
                     KeyValue(key="TF 최신 대체", value=str(fallback)),
                     KeyValue(key="자기 몸이라 버린 검출", value=str(dropped)),
                     KeyValue(key="발행한 /tracked_objects", value=str(pub)),
-                    KeyValue(key="QR 문제", value=self.qr_text or "(아직 없음)"),
                     KeyValue(key="AprilTag (퍽 번호·장소)", value=f"OpenCV {cv2.__version__} " + ("aruco 있음" if self.tag_det else "aruco 없음 — 퍽 번호 못 읽음")),
-                    KeyValue(key="바코드 (장소 작업 지시)", value=BARCODE_LIB if self.barcode else "없음 — pip install zxing-cpp")]
+                    KeyValue(key="바코드 (장소 작업 지시)", value=(BARCODE_LIB + (f" · 읽음: {self.barcode_text}" if self.barcode_text else ""))
+                             if self.barcode else "없음 — pip install zxing-cpp")]
+        # 카메라마다 한 줄: 단계 평균/최대 [ms] (지난 1초) — 간격이 250보다 길면 추론이 밀리는 중, 전체가 길면 어느 단계 탓인지 봄
+        for cam in sorted({c for c, _ in prof}):
+            parts = [f"{k} {prof[(cam, k)][0] / prof[(cam, k)][1]:.0f}/{prof[(cam, k)][2]:.0f}"
+                     for k in ("YOLO", "AprilTag", "상자", "전체", "간격") if (cam, k) in prof]
+            s.values.append(KeyValue(key=f"처리 시간 ms 평균/최대 {cam}", value=" · ".join(parts)))
         if self.tag_det is None and s.level == DiagnosticStatus.OK:
             s.level, s.message = DiagnosticStatus.WARN, "AprilTag 못 읽음 (OpenCV aruco 없음)"
         msg = DiagnosticArray()

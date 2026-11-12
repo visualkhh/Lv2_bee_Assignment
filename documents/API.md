@@ -330,7 +330,7 @@ string message
 | 이름 | 타입 | 보내는 쪽 → 받는 쪽 | 주기 · QoS |
 | --- | --- | --- | --- |
 | `/cmd/mission` | std_msgs/String | 운영자 → mission_manager | `start` · `abort` — 주사위 미션 시작·정지 · reliable |
-| `/mission/qr` | std_msgs/String | perception → mission_manager | 바코드 원문(예 `P2-01` — 정렬 방향) · QR — 읽은 내용이 바뀔 때만 · reliable + transient_local |
+| `/mission/qr` | std_msgs/String | perception → mission_manager | 바코드 원문(예 `P2-01` — 정렬 방향) — 처음 읽었을 때, 그 뒤로는 읽은 내용을 0.5초마다 다시 냄(`barcode_once`) · reliable + transient_local |
 | `/mission/signal` | perception/MissionSignal | signal_decoder (perception) → mission_manager | 신호등 12회 점멸 확정 답 {sequence, red, yellow, green, ok, raw} — 두 사이클 같게 읽혀 새 답이 확정될 때만 · reliable + transient_local. 해석(L1~L3 배정)은 mission_manager |
 | `/mission/signal_status` | perception/MissionSignal | signal_decoder (perception) → mission_manager | 사이클마다 결과 · `ok=false`면 `error` = count · unknown · range · unconfirmed · reliable (래치 없음) |
 | `/task/sub_goals` | plan/SubGoalArray | mission_manager → coordinator | 계획마다 · reliable + transient_local. target = 물체 id · `"x,y"`(navigate) · **`"tray"`(pick·place — 로봇 뒤 적재함 12칸: place tray = `load next`, pick tray = `unload last`)** · 칸 번호·`next`·`last`(load·unload) · 자세 이름(pose) · 퍽 id(inspect) |

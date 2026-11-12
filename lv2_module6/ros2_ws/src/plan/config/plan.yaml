@@ -41,6 +41,10 @@ mission_manager:             # 주사위 기억 미션 (documents/mission/README
     start_pose_arena: [0.734, 0.950, 3.14159]
     start_zone: [0.434, 0.650, 1.034, 1.250]   # 출발 구역 [x0, y0, x1, y1] (복귀 판정·RViz)
     footprint: [0.069, -0.233, 0.153]        # 로봇 외곽 [앞, 뒤, 옆 반폭] (base_footprint, URDF) — 복귀 때 차체 전체가 구역 안인지
+    # 방문 순서 (1부터) — lv2_module6/tools/plan/route_order.py가 도면 벽 위 A*(로봇 반경 0.16 + 0.05)로 출발 → 박스 6 → 장소 3 → 복귀 총 길이를 비교해 정함
+    #   1·2·6·4·5·3 + L3·L2·L1 = 26.6 m (기존 1→6 + L1→L3 = 33.6 m · −21 %). 비우면 번호 순서
+    survey_order: [1, 2, 6, 4, 5, 3]
+    build_location_order: [3, 2, 1]
     # 경기장 벽 선분 [x0, y0, x1, y1, …] (arena, m) — documents/mission/dice-map.png (tools/cli/ros/docker/assets/course/dice_maze/walls.json 벽판 20개)
     #   ① 벽에 막힌 다가설 자리(벽에서 wall_clearance 안)는 고르지 않음 ② /arena/walls → nvblox_map이 /map에 겹쳐 Nav2가 처음부터 벽을 앎
     #   (발제: 기존 벽·기둥·박스 위치 유지 — 경기장 고정). 비우면 둘 다 안 함

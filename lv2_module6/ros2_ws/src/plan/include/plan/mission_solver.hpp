@@ -61,6 +61,8 @@ Pose2 arena_to_map(const Pose2 & p, const Pose2 & start);
 //   변 바깥 standoff [m]에 서서 박스 안쪽을 바라봄, 변을 따라서는 p와 나란히 (박스 범위 안으로 자름). arena 좌표
 std::vector<Pose2> approach_poses(double cx, double cy, double half, double px, double py, double standoff);
 
+// 방문 순서 파라미터(1부터 번호) → 0부터 인덱스. n개의 순열이 아니면(빈 값·중복·범위 밖) 0..n-1 그대로
+std::vector<size_t> visit_order(const std::vector<int64_t> & order, size_t n);
 // 점 (x, y)에서 가장 가까운 벽 선분까지 거리 [m] — walls = [x0, y0, x1, y1, …] (arena). 벽이 없으면 무한대
 double wall_distance(double x, double y, const std::vector<double> & walls);
 

@@ -48,51 +48,6 @@ def test_empty_without_model():
         rclpy.shutdown()
 
 
-def test_mission_qr():
-    """QR 판이 보이는 영상을 넣으면 /mission/qr 로 문제 코드를 낸다 (documents/mission/README.md)."""
-    import cv2
-    import numpy as np
-    from sensor_msgs.msg import Image
-    from std_msgs.msg import String
-
-    os.environ.setdefault("ROS_DOMAIN_ID", "101")
-    rclpy.init()
-    try:
-        node = PerceptionNode()
-        q = cv2.QRCodeEncoder.create().encode("MISSION:STAND_UP")
-        q = cv2.resize(q, (q.shape[1] * 6, q.shape[0] * 6), interpolation=cv2.INTER_NEAREST)
-        img = np.full((480, 640, 3), 128, np.uint8)
-        board = np.full((q.shape[0] + 40, q.shape[1] + 40), 255, np.uint8)
-        board[20:-20, 20:-20] = q
-        img[80:80 + board.shape[0], 180:180 + board.shape[1]] = board[:, :, None]
-        msg = Image(height=480, width=640, encoding="bgr8", step=640 * 3, data=img.tobytes())
-        # 추론에 필요한 깊이·내부파라미터·TF도 준다 (없으면 on_infer·to_map이 건너뜀)
-        from sensor_msgs.msg import CameraInfo
-        info = CameraInfo(width=640, height=480,
-                          k=[500.0, 0.0, 320.0, 0.0, 500.0, 240.0, 0.0, 0.0, 1.0])
-        node.on_info("pole_front_cam", info)
-        depth = np.full((480, 640), 1000, np.uint16)  # 1m 평면 [mm]
-        depth_msg = Image(height=480, width=640, encoding="mono16", step=640 * 2, data=depth.tobytes())
-        from tf2_ros.static_transform_broadcaster import StaticTransformBroadcaster
-        from geometry_msgs.msg import TransformStamped
-        tfb = StaticTransformBroadcaster(node)
-        t = TransformStamped()
-        t.header.frame_id, t.child_frame_id = "odom", "pole_front_cam_color_optical_frame"  # 추적 좌표계 (track_frame)
-        t.transform.rotation.w = 1.0
-        tfb.sendTransform(t)
-        got = []
-        node.create_subscription(String, "/mission/qr", lambda m: got.append(m.data),
-                                 node.qr_pub.qos_profile)
-        node.on_frame("pole_front_cam", msg, depth_msg)  # 동기화된 컬러·depth 쌍
-        # CI·도커처럼 CPU 다 걷어쓰면 타이머·discovery가 늦어질 수 있어서 여유를 둔다 (성공하면 바로 끝남)
-        end = node.get_clock().now() + rclpy.duration.Duration(seconds=15)
-        while node.get_clock().now() < end and not got:
-            rclpy.spin_once(node, timeout_sec=0.2)
-        assert got == ["MISSION:STAND_UP"]
-    finally:
-        rclpy.shutdown()
-
-
 def test_classify_color():
     """퍽 색 · 신호등 상태 (박스 안 HSV) — 조명 0.55~1.45배에서도 같은 답."""
     import numpy as np
@@ -154,20 +109,6 @@ def test_settle_puck_color():
     assert settle(roi_hsv(0, 40, 40), "red") == ("red", "")         # 어두워 색 화소 없음 → YOLO 색
     assert settle(roi_hsv(0, 40, 40), "")[0] is None                # YOLO 색도 없으면 버림
     assert settle_puck_color(roi_hsv(77), "green", "red", pc, use_model_color=False) == ("green", "")
-
-
-def test_qr_crop():
-    """멀리 있는 작은 QR 판(60px)도 박스만 잘라 확대하면 읽힌다 — 전체 화면으로는 못 읽음."""
-    import cv2
-    import numpy as np
-    from perception_node import qr_crop
-
-    q = cv2.QRCodeEncoder.create().encode("MISSION:STAND_UP")
-    q = cv2.copyMakeBorder(q, 2, 2, 2, 2, cv2.BORDER_CONSTANT, value=255)
-    small = cv2.resize(q, (60, 60), interpolation=cv2.INTER_AREA)
-    img = np.full((480, 640, 3), 128, np.uint8)
-    img[200:260, 300:360] = small[:, :, None]
-    assert cv2.QRCodeDetector().detectAndDecode(qr_crop(img, (300, 200, 360, 260)))[0] == "MISSION:STAND_UP"
 
 
 def _tf(parent, child, sec, x=0.0, rot=(0.0, 0.0, 0.0, 1.0)):
@@ -915,6 +856,19 @@ def test_tag_half_big():
     tags = detect_tags(tag_detector(), img, half=True)
     assert [t[0] for t in tags] == [7]
     assert 60 < tags[0][2][2] - tags[0][2][0] < 120  # 꼭짓점은 원본 화소 (반 크기 좌표 × 2)
+
+
+def test_tag_min_perimeter_same_tags():
+    """노드 기본 최소 둘레(원본·감마 16 px · 반 크기 24 px — CPU 절약)로도 위 두 시험 사진의 태그를 똑같이 읽음
+    (작은 후보를 안 보는 것뿐이라 읽을 수 있는 크기의 태그는 그대로여야 함 — 실물·Isaac 955장 비교는 11/11 노트)"""
+    import cv2
+    from perception_node import detect_tags, tag_detector
+
+    det = tag_detector()
+    for name, kw, want in (("glare_tag0.png", {"gamma": 2.5}, [0]), ("big_tag7.png", {"half": True}, [7])):
+        img = cv2.imread(str(Path(__file__).parent / "data" / name))
+        assert [t[0] for t in detect_tags(det, img, min_px=16.0, half_min_px=24.0, **kw)] == want
+        assert [t[0] for t in detect_tags(det, img, **kw)] == want  # 같은 검출기로 예전 값(None)도 다시 그대로
 
 
 def test_merge_duplicate_pucks():

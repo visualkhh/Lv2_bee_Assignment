@@ -102,6 +102,9 @@ MissionManager::MissionManager()
   match_radius_ = declare_parameter<double>("match_radius", 0.04);
   stand_check_s_ = declare_parameter<double>("stand_check_s", 1.0);
   verify_radius_ = declare_parameter<double>("verify_radius", 0.15);
+  // 방문 순서 (1부터) — 경기장 고정이라 오프라인 A*(tools/plan/route_order.py, 도면 벽)로 정한 값. 비거나 틀리면 1, 2, 3, …
+  survey_order_ = visit_order(declare_parameter<std::vector<int64_t>>("survey_order", std::vector<int64_t>{}), start_boxes_.size());
+  build_loc_order_ = visit_order(declare_parameter<std::vector<int64_t>>("build_location_order", std::vector<int64_t>{}), 3);
   walls_ = declare_parameter<std::vector<double>>("arena_walls", std::vector<double>{});
   wall_clearance_ = declare_parameter<double>("wall_clearance", 0.22);
   place_tol_ = declare_parameter<double>("place_tol", 0.010);
@@ -322,12 +325,14 @@ void MissionManager::read_phase() {
 }
 
 // ---------- SURVEY — 시작 박스 6곳 전부 조사하면서 적재함에 싣기
-void MissionManager::survey(size_t b) {
-  if (b >= start_boxes_.size()) { solve_allocation(); return; }
+void MissionManager::survey(size_t k) {  // k = 방문 순서 인덱스 (survey_order_) · b = 박스 번호(0부터)
+  if (k >= survey_order_.size()) { solve_allocation(); return; }
+  survey_k_ = k;
+  const size_t b = survey_order_[k];
   const Box box = start_boxes_[b];
   note("시작 박스 " + str(static_cast<int>(b) + 1) + " 조사");
   go_near(box, box.x, box.y, [this, b, box](bool ok, const std::string & why) {
-    if (!ok) { result("box " + str(static_cast<int>(b) + 1) + ": approach_failed " + why); survey(b + 1); return; }
+    if (!ok) { result("box " + str(static_cast<int>(b) + 1) + ": approach_failed " + why); survey(survey_k_ + 1); return; }
     // 상자 한 번 보기 (look 자세 → 퍽이 모자라거나 태그를 못 읽으면 본 퍽을 담는 자세로 다시) — 퍽 자리마다 따로 보던 것 (11/07)
     const std::vector<SubGoal> goals = {
       SubGoal().set__skill("inspect").set__target(point(box.x, box.y, box_top_z_ + puck_h_)).set__relation("box")};
@@ -360,7 +365,7 @@ void MissionManager::survey(size_t b) {
 }
 
 void MissionManager::load(size_t b, std::vector<int> found, size_t k) {
-  if (k >= found.size()) { survey(b + 1); return; }
+  if (k >= found.size()) { survey(survey_k_ + 1); return; }
   if (!basket_has_room()) { load(b, found, found.size()); return; }  // 꽉 참 — 나머지는 BUILD 때 시작 박스에서 직접
   const int tag = found[k];
   note("퍽 " + str(tag) + " → 적재함 (load next)");
@@ -392,7 +397,7 @@ void MissionManager::solve_allocation() {
   const bool ok = allocate(pucks_, counts_, alloc_, why);
   std::string groups;
   if (ok) {
-    for (size_t li = 0; li < 3; ++li) {
+    for (const size_t li : build_loc_order_) {  // 장소 방문 순서 (build_location_order) — 장소 번호 li는 그대로
       const char g = order_[li];
       const auto cells = dice_cells(group_count(counts_, g));
       std::vector<int> tags;

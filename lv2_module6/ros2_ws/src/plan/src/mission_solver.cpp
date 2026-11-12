@@ -115,6 +115,18 @@ std::vector<Pose2> approach_poses(double cx, double cy, double half, double px, 
   return out;
 }
 
+std::vector<size_t> visit_order(const std::vector<int64_t> & order, size_t n) {
+  std::vector<size_t> out(n);
+  for (size_t i = 0; i < n; ++i) out[i] = i;
+  if (order.size() != n) return out;
+  std::vector<bool> seen(n, false);
+  std::vector<size_t> o;
+  for (const auto v : order) {
+    if (v < 1 || static_cast<size_t>(v) > n || seen[v - 1]) return out;
+    seen[v - 1] = true;
+    o.push_back(static_cast<size_t>(v - 1));
+  }
+  return o;
 double wall_distance(double x, double y, const std::vector<double> & walls) {
   double best = std::numeric_limits<double>::infinity();
   for (size_t i = 0; i + 3 < walls.size(); i += 4) {
