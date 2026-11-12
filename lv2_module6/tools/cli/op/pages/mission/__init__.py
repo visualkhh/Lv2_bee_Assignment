@@ -1,7 +1,7 @@
 """미션 메뉴 — mission_manager에 시작·중지(/cmd/mission)를 보내고, 중앙에 실기 시험 디버그 한 화면.
 
 중앙(mission_lines — `run-cli mission status`와 공용)이 읽는 것 (operator_tool._wire_mission · StateStore):
-  /mission/state · /task/status · /task/sub_goals · /coordinator/basket · /mission/signal_status · /skill_context
+  /mission/state · /task/status · /task/current_plan (legacy /task/sub_goals) · /coordinator/basket · /mission/signal_status · /skill_context
   · /controller_server/FollowPath/status · /collision_monitor_state · Nav2 feedback · TF map→odom · /diagnostics_agg
 """
 from __future__ import annotations
@@ -45,7 +45,7 @@ def mission_lines(st, term) -> list[str]:
     else:
         plan_id, step, state, reason = task
         skill = st.current_skill()
-        name = f'{skill[0]} → {skill[1] or "-"}' if skill else '(sub_goals 모름)'
+        name = f'{skill[0]} → {skill[1] or "-"}' if skill else '(current_plan 모름)'
         total = len(st.sub_goals[1]) if st.sub_goals[0] == plan_id else 0
         label = {0: p('RUNNING', YELLOW), 1: p('SUCCEEDED', GREEN), 2: p('FAILED', RED + BOLD)}.get(state, str(state))
         out.append(f'[skill] step {step}{f"/{total}" if total else ""} {name} · {label} '

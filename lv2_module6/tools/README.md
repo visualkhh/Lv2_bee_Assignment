@@ -185,7 +185,7 @@ cd tools
 ./run-cli mission status   # 미션 화면과 같은 줄 (단계 · skill · 실패 이력 · 적재함 · 주행 · SLAM · 진단)
 ./run-cli mission start    # /cmd/mission start (mission_manager)
 ./run-cli mission abort    # /cmd/mission abort
-./run-cli mission skill pick 5   # skill 한 단계만 (/task/sub_goals → coordinator) — AUTO에서만
+./run-cli mission skill pick 5   # skill 한 단계만 (legacy /task/sub_goals → coordinator) — AUTO에서만
 ./run-cli mission stop     # 진행 중 skill 전부 취소
 ```
 
@@ -194,7 +194,7 @@ cd tools
 | 줄 | 내용 | 출처 |
 |---|---|---|
 | [미션] | 단계 + 단계 경과 + note · 바코드 · 신호 R/Y/G · 배정 · 놓음/전체 · 결과 6개 · 오류 | `/mission/state` |
-| [skill] | step/전체 · skill → 대상 · RUNNING/FAILED + 경과 · 이유 | `/task/status` + `/task/sub_goals` |
+| [skill] | step/전체 · skill → 대상 · RUNNING/FAILED + 경과 · 이유 | `/task/status` + `/task/current_plan` (legacy fallback `/task/sub_goals`) |
 | [실패 이력] | 최근 10건 (시각 · skill 실패 이유 · 미션 ERROR 이유) — 이유 문자열은 그대로 표시 | 위 둘 |
 | [적재함] | 칸:tag (`?` 모름 · `!` 확인 필요) · 손에 든 퍽 · 실은 순서 (장부를 못 받으면 /mission/state의 tray 사본) | `/coordinator/basket` |
 | [주행] | 남은 거리 · 회복 횟수 · 경과 · 제어기 RL/DWB(이유) · cloud 나이 · scan_min · v·w · 충돌 감시 켬/끔 + 지금 정지·감속 | Nav2 feedback · `/controller_server/FollowPath/status` · manual_control 진단 · `/collision_monitor_state` |
