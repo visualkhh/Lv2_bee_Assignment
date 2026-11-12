@@ -4,7 +4,7 @@
 
 - **순서**: 미션 단계를 차례로 진행합니다.
 - **기록**: 단계마다 결과를 파일로 남깁니다.
-- **skill 요청**: 각 단계에서 coordinator에 skill 계획을 보냅니다.
+- **skill 요청**: 각 단계에서 coordinator에 `ExecutePlan` Action으로 skill 계획을 보냅니다.
 
 판단(정렬, 배정, 할당, 칸, 판정)은 순수 함수 모음인 **mission_solver**가 합니다. skill 실행은 **coordinator**([05-arm.md](05-arm.md))가 합니다.
 
@@ -30,8 +30,11 @@ flowchart LR
   SIG --> MM
   QR --> MM
   OBJ --> MM
-  MM -->|"✉️ /task/sub_goals"| CO
-  CO -->|"✉️ /task/status"| MM
+  MM -->|"🎬 /task/execute_plan<br/>ExecutePlan"| CO
+  CO -->|"result + feedback"| MM
+  CO -->|"✉️ /task/status<br/>telemetry"| OBS["운영 화면 · bag"]
+  LEG["legacy CLI · Isaac · fake"] -.->|"✉️ /task/sub_goals"| CO
+  CO -.->|"📢 /task/current_plan<br/>accepted telemetry"| OBS
   MM --> OUT
 ```
 
@@ -56,7 +59,7 @@ flowchart TB
 
 ```bash
 ros2 topic pub --once /cmd/mission std_msgs/msg/String "{data: start}"   # 시작 (IDLE일 때만)
-ros2 topic pub --once /cmd/mission std_msgs/msg/String "{data: abort}"   # 멈춤 — coordinator 정지 (plan_id 0 + 빈 목록)
+ros2 topic pub --once /cmd/mission std_msgs/msg/String "{data: abort}"   # 멈춤 — MissionManager가 ExecutePlan cancel 요청
 ros2 topic echo /mission/state                                           # 단계 · 지금 하는 일 · 횟수 · 배정 · 적재함 · 결과
 ```
 
@@ -157,7 +160,7 @@ flowchart LR
 - 관측 실패(바코드, 신호)와 복귀 이동 실패만 **ERROR**로 멈춥니다. coordinator에 정지(plan_id 0 + 빈 목록)를 보냅니다.
 - 나머지(다가가기, 집기, 놓기, 확인)는 skill마다 `retries`번 다시 시도합니다. 그래도 안 되면 **그 퍽·장소만 실패로 결과에 남기고** 다음으로 갑니다. 그때까지의 점수는 유효하므로 복귀까지 진행합니다.
 - `/cmd/mission abort`는 어느 단계에서든 ERROR(`aborted`)로 멈춥니다.
-- **사람·안전 때문에 멈춘 skill은 다시 시도하지 않습니다.** coordinator 실패 이유가 `estop*` · `manual*` · `cancelled`이면 ERROR(`interrupted: <이유>`)로 미션을 멈춥니다. 비상정지, 수동 모드 전환, 다른 계획이 끼어든 경우입니다. 이어서 하려면 상태를 확인하고 `/cmd/mission start`로 다시 시작합니다(적재함 장부 확인 포함).
+- **사람·안전 때문에 멈춘 skill은 다시 시도하지 않습니다.** coordinator Action 결과/telemetry 이유가 `estop*` · `manual*` · `cancelled` · `preempted`이면 ERROR(`interrupted: <이유>`)로 미션을 멈춥니다. 비상정지, 수동 모드 전환, 다른 계획이 끼어든 경우입니다. 이어서 하려면 상태를 확인하고 `/cmd/mission start`로 다시 시작합니다(적재함 장부 확인 포함).
 
 ## 기록
 

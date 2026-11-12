@@ -611,6 +611,9 @@ class MapPage(Menu):
             try:   # 경유점 — plan 메시지가 없는 환경이면 건너뜀
                 from plan.msg import SubGoalArray
                 self._cost_subs.append(self.app.create_subscription(
+                    SubGoalArray, '/task/current_plan', self._on_goals, qos))
+                # legacy coordinator/Isaac/fake 환경의 지도 경유점도 계속 볼 수 있게 한다.
+                self._cost_subs.append(self.app.create_subscription(
                     SubGoalArray, '/task/sub_goals', self._on_goals, qos))
             except Exception:
                 pass

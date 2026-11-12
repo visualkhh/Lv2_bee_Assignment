@@ -164,6 +164,37 @@ SubGoal[] goals
 
 - 내는 쪽: mission_manager(주사위 미션, plan_id 1000000 + n) → `/task/sub_goals` (reliable + transient_local). 받는 쪽: coordinator.
 
+<a id="api-action-executeplan"></a>
+### plan/action/ExecutePlan ([파일](../lv2_module6/ros2_ws/src/plan/action/ExecutePlan.action))
+
+```text
+# goal
+uint32 plan_id
+SubGoal[] goals
+---
+# result
+bool success
+uint32 final_step
+string reason
+---
+# feedback
+uint32 plan_id
+uint32 current_step
+string skill
+string stage
+```
+
+- 정식 계획 실행 경계: coordinator Action server `/task/execute_plan`.
+- `goal`은 기존 `SubGoal[]` 계획을 그대로 담으므로 PR1에서는 단일 pose/기존 skill 계약을 바꾸지 않습니다. `result`는 계획 전체의 성공·마지막 단계·실패/취소 이유를 한 번 전달하고, `feedback`은 현재 단계와 실행 국면을 전달합니다.
+- `MissionManager`는 이 Action의 client입니다. `TaskStatus`는 계속 발행되는 단계별 telemetry이지만 정식 미션 완료를 기다리는 계약은 Action result입니다.
+- 기존 외부 도구·Isaac·fake는 `/task/sub_goals`에 계속 보낼 수 있습니다. Coordinator는 Action 실행 중 legacy 계획이 들어오면 최신 계획을 대기시킨 뒤 child skill 취소가 끝난 다음 기존 Action을 `ABORTED/preempted`로 끝내고 legacy 계획을 시작합니다. 대기 중인 Action이 새 요청으로 대체되면 이전 대기 Action도 `preempted`로 끝납니다.
+
+<a id="api-msg-currentplan"></a>
+### plan/msg/SubGoalArray — accepted plan telemetry
+
+- Coordinator가 실제로 수락한 계획은 `/task/current_plan`에도 `SubGoalArray`로 발행합니다(`reliable + transient_local`). 운영 화면·지도·bag 분석은 이 토픽을 우선 사용합니다.
+- `/task/sub_goals`는 입력 호환을 위한 legacy ingress이므로 coordinator가 Action goal을 다시 이 토픽에 republish하지 않습니다.
+
 <a id="api-msg-taskstatus"></a>
 ### plan/msg/TaskStatus ([파일](../lv2_module6/ros2_ws/src/plan/msg/TaskStatus.msg))
 
@@ -333,10 +364,12 @@ string message
 | `/mission/qr` | std_msgs/String | perception → mission_manager | 바코드 원문(예 `P2-01` — 정렬 방향) · QR — 읽은 내용이 바뀔 때만 · reliable + transient_local |
 | `/mission/signal` | perception/MissionSignal | signal_decoder (perception) → mission_manager | 신호등 12회 점멸 확정 답 {sequence, red, yellow, green, ok, raw} — 두 사이클 같게 읽혀 새 답이 확정될 때만 · reliable + transient_local. 해석(L1~L3 배정)은 mission_manager |
 | `/mission/signal_status` | perception/MissionSignal | signal_decoder (perception) → mission_manager | 사이클마다 결과 · `ok=false`면 `error` = count · unknown · range · unconfirmed · reliable (래치 없음) |
-| `/task/sub_goals` | plan/SubGoalArray | mission_manager → coordinator | 계획마다 · reliable + transient_local. target = 물체 id · `"x,y"`(navigate) · **`"tray"`(pick·place — 로봇 뒤 적재함 12칸: place tray = `load next`, pick tray = `unload last`)** · 칸 번호·`next`·`last`(load·unload) · 자세 이름(pose) · 퍽 id(inspect) |
+| `/task/execute_plan` | plan/action/ExecutePlan | mission_manager·정식 계획자 → coordinator | Action goal/result/feedback. goal = `plan_id + SubGoal[]`; cancel 지원 · reliable |
+| `/task/sub_goals` | plan/SubGoalArray | legacy CLI·Isaac·fake → coordinator | 계획마다 · reliable + transient_local. target = 물체 id · `"x,y"`(navigate) · **`"tray"`(pick·place — 로봇 뒤 적재함 12칸: place tray = `load next`, pick tray = `unload last`)** · 칸 번호·`next`·`last`(load·unload) · 자세 이름(pose) · 퍽 id(inspect) |
+| `/task/current_plan` | plan/SubGoalArray | coordinator → 운영 화면·RViz·bag 분석 | coordinator가 실제 수락한 마지막 계획 · reliable + transient_local · Action goal을 `/task/sub_goals`로 재발행하지 않음 |
 | `/mission/state` | plan/MissionState | mission_manager → (운영 화면 · RViz) | 단계 · 지금 하는 일 · 바코드 · R·Y·G 횟수 · L1~L3 그룹 · 적재함 칸 → tag · 놓은 수 · 결과 · 오류 — 바뀔 때마다 · reliable + transient_local ([03-plan.md](project/ros/03-plan.md)) |
 | `/mission/markers` | visualization_msgs/MarkerArray | mission_manager → RViz | 출발 구역 · 박스 · 장소 3×3 칸(배정 뒤 그룹 색) — 1Hz · reliable + transient_local |
-| `/task/status` | plan/TaskStatus | coordinator → mission_manager | 단계 완료·실패 시 · reliable + transient_local |
+| `/task/status` | plan/TaskStatus | coordinator → telemetry·legacy 모니터 | 단계 실행/완료·실패 시 · reliable + transient_local. 정식 Action client는 전체 완료를 `ExecutePlan` result로 판단 |
 | `/speed_limit` | nav2_msgs/SpeedLimit | (현재 발행자 없음) → controller_server | 값이 오면 컨트롤러에 전달 · reliable |
 | `/arm_safety_event` | control/ArmSafetyEvent | arm_safety_monitor → coordinator | 접촉 시 |
 | `/motor_status` | control/MotorStatus | BeebotSystemHardware → state_manager | 모터별 Hardware Error (0 정상 · −1 응답 없음 · 비트 1 입력전압 4 과열 8 엔코더 16 전기충격 32 과부하) + 사람이 읽는 이름 + 온도 °C — 바뀔 때만 · reliable + transient_local (펌웨어 `E` 줄 · `S` 끝 온도) |

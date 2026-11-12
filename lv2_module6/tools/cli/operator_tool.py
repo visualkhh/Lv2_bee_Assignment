@@ -227,6 +227,8 @@ class OperatorTool(Node):
     def _wire_mission(self):
         """미션 화면 디버그 줄·상단 미션 칸용 구독 — msg가 없는 환경이면 그 줄만 빠진다."""
         subs = (  # (패키지.msg, 클래스, 토픽, QoS, 콜백) — QoS는 발행 쪽과 맞춤 (mission_manager.cpp · coordinator.cpp)
+            ('plan.msg', 'SubGoalArray', '/task/current_plan', LATCHED, self.state.on_sub_goals),
+            # 구형 coordinator/Isaac/fake가 아직 legacy ingress만 발행할 때의 화면 호환
             ('plan.msg', 'SubGoalArray', '/task/sub_goals', LATCHED, self.state.on_sub_goals),
             ('plan.msg', 'BasketState', '/coordinator/basket', LATCHED, self.state.on_basket),
             ('perception.msg', 'MissionSignal', '/mission/signal_status', LIVE, self.state.on_signal_status),
