@@ -157,10 +157,14 @@ private:
     const auto wrap = [](double a) { return std::remainder(a, 2 * M_PI); };
     const double c = std::cos(yaw), s = std::sin(yaw);
     const double gx = c * (gx_ - x) + s * (gy_ - y), gy = -s * (gx_ - x) + c * (gy_ - y), gyaw = wrap(gyaw_ - yaw);
-    const double dist = std::hypot(gx, gy), head = std::atan2(gy, gx);
+    const double dist = std::hypot(gx, gy);
+    // 목표가 등 뒤이고 끝 방향이 지금과 거의 같으면 돌지 않고 똑바로 후진 (바코드 뒤 원래 자리로 · 박스에서 물러남)
+    const bool reverse = dist > 0.01 && gx < 0 && std::abs(gyaw) < 30.0 * M_PI / 180.0;
+    const double head = reverse ? std::atan2(-gy, -gx) : std::atan2(gy, gx);  // 후진이면 차체 뒤쪽 기준
     const bool far = dist > 0.01, turn_first = far && std::abs(head) > 10.0 * M_PI / 180.0;
     double v = far && !turn_first ? std::clamp(1.5 * gx, -0.12, 0.12) : 0.0;
-    double w = turn_first ? std::clamp(3.0 * head, -1.0, 1.0) : far ? std::clamp(4.0 * gy, -0.5, 0.5) : std::clamp(3.0 * gyaw, -1.0, 1.0);
+    double w = turn_first ? std::clamp(3.0 * head, -1.0, 1.0)
+             : far ? std::clamp((reverse ? -4.0 : 4.0) * gy, -0.5, 0.5) : std::clamp(3.0 * gyaw, -1.0, 1.0);
     if (dist <= tol_m_ && std::abs(gyaw) < tol_yaw_) still_s_ += 0.05;
     else still_s_ = 0.0;
     if (still_s_ >= hold_s_) {
@@ -176,8 +180,8 @@ private:
       end(false, "approach_blocked");
       return;
     }
-    double dv, dw;
-    residual(x, y, yaw, dv, dw);
+    double dv = 0.0, dw = 0.0;
+    if (!reverse) residual(x, y, yaw, dv, dw);  // 학습 보정은 전진으로만 배움
     send(v + dv, w + dw);
   }
 

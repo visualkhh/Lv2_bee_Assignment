@@ -135,7 +135,12 @@ private:
   Pose2 barcode_pose_;
   std::string barcode_arm_pose_;
   double barcode_pole_s_ = 3.0;   // 팔을 뻗기 전에 pole_front_cam으로 보는 시간
-  bool gaze_sent_ = false;        // 이번 BARCODE에서 팔을 뻗었는지 (끝날 때 접을지)  // 바코드 읽을 때 팔 자세 ("" = 안 움직임)
+  bool gaze_sent_ = false;        // 이번 BARCODE에서 팔을 뻗었는지 (끝날 때 접을지)
+  double barcode_gaze_wait_s_ = 3.0, barcode_advance_step_m_ = 0.08, barcode_advance_max_m_ = 0.16;
+  rclcpp::Time gaze_at_{0, 0, RCL_ROS_TIME};  // gaze 도착(또는 다가간 뒤) 시각
+  double advanced_m_ = 0.0;       // 바코드 쪽으로 다가간 거리
+  bool moving_ = false;           // 다가가는 중
+  Pose2 barcode_origin_;          // 다가갔다가 돌아올 자리 (arena)  // 바코드 읽을 때 팔 자세 ("" = 안 움직임)
   bool observe_move_ = false;  // barcode_pose_arena가 있으면 그 자리로 갔다가 관측 자리로 돌아옴
   double signal_timeout_s_, barcode_timeout_s_, home_hold_s_;
   int signal_error_cycles_ = 2;
