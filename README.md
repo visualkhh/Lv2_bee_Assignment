@@ -29,7 +29,7 @@
 > 🧾 비공개 표(회의록·트러블슈팅·개인 일지)는 CI 비로그인에서 안 보여서 마지막 로컬 스냅샷(2026-11-13)을 사용 · 투두는 공개 표에서 매일 갱신
 > 🕓 **매일 04:00 KST 자동 갱신** (GitHub Actions schedule) · 수동 실행: workflow_dispatch
 >
-> 기준: **전체 원격 브랜치 85개** (main만 아님) · 커밋 610개(merge·봇 제외) · 기간 2026-10-14 ~ 2026-11-12 · 갱신 2026-11-13 00:28 KST
+> 기준: **전체 원격 브랜치 85개** (main만 아님) · 커밋 610개(merge·봇 제외) · 기간 2026-10-14 ~ 2026-11-13 · 갱신 2026-11-13 00:34 KST
 > 가중치: 커밋×1 + 머지 PR×3 + 리뷰×2 + 닫은 이슈×2 + 연 이슈×0.5 · 장기 정체 = 열린 이슈 + 할당됨 + 14일 이상 갱신 없음 · **댓글 없는 닫힘은 이슈 처리량에서 제외**
 > 생성기: [`.github/scripts/contributors_report.py`](.github/scripts/contributors_report.py) · 워크플로: [`.github/workflows/contributors.yml`](.github/workflows/contributors.yml)
 
