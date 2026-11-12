@@ -3,6 +3,7 @@
 숫자를 치지 않는다: ↑↓ 관절 · ←→ 목표 ∓2° · , . ∓1° 로 **목표만** 바꾸고, Enter(또는 왼쪽 '적용')를 눌러야
 움직인다 — 그때 바꾼 관절의 이동량을 보여 주고 확인(기본 아니오)을 받는다. 한계 범위 밖으로는 목표가 못 간다.
 실제 전송은 `Bus.cmd_arm`(set)을 그대로 쓴다 — MANUAL 전환 확인·MAPPING/E-STOP 거절·manual_control 속도 제한이 그대로 적용.
+이름 있는 자세(stow · carry_left · carry_right)는 왼쪽 5~7 — skill_pose를 coordinator로 보냄(MoveIt 경로, AUTO에서만 실행 · 확인 거침).
 window.navigate('arm') 로 연다.
 """
 from __future__ import annotations
@@ -17,6 +18,8 @@ from ...defs import MAIN, QUIT, STAY
 from ...terminal import RED, YELLOW
 from ...menus import ActionItem, Menu
 
+# 이름 있는 자세 — coordinator pose_names(plan.yaml)가 받는 것만. scan은 미션에서 빼는 중이라 안 넣음
+POSES = [('5', 'stow', '접기 (주행·시작 자세)'), ('6', 'carry_left', '왼쪽으로 들기 (운반)'), ('7', 'carry_right', '오른쪽으로 들기 (운반)')]
 BIG_MOVE = math.radians(30.0)   # 한 관절이 이만큼 넘게 움직이면 확인창에 경고
 
 
@@ -55,6 +58,28 @@ class ArmControlPage(Menu):
         else:
             self.msg = self.term.paint('거부/실패: ' + (text[-1] if text else f'rc={rc}'), RED)
 
+    def go_pose(self, name: str) -> None:
+        """이름 있는 자세로 — /task/sub_goals에 pose 한 단계 (미션 화면 세부 명령과 같은 길). coordinator는 AUTO에서만 실행."""
+        m = self.state.mission
+        busy = m is not None and getattr(m, 'phase', 'IDLE') not in ('IDLE', 'DONE', 'ERROR')
+        body = ['팔이 MoveIt 경로로 움직입니다 — 주변에 걸리는 게 없는지 확인', f'조작 모드: {self.state.operation or "-"}']
+        if busy:
+            body.append(self.term.paint(f'⚠ 미션이 {m.phase} 단계 — 같은 coordinator를 쓰니 먼저 미션 중지', YELLOW))
+        if not self.ui.confirm(f'팔을 {name} 자세로 움직일까요?', default=False, body=body):
+            self.msg = '취소 — 보내지 않음'
+            return
+        if self.state.operation != 'AUTO':
+            if not self.ui.confirm('AUTO로 전환할까요?', default=True, body=['coordinator는 AUTO에서만 계획을 받습니다.']):
+                self.msg = '취소 — AUTO가 아니면 자세 명령은 실행되지 않음'
+                return
+            with self.ui.capture():
+                self.bus.cmd_mode(argparse.Namespace(mode='auto'))
+        with self.ui.capture() as (out, err):
+            rc = self.bus.cmd_skill('pose', name)
+        text = (out.getvalue() + err.getvalue()).strip().splitlines()
+        self.msg = (f'{name} 보냄 — 결과는 상단 미션 칸 · 미션 화면(9) skill 줄' if rc == 0
+                    else self.term.paint('실패: ' + (text[-1] if text else f'rc={rc}'), RED))
+
     def reset(self) -> None:
         self.view.reset()
         self.msg = '목표를 현재값으로 되돌림'
@@ -70,7 +95,8 @@ class ArmControlPage(Menu):
         return [ActionItem(self.app, '1', '적용 — 바꾼 관절을 움직임 (Enter · 확인 거침)', self.apply),
                 ActionItem(self.app, '2', '목표를 현재값으로 되돌리기 (z)', self.reset),
                 ActionItem(self.app, '3', '이 관절 목표 +2° (→)', lambda: self.view.on_key('right')),
-                ActionItem(self.app, '4', '이 관절 목표 -2° (←)', lambda: self.view.on_key('left'))]
+                ActionItem(self.app, '4', '이 관절 목표 -2° (←)', lambda: self.view.on_key('left'))] + \
+               [ActionItem(self.app, k, f'자세: {n} — {d}', lambda n=n: self.go_pose(n)) for k, n, d in POSES]
 
     def center(self) -> list[str]:
         """메시지·경고를 맨 위에 — 낮은 터미널(24줄)에서 아래가 잘려도 안 가려진다. 관절 5개 = 10줄."""
