@@ -8,6 +8,8 @@
 
 import argparse
 import shutil
+import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -52,6 +54,7 @@ from importlib.metadata import version  # noqa: E402
 from isaaclab_rl.rsl_rl import (RslRlMLPModelCfg, RslRlOnPolicyRunnerCfg, RslRlPpoAlgorithmCfg, RslRlVecEnvWrapper,  # noqa: E402
                                 handle_deprecated_rsl_rl_cfg)
 from isaaclab.utils import configclass  # noqa: E402
+from isaaclab.utils.io import dump_yaml  # noqa: E402
 from rsl_rl.runners import OnPolicyRunner  # noqa: E402
 
 from bee_isaac.constants import LOG_DIR, POLICY_DIR  # noqa: E402
@@ -226,6 +229,28 @@ def rollout(env, act_fn, label):
                                 if isinstance(v, list) and v and not isinstance(v[0], (tuple, list))})
 
 
+def snapshot(log_dir, env_cfg, agent):
+    """Training record next to the checkpoints: manifest.yaml (command, commit), env.yaml / agent.yaml (final cfg values),
+    bee.diff (uncommitted changes of the bee repo). Written before learn(), so a crashed run keeps it too."""
+    git = lambda *a: subprocess.run(["git", "-C", str(HERE), *a], capture_output=True, text=True).stdout
+    log_dir.mkdir(parents=True, exist_ok=True)
+    dump_yaml(str(log_dir / "env.yaml"), env_cfg)
+    dump_yaml(str(log_dir / "agent.yaml"), agent)
+    (log_dir / "bee.diff").write_text(git("diff", "HEAD") + "".join(f"# untracked: {f}\n" for f in git("ls-files", "--others", "--exclude-standard").split()))
+    dirty = " + 미커밋 수정 (bee.diff)" if git("status", "--porcelain", "--untracked-files=no").strip() else ""
+    (log_dir / "manifest.yaml").write_text(
+        "# 학습 기록 (사람이 읽는 표지). 한 줄 \"키: 값\" — train.py가 자동 작성, eval·status는 직접 채움\n"
+        f"date: {time.strftime('%Y-%m-%dT%H:%M')}\n"
+        f"run_name: {args.run}\n"
+        f"env: {type(env_cfg).__module__}.{type(env_cfg).__name__} (--task {args.task})\n"
+        f"cfg: {','.join(args.cfg) or '-'}\n"
+        f"command: python scripts/train.py {' '.join(sys.argv[1:])}\n"
+        f"resume: {args.resume or '-'}\n"
+        f"logs: logs/{log_dir.relative_to(LOG_DIR)}\n"
+        f"code: {git('rev-parse', '--short', 'HEAD').strip()} ({git('branch', '--show-current').strip()}){dirty}\n"
+        "eval: \nstatus: \n")
+
+
 def main():
     env = make_env()
     u = env.unwrapped
@@ -245,6 +270,7 @@ def main():
             agent.algorithm.entropy_coef = 0.005
         agent = handle_deprecated_rsl_rl_cfg(agent, version("rsl-rl-lib"))
         log_dir = LOG_DIR / args.run / time.strftime("%Y-%m-%d_%H-%M-%S")
+        snapshot(log_dir, u.cfg, agent)
         wenv = RslRlVecEnvWrapper(env, clip_actions=agent.clip_actions)
         runner = OnPolicyRunner(wenv, agent.to_dict(), log_dir=str(log_dir), device=u.device)
         if args.resume:
@@ -258,6 +284,10 @@ def main():
         onnx_rel = Path(args.out).with_suffix(".onnx")
         runner.export_policy_to_onnx(path=str(log_dir / "exported"), filename=onnx_rel.name)
         shutil.copy(log_dir / "exported" / onnx_rel.name, out / onnx_rel)
+        # record next to the policy; flat --out (no version folder) gets a name prefix so runs do not overwrite each other
+        pre = "" if (out / args.out).parent != out else Path(args.out).stem + "_"
+        for f in ("manifest.yaml", "env.yaml", "agent.yaml", "bee.diff"):
+            shutil.copy(log_dir / f, (out / args.out).parent / (pre + f))
         print(f"[train] exported {out / args.out}, {out / onnx_rel} (log {log_dir})")
         report(env, "train-all")
     env.close()
