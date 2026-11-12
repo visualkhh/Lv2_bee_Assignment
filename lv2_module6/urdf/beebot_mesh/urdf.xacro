@@ -782,11 +782,11 @@
     <limit effort="20.0" lower="0.0000" upper="0.0265" velocity="0.07"/>
     <mimic joint="gripper_left_joint" multiplier="1" offset="0"/>
   </joint>
-  <!-- gripper_cam pitch 20.0 -> 22.0 deg (11/11 실측, 브래킷 CB_A 교체 후): look 자세 책상 평면 피팅 +1.96° · 7자세 피팅 +1.87° · 보정 뒤 상자 윗면 69.9 mm (줄자 70 mm) -->
+  <!-- gripper_cam pitch 20.0 -> 20.8 deg (11/12 실측, 브래킷 CB_A 교체 후): look 자세 책상 평면 피팅 pitch + 높이 = +0.82° · −4.9 mm, 높이 몫은 팔 장착(arm_mount) 4.7 mm 과대였음 -->
   <joint name="gripper_cam_joint" type="fixed">
     <parent link="gripper_link"/>
     <child link="gripper_cam_link"/>
-    <origin rpy="-0.00014947924188481 0.383972435 -0.0010995446528302402" xyz="0.08168099999994151 -0.0002730000175021933 0.04032500000000001"/>
+    <origin rpy="-0.00014947924188481 0.363028484 -0.0010995446528302402" xyz="0.08168099999994151 -0.0002730000175021933 0.04032500000000001"/>
   </joint>
   <link name="gripper_cam_link">
     <inertial>

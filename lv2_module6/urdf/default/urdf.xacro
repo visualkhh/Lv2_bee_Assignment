@@ -579,7 +579,8 @@
   <joint name="arm_mount_joint" type="fixed">
     <parent link="base_link"/>
     <child link="arm_base_link"/>
-    <origin rpy="-0.000000 0.000000 0.000000" xyz="0.047985 -0.00023 0.133975"/>
+    <!-- arm mount z 0.133975 -> 0.129275 (11/12): 바닥~4층 윗면 실측 145 mm (11/11 · 11/12), 0자세 joint2 · joint3 축 줄자 222 / 350 mm와 일치 (0.133975일 때 226.5 / 354.5) -->
+    <origin rpy="-0.000000 0.000000 0.000000" xyz="0.047985 -0.00023 0.129275"/>
   </joint>
   <link name="arm_base_link">
     <inertial>
@@ -688,7 +689,7 @@
         <mesh filename="$(arg mesh_uri)/gripper_body_1.stl" scale="0.001 0.001 0.001"/>
       </geometry>
     </visual>
-    <visual name="gripper_cam_bracket_visual">  <!-- CB_A (2026-11-11). Camera pose stays on gripper_cam_joint -->
+    <visual name="gripper_cam_bracket_visual">  <!-- CB_A_v02 (2026-11-11). Camera pose stays on gripper_cam_joint -->
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
         <mesh filename="$(arg mesh_uri)/gripper_cam_bracket.stl" scale="0.001 0.001 0.001"/>
@@ -789,11 +790,11 @@
     <limit effort="20.0" lower="0.0000" upper="0.0265" velocity="0.07"/>
     <mimic joint="gripper_left_joint" multiplier="1" offset="0"/>
   </joint>
-  <!-- gripper_cam pitch 20.0 -> 22.0 deg (11/11 실측, 브래킷 CB_A 교체 후): look 자세 책상 평면 피팅 +1.96° · 7자세 피팅 +1.87° · 보정 뒤 상자 윗면 69.9 mm (줄자 70 mm) -->
+  <!-- gripper_cam pitch 20.0 -> 20.8 deg (11/12 실측, 브래킷 CB_A 교체 후): look 자세 책상 평면 피팅 pitch + 높이 = +0.82° · −4.9 mm, 높이 몫은 팔 장착(arm_mount) 4.7 mm 과대였음 -->
   <joint name="gripper_cam_joint" type="fixed">
     <parent link="gripper_link"/>
     <child link="gripper_cam_link"/>
-    <origin rpy="-0.00014947924188481 0.383972435 -0.0010995446528302402" xyz="0.08168099999994151 -0.0002730000175021933 0.04032500000000001"/>
+    <origin rpy="-0.00014947924188481 0.363028484 -0.0010995446528302402" xyz="0.08168099999994151 -0.0002730000175021933 0.04032500000000001"/>
   </joint>
   <link name="gripper_cam_link">
     <inertial>
@@ -1033,6 +1034,7 @@
       <param name="frame_id">imu_link</param>
     </sensor>
   </ros2_control>
+
 
   <!-- Gazebo (gz-sim): RGBD 카메라 2대. 센서는 optical 프레임 링크에 identity로 — 렌즈가 보는 방향 = optical +Z.
        방향이 뒤집혀 보이면 sensor 안 <pose>에 rpy를 얹어 맞춘다 (URDF optical joint와 같은 값부터). -->

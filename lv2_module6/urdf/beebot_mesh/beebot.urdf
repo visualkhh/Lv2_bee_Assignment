@@ -784,7 +784,7 @@
   <joint name="gripper_cam_joint" type="fixed">
     <parent link="gripper_link"/>
     <child link="gripper_cam_link"/>
-    <origin rpy="-0.00014947924188481 0.383972435 -0.0010995446528302402" xyz="0.08168099999994151 -0.0002730000175021933 0.04032500000000001"/>
+    <origin rpy="-0.00014947924188481 0.363028484 -0.0010995446528302402" xyz="0.08168099999994151 -0.0002730000175021933 0.04032500000000001"/>
   </joint>
   <link name="gripper_cam_link">
     <inertial>
