@@ -23,6 +23,10 @@ export OPENCR_TWIST_SCALE="${OPENCR_TWIST_SCALE:-1}"
 # 개인 프로파일(TypeLookup 켜짐)로 띄우면 노드 40개 규모에서 기동 직후 약 2분간 controller_manager 서비스가 안 보여
 # spawner가 실패 → joint_states 없음 → nvblox가 gripper_cam TF를 못 구한 depth에 막혀 지도가 멈췄다 (2026-10-30 실측)
 export FASTDDS_DEFAULT_PROFILES_FILE="$HERE/../../ros2_ws/fastdds_local_only.xml"
+# 범위는 SUBNET 고정 (이 프로파일이 정한 값 — SHM뿐이라 밖으로 안 나감). bashrc의 LOCALHOST를 물려받으면 Fast DDS가
+# localhost 참가자 몇 개에만 discovery를 보내 노드 일부가 서로 안 보였다 (11-12: camera_adapter · coordinator가 안 보여
+# camera_info·depth 없음 → nvblox 격자 0 · /coordinator/basket_clear 응답 없음)
+export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
 source /opt/ros/lyrical/setup.bash   # Isaac도 이 환경(ROS_DISTRO=lyrical, ROS_DOMAIN_ID)을 물려받는다 — 카메라 토픽은 Isaac 안 bridge가 냄
 # 이 터미널에 Isaac venv가 켜져 있으면(isaacsim 별칭 등) ROS 노드의 `#!/usr/bin/env python3`가 그 venv python(numpy 2)으로 떠
 # perception_node가 cv_bridge에서 segfault(exit −11)로 죽었음 (11/07). Isaac은 아래에서 venv를 따로 켜므로 여기선 끔
