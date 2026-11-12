@@ -38,6 +38,15 @@ bool SignalDecoder::feed(double t, const std::string & state, MissionSignal & ou
       seg_.push_back(blink_color());  // 점멸 1번
       off_since_ = last_on_;
       marked_ = false;
+      if (seg_.size() == 1 && on_start_ - tail_end_ > p_.tail_gap_max_s) tail_.clear();  // 사이클 사이가 3초보다 길었음 — 자리 모름
+      if (!tail_.empty() && seg_.size() + tail_.size() == static_cast<size_t>(p_.blinks)) {  // 앞부분 + 보관한 뒷부분 = 한 사이클
+        std::vector<std::string> seq(seg_);
+        seq.insert(seq.end(), tail_.begin(), tail_.end());
+        tail_.clear();
+        check(out, seq);
+        seg_.clear();
+        return true;
+      }
     } else {
       off_since_ = off_since_saved_;  // 잡음 — 그 전부터 이어진 꺼짐으로 계속 잼
     }
@@ -63,27 +72,29 @@ std::string SignalDecoder::blink_color() const {
 }
 
 bool SignalDecoder::boundary(MissionSignal & out) {
-  if (!started_) {  // 첫 사이클 끝 — 그 전 조각은 사이클 중간부터 봤을 수 있어 버림
-    started_ = true;
+  if (seg_.empty()) return false;  // 점멸 없이 꺼짐만 이어짐 (신호 시작 전 · 신호등 안 보임)
+  if (seg_.size() < static_cast<size_t>(p_.blinks)) {  // 끊긴 조각 — 이 사이클 뒷부분으로 보관 (오류 아님 · 지난 보관은 교체)
+    tail_.swap(seg_);
     seg_.clear();
+    tail_end_ = off_since_;
     return false;
   }
-  if (seg_.empty()) return false;  // 점멸 없이 꺼짐만 이어짐 (신호 시작 전 · 신호등 안 보임)
-  check(out);
+  check(out, seg_);  // blinks개 (넘으면 count 오류 — 두 사이클이 합쳐짐)
   seg_.clear();
+  tail_.clear();
   return true;
 }
 
-void SignalDecoder::check(MissionSignal & out) {
-  out.sequence = seg_;
-  out.red = static_cast<int32_t>(std::count(seg_.begin(), seg_.end(), "red"));
-  out.yellow = static_cast<int32_t>(std::count(seg_.begin(), seg_.end(), "yellow"));
-  out.green = static_cast<int32_t>(std::count(seg_.begin(), seg_.end(), "green"));
-  out.raw = text(seg_);
+void SignalDecoder::check(MissionSignal & out, const std::vector<std::string> & seq) {
+  out.sequence = seq;
+  out.red = static_cast<int32_t>(std::count(seq.begin(), seq.end(), "red"));
+  out.yellow = static_cast<int32_t>(std::count(seq.begin(), seq.end(), "yellow"));
+  out.green = static_cast<int32_t>(std::count(seq.begin(), seq.end(), "green"));
+  out.raw = text(seq);
   // 검사 순서: 모르는 색 → 개수 → 색별 범위 (앞에서 걸리면 그 이유 하나만)
   const auto out_of_range = [&](int32_t n) { return n < p_.min_count || n > p_.max_count; };
-  if (std::count(seg_.begin(), seg_.end(), "unknown") > 0) out.error = "unknown";
-  else if (static_cast<int>(seg_.size()) != p_.blinks) out.error = "count";
+  if (std::count(seq.begin(), seq.end(), "unknown") > 0) out.error = "unknown";
+  else if (static_cast<int>(seq.size()) != p_.blinks) out.error = "count";
   else if (out_of_range(out.red) || out_of_range(out.yellow) || out_of_range(out.green)) out.error = "range";
   else out.error = "";
   if (!out.error.empty()) {  // 정상 사이클이 아니면 연속 횟수를 끊음 — 다음 정상 사이클부터 다시 셈
@@ -101,7 +112,7 @@ void SignalDecoder::check(MissionSignal & out) {
 }
 
 std::string SignalDecoder::progress() const {
-  return (started_ ? "" : "(첫 사이클 끝 기다리는 중) ") + text(seg_) +
+  return (tail_.empty() ? "" : "(뒷부분 " + text(tail_) + " 보관) ") + text(seg_) +
          (in_on_ ? " (" + std::string(1, letter(blink_color())) + " 켜짐 중)" : "") +
          " · " + std::to_string(seg_.size()) + "/" + std::to_string(p_.blinks);
 }
@@ -116,6 +127,7 @@ SignalDecoderNode::SignalDecoderNode()
   p.blinks = static_cast<int>(declare_parameter<int64_t>("blinks", p.blinks));
   p.min_count = static_cast<int>(declare_parameter<int64_t>("min_count", p.min_count));
   p.max_count = static_cast<int>(declare_parameter<int64_t>("max_count", p.max_count));
+  p.tail_gap_max_s = declare_parameter<double>("tail_gap_max_s", p.tail_gap_max_s);
   p.confirm = static_cast<int>(declare_parameter<int64_t>("confirm", p.confirm));
   dec_ = SignalDecoder(p);
   pub_ = create_publisher<MissionSignal>("/mission/signal", rclcpp::QoS(1).reliable().transient_local());
