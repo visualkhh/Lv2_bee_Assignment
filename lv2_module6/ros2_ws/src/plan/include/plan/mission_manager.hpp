@@ -132,6 +132,7 @@ private:
   double box_top_z_, puck_h_, grid_step_, standoff_, approach_gap_, verify_radius_, match_radius_;
   double place_tol_, place_search_, corr_max_;
   Pose2 barcode_pose_;
+  bool observe_move_ = false;  // barcode_pose_arena가 있으면 그 자리로 갔다가 관측 자리로 돌아옴
   double signal_timeout_s_, barcode_timeout_s_, home_hold_s_;
   int signal_error_cycles_ = 2;
   int approach_tries_, retries_;
