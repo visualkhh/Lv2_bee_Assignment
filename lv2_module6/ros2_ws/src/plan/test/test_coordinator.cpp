@@ -4,6 +4,7 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <future>
 #include <thread>
 
 #include "plan/coordinator.hpp"
@@ -161,6 +162,88 @@ TEST_F(RosTest, MissingSkillServerNamesTheSkill) {
   std::string reason;
   for (auto & s : got) if (s.plan_id == 51 && s.state == TaskStatus::FAILED) reason = s.reason;
   EXPECT_EQ(reason, "skill_unavailable:pose");
+}
+
+TEST_F(RosTest, ExecutePlanActionRunsLegacySkillAndPublishesTelemetry) {
+  auto node = std::make_shared<Coordinator>(rclcpp::NodeOptions().parameter_overrides({{"basket_file", ""}}));
+  auto probe = std::make_shared<rclcpp::Node>("probe_execute_plan");
+  auto objects_pub = probe->create_publisher<TrackedObjectArray>("/tracked_objects", rclcpp::QoS(5).reliable());
+  std::vector<SubGoalArray> current;
+  std::vector<ExecutePlan::Feedback> feedback;
+  std::vector<TaskStatus> status;
+  auto current_sub = probe->create_subscription<SubGoalArray>("/task/current_plan", rclcpp::QoS(1).reliable().transient_local(),
+    [&](SubGoalArray::SharedPtr m) { current.push_back(*m); });
+  auto status_sub = probe->create_subscription<TaskStatus>("/task/status", rclcpp::QoS(10).reliable().transient_local(),
+    [&](TaskStatus::SharedPtr m) { status.push_back(*m); });
+  using SkillHandle = rclcpp_action::ServerGoalHandle<Skill>;
+  auto skill_server = rclcpp_action::create_server<Skill>(probe, "/skills/pose",
+    [](const rclcpp_action::GoalUUID &, std::shared_ptr<const Skill::Goal>) {
+      return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
+    },
+    [](const std::shared_ptr<SkillHandle>) { return rclcpp_action::CancelResponse::ACCEPT; },
+    [](const std::shared_ptr<SkillHandle> h) {
+      auto result = std::make_shared<Skill::Result>();
+      result->success = true;
+      h->succeed(result);
+    });
+  auto client = rclcpp_action::create_client<ExecutePlan>(probe, "/task/execute_plan");
+  std::shared_ptr<ExecutePlan::Result> result;
+  rclcpp_action::ResultCode result_code = rclcpp_action::ResultCode::UNKNOWN;
+  rclcpp::executors::SingleThreadedExecutor exec;
+  exec.add_node(node);
+  exec.add_node(probe);
+  ASSERT_TRUE(client->wait_for_action_server(std::chrono::seconds(2)));
+  ExecutePlan::Goal goal;
+  goal.plan_id = 71;
+  goal.goals.push_back(SubGoal().set__step(1).set__skill("pose").set__target("stow"));
+  rclcpp_action::Client<ExecutePlan>::SendGoalOptions options;
+  options.feedback_callback = [&](auto, const std::shared_ptr<const ExecutePlan::Feedback> f) { feedback.push_back(*f); };
+  options.result_callback = [&](const rclcpp_action::ClientGoalHandle<ExecutePlan>::WrappedResult & wrapped) {
+    result_code = wrapped.code;
+    result = wrapped.result;
+  };
+  auto goal_future = client->async_send_goal(goal, options);
+  ASSERT_TRUE(spin_until(exec, [&]() { objects_pub->publish(TrackedObjectArray()); },
+    [&]() { return goal_future.wait_for(std::chrono::seconds(0)) == std::future_status::ready && result != nullptr; }, 10.0));
+  EXPECT_EQ(result_code, rclcpp_action::ResultCode::SUCCEEDED);
+  ASSERT_TRUE(result != nullptr);
+  EXPECT_TRUE(result->success);
+  EXPECT_EQ(result->final_step, 1u);
+  ASSERT_FALSE(current.empty());
+  EXPECT_EQ(current.back().plan_id, 71u);
+  ASSERT_FALSE(feedback.empty());
+  EXPECT_EQ(feedback.front().plan_id, 71u);
+  EXPECT_EQ(feedback.front().current_step, 1u);
+  EXPECT_EQ(feedback.front().skill, "pose");
+  EXPECT_TRUE(std::any_of(status.begin(), status.end(), [](const auto & s) { return s.plan_id == 71 && s.state == TaskStatus::SUCCEEDED; }));
+}
+
+TEST_F(RosTest, ExecutePlanActionReturnsValidationFailure) {
+  auto node = std::make_shared<Coordinator>(rclcpp::NodeOptions().parameter_overrides({{"basket_file", ""}}));
+  auto probe = std::make_shared<rclcpp::Node>("probe_execute_validation");
+  auto objects_pub = probe->create_publisher<TrackedObjectArray>("/tracked_objects", rclcpp::QoS(5).reliable());
+  auto client = rclcpp_action::create_client<ExecutePlan>(probe, "/task/execute_plan");
+  std::shared_ptr<ExecutePlan::Result> result;
+  rclcpp_action::ResultCode result_code = rclcpp_action::ResultCode::UNKNOWN;
+  rclcpp::executors::SingleThreadedExecutor exec;
+  exec.add_node(node);
+  exec.add_node(probe);
+  ASSERT_TRUE(client->wait_for_action_server(std::chrono::seconds(2)));
+  ExecutePlan::Goal goal;
+  goal.plan_id = 72;
+  goal.goals.push_back(SubGoal().set__step(1).set__skill("fly").set__target("1"));
+  rclcpp_action::Client<ExecutePlan>::SendGoalOptions options;
+  options.result_callback = [&](const rclcpp_action::ClientGoalHandle<ExecutePlan>::WrappedResult & wrapped) {
+    result_code = wrapped.code;
+    result = wrapped.result;
+  };
+  auto future = client->async_send_goal(goal, options);
+  ASSERT_TRUE(spin_until(exec, [&]() { objects_pub->publish(TrackedObjectArray()); },
+    [&]() { return future.wait_for(std::chrono::seconds(0)) == std::future_status::ready && result != nullptr; }, 10.0));
+  EXPECT_EQ(result_code, rclcpp_action::ResultCode::ABORTED);
+  ASSERT_TRUE(result != nullptr);
+  EXPECT_FALSE(result->success);
+  EXPECT_EQ(result->reason, "invalid_plan:skill fly");
 }
 
 // skill이 goal을 받고 결과를 안 주면 step_timeout_s.<skill> 뒤 취소하고 <skill>_timeout으로 실패 (#131)
