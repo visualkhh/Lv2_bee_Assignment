@@ -348,8 +348,11 @@ void MissionManager::barcode_phase() {
             });
         }
       }
-      const bool out_of_steps = waited && !moving_ && !room;
-      if (out_of_steps || t > barcode_pole_s_ + barcode_timeout_s_) { timer_->cancel(); barcode_done(false, "barcode_missing"); }
+      // 포기는 더 다가갈 수 없는 마지막 자리에서 barcode_timeout_s를 기다린 뒤에만 (다가가는 시간은 안 셈 — 실기 11-12: 23 s 전체
+      //   제한에 걸려 1 s 뒤 읽힌 바코드를 놓침) · gaze에 아예 못 가면 pole_s + timeout_s
+      const bool final_wait = gaze_at_.nanoseconds() > 0 && !moving_ && !room && (now() - gaze_at_).seconds() > barcode_timeout_s_;
+      const bool no_gaze = gaze_at_.nanoseconds() == 0 && t > barcode_pole_s_ + barcode_timeout_s_;
+      if (final_wait || no_gaze) { timer_->cancel(); barcode_done(false, "barcode_missing"); }
       return;
     }
     timer_->cancel();
