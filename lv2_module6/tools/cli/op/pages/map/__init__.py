@@ -171,9 +171,10 @@ class MapPage(Menu):
         self._plans = {'plan': None, 'local_plan': None}
         self._waypoints = None
         self.plan_on = False
-        self._show_goals = False   # 지도 표시만 숨김 — 목록은 남겨 Backspace로 수정
-        self.msg = ('Nav2 주행 취소 — 경로 표시 지움 (웨이포인트 목록은 유지: Backspace)' if active
-                    else '주행 중인 웨이포인트 없음 — 경로 표시 지움 (목록은 유지: Backspace)')
+        self.goals.clear()   # 목록도 비운다 — 남겨 두면 다음 Enter에서 이전 점들이 되살아나 g로 같이 전송됐다 (실기 2026-11-12)
+        self._show_goals = True
+        self.msg = ('Nav2 주행 취소 — 경로·웨이포인트 모두 지움' if active
+                    else '주행 중인 웨이포인트 없음 — 경로·웨이포인트 모두 지움')
 
     def toggle_snap(self) -> None:
         self.snap = not self.snap

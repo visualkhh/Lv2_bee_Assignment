@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # run-cli — 로봇 스택(bringup) 시작·중지·재시작 + operator CLI.
 #   ./run-cli                     # 대화형 메뉴 (TUI)
-#   ./run-cli start               # bringup 시작 (백그라운드 · 로그 ./bringup.log = 실행한 폴더 · BRINGUP_LOG=경로로 바꿈) — 이미 떠 있으면 그대로
+#   ./run-cli start [launch 인자…] # bringup 시작 (예: use_mission_manager:=false) (백그라운드 · 로그 ./bringup.log = 실행한 폴더 · BRINGUP_LOG=경로로 바꿈) — 이미 떠 있으면 그대로
 #   ./run-cli stop                # 떠 있는 ROS 전부 끄기 (ros2_ws/stop.sh)
-#   ./run-cli restart [all]       # stop → start (같은 셸 환경으로 새로)
+#   ./run-cli restart [all] [launch 인자…] # stop → start (같은 셸 환경으로 새로)
 #   ./run-cli restart <노드>      # 그 노드만 다시 띄움 (state_manager · 수명주기 노드는 active까지)
 #   ./run-cli build [colcon 인자…] # ros2_ws에서 colcon build --symlink-install (예: --packages-select ml)
 #   ./run-cli <명령> …            # 그 밖은 CLI 한 번 명령 (status · mode manual · arm show · node list …)
@@ -32,7 +32,7 @@ start() {
   fi
   mkdir -p "$(dirname "$LOG")"
   # 이 셸 환경(FASTDDS_DEFAULT_PROFILES_FILE · ROS_DOMAIN_ID)을 그대로 물려줌 — ~/.bashrc를 고쳤으면 새 터미널에서
-  setsid nohup "$WS/start.sh" >"$LOG" 2>&1 </dev/null &
+  setsid nohup "$WS/start.sh" "$@" >"$LOG" 2>&1 </dev/null &   # launch 인자(key:=value)는 ros2_ws/start.sh로
   echo "bringup 시작 (pid $!) — 로그: tail -f $LOG"
   for _ in $(seq 30); do  # 하드웨어 활성화까지 (실패해도 프로세스는 남으니 로그로 확인)
     sleep 1
@@ -45,14 +45,15 @@ start() {
 # 모드 해석·검증은 cli/__main__.py가 한다 (셸은 lifecycle 명령만 가로챈다).
 case "${1:-menu}" in
   menu) exec "$HERE/cli/start.sh" ;;
-  start) start ;;
+  start) shift; start "$@" ;;
   stop) exec "$WS/stop.sh" ;;
   restart)
-    if [ $# -ge 2 ] && [ "$2" != all ]; then
+    if [ $# -ge 2 ] && [ "$2" != all ] && [[ "$2" != *:=* ]]; then   # key:=value는 노드 이름이 아니라 launch 인자
       exec "$HERE/cli/start.sh" node restart "$2"
     fi
+    shift; [ "${1:-}" = all ] && shift
     "$WS/stop.sh"
-    start
+    start "$@"
     ;;
   build)
     shift

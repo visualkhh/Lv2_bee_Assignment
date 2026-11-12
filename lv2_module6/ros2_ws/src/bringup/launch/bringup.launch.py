@@ -145,6 +145,11 @@ def setup_map(context):
     # 인지(YOLO 등)는 지도 만들 때(MAPPING) 쓰이지 않는다 — 실기에서는 CPU 코어 하나의 절반을 먹어 주행이 끊겼다 (2026-11-09).
     #   perception:=auto(기본) = 매핑이면 끔 · true/false = 강제. faker 테스트베드(fake_slam)는 그대로 켠다.
     pm = LaunchConfiguration('perception').perform(context).lower()
+    if LaunchConfiguration('use_mission').perform(context).lower() == 'false':
+        pm = 'false'   # 미션을 끄면 인지도 끔 — 아래 use_perception:=true가 다시 켤 수 있다
+    up = LaunchConfiguration('use_perception').perform(context).lower()   # use_perception:=true|false가 perception:=보다 우선 (use_* 인자와 같은 모양)
+    if up in ('true', 'false'):
+        pm = up
     if pm not in ('auto', 'true', 'false'):
         raise RuntimeError(f'perception:={pm} — auto | true | false')
     use_perception = 'false' if (pm == 'false' or (pm == 'auto' and effective == 'slam' and not fake_slam)) else 'true'
@@ -167,6 +172,12 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument('use_ros_system', default_value='true',
                               description='false면 ros_system(📦)을 띄우지 않음'),
+        DeclareLaunchArgument('use_mission', default_value='true',
+                              description='false면 미션에 쓰는 것을 모두 안 띄움 — mission_manager · coordinator · skill 노드(arm_skills·base_skills) · 인지(perception_node·signal_decoder·hand_relative) · grasp_scorer. 주행·수동 조작·body_filter는 그대로 (use_perception:=true 등 개별 인자가 우선)'),
+        DeclareLaunchArgument('use_mission_manager', default_value='true',
+                              description='false면 mission_manager를 띄우지 않음 — 도면 벽(/arena/walls)이 /map에 안 겹침 (매핑·주행 시험용, 미션 불가)'),
+        DeclareLaunchArgument('use_perception', default_value='auto',
+                              description='false면 인지 노드(perception_node · signal_decoder · hand_relative)를 안 띄움 · true면 항상 · auto(기본)면 perception:=를 따름 (body_filter는 Nav2용이라 늘 뜸)'),
         DeclareLaunchArgument('use_ml', default_value='true',
                               description='false면 ml 노드(grasp_scorer)를 띄우지 않음'),
         *[DeclareLaunchArgument(f'use_{n}', default_value=LaunchConfiguration('use_ml'),
@@ -216,17 +227,24 @@ def generate_launch_description():
 
         node('perception', 'perception_node', condition=IfCondition(LaunchConfiguration('use_perception'))),
         # coordinator: 계획 단계를 skill 노드에 맡기는 순서 담당 (적재함 장부 · 모드·비상정지 취소)
-        node('plan', 'coordinator'),
+        node('plan', 'coordinator', condition=IfCondition(LaunchConfiguration('use_mission'))),
         # skill 노드 — 단계마다 액션 서버 /skills/<skill> (팔: arm_skills 컨테이너 · 주행: base_skills). 학습 정책은 skill마다 models/skills/<skill>/
         #   시작 자세 · 지도 만들 때 스캔 자세(ros_system/config/scan_pose.yaml)는 skill_pose
         GroupAction([IncludeLaunchDescription(
             PythonLaunchDescriptionSource(PathJoinSubstitution([FindPackageShare('skills'), 'launch', 'skills.launch.py'])),
-            launch_arguments={'grasp_check': LaunchConfiguration('grasp_check')}.items())]),
+            launch_arguments={'grasp_check': LaunchConfiguration('grasp_check')}.items())],
+            condition=IfCondition(LaunchConfiguration('use_mission'))),
         # 주사위 미션 — /cmd/mission start로 시작 (abort로 멈춤). 출발 자세만 launch 인자로 덮어씀
-        node('plan', 'mission_manager', condition=IfCondition(PythonExpression(["'", LaunchConfiguration('start_pose'), "' == ''"]))),
+        node('plan', 'mission_manager', condition=IfCondition(PythonExpression(
+            ["'", LaunchConfiguration('use_mission'), "'.lower() == 'true' and '", LaunchConfiguration('use_mission_manager'),
+             "'.lower() == 'true' and '", LaunchConfiguration('start_pose'), "' == ''"]))),
         node('plan', 'mission_manager', {'start_pose_arena': ParameterValue(LaunchConfiguration('start_pose'), value_type=None)},
-             condition=IfCondition(PythonExpression(["'", LaunchConfiguration('start_pose'), "' != ''"]))),
-        *[node('ml', n, learning, condition=IfCondition(LaunchConfiguration(f'use_{n}'))) for n in ML_NODES],
+             condition=IfCondition(PythonExpression(
+                 ["'", LaunchConfiguration('use_mission'), "'.lower() == 'true' and '", LaunchConfiguration('use_mission_manager'),
+                  "'.lower() == 'true' and '", LaunchConfiguration('start_pose'), "' != ''"]))),
+        *[node('ml', n, learning, condition=IfCondition(PythonExpression(
+            ["'", LaunchConfiguration('use_mission'), "'.lower() == 'true' and '", LaunchConfiguration(f'use_{n}'), "'.lower() == 'true'"])))
+          for n in ML_NODES],
         node('control', 'arm_safety_monitor'),
         node('control', 'manual_control'),
         node('perception', 'body_filter'),

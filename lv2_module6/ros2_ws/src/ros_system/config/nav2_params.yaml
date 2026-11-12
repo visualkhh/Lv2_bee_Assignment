@@ -93,8 +93,10 @@ controller_server:
       plugin: "nav2_controller::SimpleGoalChecker"
       # true면 위치(xy)를 한 번 만족한 뒤엔 기억하고 방향(yaw)만 맞춘다.
       # false면 매 순간 위치·방향을 둘 다 만족해야 한다 — 허용 오차가 좁으면(0.10) 제자리 회전 중
-      #   위치가 살짝 벗어나 도착 판정이 늦어지거나 흔들릴 수 있다. 실기에서 보고 true로 바꿀지 결정.
-      stateful: false
+      #   위치가 살짝 벗어나 도착 판정이 늦어지거나 흔들릴 수 있다.
+      # true (2026-11-12): 실기에서 웨이포인트 근처를 빙빙 돌다 105(진행 못 함)가 났다 — 방향 맞추다 위치가 10 cm 밖으로 밀리는 되풀이를 끊는다.
+      #   안 나아지면 false로 되돌리고(이 줄만) 위치 흔들림(cuVSLAM 보정 잠금)을 본다.
+      stateful: true
       # 목표 위치 허용 오차(m). 퍽 앞 접근 정확도 — 팔 도달 범위가 좁아 기본 0.25보다 작게 (00-overview "도달 범위 주의"). (실측)
       xy_goal_tolerance: 0.10
       # 목표 방향 허용 오차(rad). 0.15 ≈ 8.6°. (실측)
@@ -102,7 +104,7 @@ controller_server:
     # through-poses 기본 BT의 GoalCheckerSelector가 찾는 이름 — 값은 goal_checker와 같게.
     general_goal_checker:
       plugin: "nav2_controller::SimpleGoalChecker"
-      stateful: false
+      stateful: true     # goal_checker와 같게 (위 설명)
       xy_goal_tolerance: 0.10
       yaw_goal_tolerance: 0.15
 

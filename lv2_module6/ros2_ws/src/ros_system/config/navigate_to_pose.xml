@@ -8,6 +8,9 @@
      실제로 멈춰 있을 때만 후진한다. 컨트롤러가 느려서 105(진행 못 함)가 난 경우는 로봇이 움직이고 있으니 후진을 건너뛴다
      (후진하면 간 만큼 되돌아가 오히려 퇴보 — 2026-11-10 실측: 루프가 1 Hz까지 느려져 105가 반복됨).
      ⚠ 이 후진 순서·조건은 실기 검증 전이다. 안 되면 git 으로 이 파일만 되돌리면 이전 순서(지우기 → 회전 → 대기 → 후진)다.
+  ③ FollowPath에 goal_checker_id·progress_checker_id·path_handler_id를 넘긴다 (navigate_through_poses.xml과 같게).
+     goal_checker가 둘(goal_checker·general_goal_checker)이 되면서 빈 이름이 더는 안 통해 단일 목표가 오류 100
+     "Failed to find goal checker name: ''"으로 바로 실패했다 (실기 2026-11-12).
   ros_system.launch.py가 bt_navigator의 default_nav_to_pose_bt_xml 로 넘긴다.
 -->
 <root BTCPP_format="4" main_tree_to_execute="NavigateToPoseWReplanningAndRecovery">
@@ -39,7 +42,7 @@
           </RecoveryNode>
         </RateController>
         <RecoveryNode number_of_retries="1" name="FollowPath">
-          <FollowPath path="{path}" controller_id="{selected_controller}" error_code_id="{follow_path_error_code}" error_msg="{follow_path_error_msg}" tracking_feedback="{tracking_feedback}"/>
+          <FollowPath path="{path}" controller_id="{selected_controller}" error_code_id="{follow_path_error_code}" error_msg="{follow_path_error_msg}" goal_checker_id="{selected_goal_checker}" progress_checker_id="{selected_progress_checker}" path_handler_id="{selected_path_handler}" tracking_feedback="{tracking_feedback}"/>
           <Sequence>
             <WouldAControllerRecoveryHelp error_code="{follow_path_error_code}"/>
             <ClearEntireCostmap name="ClearLocalCostmap-Context" service_name="local_costmap/clear_entirely_local_costmap"/>

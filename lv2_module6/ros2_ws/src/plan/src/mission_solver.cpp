@@ -127,6 +127,8 @@ std::vector<size_t> visit_order(const std::vector<int64_t> & order, size_t n) {
     o.push_back(static_cast<size_t>(v - 1));
   }
   return o;
+}
+
 double wall_distance(double x, double y, const std::vector<double> & walls) {
   double best = std::numeric_limits<double>::infinity();
   for (size_t i = 0; i + 3 < walls.size(); i += 4) {
