@@ -36,6 +36,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   msg/BasketSlot.msg
   msg/BasketState.msg
   action/Skill.action
+  action/ExecutePlan.action
   DEPENDENCIES std_msgs geometry_msgs perception)
 rosidl_get_typesupport_target(msgs_cpp ${PROJECT_NAME} rosidl_typesupport_cpp)
 include_directories(include)
