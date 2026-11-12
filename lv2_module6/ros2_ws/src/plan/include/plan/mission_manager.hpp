@@ -163,6 +163,7 @@ private:
   int signal_streak_ = 0;               // 이어진 오류 사이클 수 (mission_solver signal_action)
   std::string signal_error_;            // ERROR로 갈 신호 오류 (count | unknown | range)
   std::string barcode_, barcode_msg_;
+  std::string bad_barcode_;              // 이번 BARCODE에서 본 미등록 바코드 (버리고 계속 찾음 · 끝까지 이것뿐이면 unknown_barcode)
   rclcpp::Time barcode_rx_{0, 0, RCL_ROS_TIME}, phase_started_{0, 0, RCL_ROS_TIME};
   rclcpp::Time read_started_{0, 0, RCL_ROS_TIME};
   Counts counts_;

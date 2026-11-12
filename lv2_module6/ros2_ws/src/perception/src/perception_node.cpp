@@ -3,6 +3,7 @@
 #include "perception/perception_node.hpp"
 #include "perception/barcode_fallback.hpp"
 
+#include <regex>
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -274,6 +275,7 @@ PerceptionNode::PerceptionNode(const rclcpp::NodeOptions & options) : rclcpp::No
   box_roi_yolo_ = pb("box_roi_yolo", false);  // 기본 끔 — 로봇에서 상자가 같은지 확인한 뒤 켬 (11/12)
   robot_front_x_ = pd("robot_front_x", 0.069);  // base_footprint → 로봇 앞면 [m] (상자 face_dist_m 기준 · 시뮬 pick_env ROBOT_FRONT_X)
   barcode_once_ = pb("barcode_once", true);             // 바코드를 한 번 읽으면 더 안 찾고 읽은 내용만 0.5초마다 다시 냄
+  barcode_once_re_ = std::regex(declare_parameter<std::string>("barcode_once_pattern", "P2-0[1-4]"));  // 이 형식일 때만 고정 — 잘못 읽은 값에 묶이지 않게
 
   // ---- 모델
   std::string model_dir;
@@ -321,6 +323,9 @@ PerceptionNode::PerceptionNode(const rclcpp::NodeOptions & options) : rclcpp::No
   dice_sub_ = create_subscription<std_msgs::msg::Int32>("/mission/capture_dice", 10,
     [this](std_msgs::msg::Int32::ConstSharedPtr m) { on_capture_dice(*m); });
   qr_pub_ = create_publisher<std_msgs::msg::String>("/mission/qr", latched);
+  // 미션을 (다시) 시작하면 지난 회차에 읽은 바코드를 잊고 새로 읽음 — barcode_once가 옛 값을 계속 내면 바코드 단계가 바로 통과됨 (실기 11-12)
+  mission_cmd_sub_ = create_subscription<std_msgs::msg::String>("/cmd/mission", rclcpp::QoS(10).reliable(),
+    [this](std_msgs::msg::String::ConstSharedPtr m) { if (m->data.rfind("start", 0) == 0) barcode_reset_ = true; });
   for (const std::string cam : {"pole_front_cam", "gripper_cam"}) {
     // 컬러·정렬 depth는 시각 맞춘 쌍으로만 (다른 순간의 컬러·depth를 섞지 않게) · camera_info는 따로
     CamSync cs;
@@ -1151,6 +1156,11 @@ void PerceptionNode::on_publish() {
 // ---------- 바코드 (2Hz) — 작업 지시 문자열 (P2-01 …) → 물체 barcode + /mission/qr
 void PerceptionNode::read_barcodes() {
   if (!barcode_) return;
+  if (barcode_reset_.exchange(false)) {
+    barcode_text_.clear();
+    qr_text_.clear();
+    RCLCPP_INFO(get_logger(), "미션 시작 — 바코드 다시 읽음");
+  }
   if (barcode_once_ && !barcode_text_.empty()) {
     // 이미 읽음 → 바코드 찾기는 더 안 하고 읽은 내용만 다시 냄 (mission_manager는 바코드 단계 시작 뒤에 받은 것만 씀)
     std_msgs::msg::String m;
@@ -1190,7 +1200,7 @@ void PerceptionNode::read_barcodes() {
                     barcode_once_ ? " — 이제 바코드는 안 읽음 (barcode_once)" : "");
       }
       qr_seen_ = now_w;
-      barcode_text_ = hit.text;
+      if (std::regex_match(hit.text, barcode_once_re_)) barcode_text_ = hit.text;  // 미등록 형식이면 계속 읽음
     }
     if (!dets.empty()) {
       std::lock_guard<std::mutex> lk(mutex_);

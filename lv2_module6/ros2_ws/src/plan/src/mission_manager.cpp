@@ -334,6 +334,7 @@ void MissionManager::barcode_phase() {
   read_started_ = phase_started_;
   signal_window_ = true;
   gaze_sent_ = false;
+  bad_barcode_.clear();
   gaze_at_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
   advanced_m_ = 0.0;
   moving_ = false;
@@ -341,9 +342,17 @@ void MissionManager::barcode_phase() {
   if (!robot_arena(barcode_origin_)) barcode_origin_ = start_;  // 다가갔다가 돌아올 자리
   timer_ = create_wall_timer(std::chrono::milliseconds(250), [this]() {
     if (phase_ != Phase::BARCODE) { timer_->cancel(); return; }
+    // 미등록 바코드(P2-01~04 아님)는 잘못 읽은 것일 수 있어 버리고 계속 찾음 — 끝까지 그것만 보이면 unknown_barcode로 정지 (발제: 미등록 → 안전 정지)
+    const auto take = [this](const std::string & t) {
+      bool asc = false;
+      if (t.empty() || !barcode_.empty()) return;
+      if (parse_barcode(t, asc)) { barcode_ = t; return; }
+      if (t != bad_barcode_) RCLCPP_WARN(get_logger(), "미등록 바코드 '%s' — 버리고 계속 찾음", t.c_str());
+      bad_barcode_ = t;
+    };
     if (objects_) for (const auto & o : objects_->objects)
-      if (o.class_name == "barcode" && rclcpp::Time(o.last_seen, RCL_ROS_TIME) >= phase_started_) barcode_ = detail(o, "content");
-    if (barcode_.empty() && barcode_rx_ >= phase_started_) barcode_ = barcode_msg_;
+      if (o.class_name == "barcode" && rclcpp::Time(o.last_seen, RCL_ROS_TIME) >= phase_started_) take(detail(o, "content"));
+    if (barcode_rx_ >= phase_started_) take(barcode_msg_);
     const double t = (now() - phase_started_).seconds();
     if (barcode_.empty()) {
       if (!gaze_sent_ && !barcode_arm_pose_.empty() && t > barcode_pole_s_) {
@@ -385,7 +394,10 @@ void MissionManager::barcode_phase() {
       //   제한에 걸려 1 s 뒤 읽힌 바코드를 놓침) · gaze에 아예 못 가면 pole_s + timeout_s
       const bool final_wait = gaze_at_.nanoseconds() > 0 && !moving_ && !room && (now() - gaze_at_).seconds() > barcode_timeout_s_;
       const bool no_gaze = gaze_at_.nanoseconds() == 0 && t > barcode_pole_s_ + barcode_timeout_s_;
-      if (final_wait || no_gaze) { timer_->cancel(); barcode_done(false, "barcode_missing"); }
+      if (final_wait || no_gaze) {
+        timer_->cancel();
+        barcode_done(false, bad_barcode_.empty() ? "barcode_missing" : "unknown_barcode:" + bad_barcode_);
+      }
       return;
     }
     timer_->cancel();
