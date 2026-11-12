@@ -283,14 +283,25 @@ case " $* " in *" map_dir:="*) ;; *) set -- "$@" "map_dir:=$HERE/map" ;; esac
 foxglove_hint() {
   case " $* " in *" use_foxglove:=false "*) return ;; esac
   ros2 pkg prefix foxglove_bridge >/dev/null 2>&1 || { echo "Foxglove: foxglove_bridge 없음 (sudo apt install ros-lyrical-foxglove-bridge)"; return; }
-  local port=8765 a ip ipads url
-  for a in "$@"; do case "$a" in foxglove_port:=*) port="${a#*:=}" ;; esac; done
+  local port=8765 tls=false a ip ipads url host scheme=ws d=$HOME/.ros/foxglove
+  for a in "$@"; do case "$a" in foxglove_port:=*) port="${a#*:=}" ;; foxglove_tls:=*) tls="${a#*:=}" ;; esac; done
   ip=$(ip -4 -o addr show scope global 2>/dev/null | awk '$2 !~ /^(docker|l4tbr|usb)/ {sub(/\/.*/, "", $4); print $4; exit}' || true)
+  host=$ip
+  if [ "$tls" = true ]; then  # wss:// — 자체 서명 인증서(처음 한 번 만듦) · 아이패드에 한 번 설치·신뢰해야 함 · 주소는 IP가 바뀌어도 되게 <이름>.local
+    scheme=wss; host="$(hostname).local"
+    if [ ! -f "$d/cert.pem" ]; then
+      mkdir -p "$d"
+      openssl req -x509 -newkey rsa:2048 -nodes -days 825 -keyout "$d/key.pem" -out "$d/cert.pem" -subj "/CN=$host" \
+        -addext "subjectAltName=DNS:$host,IP:$ip" -addext "basicConstraints=critical,CA:TRUE" \
+        -addext "extendedKeyUsage=serverAuth" 2>/dev/null && cp "$d/cert.pem" "$d/bee-foxglove.crt"
+    fi
+  fi
   ipads=$(timeout 3 avahi-browse -rtp _companion-link._tcp 2>/dev/null | awk -F';' '$1=="=" && $3=="IPv4" && ($4 ~ /iPad/ || $7 ~ /iPad/) {print $7" ("$8")"}' | sort -u || true)  # set -e·pipefail: avahi 없음·timeout도 계속
-  url="https://app.foxglove.dev/view?ds=foxglove-websocket&ds.url=ws%3A%2F%2F${ip}%3A${port}"
-  echo "=== Foxglove: ws://${ip}:${port} (또는 ws://$(hostname).local:${port})"
+  url="https://app.foxglove.dev/view?ds=foxglove-websocket&ds.url=${scheme}%3A%2F%2F${host}%3A${port}"
+  echo "=== Foxglove: ${scheme}://${host}:${port}$([ "$tls" = true ] || echo " (또는 ws://$(hostname).local:${port})")"
   [ -n "$ipads" ] && echo "    같은 망의 아이패드: $(echo "$ipads" | awk 'NR>1{printf " · "}{printf "%s", $0}')" || echo "    같은 망에 아이패드 안 보임 (와이파이 확인)"
   echo "    아이패드에서 열기: $url"
+  [ "$tls" = true ] && echo "    인증서(처음 한 번): $d/bee-foxglove.crt → Mac으로 받아 AirDrop → 아이패드 설치 → 설정 › 일반 › 정보 › 인증서 신뢰 설정에서 켬"
   if command -v qrencode >/dev/null; then qrencode -t ANSIUTF8 -m 1 "$url"; else echo "    (QR로 찍으려면: sudo apt install qrencode)"; fi
 }
 case "${LAUNCH_FILE:-bringup.launch.py}" in bringup.launch.py) foxglove_hint "$@" ;; esac

@@ -182,9 +182,15 @@ def foxglove(context):
             raise RuntimeError('use_foxglove:=true인데 foxglove_bridge가 없음 — sudo apt install ros-lyrical-foxglove-bridge')
         print('[bringup] foxglove_bridge 없음 — Foxglove 안 띄움 (설치: sudo apt install ros-lyrical-foxglove-bridge)')
         return []
+    params = {'port': int(LaunchConfiguration('foxglove_port').perform(context)), 'address': '0.0.0.0',
+              'send_buffer_limit': 100_000_000}
+    if LaunchConfiguration('foxglove_tls').perform(context).lower() == 'true':  # wss:// — 아이패드 Safari(https 페이지)가 ws://를 막을 때
+        d = os.path.expanduser('~/.ros/foxglove')
+        if not os.path.exists(f'{d}/cert.pem'):
+            raise RuntimeError(f'foxglove_tls:=true인데 {d}/cert.pem 없음 — start.sh로 띄우면 만들어짐')
+        params.update({'tls': True, 'certfile': f'{d}/cert.pem', 'keyfile': f'{d}/key.pem'})
     return [Node(package='foxglove_bridge', executable='foxglove_bridge', name='foxglove_bridge', output='screen',
-                 parameters=[{'port': int(LaunchConfiguration('foxglove_port').perform(context)), 'address': '0.0.0.0',
-                              'send_buffer_limit': 100_000_000}])]
+                 parameters=[params])]
 
 
 def generate_launch_description():
@@ -227,6 +233,8 @@ def generate_launch_description():
         DeclareLaunchArgument('use_foxglove', default_value='auto',
                               description='Foxglove 브리지 — auto: foxglove_bridge가 설치돼 있으면 켬 · true(없으면 오류) · false'),
         DeclareLaunchArgument('foxglove_port', default_value='8765', description='Foxglove WebSocket 포트 (ws://<로봇>:<이 포트>)'),
+        DeclareLaunchArgument('foxglove_tls', default_value='false',
+                              description='true = wss:// (~/.ros/foxglove/cert.pem·key.pem) — 아이패드 Safari가 https 페이지에서 ws://를 막을 때'),
         *[DeclareLaunchArgument(k, default_value=v, description=d) for k, (v, d) in ROS_SYSTEM_ARGS.items()],
         OpaqueFunction(function=setup_map),
         OpaqueFunction(function=foxglove),
