@@ -113,7 +113,7 @@ run(0.2)
 assert app.state.mission.phase == 'ERROR' and app.state.mission.error == 'aborted'
 
 # 세부 명령 (coordinator 흉내) — pose는 성공, 모르는 skill은 실패
-bus.cmd_skill('pose', 'scan')
+bus.cmd_skill('pose', 'carry_left')
 run(0.2)
 assert 'RUNNING' in app.state.task_status, app.state.task_status
 run(2.0)

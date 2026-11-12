@@ -141,7 +141,7 @@ def setup_map(context):
         found = detected_serials() if serial else None
         ug = 'true' if (found is None or serial in found) else 'false'   # 못 알아내면 예전처럼 켬
         if ug == 'false':
-            print(f'WARN: gripper_cam serial {serial} 감지 안 됨 — gripper_cam · gripper_depth_gate · hand_relative를 안 띄움', file=sys.stderr)
+            print(f'WARN: gripper_cam serial {serial} 감지 안 됨 — gripper_cam · hand_relative를 안 띄움', file=sys.stderr)
     # 인지(YOLO 등)는 지도 만들 때(MAPPING) 쓰이지 않는다 — 실기에서는 CPU 코어 하나의 절반을 먹어 주행이 끊겼다 (2026-11-09).
     #   perception:=auto(기본) = 매핑이면 끔 · true/false = 강제. faker 테스트베드(fake_slam)는 그대로 켠다.
     pm = LaunchConfiguration('perception').perform(context).lower()
