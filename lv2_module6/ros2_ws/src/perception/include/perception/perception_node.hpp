@@ -117,6 +117,8 @@ private:
   std::regex barcode_once_re_;
   std::atomic<double> barcode_until_{0.0};  // 이 시각(wall_s)까지 바코드 찾음 — 미션 start로 엶
   double barcode_window_s_ = 180.0;
+  double barcode_pole_s_ = 3.0;
+  std::atomic<double> barcode_from_{0.0};  // 바코드 찾기 창을 연 시각 (wall_s)
   bool barcode_always_ = false;
   rclcpp::Publisher<TrackedObjectArray>::SharedPtr pub_;
   std::map<std::string, rclcpp::Publisher<TrackedObjectArray>::SharedPtr> det_pubs_;

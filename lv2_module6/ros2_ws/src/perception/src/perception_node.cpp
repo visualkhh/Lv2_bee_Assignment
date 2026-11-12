@@ -280,6 +280,7 @@ PerceptionNode::PerceptionNode(const rclcpp::NodeOptions & options) : rclcpp::No
   //   YOLO와 같은 스레드를 막음 (젯슨 11/12 실측). 읽거나 abort면 그만 · barcode_always: true면 예전처럼 항상
   barcode_window_s_ = pd("barcode_window_s", 180.0);
   barcode_always_ = pb("barcode_always", false);
+  barcode_pole_s_ = pd("barcode_pole_s", 3.0);  // 창을 연 뒤 pole_front_cam은 이만큼만 (그 뒤는 손 카메라만 — pole은 신호등 YOLO에 양보)
 
   // ---- 모델
   std::string model_dir;
@@ -332,7 +333,8 @@ PerceptionNode::PerceptionNode(const rclcpp::NodeOptions & options) : rclcpp::No
     [this](std_msgs::msg::String::ConstSharedPtr m) {
       if (m->data == "start" || m->data == "start:BARCODE") {
         barcode_reset_ = true;
-        barcode_until_ = wall_s() + barcode_window_s_;
+        barcode_from_ = wall_s();
+        barcode_until_ = barcode_from_ + barcode_window_s_;
       } else if (m->data == "abort") {
         barcode_until_ = 0.0;
       }
@@ -1187,7 +1189,10 @@ void PerceptionNode::read_barcodes() {
     for (const auto & [c, s] : frames_)
       if (!s.bgr.empty() && !s.depth_mm.empty() && s.fx > 0) frames.emplace_back(c, s);
   }
+  const bool grip = std::any_of(frames.begin(), frames.end(), [](const auto & f) { return f.first == "gripper_cam"; });
+  const bool pole_too = barcode_always_ || !grip || wall_s() < barcode_from_ + barcode_pole_s_;  // 손 카메라가 없으면 pole이 계속
   for (const auto & [cam, s] : frames) {
+    if (cam == "pole_front_cam" && !pole_too) continue;  // 관측 중 pole은 신호등 — 바코드(한 장 최대 180 ms)가 같은 스레드의 YOLO를 막지 않게
     const auto hits = barcode_->read(s.bgr);
     if (hits.empty()) continue;
     const auto tf = lookup_tf(s.frame_id, s.stamp, true);

@@ -11,7 +11,8 @@
 //         ✉️ /mission/state (plan/MissionState, latched) · /mission/markers (RViz)
 //         ✉️ 기록 log_dir/<시작 시각>/ signal · allocation · build · verify · return · error .json + photos/ · /diagnostics
 //   단계 (순서와 실패 시 갈 곳은 mission_solver next_phase):
-//     GO_OBSERVE 바코드 보는 자세로 (팔은 stow 그대로 — scan 자세는 없앰, 11-09) → BARCODE 이번에 본 바코드 → 관측 자세(−X)로
+//     GO_OBSERVE 바코드 보는 자세로 (팔은 stow 그대로 — scan 자세는 없앰, 11-09) → BARCODE 관측: 손 카메라(gaze) 바코드 +
+//              pole_front_cam 신호를 같은 자리에서 동시에 (11-12 — 신호 오류는 팔·바퀴가 멈췄을 때만 셈 · abort면 팔 접음) → 관측 자세(−X)로
 //     → READ 12회 점멸 — signal_status가 ok(두 사이클 같은 답)면 확정 · unconfirmed면 기다림 ·
 //              count·unknown·range가 signal_error_cycles번 이어지면 ERROR (발제: 추정 금지 → 안전 정지) · signal_timeout_s 넘어도 ERROR
 //     → SURVEY 시작 박스 6곳 전부: 퍽 두 자리 inspect(tag·색·모양) → pick → load next (적재함 12칸)
@@ -145,6 +146,12 @@ private:
   rclcpp::Time gaze_at_{0, 0, RCL_ROS_TIME};  // gaze 도착(또는 다가간 뒤) 시각
   double advanced_m_ = 0.0;       // 바코드 쪽으로 다가간 거리
   bool moving_ = false;           // 다가가는 중
+  bool returning_ = false;        // 바코드 뒤 팔 접고 제자리로 돌아오는 중
+  bool light_warned_ = false;     // 이번 관측에서 신호등 안 보임 경고를 했음
+  double light_check_s_ = 8.0;    // 관측 시작 뒤 이만큼 신호등이 안 보이면 경고 [s]
+  double signal_read_min_s_ = 60.0;  // READ에 들어온 뒤 최소 이만큼은 신호를 봄 (관측 시간을 바코드에 다 써도) [s]
+  rclcpp::Time read_phase_at_{0, 0, RCL_ROS_TIME};
+  bool observe_still() const;     // 관측 중 팔·바퀴가 멈춰 있음 (신호 오류 사이클을 셀 때)
   Pose2 barcode_origin_;          // 다가갔다가 돌아올 자리 (arena)  // 바코드 읽을 때 팔 자세 ("" = 안 움직임)
   bool observe_move_ = false;  // barcode_pose_arena가 있으면 그 자리로 갔다가 관측 자리로 돌아옴
   double signal_timeout_s_, barcode_timeout_s_, home_hold_s_;
