@@ -1,4 +1,4 @@
-// perception_node 실행 파일 — 노드는 perception::PerceptionNode (include/perception/perception_node.hpp · src/perception_node.cpp)
+// perception_node 실행 파일 (C++판) — 노드 설명은 include/perception/perception_node.hpp
 #include "perception/perception_node.hpp"
 
 int main(int argc, char ** argv) {

@@ -12,6 +12,9 @@ build/
 
 .venv/
 
+# CLI 시나리오 실패 화면 덤프 (가짜 상태는 ~/.cache/beebot/cli-fake-state.json)
+lv2_module6/tools/cli/tests/.scenario-*.bin
+
 # 컨테이너 디버그 덤프 (topic echo 로그 등 휘발성, 커밋 금지)
 lv2_module5/debug/
 lv2_module6/debug/
@@ -25,3 +28,35 @@ lv2_module6/debug/
 lv2_module5/firmware/build/
 lv2_module6/firmware/build/
 /temp/
+/lv2_module6/ros2_ws/debug/
+/lv2_module6/ros2_ws/firmware/
+/lv2_module6/ros2_ws/map/*
+# 지도 정본(nvblox.nvblx)은 커서 커밋 안 함 — default 폴더도 미리보기(map.pgm·yaml)만
+/lv2_module6/ros2_ws/map/*/nvblox.nvblx
+# 테스트 지도 (fake·도커 /ws/map) — default(USD로 만든 완벽한 지도, build_world.py)만 커밋
+/lv2_module6/tools/cli/ros/fake/map/*
+!/lv2_module6/tools/cli/ros/fake/map/default/
+/lv2_module6/tools/cli/ros/docker/map/*
+!/lv2_module6/tools/cli/ros/docker/map/default/
+
+
+/log/
+/.playwright-mcp/
+
+# run-cli start 로그 (실행한 폴더에 생김)
+bringup.log
+
+# 칼리브레이션 결과 (tools/calibration/<시각>/raw.csv) — 계획 파일(wheel_square.json)만 커밋
+lv2_module6/tools/calibration/*/
+
+
+# run-cli 산출물 (tools/artifacts/<테스트>/<시각>_<라벨>/ — bag·리포트, 호스트 직접 실행 시)
+lv2_module6/tools/artifacts/
+
+# macOS
+.DS_Store
+
+# 도식화 및 문서화 툴 
+.agents/
+.archify/
+graphify-out/

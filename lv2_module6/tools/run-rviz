@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# run-rviz — rviz/{start,stop,restart}.sh 실행기. 기본은 start.
+#   ./run-rviz [start] [...]   # RViz 시작 (기본)
+#   ./run-rviz stop            # 켜져 있는 RViz 종료
+#   ./run-rviz restart         # RViz 재시작
+set -eo pipefail
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+cmd="${1:-start}"
+case "$cmd" in
+  start|stop|restart)
+    script="$cmd.sh"
+    [ $# -gt 0 ] && shift
+    exec "$HERE/rviz/$script" "$@"
+    ;;
+  *)
+    exec "$HERE/rviz/start.sh" "$@"
+    ;;
+esac

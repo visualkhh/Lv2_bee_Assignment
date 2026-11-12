@@ -1,0 +1,67 @@
+[목차](README.md) · [◀ ros2_control 연결](08-ctrl.md) · [노드 사전 ▶](10-catalog.md)
+
+## 직접 작성 노드와 제공 노드
+
+직접 작성은 노드 11개 + 컨트롤러 플러그인(rl_arm_correction) + 하드웨어 플러그인(BeebotSystemHardware) + OpenCR 펌웨어입니다. 나머지는 생태계 패키지를 가져와 설정하고 연결하는 일입니다.
+구현 위치: `lv2_module6/ros2_ws/src/<패키지>` — 패키지는 전부 ament_cmake, 노드는 C++ (perception · scan_cam_gate만 Python 스크립트).
+
+> 인터페이스 명세: [커스텀 인터페이스](../API.md#api-custom)
+
+| 노드 | 구분 | 패키지 · 형태 | 핵심 작업 |
+| --- | --- | --- | --- |
+| perception | 직접 | perception · ROS 2 노드 (Python) | YOLO 퍽·목표 구역·장애물·신호등 검출, 3D 위치, 두 카메라 융합 추적(ID), 퍽·장소는 안 보여도 기억 · AprilTag(OpenCV aruco — 퍽 번호 `tag`, 장소 상자 `location_box`) · 상자 윗면(depth — `location_box`·`start_box`, 위치·크기·방향) · 퍽 모양·방향(`shape`·`yaw`) · 바코드(zxing-cpp — `barcode` + /mission/qr) · 신호등 상태(`all` 포함) → /tracked_objects |
+| mission_manager | 직접 | plan · ROS 2 노드 | 주사위 미션 순서 ([03-plan.md](03-plan.md)) — /cmd/mission start → 바코드 · 12회 점멸(/mission/signal·signal_status) → 시작 박스 조사·적재함 → 할당(mission_solver) → 주사위 칸 놓기 · 재검증 → 복귀 · /mission/state · 기록 |
+| signal_decoder | 직접 | perception · ROS 2 노드 (C++) | 신호등 12회 점멸 — /tracked_objects의 신호등 상태를 시간축으로 세어 사이클(12번)마다 /mission/signal_status, 두 사이클 같은 답이면 /mission/signal (sequence · R·Y·G 횟수 — 해석은 받는 쪽) |
+| coordinator | 직접 | plan · ROS 2 노드 | 계획 단계를 skill 노드에 맡기는 순서 — 계획 검증(navigate·approach·pick·place·inspect·pose·load·unload·stand·stand_pick), 물체 → 좌표, 다가가기, 재시도, 적재함 장부, AUTO가 아니면 취소 → /task/status |
+| skill_* (9개) | 직접 | skills · 컴포넌트 (arm_skills · base_skills 컨테이너) | skill마다 액션 서버 `/skills/<skill>` 하나 — navigate · approach · pose · inspect · pick · place · load · unload · stand(+stand_pick). 자기 학습 정책 폴더 `models/skills/<skill>/` ([API.md](../../API.md) 3장) · skill_pose는 시작·스캔 자세도 |
+| grasp_scorer | 직접 | ml · ROS 2 서비스 노드 | 모델 로드, IK 가능 후보만 채점, /score_grasps 응답 |
+| rl_nav_controller | 직접 | ml · Nav2 controller 플러그인 | 관측 375(웨이포인트 5×2 + 가상스캔 360 + v/w/gyro + 이전행동 2), ONNX 추론, inner 바이패스(기본 MPPI · fallback_controller) |
+| rl_arm_correction | 직접 | ml · ros2_control chainable controller | reference에 Δ 더하기, enabled 파라미터 |
+| arm_safety_monitor | 직접 | control · ROS 2 노드 | 전류로 접촉 감지, 궤적 취소, coordinator 보고 |
+| manual_control | 직접 | control · ROS 2 노드 | 수동 모드(/state/operation_mode), 원격 조종 → twist_mux, 팔·그리퍼 직접 명령, `/cmd/manual/reboot_motors` → 📞 /beebotsystem/reboot_motors |
+| BeebotSystemHardware | 직접 | control · ros2_control SystemInterface 플러그인 | OpenCR와 USB 시리얼(`C` 명령 · `R` 재부팅 / `S` 상태 · `E` 모터 에러), 관절 영점 offset(URDF `<param name="offset">`), 첫 `S` 전엔 활성화 안 함, /motor_status(바뀔 때만), 📞 ~/reboot_motors, mock 모드 |
+| cuvslam_slam | 직접 | ros_system · ROS 2 노드 (Python) | cuVSLAM(GPU) 시각 SLAM — pole_front_cam RGB-D → TF map→odom(루프 클로저) · /cuvslam/odom(속도 → EKF odom1) · /cuvslam/path |
+| scan_cam_gate (pole_depth_gate · gripper_depth_gate) | 직접 | ros_system · ROS 2 노드 (Python) | nvblox에 줄 depth에서 카메라 0.5 m 안(자기 팔·폴대)을 0으로 → `…/image_nvblox`. gripper_cam은 팔이 스캔 자세일 때만 통과, 아니면 전부 0 (지도 만들 때 두 번째 카메라) |
+| nvblox_map | 직접 | ros_system · ROS 2 노드 (Python) | /nvblox_node/static_occupancy_grid → /map (latched, 1 Hz) · 위치추정(`map:=saved`)이면 시작할 때 📞 /nvblox_node/load_map |
+| body_filter | 직접 | perception · ROS 2 노드 (C++) | pole_front_cam 점구름에서 자기 몸(URDF collision) 점 제거 + `stride: 2`로 솎아 Nav2 |
+| state_manager | 직접 | manager · ROS 2 노드 | 로봇 상태의 주인 — /state/<이름>만 발행 (조작·지도 모드 — 지도 모드·지도 바꾸기는 launch 전체를 다시 띄움) · `/state/devices`(장치 이름 목록) + `/state/devices/<이름>`(active/disconnected/error 상세 — 팔·바퀴·그리퍼 모터 에러 포함) + `/state/topics`(전체 그래프) |
+| (OpenCR 펌웨어) beebot_opencr | 직접 | lv2_module6/firmware · Arduino | 다이나믹셀 8개 + IMU, 단위 변환, watchdog · 한 패킷 BulkWrite(바퀴 속도 + 팔·그리퍼 위치) · SyncRead(전류·속도·위치) · `S` 10ms · Hardware Error `E` 0.5초 · `R` 재부팅 · 12V 끊겼다 오면 토크 천천히 복구 |
+| realsense2_camera ×2 (pole_front_cam, gripper_cam) | 제공 | Intel RealSense ROS 2 래퍼 | 장치를 USB 3로 열고 토픽 발행 — serial_no, camera_name, 해상도·fps, align_depth, pointcloud 켜기 |
+| robot_state_publisher | 제공 | ROS 2 기본 | URDF(urdf/<이름>/urdf.xacro — launch `urdf:=`, 기본 beebot_mesh) |
+| robot_localization (ekf) | 제공 | ROS 2 패키지 | /odom + /imu + /cuvslam/odom(속도) 융합, odom TF 발행 |
+| twist_mux | 제공 | ROS 2 패키지 | 자동 /cmd_vel_nav · 수동 /cmd_vel_manual 고르기, /state/emergency 잠금(/cmd/e_stop → state_manager) → /cmd_vel_mux |
+| bt_navigator, planner_server, controller_server, behavior_server, velocity_smoother, collision_monitor, lifecycle_manager | 제공 | Nav2 | nav2_params.yaml (voxel layer에 점구름, velocity_smoother 입력 /cmd_vel_mux), 리매핑 |
+| nvblox_node | 제공 | isaac_ros_nvblox (nvblox_ros) | config/nvblox.yaml — global_frame map, depth 카메라 2대 → TSDF → 2D 점유 격자, 매핑이면 끌 때 `nvblox.nvblx` 저장 (Jetson은 소스 빌드 — [CUVSLAM.md](../../jetson-orin-nano/CUVSLAM.md)) |
+| move_group + MTC | 제공 | MoveIt 2 | Setup Assistant 설정 패키지, pick_ik, octomap 센서, 속도 스케일 |
+| controller_manager, JTC, gripper_controller(parallel_gripper), diff_drive_controller, imu_sensor_broadcaster, joint_state_broadcaster | 제공 | ros2_control | 컨트롤러 YAML, URDF ros2_control 태그 |
+| diagnostic_aggregator | 제공 | diagnostics | 노드별 /diagnostics를 계층별로 묶어 /diagnostics_agg |
+
+### 노드 외에 직접 만드는 것
+
+- **커스텀 인터페이스:** 별도 interfaces 패키지 없이 메시지를 내보내는 패키지가 가진다 — perception(TrackedObject(Array), MissionSignal) · plan(SubGoal(Array), TaskStatus) · control(ArmSafetyEvent, MotorStatus) · ml(ScoreGrasps.srv). 필드는 [API.md](../API.md#api-custom)
+- **launch 파일:** 전체 기동(bringup), 📦 기동(ros_system), 리매핑 (diff_drive_controller 토픽 → /cmd_vel·/odom, twist_mux 출력 → /cmd_vel_mux), 학습 노드 on/off 인자
+- **설정 파일:** 패키지별 config/*.yaml, nav2_params.yaml, ekf.yaml, controllers.yaml, twist_mux.yaml, diagnostics.yaml, collision_monitor 다각형, MoveIt 설정 패키지
+- **상태 진단:** 모든 🛠 노드 · 하드웨어 플러그인이 diagnostic_updater로 /diagnostics
+- **OpenCR 펌웨어 · 운영 CLI:** lv2_module6/firmware · tools (run-cli — 상태·진단 상세·수동 조작·모터 재부팅) · 시뮬레이션은 `isaac/usda`
+- **Isaac Lab 환경 코드:** 관측·행동·보상·랜덤화 정의 (ROS 노드 아님)
+
+### 패키지 구성
+
+```text
+lv2_module6/
+├── urdf/<이름>/urdf.xacro         # 모델 폴더마다 (기본 beebot_mesh, launch urdf:=) — TB3 + OM-X(RM-X52-TNM) + 손목 roll + 카메라 2대 · ros2_control 태그
+├── firmware/beebot_opencr/       # OpenCR 펌웨어
+├── tools/                         # run-cli 운영 도구
+└── ros2_ws/src/
+    ├── perception/   # perception · body_filter · signal_decoder + msg
+    ├── plan/         # mission_manager · coordinator + msg
+    ├── ml/           # grasp_scorer · rl_nav_controller(nav2 플러그인) · rl_arm_correction(플러그인) + srv
+    ├── control/      # arm_safety_monitor · manual_control · BeebotSystemHardware(플러그인) + msg
+    ├── manager/      # state_manager (상태 /state/*)
+    ├── ros_system/   # 📦 기동 · config (controllers · ekf · twist_mux) · scan_cam_gate
+    ├── bringup/      # 전체 실행 · diagnostics.yaml
+    └── faker/        # 테스트베드 대역 · 호스트 파일 연동
+```
+---
+
+[목차](README.md) · [◀ ros2_control 연결](08-ctrl.md) · [노드 사전 ▶](10-catalog.md) · [원본 페이지](https://dooboostore.github.io/ros2?concept=design&sec=nodes)

@@ -1,12 +1,16 @@
-# ros2_control 컨트롤러 — 설계: documents/ros2-design/08-ctrl.md
+# ros2_control 컨트롤러 — 설계: documents/project/ros/08-ctrl.md
 # 하드웨어: control/BeebotSystemHardware (URDF lv2_module6/urdf/beebot.urdf.xacro의 <ros2_control>)
-# spawn 순서: joint_state_broadcaster → imu_sensor_broadcaster → diff_drive_controller
+# spawn 순서: joint_state_broadcaster → imu_sensor_broadcaster → diff_drive_controller → gripper_controller
 #            → rl_arm_correction → arm_controller (체인은 뒤에서부터: arm_controller가 rl_arm_correction의 reference에 쓴다)
-#            → gripper_controller
+#            팔 체인이 맨 뒤 — 관절이 한계 밖이라 실패해도 앞의 것은 이미 켜짐 (ros_system.launch.py CONTROLLERS)
 # 팔: joint1~5 (OM-X 4축 + 손목 roll), 그리퍼: gripper_left_joint (오른쪽은 URDF mimic)
 controller_manager:
   ros__parameters:
     update_rate: 100
+    # URDF 관절 한계로 명령을 자르는 ros2_control 기본 기능 끔 — 켜 두면 관절이 이미 한계 밖에 있을 때(손으로 옮김·처짐)
+    # 예외로 rl_arm_correction·arm_controller가 안 켜져 되돌리는 명령조차 못 보냄 (2026-11-02 실기 joint2 −120°).
+    # 자동은 MoveIt이 URDF 한계 안에서만 계획 · 수동(CLI arm set·홈·시작 자세)은 조작자 책임으로 그대로 나감
+    enforce_command_limits: false
 
     joint_state_broadcaster:
       type: joint_state_broadcaster/JointStateBroadcaster
@@ -27,6 +31,9 @@ imu_sensor_broadcaster:
   ros__parameters:
     sensor_name: imu
     frame_id: imu_link
+    # 공분산 — 0이면 EKF가 IMU를 '완벽'으로 받아 바퀴와 섞는 비율이 의미 없음 (실측: 바퀴 odom은 실제와 같은데 EKF yaw만 4.5° 틀어짐).
+    # EKF는 yaw 각속도만 씀 (ekf.yaml imu0_config). 자이로 잡음 σ 0.01 rad/s → 분산 1e-4 (시뮬레이터 fake_opencr noise와 같음)
+    static_covariance_angular_velocity: [1.0e-4, 0.0, 0.0, 0.0, 1.0e-4, 0.0, 0.0, 0.0, 1.0e-4]
 
 diff_drive_controller:
   ros__parameters:
@@ -37,6 +44,11 @@ diff_drive_controller:
     base_frame_id: base_footprint
     odom_frame_id: odom
     enable_odom_tf: false       # odom→base_footprint TF는 EKF 하나만 (둘 다 내면 TF가 싸운다)
+    # 공분산 [x, y, z, roll, pitch, yaw] — EKF는 twist의 vx·vy·vyaw를 씀. 0이면 '완벽'으로 받아 IMU와 섞는 비율이 의미 없음.
+    #   vx·vy 0.001 (σ ≈ 0.03 m/s) · vyaw 0.01 (σ 0.1 rad/s — 바퀴 회전은 미끄러지면 틀어지므로 자이로(1e-4)를 더 믿게)
+    #   쓰지 않는 축(z·roll·pitch)은 크게
+    pose_covariance_diagonal: [0.001, 0.001, 1000000.0, 1000000.0, 1000000.0, 0.01]
+    twist_covariance_diagonal: [0.001, 0.001, 1000000.0, 1000000.0, 1000000.0, 0.01]
     publish_rate: 50.0
 
 rl_arm_correction:
@@ -44,6 +56,16 @@ rl_arm_correction:
     joints: [joint1, joint2, joint3, joint4, joint5]
     enabled: true
     max_delta: 0.05
+    sag_enabled: true          # 처짐 보정 적분 (reference가 멈춰 있을 때만)
+    gravity_enabled: true      # 중력 앞먹임 (관절 비틀림 d = c·τ를 미리 뺌 — 엔코더는 목표에서 d만큼 벗어나 보임)
+    sag_gain: 4.2              # [1/s] 학습 env와 같은 감쇠율 (85 ms마다 오차 30 %)
+    sag_max: 0.2               # [rad]
+    still_rate: 0.005          # [rad/s] reference 변화율이 이보다 작으면 멈춤
+    # 발열 방지 (stow로 주행하는 동안 서보가 계속 밀지 않게)
+    rest_pose: [0.0, -1.9024, 1.344, 0.9023, 0.0]  # = plan basket.yaml pose_stow — 여기선 적분 안 하고 0으로 풂
+    rest_tol: 0.03             # [rad]
+    windup_s: 2.0              # [s] 적분이 상한에 이만큼 붙어 있으면 (닿아서 못 감) 풀고 다음 reset_sag까지 쉼
+    debug_hz: 20.0             # ~/debug (ml/ArmCorrectionDebug) — 실기 디버깅·rosbag용, 0 = 안 냄
 
 arm_controller:
   ros__parameters:
@@ -63,5 +85,6 @@ arm_controller:
 gripper_controller:
   ros__parameters:
     joint: gripper_left_joint
-    max_effort: 1.0
+    max_effort_interface: gripper_left_joint/effort  # 쥐는 힘 → BeebotSystemHardware → 펌웨어 C 9번째 칸 (Goal Current)
+    max_effort: 0.6            # [A] 액션 goal에 effort가 없을 때 쓰는 쥐는 힘 한계 (펌웨어 기본 600 mA와 같게) — goal effort로 바꿈
     allow_stalling: true       # 퍽을 쥐면 손가락이 멈춘다 — 멈춤을 실패가 아니라 파지로

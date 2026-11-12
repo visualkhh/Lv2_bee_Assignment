@@ -1,0 +1,19 @@
+{
+ "about": "발제 공개 연습 문제 Q1 (신호·바코드 그대로) + 빨강 6 · 초록 6 배치 (시뮬레이터용 예시 — 실제 placement.csv가 나오면 교체)",
+ "signal": "RGRRGRGGYGYG",
+ "barcode": "P2-01",
+ "pucks": [
+  {"tag": 0, "color": "red", "shape": "cylinder", "box": 1, "side": -1},
+  {"tag": 1, "color": "green", "shape": "cuboid", "box": 1, "side": 1},
+  {"tag": 2, "color": "red", "shape": "cuboid", "box": 2, "side": -1},
+  {"tag": 3, "color": "green", "shape": "cylinder", "box": 2, "side": 1},
+  {"tag": 4, "color": "red", "shape": "cylinder", "box": 3, "side": -1},
+  {"tag": 5, "color": "green", "shape": "cuboid", "box": 3, "side": 1},
+  {"tag": 6, "color": "red", "shape": "cuboid", "box": 4, "side": -1},
+  {"tag": 7, "color": "green", "shape": "cylinder", "box": 4, "side": 1},
+  {"tag": 8, "color": "red", "shape": "cylinder", "box": 5, "side": -1},
+  {"tag": 9, "color": "green", "shape": "cuboid", "box": 5, "side": 1},
+  {"tag": 10, "color": "red", "shape": "cuboid", "box": 6, "side": -1},
+  {"tag": 11, "color": "green", "shape": "cylinder", "box": 6, "side": 1}
+ ]
+}

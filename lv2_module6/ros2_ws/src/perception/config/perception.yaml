@@ -1,4 +1,90 @@
-# perception 패키지 파라미터 — bringup이 노드에 넘긴다 (ros2 param get /perception <이름> 으로 확인)
+# perception 패키지 파라미터 — bringup이 노드(/perception)에 넘긴다 (ros2 param get /perception <이름> 으로 확인)
 perception:
   ros__parameters:
     rate_hz: 10.0            # /tracked_objects 발행 주기 (설계: 10Hz · reliable)
+    model_path: "bee_yolo11n_v6.onnx"  # 비면 share/perception/model/model.pt(팀 모델) 자동 탐색, 없으면 빈 목록 · 파일 이름만 쓰면 그 폴더에서 찾음
+                            #   bee_yolo11n_v6 (11/12): 퍽 + 상자 한 모델 — v5 10클래스 + 10 box(미션 상자 전체, 배경 택배 상자 아님)
+                            #     v5에서 이어서 · 상자 라벨 전부 사용자 검수 · 라벨 안 된 녹화 상자+퍽 장면 · 쌓은 퍽 보강 (yolo_puck runs/one11f)
+                            #     시험 (640 · conf 0.4, 같은 채점): 로봇 카메라 퍽 710/767 (v5 717) · 대회 장면만 688/744 (v5 696) · 헛검출 30 (v5 11, 대부분 쌓은 퍽을 한 네모로)
+                            #     상자 37/39 (상자 전용 box_v5 38) · 옛 실물 퍽 181/193 (v5 175) · 신호등 상태 573/582 (v5 577)
+                            #     상자 종류가 있어서 tag_roi · box_roi_yolo(CPU 절약)가 켜짐 · ONNX 384×640, .pt와 검출 같음 (시험 1072 = 1072)
+                            #   bee_yolo11n_v5.onnx: bee_yolo11n_v5.pt를 ONNX로 바꾼 것 (입력 384×640 고정 — 카메라 640×360에 맞춤, 실행에 onnxruntime 필요)
+                            #     로봇 카메라 시험은 .pt와 같음 (퍽 727/767 · 헛검출 23)
+                            #   bee_yolo11n_v5.pt: v4와 같은 10클래스(빨강·초록 퍽 × 사각·원기둥 · 신호등 상태 4 · person · obstacle) — v4 + 노트북 카메라 실물 234장 + 잘못된 학습 라벨 고침
+                            #     시험 (imgsz 640 · conf 0.4, 학습에 안 쓴 사진 · 시험 라벨 확인 후): 로봇 카메라 퍽 767개 중 727 찾음(94.8%) · 헛검출 23
+                            #     옛 실물 시험 퍽 187/193 · 헛검출 8 · 신호등 상태 579/582
+                            #   되돌리기: "bee_yolo11n_v5.onnx" (상자 없는 퍽 모델 — tag_roi·box_roi_yolo는 저절로 꺼짐) · "bee_yolo11n_v5.pt" · "" (팀 기본 model.pt)
+    confidence: 0.4         # 검출 신뢰도 하한
+    imgsz: 640              # YOLO 입력 한 변 — .pt일 때만 씀 (.onnx는 만들 때 정한 384×640으로 고정) · 416보다 작은 퍽을 더 찾음
+    # device: C++판 코드 기본 "cuda"(GPU 안 되면 저절로 CPU) · 파이썬판 기본 "cpu" — 여기 두지 않음: 노드 이름 아래 값이 launch 덮어쓰기(/**)를 이겨 stand_test perception_device가 안 먹었다 (2026-11-06)
+    cpu_threads: 2          # CPU로 추론할 때 스레드 수 (C++판: ONNX Runtime · 파이썬판: torch) — 기본(코어 전부)이면 제어·Nav2가 밀림 (도커 7코어 중 5코어를 먹었음)
+    track_frame: "odom"      # 추적·융합 좌표계 (끊김 없음) — /tracked_objects는 발행 순간의 map ← odom으로 바꿔 map 기준
+    # 컬러·depth 동기화 · 두 카메라 융합 (scripts/perception_node.py 맨 위 설명)
+    sync_slop: 0.05         # 컬러·정렬 depth를 한 쌍으로 묶는 시각 차 한도 [s]
+    match_dist: 0.4         # 같은 클래스 검출을 기존 트랙에 붙이는 거리 한도 [m] — 그 안에서 마할라노비스 거리 작은 쌍부터 1:1
+    det_merge_iou: 0.5      # 한 프레임에서 겹친(IoU ≥) 같은 퍽 박스를 하나로 (0 = 끔) — fuse가 1:1이라 두 번째 박스가 중복 트랙이 됐음 (11/07)
+    track_merge_m: 0.03     # 이 안의 같은 퍽 트랙 둘을 오래된 id 하나로 [m] (0 = 끔) — 퍽 폭 3 cm보다 작게 (붙은 다른 퍽은 안 합침)
+    puck_center_offset: 0.015  # [m] depth 점(보이는 표면) → 퍽 중심: 카메라 → 점 수평 방향으로 이만큼 (0 = 끔) — 안 하면 비스듬히 볼 때 중심보다 15 mm 카메라 쪽 (11/07 Isaac)
+    puck_center_full_deg: 45.0  # 이보다 얕게 내려다보면 offset 전부, 바로 위에서 보면 0 (cos 비례)
+    tag_center: true          # 태그를 읽은 서 있는 퍽은 태그 가운데 depth로 중심 (윗면 = 그대로 · 옆면 = 법선 반대로 puck_center_offset) — 위 표면 보정보다 먼저
+    pixel_sigma: 4.0        # 박스 중심 픽셀 오차 [px] → 가로·세로 σ = pixel_sigma·z/f
+    depth_sigma0: 0.005     # depth 오차 σz = depth_sigma0 + depth_sigma_k·z² [m] (RealSense: 거리² 비례)
+    depth_sigma_k: 0.01     #   → 0.3m 0.6cm · 1m 1.5cm · 2m 4.5cm · 4m 17cm
+    process_noise: 0.01     # 트랙 예측 공정 잡음 [m²/s] — 퍽·구역·장애물처럼 거의 안 움직이는 물체
+    process_noise_dynamic: 1.0  # person (스스로 움직임) — 크면 새 관측을 바로 따라감
+    # 자기 몸 필터 — pole_front_cam이 앞으로 뻗은 팔·그리퍼를 obstacle로 잡던 것 (영상 시각 TF로 그 순간 팔 자세)
+    self_filter: true
+    base_frame: "base_footprint"
+    self_links: ["shoulder_link", "upper_arm_link", "forearm_link", "wrist_link", "gripper_link", "end_effector_link"]
+    self_radius: 0.06       # 팔 링크를 잇는 선분에서 이 안이면 자기 몸 [m] (퍽은 마지막 선분 = 손가락 사이 제외)
+    body_radius: 0.2        # 차체 원점에서 수평 이 안 · 높이 body_height 아래면 자기 몸 [m] (적재함·폴)
+    tag_gamma: 2.5          # AprilTag를 감마로 어둡게 편 영상에서 한 번 더 찾음 (0 = 끔) — 광택 반사로 회색이 된 검은 칸 (11/07 Isaac: 판독 9→14/16)
+    tag_half: true          # 반 크기 영상에서도 한 번 더 — 가까워 크게(한 변 70 px+) 찍힌 태그는 원본에서 테두리를 못 찾았음 (11/07 Isaac)
+    tag_roi: false          # AprilTag를 YOLO 퍽·상자 네모 안에서만 (젯슨 CPU 절약 11/12) — 모델에 'box' 종류가 있을 때만 · 네모가 없으면 화면 전체
+                            #   로봇에서 켰을 때 태그 결과가 끔과 같은지 확인한 뒤 true로 (ros2 param set /perception tag_roi true)
+    tag_roi_margin: 0.3     #   네모를 변 길이의 이 비율 + 12 px만큼 넓혀서 찾음
+    box_roi_yolo: false     # 상자 깊이 찾기를 YOLO 'box' 네모 안에서만 (해상도 그대로 — 위치·방향 정밀도 같음) · 'box' 네모가 없으면 화면 전체
+                            #   로봇에서 상자 위치·방향이 끔과 같은지 확인한 뒤 true로 (ros2 param set /perception box_roi_yolo true)
+    robot_front_x: 0.069    # [m] base_footprint → 로봇 앞면 — 상자 details face_dist_m (로봇 앞면 → 상자 로봇 쪽 면) 기준
+    body_box: [-0.25, 0.08, 0.15]  # 차체 직사각형 [x_min, x_max, y_half] base_footprint 기준 [m] — 있으면 body_radius 대신
+                            #   URDF base_link 상자 x −0.2325~0.0688 · y ±0.133 + 여유 1~2 cm. 반경 0.2는 차체 앞 13 cm까지 지워
+                            #   inspect 자세에서 상자 앞쪽(차체에서 2~5 cm) 퍽을 자기 몸으로 버렸음 (11/07 Isaac 시험)
+    body_height: 0.6
+    self_arm_hits: 3        # 퍽이 아닌 검출 박스 안에 팔(TF 링크를 화면에 투영) 점이 이만큼 있으면 자기 팔 — 박스 일부만 팔이면 depth가 팔 뒤 바닥이라 위 3D 판정을 빠져나감 (0 = 안 봄)
+    # 퍽 판단 (실물 측정 10/21~22 · test/puck_tag_check.py) — 퍽 색·크기는 발제문이 나오면 여기서만 바꿀 것
+    puck_colors: ["red", "green"]  # 퍽으로 볼 색 (발제 v5 · 사용자 10/29: 퍽은 빨강·초록뿐 — 파랑·노랑 퍽 없음)
+    hue_tol: 10             # 기준 H(색상)에서 이만큼 안이어야 그 색 — 넘으면 other (주황 컵홀더 H12~13이 빨강으로 안 잡히게)
+    check_model_color: true # YOLO 이름의 색(puck_red)을 색 결정에 씀 — HSV가 어둡거나 애매하면 YOLO 색 · 분명히 다른 색(주황 등)만 버림 (11/03)
+    size_long_min_cm: 2.5   # 박스 긴 변 하한 [cm] (끝면·윗면 3×3만 보이면 2.5~3.9)
+    size_long_max_cm: 10.0  # 긴 변 상한 [cm] (누운 퍽 6.5~7.2 · 멀면 박스가 넉넉해져 8.5)
+    size_short_min_cm: 2.2  # 짧은 변 하한 [cm] (빨대 1.0~1.5 거름)
+    square_long_cm: 4.5     # 긴 변이 이보다 작고 정사각형에 가까우면 끝면·윗면 — 자세 모름
+    square_ratio: [0.8, 1.25]  # 정사각형으로 보는 높이÷폭 범위
+    stand_ratio: 0.8        # 높이÷폭 이 이상이면 서있음(puck), 미만이면 누움(puck_lying)
+    edge_px: 5              # 박스가 화면 가장자리 이 안에 닿으면 잘린 퍽 — 크기 하한·자세 안 봄 [px]
+    near_px: 70             # 깊이 없는데 박스 짧은 변이 이 이상이면 너무 가까운 퍽 — 위치 갱신 없이 마지막 위치 유지 [px]
+    depth_min_valid: 0.5    # 박스 가운데 깊이 화소가 이 비율보다 적으면 깊이 없음 (배경 몇 화소로 엉뚱한 거리 안 냄)
+hand_relative:               # 손 카메라 상대값 → 학습 보정 정책 입력 (scripts/hand_relative.py · 2026-11-03 배포 결정)
+  ros__parameters:
+    base_frame: "base_link"  # 시뮬 정책(isaac/rl/bee_isaac/tasks)이 쓰던 좌표
+    ee_frame: "end_effector_link"
+    map_frame: "map"
+    rate_hz: 20.0            # slot(적재함, 카메라 없이 TF만) 발행 주기 [Hz]
+    max_age_s: 0.35          # 이보다 오래된 손 카메라 검출은 안 씀 [s] — 검출 간격 0.25 s + 지연 (rl_arm_correction max_cam_age_s, 시뮬 meas_age_max)
+signal_decoder:              # 신호등 12회 점멸 (발제 v5 §02) — /tracked_objects 신호등 상태 → 사이클(12번)마다 → /mission/signal (→ 통합)
+  ros__parameters:           #   한 번 = 1초 켜짐 + 1초 꺼짐 · 12번 뒤 3초 꺼짐 후 반복 (사용자 10/28)
+    min_on_s: 0.3            # [s] 켜진 구간이 이보다 짧으면 잡음 (진짜 켜짐 1초)
+    min_off_s: 0.3           # [s] 이보다 짧은 꺼짐은 켜진 구간 안 (모델이 한두 프레임 놓침 · 진짜 점멸 사이 꺼짐 1초 — 0.4면 꺼짐 가운데 잡음에 두 점멸이 합쳐짐)
+    min_share: 0.5           # 켜진 구간에서 가장 많은 색 비율이 이보다 작으면 unknown (구간 안 색이 흔들려도 다수결)
+    gap_s: 2.5               # [s] 꺼짐(신호등 안 보임 포함)이 이만큼 이어지면 사이클 끝 — 점멸 사이 1초보다 길고 사이클 사이 3초보다 짧게
+    blinks: 12               # 한 사이클 점멸 수 — 아니면 error count
+    min_count: 1             # 색별 횟수 범위 (발제: 각 1~6회) — 벗어나면 error range
+    max_count: 6
+    confirm: 2               # 같은 답이 이만큼 연달아 나와야 ok (반복 신호 — 한 사이클 약 27초라 처음 확정까지 약 1분)
+# 자기 몸 점구름 필터 (C++ body_filter, 담당: 전승혜) — Nav2 costmap·collision_monitor 입력에서 팔·차체 점을 뺀다
+body_filter:
+  ros__parameters:
+    input_topic: /pole_front_cam/depth/color/points
+    output_topic: /pole_front_cam/depth/color/points_filtered   # Nav2 costmap·collision_monitor가 본다
+    padding: 0.10            # [m] 충돌 상자를 이만큼 키워서 뺀다 — 0.03이면 기본 자세(팔 접힘)에서 손목·그리퍼 점 약 8%가 상자 밖에 남아 collision_monitor가 늘 정지시켰음(실기 2026-11-09: 0.06=14개 · 0.08/0.10/0.12=0개). 0.10 = 0.08에 여유 2cm. 더 키우면 그리퍼 앞 진짜 장애물까지 지워지니 0.12 넘기지 말 것
+    stride: 4                # RGBD 점구름 4점당 1점만 Nav2/collision_monitor에 전달 (성능)

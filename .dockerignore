@@ -1,0 +1,19 @@
+# 빌드 컨텍스트 제외 — Dockerfile은 docker/ 스크립트만 COPY한다.
+# 대용량·재생성 가능 항목을 빼서 전송 시간을 줄인다.
+.venv/
+install/
+log/
+build/
+
+# 이미지에 COPY하지 않는 대용량/호스트 전용 (dockerfile은 docker/lv2_module6 + lv2_module6/tools만 복사)
+.git/
+.idea/
+lv2_module6/debug/
+lv2_module6/isaac/
+lv2_module6/models/
+lv2_module6/urdf/
+lv2_module6/isaac/learning/
+lv2_module6/tools/.venv/
+lv2_module6/tools/artifacts/
+lv2_module6/tools/bag/
+lv2_module6/tools/log/

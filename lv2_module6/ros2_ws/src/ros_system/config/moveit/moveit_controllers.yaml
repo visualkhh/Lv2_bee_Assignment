@@ -1,0 +1,19 @@
+# 궤적 실행 — ros2_control 컨트롤러와 연결 (controllers.yaml)
+#   arm_controller: JointTrajectoryController → /arm_controller/follow_joint_trajectory
+#   그리퍼는 ParallelGripperCommand 액션이라 moveit_simple_controller_manager의 GripperCommand 타입과 안 맞음 —
+#   plan 패키지가 /gripper_controller/gripper_cmd 를 직접 호출한다. 그래서 여기엔 arm만 둔다.
+/**:
+  ros__parameters:
+    moveit_controller_manager: moveit_simple_controller_manager/MoveItSimpleControllerManager
+    moveit_simple_controller_manager:
+      controller_names: [arm_controller]
+      arm_controller:
+        action_ns: follow_joint_trajectory
+        type: FollowJointTrajectory
+        default: true
+        joints: [joint1, joint2, joint3, joint4, joint5]
+    # 실행 시작 자세 허용 오차 [rad] (MoveIt 기본 0.01) — 팔 skill 닿는 구간이 끝나 보정 Δ가 0으로 빠질 때 팔이 0.1 s쯤 움직여
+    #   다음 MoveIt 궤적이 "Invalid Trajectory: start point deviates … more than 0.01"로 거부됨 → load_failed (11-10 시뮬: 4회).
+    #   arm_io settle 대기만으로는 시뮬 속도에 따라 모자람. 0.05 rad ≈ 3° (실행 중 ros2 param set은 쓰지 말 것 — inspect 계획이 깨졌음)
+    trajectory_execution:
+      allowed_start_tolerance: 0.05

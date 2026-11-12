@@ -1,5 +1,5 @@
-<library path="passthrough_arm_correction">
-  <class name="faker/PassthroughArmCorrection" type="faker::PassthroughArmCorrection"
+<library path="fake_rl_arm_correction">
+  <class name="faker/FakeRlArmCorrection" type="faker::FakeRlArmCorrection"
          base_class_type="controller_interface::ChainableControllerInterface">
     <description>ml/RlArmCorrection 대역 — reference를 그대로 command로 (Δ=0)</description>
   </class>

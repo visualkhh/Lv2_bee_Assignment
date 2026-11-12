@@ -1,7 +1,0 @@
-TurtleBot3 Waffle / ROS 2 Lyrical course examples
-
-ROBOTIS Cartographer Lua configuration retains its original copyright and Apache-2.0 notice.
-Upstream source repositories are fetched at the commits recorded in sources.repos and build_gazebo.sh.
-Their licenses remain applicable to those upstream projects.
-NVIDIA Isaac Sim, Isaac ROS runtime images, and third-party assets are not redistributed here.
-Twin Closed Maze B is the user-supplied STL converted to metres/Z-up; provenance is in source.json.

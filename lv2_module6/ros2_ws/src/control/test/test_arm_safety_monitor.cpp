@@ -1,4 +1,4 @@
-// control 기본 테스트: 팔 관절 전류가 기준(1.0A)을 넘은 상태가 0.1초 넘게 이어지면 /arm_safety_event
+// control 기본 테스트: 팔 관절이 거의 멈춘 채 전류가 기준(3.0A)을 넘은 상태가 0.3초 넘게 이어지면 /arm_safety_event
 #include <gtest/gtest.h>
 
 #include <chrono>
@@ -45,11 +45,39 @@ TEST_F(RosTest, OvercurrentRaisesSafetyEvent) {
       js.header.stamp = t;
       js.name = {"wheel_left_joint", "joint2"};
       js.position = {0, 0};
-      js.effort = {5.0, 2.0};  // 바퀴는 감시 대상 아님
+      js.velocity = {0, 0};     // 정지 상태여야 접촉으로 봄 (움직이는 중 전류는 정상 부하)
+      js.effort = {5.0, 5.0};   // 바퀴는 감시 대상 아님 · joint2 5A > 3A
       js_pub->publish(js);
       t += rclcpp::Duration::from_seconds(0.05);
     },
     [&]() { return got != nullptr; }));
   EXPECT_EQ(got->joint_name, "joint2");
   EXPECT_EQ(got->reason, "overcurrent");
+}
+
+// 움직이는 중(속도 큼)의 높은 전류는 중력·가속 부하 — 접촉으로 보지 않는다
+TEST_F(RosTest, MovingHighCurrentDoesNotTrip) {
+  auto node = std::make_shared<ArmSafetyMonitor>();
+  auto probe = std::make_shared<rclcpp::Node>("probe2");
+  auto js_pub = probe->create_publisher<JointState>("/joint_states", 10);
+  ArmSafetyEvent::SharedPtr got;
+  auto sub = probe->create_subscription<ArmSafetyEvent>("/arm_safety_event", rclcpp::QoS(10).reliable(),
+    [&](ArmSafetyEvent::SharedPtr m) { got = m; });
+  rclcpp::executors::SingleThreadedExecutor exec;
+  exec.add_node(node);
+  exec.add_node(probe);
+  rclcpp::Time t(1, 0, RCL_ROS_TIME);
+  spin_until(exec,
+    [&]() {
+      JointState js;
+      js.header.stamp = t;
+      js.name = {"joint2"};
+      js.position = {0};
+      js.velocity = {1.0};   // 움직이는 중
+      js.effort = {5.0};     // 전류는 큼
+      js_pub->publish(js);
+      t += rclcpp::Duration::from_seconds(0.05);
+    },
+    [&]() { return got != nullptr; }, 2.0);
+  EXPECT_EQ(got, nullptr);
 }

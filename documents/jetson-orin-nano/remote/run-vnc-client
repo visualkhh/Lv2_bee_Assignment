@@ -1,0 +1,232 @@
+#!/usr/bin/env bash
+# run-vnc-client — Jetson 원격 화면 클라이언트
+#
+# 이 스크립트는 PC에서 실행한다. Jetson에서는 run-vnc-server를 사용한다.
+# SSH 터널(localhost:5900 -> Jetson:127.0.0.1:5900)을 열고 Remmina/VNC Viewer를 실행한다.
+set -euo pipefail
+
+SSH_TARGET="${SSH_TARGET:-bee@bee.local}"
+LOCAL_PORT="${LOCAL_PORT:-5900}"
+REMOTE_PORT="${REMOTE_PORT:-5900}"
+ACTION=start
+NO_VNC=0
+# Remmina 접속 설정 기본값 — 전송량을 줄이는 쪽 (색 16bpp · 품질 medium). --plain이면 Remmina 기본값
+COLORDEPTH="${VNC_COLORDEPTH:-16}"
+QUALITY="${VNC_QUALITY:-medium}"
+PLAIN=0
+
+CONTROL_DIR="${XDG_RUNTIME_DIR:-/tmp}/bee-vnc-$(id -u)"
+CONTROL_PATH="${CONTROL_DIR}/ssh-%r@%h:%p"
+SSH_OPTS=(
+  -o ControlMaster=auto
+  -o "ControlPath=${CONTROL_PATH}"
+  -o ControlPersist=300
+  -o ServerAliveInterval=15
+  -o ServerAliveCountMax=3
+  -o ExitOnForwardFailure=yes
+)
+
+usage() {
+  cat <<'EOF'
+사용법:
+  ./run-vnc-client [옵션]
+  ./run-vnc-client --start
+  ./run-vnc-client --status
+  ./run-vnc-client --stop
+  ./run-vnc-client --restart
+
+옵션:
+  -H, --host USER@HOST   SSH 대상 (기본 bee@bee.local)
+  -l, --local-port N     PC 쪽 터널 포트 (기본 5900)
+  -r, --remote-port N    Jetson 쪽 VNC 포트 (기본 5900)
+      --no-vnc           VNC 클라이언트를 띄우지 않고 터널만 열기
+      --bpp N            색 깊이 (기본 16 — 8 · 16 · 24 · 32)
+      --quality Q        품질 (기본 medium — poor · medium · good · best)
+      --plain            접속 설정 파일 없이 Remmina 기본값으로 (vnc://localhost:포트)
+      --start            터널 열기 + VNC 실행 (기본 동작)
+      --status           터널 상태 확인
+      --stop             SSH 터널 종료
+      --restart          터널 종료 후 다시 시작
+  -h, --help             이 도움말
+
+환경변수:
+  SSH_TARGET, LOCAL_PORT
+  REMOTE_PORT, VNC_COLORDEPTH, VNC_QUALITY
+
+예:
+  ./run-vnc-client
+  ./run-vnc-client --host bee@10.2.12.110
+  ./run-vnc-client --local-port 5901   # PC의 5900이 이미 사용 중일 때
+  ./run-vnc-client --no-vnc            # 터널만 열기
+EOF
+}
+
+die() {
+  echo "에러: $*" >&2
+  exit 1
+}
+
+need_value() {
+  [[ $# -ge 2 && -n "$2" ]] || die "$1 옵션에 값이 필요합니다."
+}
+
+port_in_use() {
+  ss -ltnH 2>/dev/null | awk -v port=":${LOCAL_PORT}" '$4 ~ port"$" { found = 1 } END { exit !found }'
+}
+
+master_alive() {
+  ssh "${SSH_OPTS[@]}" -O check "$SSH_TARGET" >/dev/null 2>&1
+}
+
+show_status() {
+  echo "ssh target : ${SSH_TARGET}"
+  echo "tunnel     : localhost:${LOCAL_PORT} -> 127.0.0.1:${REMOTE_PORT}"
+  if master_alive; then
+    echo "ssh master : alive"
+  else
+    echo "ssh master : not running"
+  fi
+  if port_in_use; then
+    echo "local port  : LISTEN"
+    ss -ltnpH "sport = :${LOCAL_PORT}" 2>/dev/null || true
+  else
+    echo "local port  : closed"
+  fi
+}
+
+start_tunnel() {
+  if port_in_use; then
+    echo "PC의 ${LOCAL_PORT} 포트가 이미 사용 중입니다. 기존 터널을 재사용합니다."
+    return 0
+  fi
+
+  echo "SSH 터널 생성: localhost:${LOCAL_PORT} -> ${SSH_TARGET}:127.0.0.1:${REMOTE_PORT}"
+  ssh "${SSH_OPTS[@]}" -f -N \
+    -L "${LOCAL_PORT}:127.0.0.1:${REMOTE_PORT}" \
+    "$SSH_TARGET"
+
+  sleep 1
+  port_in_use || die "터널이 열리지 않았습니다. SSH 키/호스트/포트를 확인하세요."
+  echo "터널 준비 완료."
+}
+
+stop_tunnel() {
+  if master_alive; then
+    ssh "${SSH_OPTS[@]}" -O exit "$SSH_TARGET" >/dev/null 2>&1 || true
+    echo "SSH 터널을 종료했습니다."
+  else
+    echo "실행 중인 SSH 터널이 없습니다."
+  fi
+}
+
+# 품질 이름 → Remmina 값 (poor 0 · medium 1 · good 2 · best 9)
+quality_value() {
+  case "${1,,}" in
+    poor|0)   echo 0 ;;
+    medium|1) echo 1 ;;
+    good|2)   echo 2 ;;
+    best|9)   echo 9 ;;
+    *)        die "품질은 poor|medium|good|best: $1" ;;
+  esac
+}
+
+# Remmina 접속 설정 파일 — 실행할 때마다 옵션대로 새로 씀 (Remmina 목록에는 안 남음)
+write_profile() {
+  local f="${CONTROL_DIR}/jetson-vnc.remmina"
+  cat >"$f" <<EOF
+[remmina]
+name=Jetson VNC (${SSH_TARGET})
+protocol=VNC
+server=localhost:${LOCAL_PORT}
+colordepth=${COLORDEPTH}
+quality=$(quality_value "$QUALITY")
+EOF
+  echo "$f"
+}
+
+launch_vnc() {
+  if command -v remmina >/dev/null 2>&1; then
+    if [[ "$PLAIN" -eq 1 ]]; then
+      echo "Remmina 실행: vnc://localhost:${LOCAL_PORT}"
+      remmina -c "vnc://localhost:${LOCAL_PORT}" &
+    else
+      local profile
+      profile="$(write_profile)"
+      echo "Remmina 실행: localhost:${LOCAL_PORT} · ${COLORDEPTH}bpp · 품질 ${QUALITY} (${profile})"
+      remmina -c "$profile" &
+    fi
+    return 0
+  fi
+
+  if command -v vncviewer >/dev/null 2>&1; then
+    echo "VNC Viewer 실행: localhost:${LOCAL_PORT}"
+    vncviewer "localhost:${LOCAL_PORT}" &
+    return 0
+  fi
+
+  cat >&2 <<EOF
+VNC 클라이언트가 없습니다. 설치:
+  sudo apt install -y remmina remmina-plugin-vnc
+또는:
+  sudo apt install -y tigervnc-viewer
+
+터널은 열려 있으므로 VNC 클라이언트에서 직접 접속해도 됩니다:
+  localhost:${LOCAL_PORT}
+EOF
+  return 1
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -H|--host)        need_value "$1" "${2:-}"; SSH_TARGET="$2"; shift 2 ;;
+    -l|--local-port)  need_value "$1" "${2:-}"; LOCAL_PORT="$2"; shift 2 ;;
+    -r|--remote-port) need_value "$1" "${2:-}"; REMOTE_PORT="$2"; shift 2 ;;
+    --no-vnc)         NO_VNC=1; shift ;;
+    --bpp)            need_value "$1" "${2:-}"; COLORDEPTH="$2"; shift 2 ;;
+    --quality)        need_value "$1" "${2:-}"; QUALITY="$2"; shift 2 ;;
+    --plain)          PLAIN=1; shift ;;
+    --start)          ACTION=start; shift ;;
+    --status)         ACTION=status; shift ;;
+    --stop)           ACTION=stop; shift ;;
+    --restart)        ACTION=restart; shift ;;
+    -h|--help)        usage; exit 0 ;;
+    *)                die "알 수 없는 옵션: $1 (--help 참고)" ;;
+  esac
+done
+
+[[ "$LOCAL_PORT" =~ ^[0-9]+$ ]] || die "local port는 숫자여야 합니다: ${LOCAL_PORT}"
+[[ "$REMOTE_PORT" =~ ^[0-9]+$ ]] || die "remote port는 숫자여야 합니다: ${REMOTE_PORT}"
+(( LOCAL_PORT >= 1 && LOCAL_PORT <= 65535 )) || die "local port 범위 오류: ${LOCAL_PORT}"
+(( REMOTE_PORT >= 1 && REMOTE_PORT <= 65535 )) || die "remote port 범위 오류: ${REMOTE_PORT}"
+
+[[ "$COLORDEPTH" =~ ^(8|16|24|32)$ ]] || die "색 깊이는 8|16|24|32: ${COLORDEPTH}"
+quality_value "$QUALITY" >/dev/null
+
+mkdir -p "$CONTROL_DIR"
+chmod 700 "$CONTROL_DIR"
+
+start_action() {
+  start_tunnel
+  if [[ "$NO_VNC" -eq 1 ]]; then
+    echo "터널만 열었습니다. VNC 주소: localhost:${LOCAL_PORT}"
+  else
+    launch_vnc
+  fi
+}
+
+case "$ACTION" in
+  status)
+    show_status
+    ;;
+  stop)
+    stop_tunnel
+    ;;
+  restart)
+    stop_tunnel
+    sleep 1
+    start_action
+    ;;
+  start)
+    start_action
+    ;;
+esac

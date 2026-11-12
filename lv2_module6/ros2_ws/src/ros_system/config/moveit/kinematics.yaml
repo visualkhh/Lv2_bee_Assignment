@@ -1,0 +1,27 @@
+# IK — pick_ik (PickNik, 소스 빌드 — Lyrical apt에 없음: docker/lv2_module6/Dockerfile)
+#   팔이 5축이라 KDL은 "위치 + 위→아래 방향" 목표를 못 풀었음 (MoveIt이 방향 허용 범위 안에서 뽑은 목표 자세 대부분이
+#   팔 평면 밖으로 기울어 정확한 해가 없음 → 'Unable to sample any valid states for goal tree'). pick_ik는 비용(위치·회전 오차)을
+#   줄이는 방식이라 축이 모자란 팔에서도 해를 찾는다.
+#   이 팔은 5축이라 위치+자세를 동시에 맞추면 좌우 목표가 자주 실패한다. 그래서 위치 우선
+#   (rotation_scale=0.0) + RViz 'Approx IK Solutions'를 쓴다. 자세는 보장되지 않는다.
+/**:
+  ros__parameters:
+    # arm만 — gripper는 두 손가락 병렬이라 체인이 아님 (관절 직접 제어)
+    arm:
+      kinematics_solver: pick_ik/PickIkPlugin
+      kinematics_solver_timeout: 0.2 # [s] 5축 근사해 탐색 시간 (0.05는 global 탐색에 너무 짧았음)
+      mode: global                 # 전역 탐색 (진화 알고리즘 + 경사 하강) — local은 지금 자세 근처만
+      memetic_num_threads: 4       # global 탐색 병렬화 (기본 1)
+      position_scale: 1.0
+      rotation_scale: 0.0          # 위치만 — 자세까지 맞추면 5축에서 좌우 목표가 풀리지 않음
+      position_threshold: 0.001    # [m] 이 안이면 해
+      orientation_threshold: 0.01  # [rad] — rotation_scale=0.0이라 현재 미사용
+      cost_threshold: 0.001
+      # RViz 'Approx IK Solutions'가 켜졌을 때만 적용되는 근사 허용치.
+      # 5축이라 정확한 6-DOF 해가 없을 때 이 범위 안에서 근사해를 반환한다.
+      approximate_solution_position_threshold: 0.1    # [m]
+      approximate_solution_orientation_threshold: 0.5 # [rad] — rotation_scale=0.0이라 현재 미사용
+      approximate_solution_joint_threshold: 0.0       # 0 = 관절 변화량 제한 없음
+      approximate_solution_cost_threshold: 0.0        # 0 = cost 목표는 무시, 위치/자세 허용치만 검사
+      minimal_displacement_weight: 0.0
+      gd_step_size: 0.0001

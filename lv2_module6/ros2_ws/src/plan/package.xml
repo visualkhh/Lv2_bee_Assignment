@@ -3,7 +3,7 @@
 <package format="3">
   <name>plan</name>
   <version>0.1.0</version>
-  <description>작업 계획·임무 관리 — user_input(외부 텍스트 입력), vlm_task_planner, coordinator. SubGoal·TaskStatus 메시지 정의 포함</description>
+  <description>작업 계획·임무 관리 — coordinator. SubGoal·TaskStatus 메시지 정의 포함</description>
   <maintainer email="todo@example.com">권형중</maintainer>
   <license>Apache-2.0</license>
 
@@ -16,14 +16,24 @@
   <depend>std_msgs</depend>
   <depend>std_srvs</depend>
   <depend>geometry_msgs</depend>
+  <depend>action_msgs</depend>
+  <depend>sensor_msgs</depend>
   <depend>nav2_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>tf2</depend>
+  <depend>tf2_ros</depend>
   <depend>moveit_msgs</depend>
-  <depend>moveit_task_constructor_msgs</depend>
+  <depend>control_msgs</depend>
+  <depend>shape_msgs</depend>
+  <depend>visualization_msgs</depend>
   <depend>perception</depend>
   <depend>control</depend>
   <depend>ml</depend>
+  <depend>ament_index_cpp</depend>
 
   <exec_depend>rosidl_default_runtime</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
   <test_depend>ament_cmake_gtest</test_depend>
 
   <member_of_group>rosidl_interface_packages</member_of_group>

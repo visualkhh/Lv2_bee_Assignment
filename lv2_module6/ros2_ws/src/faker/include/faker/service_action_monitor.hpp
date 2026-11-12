@@ -13,7 +13,7 @@
 //                                             프로젝트 타입은 기동시 생성,
 //                                             그 외는 .../request 파일을 쓰면 생성
 //                                             (예: interface/srv/ml/ScoreGrasps/request → info)
-// 파라미터: debug_dir(기본 /ws/debug), period_s(기본 2.0)
+// 파라미터: debug_dir(기본 /debug), period_s(기본 2.0)
 // 제외: 파라미터·type_description 계열, 액션 내부(/_action/) 서비스는 service 목록에서 빼고 action으로만 노출.
 #include <chrono>
 #include <filesystem>
@@ -54,6 +54,7 @@ private:
   static fs::path dir_of(const std::string & root, const std::string & name);
   static void write_text(const fs::path & out, const std::string & text);
   static std::string definition_of(const std::string & type);
+  static void ensure_proto(const fs::path & dir, const std::string & type);
 
   std::string debug_dir_;
   std::map<std::string, std::string> services_;  // name -> type (직전 스캔)

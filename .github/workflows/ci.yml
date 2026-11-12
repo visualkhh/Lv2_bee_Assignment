@@ -2,54 +2,90 @@ name: ci
 
 on:
   push:
-    branches: [develop, main]
+    branches: [develop, main, feature/jetson]
   pull_request:
-    branches: [develop, main]
+    branches: [develop, main, feature/jetson]
 
 jobs:
   testbed:
-    # 로컬 게이트(test-all)와 동일한 검사를 그대로 실행 — 검사 로직은 docker/test-*.sh 한 곳에만.
-    # x86_64(PC)·aarch64(Raspberry Pi) 두 러너에서 각각 빌드·검사 → 아키텍처별 배포 패키지.
-    #   install/의 실행 파일은 빌드한 CPU에서만 돈다 (x86 빌드를 Pi에서 실행하면 Exec format error).
-    #   aarch64는 GitHub ARM 러너(ubuntu-24.04-arm, 공개 저장소 무료)에서 네이티브로 빌드.
+    # 로컬 게이트(test-all)와 동일한 검사를 그대로 실행 — 검사 로직은 docker/lv2_module6/test-*.sh 한 곳에만.
+    # x86_64(PC)·aarch64(Raspberry Pi/Orin) 러너에서 각각 빌드·검사 → 실행 환경별 배포 패키지.
+    #   install/의 실행 파일은 빌드한 CPU·OS에서만 돈다 (x86 빌드를 Pi에서 실행하면 Exec format error).
+    #   aarch64는 GitHub ARM 러너에서 네이티브로 빌드.
+    #   · resolute(26.04): 기존 PC·Raspberry Pi용
+    #   · noble(24.04): Jetson Orin Nano(JetPack 7 / Ubuntu 24.04, NVIDIA Isaac ROS Lyrical)용
     strategy:
       fail-fast: false
       matrix:
         include:
-          - arch: x86_64
-            runner: ubuntu-26.04
+#          - arch: x86_64
+#            runner: ubuntu-26.04
+#            dockerfile: docker/lv2_module6/Dockerfile
+#            label: x86_64
+#            target: ubuntu-26.04-x86_64
+#            package: ros2_ws-deploy-x86_64.tar.gz
+#          - arch: aarch64
+#            runner: ubuntu-26.04-arm
+#            dockerfile: docker/lv2_module6/Dockerfile
+#            label: aarch64
+#            target: ubuntu-26.04-aarch64
+#            package: ros2_ws-deploy-aarch64.tar.gz
           - arch: aarch64
-            runner: ubuntu-26.04-arm
+            runner: ubuntu-24.04-arm
+            dockerfile: docker/lv2_module6/Dockerfile
+            label: aarch64-noble
+            target: ubuntu-24.04-aarch64
+            package: ros2_ws-deploy-aarch64-noble.tar.gz
     runs-on: ${{ matrix.runner }}
-    name: testbed (${{ matrix.arch }})
+    name: testbed (${{ matrix.label }})
     permissions:
       contents: write   # 배포 패키지를 Release(run-<RUN ID>)에 올리기 위함
     env:
-      PACKAGE: ros2_ws-deploy-${{ matrix.arch }}.tar.gz   # download-artifact.sh가 uname -m으로 고름
+      PACKAGE: ${{ matrix.package }}   # download-artifact.sh가 장치 OS·uname -m으로 고름
     steps:
       - uses: actions/checkout@v4
       - name: Build testbed image
-        run: docker build -f docker/Dockerfile -t lv2-module6:testbed .
-      - name: test-all (serial → firmware → packages → hardware → bringup → faker)
-        # 소스·스케치는 이미지에 없고 compose 볼륨으로만 연결되므로 마운트 필수.
+        # GitHub ARM 러너에서 ports.ubuntu.com DNS가 간헐적으로 실패한다 (2026-11-11 CI 실측:
+        #   "Could not resolve 'ports.ubuntu.com'" → apt-get update 실패).
+        #   --network=host로 러너 DNS를 그대로 쓰고, 일시 실패는 3회까지 재시도한다.
         run: |
-          docker run -d --name testbed \
+          for attempt in 1 2 3; do
+            if docker build --network=host -f ${{ matrix.dockerfile }} -t lv2-module6:testbed .; then
+              exit 0
+            fi
+            echo "::warning::docker build failed (attempt ${attempt}/3) — retrying in 15s"
+            sleep 15
+          done
+          exit 1
+      - name: test-all (serial → firmware → packages → hardware → bringup → faker)
+        # 평소 11~13분. 어딘가 멈추면 6시간 한도까지 러너를 잡아먹으므로 30분에서 끊는다 (실패 → debug 수집은 돈다)
+        timeout-minutes: 30
+        # 소스·스케치는 이미지에 없고 compose 볼륨으로만 연결되므로 마운트 필수 (docker-compose.yml과 같은 경로 — 빌드 산출물은 컨테이너 안).
+        run: |
+          docker run -d --name testbed --shm-size=4g \
+            -e ROS_DOMAIN_ID=88 -e ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET -e FASTDDS_DEFAULT_PROFILES_FILE=/ws/fastdds.xml \
             -v ${{ github.workspace }}/lv2_module6/ros2_ws/src:/ws/src \
-            -v ${{ github.workspace }}/lv2_module6/urdf:/urdf:ro \
-            -v ${{ github.workspace }}/lv2_module6/firmware:/ws/firmware \
-            -v ${{ github.workspace }}/lv2_module6/debug:/ws/debug \
+            -v ${{ github.workspace }}/lv2_module6/ros2_ws/fastdds.xml:/ws/fastdds.xml \
+            -v ${{ github.workspace }}/lv2_module6/models:/models \
+            -v ${{ github.workspace }}/lv2_module6/urdf:/ws/urdf \
+            -v ${{ github.workspace }}/lv2_module6/tools/cli/ros/docker/map:/ws/map \
+            -v ${{ github.workspace }}/lv2_module6/firmware:/firmware \
+            -v ${{ github.workspace }}/lv2_module6/debug:/debug \
             lv2-module6:testbed sleep infinity
           # docker run -d는 entrypoint(가상 시리얼 브릿지 준비)를 기다리지 않음 → 준비 완료 표시까지 대기
           timeout 30 bash -c 'until docker exec testbed test -e /run/testbed-ready; do sleep 0.5; done' \
             || { echo "FAIL: testbed 준비 안 됨"; docker logs testbed; exit 1; }
+          # 시뮬레이터 없이 — test-faker는 배관(joint_states · odom · Nav2 · monitor)만 보고 작업 흐름은 건너뛴다
           docker exec testbed test-all
       - name: Package deploy (install + firmware + scripts)
         # 실기에 바로 올릴 수 있는 묶음 (최상위 폴더 없이):
         #   install/                       ROS 2 패키지 (build/는 컴파일 중간 산출물이라 불필요) — 이 러너 아키텍처용
         #   firmware/                      lv2_module6/firmware 폴더 전체 (스케치·upload.sh·README)
-        #   firmware/build/<스케치>/*.bin  test-firmware가 컴파일한 결과 (OpenCR용이라 아키텍처 무관)
-        #   *.sh                           lv2_module6/ros2_ws의 실행 스크립트 전부
+        #   firmware/build/<스케치>/*.bin  test-firmware가 컴파일한 결과 (/debug/firmware에서 복사 — OpenCR용이라 아키텍처 무관)
+        #   *.sh                           lv2_module6/ros2_ws의 실행 스크립트 전부 + docker/lv2_module6/*.sh (entrypoint.sh 제외)
+        #   tools/cli·tools/rviz  run-cli (tests·bag·artifacts 제외)
         #   ARCH                           이 패키지의 아키텍처 (start.sh가 확인)
+        #   TARGET                         이 패키지의 OS·아키텍처 (예: ubuntu-24.04-aarch64)
         # - install: test-bringup이 --symlink-install로 빌드 → cp -L로 링크 대상 실제 파일을 담음.
         # tar로 묶어 실행 권한 보존 (zip은 권한을 잃음).
         # upload-artifact v7 archive: false → zip으로 한 번 더 감싸지 않고 tar.gz를 그대로 올림.
@@ -57,13 +93,24 @@ jobs:
           docker exec testbed bash -c 'rm -rf /tmp/pkg && mkdir -p /tmp/pkg && cp -rL /ws/install /tmp/pkg/'
           rm -rf ros2_ws && docker cp testbed:/tmp/pkg ros2_ws
           cp -r lv2_module6/firmware ros2_ws/firmware
-          rm -rf ros2_ws/firmware/build
-          docker cp testbed:/ws/debug/firmware ros2_ws/firmware/build
+          # test-firmware는 컴파일 결과를 /debug/firmware/<스케치>/ 에 둔다 (= 러너 lv2_module6/debug/firmware, 바인드)
+          [ -d lv2_module6/debug/firmware ] || { echo "FAIL: 펌웨어 빌드 없음 (test-firmware 미실행?)"; exit 1; }
+          rm -rf ros2_ws/firmware/build && cp -r lv2_module6/debug/firmware ros2_ws/firmware/build
           find ros2_ws/firmware/build -type f ! -name '*.bin' -delete
           cp lv2_module6/ros2_ws/*.sh ros2_ws/
+          cp lv2_module6/ros2_ws/fastdds.xml lv2_module6/ros2_ws/fastdds_local_only.xml ros2_ws/   # _local = 실기 기기 안 격리 (SHM만)
+          cp docker/lv2_module6/*.sh ros2_ws/   # test-*.sh · build-ws.sh · ros-kill.sh · ros-restart.sh (entrypoint.sh 제외 — 컨테이너 전용)
+          rm -f ros2_ws/entrypoint.sh
+          # tools/ (run-cli) — 실기에서 wget 묶음으로 바로 실행. tests·log·bag·artifacts·__pycache__ 제외.
+          mkdir -p ros2_ws/tools && cp -r lv2_module6/tools/cli lv2_module6/tools/rviz ros2_ws/tools/
+          cp lv2_module6/tools/run-cli lv2_module6/tools/run-rviz lv2_module6/tools/requirements.txt lv2_module6/tools/setting-venv.sh ros2_ws/tools/
+          [ -f lv2_module6/tools/README.md ] && cp lv2_module6/tools/README.md ros2_ws/tools/
+          find ros2_ws/tools -type d \( -name __pycache__ -o -name .venv \) -prune -exec rm -rf {} + 2>/dev/null || true
+          rm -rf ros2_ws/tools/bag ros2_ws/tools/artifacts ros2_ws/tools/cli/tests
           echo "${{ matrix.arch }}" > ros2_ws/ARCH
+          echo "${{ matrix.target }}" > ros2_ws/TARGET
           tar -czf "$PACKAGE" -C ros2_ws .
-          ls -lh "$PACKAGE" && tar -tzf "$PACKAGE" | grep -E "^\./(ARCH|firmware/build/)|\.sh$"
+          ls -lh "$PACKAGE" && tar -tzf "$PACKAGE" | grep -E "^\./(ARCH|TARGET|firmware/build/|tools/cli/operator_tool\.py)|\.sh$"
       - uses: actions/upload-artifact@v7
         with:
           path: ${{ env.PACKAGE }}   # archive: false면 파일 이름이 artifact 이름
@@ -82,7 +129,7 @@ jobs:
           tag="run-${{ github.run_id }}"
           gh release create "$tag" --repo "${{ github.repository }}" --target "${{ github.sha }}" \
             --title "CI run ${{ github.run_id }} (${{ github.ref_name }} ${GITHUB_SHA::7})" \
-            --notes "CI 배포 패키지 — install(아키텍처별) · firmware(.bin) · 실행 스크립트. 실행: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --notes "CI 배포 패키지 — install(아키텍처·OS별) · firmware(.bin) · 실행 스크립트. Jetson Ubuntu 24.04는 ros2_ws-deploy-aarch64-noble.tar.gz. 실행: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             || echo "Release $tag 이미 있음 → 파일만 첨부"
           gh release upload "$tag" "$PACKAGE" --repo "${{ github.repository }}" --clobber
       - name: 제출 태그 lv2-module6-submit
@@ -93,15 +140,20 @@ jobs:
         run: |
           git tag -f lv2-module6-submit "$GITHUB_SHA"
           git push -f origin refs/tags/lv2-module6-submit
-      # 테스트 로그(토픽 echo·serial-in/out)는 실패했을 때만 원인 확인용으로 올린다.
+      # 테스트 로그(monitor_manager 기록·input/hardware/serial·output/hardware/serial)는 실패했을 때만 원인 확인용으로 올린다.
       - name: Collect debug (실패 시)
-        # launch 로그 · 토픽 기록 · serial-in/out · 패키지 테스트 결과
+        # launch 로그 · 토픽 기록 · input/hardware/serial·output/hardware/serial · 패키지 테스트 결과
+        # testbed 컨테이너가 없을 수도(Build 실패·docker run 실패) → 이 step 자체는 절대 실패 금지 (진짜 원인 가림 방지).
+        # /debug는 호스트 lv2_module6/debug에 바인드 마운트라 컨테이너 없이도 로그가 남아있음.
         if: failure()
         run: |
-          docker exec testbed bash -c 'cp /tmp/*.log /ws/debug/ 2>/dev/null; mkdir -p /ws/debug/test_results && for d in /ws/build/*/test_results; do cp -r "$d" "/ws/debug/test_results/$(basename "$(dirname "$d")")"; done' || true
-          docker cp testbed:/ws/debug ./debug && find ./debug -type f | sort
+          docker exec testbed bash -c 'cp /tmp/*.log /debug/ 2>/dev/null; mkdir -p /debug/test_results && for d in /ws/build/*/test_results; do cp -r "$d" "/debug/test_results/$(basename "$(dirname "$d")")"; done' || true
+          docker cp testbed:/debug ./debug 2>/dev/null || cp -r lv2_module6/debug ./debug 2>/dev/null || mkdir -p ./debug || true
+          docker logs testbed 2>&1 | tail -n 200 > ./debug/container.log 2>/dev/null || echo "(컨테이너 없음 — Build/test-all 이전 단계 로그 확인)" > ./debug/container.log || true
+          find ./debug -type f | sort || true
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
-          name: debug-${{ matrix.arch }}
+          name: debug-${{ matrix.label }}
           path: debug
+          if-no-files-found: warn

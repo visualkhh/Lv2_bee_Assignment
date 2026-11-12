@@ -1,0 +1,128 @@
+#usda 1.0
+(
+    defaultPrim = "shelf"
+    endTimeCode = 1
+    framesPerSecond = 24
+    metersPerUnit = 1
+    startTimeCode = 1
+    subLayers = [
+        @./geo.usd@
+    ]
+    timeCodesPerSecond = 24
+    upAxis = "Z"
+)
+
+over "shelf"
+{
+    def Material "Looks" (
+        prepend apiSchemas = ["MaterialXConfigAPI"]
+        prepend inherits = </__class_mtl__/box>
+    )
+    {
+        string config:mtlx:version = "1.39"
+        token outputs:mtlx:surface.connect = </shelf/Looks/mtlxstandard_surface.outputs:out>
+        token outputs:surface.connect = </shelf/Looks/mtlxstandard_preview.outputs:surface>
+
+        def Shader "mtlxstandard_surface"
+        {
+            uniform token info:id = "ND_standard_surface_surfaceshader"
+            float inputs:base
+            color3f inputs:base_color.connect = </shelf/Looks/mtlxpower1.outputs:out>
+            float inputs:coat
+            float inputs:coat_roughness
+            float inputs:emission
+            color3f inputs:emission_color
+            float inputs:metalness
+            vector3f inputs:normal.connect = </shelf/Looks/mtlxnormalmap2.outputs:out>
+            float inputs:specular
+            color3f inputs:specular_color
+            float inputs:specular_IOR
+            float inputs:specular_roughness.connect = </shelf/Looks/mtlximage5.outputs:out>
+            float inputs:transmission
+            token outputs:out
+        }
+
+        def Shader "mtlxpower1"
+        {
+            uniform token info:id = "ND_power_color3"
+            color3f inputs:in1.connect = </shelf/Looks/mtlximage1.outputs:out>
+            color3f inputs:in2 = (2.2, 2.2, 2.2)
+            color3f outputs:out
+        }
+
+        def Shader "mtlximage1"
+        {
+            uniform token info:id = "ND_image_color3"
+            asset inputs:file = @../../source/texture/shelf/box_tag_basecolor_L1.png@
+            color3f outputs:out
+        }
+
+        def Shader "mtlximage5"
+        {
+            uniform token info:id = "ND_image_float"
+            asset inputs:file = @../../source/texture/shelf/box_tag_roughness.png@
+            float outputs:out
+        }
+
+        def Shader "mtlxnormalmap2"
+        {
+            uniform token info:id = "ND_normalmap_float"
+            vector3f inputs:in.connect = </shelf/Looks/mtlximage4.outputs:out>
+            float inputs:scale = 0.5
+            vector3f outputs:out
+        }
+
+        def Shader "mtlximage4"
+        {
+            uniform token info:id = "ND_image_vector3"
+            asset inputs:file = @../../source/texture/shelf/box_tag_normal.png@
+            vector3f outputs:out
+        }
+
+        def Shader "mtlxstandard_preview"
+        {
+            uniform token info:id = "UsdPreviewSurface"
+            float inputs:clearcoatRoughness = 0.1
+            color3f inputs:diffuseColor = (0.8, 0.8, 0.8)
+            color3f inputs:diffuseColor.connect = </shelf/Looks/mtlxstandard_preview_texture_diffuse.outputs:rgb>
+            float inputs:roughness = 0.2
+            float inputs:roughness.connect = </shelf/Looks/mtlxstandard_preview_texture_roughness.outputs:r>
+            color3f inputs:specularColor = (1, 1, 1)
+            token outputs:surface
+        }
+
+        def Shader "mtlxstandard_preview_uv"
+        {
+            uniform token info:id = "UsdPrimvarReader_float2"
+            float2 inputs:fallback = (0, 0)
+            token inputs:varname = "st"
+            float2 outputs:result
+        }
+
+        def Shader "mtlxstandard_preview_texture_diffuse"
+        {
+            uniform token info:id = "UsdUVTexture"
+            asset inputs:file = @../../source/texture/shelf/box_tag_basecolor_L1.png@
+            token inputs:sourceColorSpace = "sRGB"
+            float2 inputs:st.connect = </shelf/Looks/mtlxstandard_preview_uv.outputs:result>
+            float3 outputs:rgb
+        }
+
+        def Shader "mtlxstandard_preview_texture_roughness"
+        {
+            uniform token info:id = "UsdUVTexture"
+            asset inputs:file = @../../source/texture/shelf/box_tag_roughness.png@
+            token inputs:sourceColorSpace = "raw"
+            float2 inputs:st.connect = </shelf/Looks/mtlxstandard_preview_uv.outputs:result>
+            float outputs:r
+        }
+    }
+
+    over "geo" (
+        prepend apiSchemas = ["MaterialBindingAPI"]
+    )
+    {
+        rel material:binding = </shelf/Looks>
+    }
+}
+

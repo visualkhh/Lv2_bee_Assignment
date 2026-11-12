@@ -1,0 +1,49 @@
+# nvblox (SLAM 지도) — depth (pole_front_cam) + TF(map→카메라) → TSDF → 2D 점유 격자 → nvblox_map이 /map으로
+# 기준: Isaac ROS 5.0 nvblox_examples_bringup config/nvblox/nvblox_base.yaml · specializations/nvblox_multi_realsense.yaml
+#   (적힌 것만 덮어씀 — 나머지는 nvblox 기본값). 값을 바꾸면 실기에서 /map · ~/mesh(RViz)로 확인
+nvblox_node:
+  ros__parameters:
+    # 지도 프레임 = map (cuVSLAM이 map→odom). 원점 = 출발 자리 base_footprint (기존 SLAM과 같음 → mission_manager 좌표 그대로)
+    #   ponytail: cuVSLAM 루프 클로저로 map→odom이 튀면 이미 쌓은 복셀은 안 옮겨짐 — 튐이 크면 global_frame odom + 격자만 map으로 옮기는 방식 검토
+    global_frame: map
+    use_tf_transforms: true
+    num_cameras: 1                 # camera_0 = pole_front_cam — gripper_cam은 스캔 자세가 없어져(11-09) 지도에 안 넣음
+    voxel_size: 0.05               # [m] Nav2 costmap 해상도와 같게 (퍽 60 mm는 지도 대상 아님 — 인지가 따로)
+    mapping_type: "dynamic"
+    esdf_mode: "2d"
+    publish_esdf_distance_slice: true
+    use_depth: true
+    use_color: false               # 색은 메시 보기용 — GPU·메모리 아끼려고 끔 (RViz 메시가 회색)
+    use_lidar: false
+    input_qos: "SENSOR_DATA"       # RealSense color_qos·depth_qos = SENSOR_DATA (ros_system camera())
+    # 카메라 15 fps (640x360x15) — 그보다 자주 돌릴 이유 없음. 지도 갱신은 Nav2 global_costmap(1 Hz)에 맞춰 낮게
+    integrate_depth_rate_hz: 15.0
+    integrate_color_rate_hz: 0.0
+    update_mesh_rate_hz: 2.0
+    update_esdf_rate_hz: 5.0
+    publish_layer_rate_hz: 2.0
+    # 경기장(약 4.4 × 6.3 m)을 통째로 기억 — 멀어져도 지우지 않음
+    map_clearing_radius_m: -1.0
+    # TSDF 잊기 끔 (nvblox 기본 5 Hz · factor 0.95 = 카메라가 안 보는 곳 가중치가 0.2 s마다 ×0.95 → 약 30 s 뒤 블록 해제).
+    #   맵핑 녹화(bee_diag/1110_110542_slam_mapping_manual)에서 정지하면 /map 아는 칸이 5349 → 약 4445(= 지금 시야)로 줄었고
+    #   움직이면 6938까지 늘었다가 다시 서면 줄었음 — 지나온 복도·저장 지도가 시야 밖이면 사라져 플래너가 벽을 모르는 모름 칸으로 계획함.
+    #   소스: NvbloxNode::shouldProcess — rate <= 0 이면 decayTsdf()를 안 부름. 동적 점유 층(decay_dynamic_occupancy_rate_hz 10)은 그대로.
+    #   단점: 한 번 TSDF에 들어간 가짜 장애물·사람 자국이 안 지워짐 → 꺼 보고 /map 아는 칸 수가 안 주는지 다시 녹화해 확인할 것.
+    decay_tsdf_rate_hz: 0.0
+    map_clearing_frame_id: "base_footprint"
+    esdf_slice_bounds_visualization_attachment_frame_id: "base_footprint"
+    workspace_height_bounds_visualization_attachment_frame_id: "base_footprint"
+    static_mapper:
+      # 2D 격자로 자르는 높이 (map z = 바닥) — Nav2 costmap(min 0.03 · max 0.6) · 기존 SLAM Grid(0.03~0.6)와 같은 기준
+      esdf_slice_height: 0.1
+      # min 0.03 → 0.08: depth 오차(1~3 m에서 수 cm)로 바닥이 3 cm 위로 찍혀 앞이 트여 있어도 검은 부채꼴(가짜 장애물)이 생겼음 (실기 2026-11-09, RViz /map)
+      #   대신 높이 8 cm 미만의 낮은 물체는 지도에 안 남는다 — 낮은 물체를 잡아야 하면 0.05로
+      esdf_slice_min_height: 0.08
+      esdf_slice_max_height: 0.3
+      # pole_front_cam 바닥은 화면 맨 아래도 0.59 m — depth 잡음은 거리에 따라 커진다 (costmap raytrace는 3.0)
+      # 4.5 → 2.5: 경기장(4.4 m 폭) 벽 너머·트랙 밖까지 '비어 있음'으로 칠해졌음 (실기 2026-11-11, /map). 멀수록 depth 잡음도 커짐
+      #   대신 먼 벽은 가까이 가야 지도에 들어온다 — 너무 안 칠해지면 3.0으로 (nvblox 기본 7.0)
+      projective_integrator_max_integration_distance_m: 2.5
+      workspace_bounds_type: "height_bounds"
+      workspace_bounds_min_height_m: -0.1
+      workspace_bounds_max_height_m: 0.8
