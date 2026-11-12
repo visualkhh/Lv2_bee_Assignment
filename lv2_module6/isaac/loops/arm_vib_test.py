@@ -5,8 +5,9 @@ Run while ./manipulator-launcher.sh is up.
     python3 arm_vib_test.py --joints 0 -20 40 70 0             # joint1..5 [deg]
     python3 arm_vib_test.py --pose 0.22 0.0 0.15                # finger-tip face centre (x, y, z) in base_footprint [m], hand down
     python3 arm_vib_test.py --pose 0.25 0.0 0.15 --pitch 30    # hand tilted 30 deg from straight down, tip forward
-    python3 arm_vib_test.py --named stow                        # pose_<name> from skills/params/basket.yaml
+    python3 arm_vib_test.py --named look                        # skill_pose names: stow carry_left carry_right look scan
     python3 arm_vib_test.py --joints 0 -20 40 70 0 --rounds 5 --back --time 1.0 --tag sag_off
+    python3 arm_vib_test.py --named look --from stow --rounds 5 --back   # stow <-> look (arm already at look: needs --from)
 
 Per leg (start -> target, and target -> start with --back): the move takes --time s (default from --speed), the JTC
 interpolates a quintic from the current state (zero end velocity / acceleration), then --hold s are measured.
@@ -44,7 +45,9 @@ from trajectory_msgs.msg import JointTrajectoryPoint
 from arm_model import ARM, Arm
 
 HERE = Path(__file__).resolve().parent
-BASKET = HERE.parents[1] / "ros2_ws" / "src" / "skills" / "params" / "basket.yaml"
+SRC = HERE.parents[1] / "ros2_ws" / "src"
+POSE_FILES = [SRC / "skills" / "params" / "basket.yaml", SRC / "skills" / "params" / "arm.yaml"]  # pose_<name>, like skill_pose
+SCAN_POSE = SRC / "ros_system" / "config" / "scan_pose.yaml"
 RL_PARAMS = ["enabled", "sag_enabled", "sag_gain", "sag_max", "still_rate", "gravity_enabled", "twist_state", "max_delta"]
 START_DELAY = 0.3  # [s] goal header stamp ahead of now, so the move start is known exactly
 
@@ -52,7 +55,7 @@ parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.R
 g = parser.add_mutually_exclusive_group(required=True)
 g.add_argument("--joints", type=float, nargs=5, metavar="DEG", help="joint1..5 target [deg]")
 g.add_argument("--pose", type=float, nargs=3, metavar=("X", "Y", "Z"), help="finger-tip face centre in base_footprint [m]")
-g.add_argument("--named", help="pose_<name> in basket.yaml (stow, carry_left, carry_right)")
+g.add_argument("--named", help="skill_pose name: stow carry_left carry_right (basket.yaml) · look (arm.yaml) · scan (scan_pose.yaml)")
 parser.add_argument("--pitch", type=float, default=0.0, help="--pose: hand tilt from straight down [deg], + = hand axis tilts forward (away from the robot)")
 parser.add_argument("--roll", type=float, default=0.0, help="--pose: joint5 [deg]")
 parser.add_argument("--time", type=float, default=0.0, help="move time [s]; 0 = from --speed")
@@ -61,6 +64,8 @@ parser.add_argument("--hold", type=float, default=3.0, help="measure this long a
 parser.add_argument("--tol", type=float, default=0.2, help="settle band [deg]")
 parser.add_argument("--rounds", type=int, default=1)
 parser.add_argument("--back", action="store_true", help="return to the start pose after each target leg (measured too)")
+parser.add_argument("--from", dest="start", metavar="NAME",
+                    help="start pose name (like --named): go there first (not measured); default = where the arm is now")
 parser.add_argument("--tag", default="", help="label written to the CSVs (e.g. which setting is on)")
 parser.add_argument("--bag", action="store_true", help="record a manipulator-record.sh motion bag of the run")
 parser.add_argument("--yes", action="store_true", help="no Enter before the first move")
@@ -214,26 +219,36 @@ def leg_metrics(leg, q_target, t_move):
     return out
 
 
+def named_pose(name):
+    """joint1..5 [rad] of a skill_pose name: pose_<name> in basket.yaml / arm.yaml, scan from scan_pose.yaml"""
+    table = {k[5:]: v for f in POSE_FILES for k, v in yaml.safe_load(f.read_text()).items() if k.startswith("pose_")}
+    table["scan"] = yaml.safe_load(SCAN_POSE.read_text())["/**"]["ros__parameters"]["scan_pose"]
+    if name not in table:
+        raise SystemExit(f"no pose '{name}': {sorted(table)}")
+    return np.array(table[name], float)
+
+
 def main():
     arm = Arm()
     if not jtc.wait_for_server(timeout_sec=10.0):
         raise SystemExit("/arm_controller/follow_joint_trajectory not up — is manipulator-launcher.sh running?")
-    q0 = current_q()
+    q_now = current_q()
+    q0 = named_pose(args.start) if args.start else q_now
     if args.joints:
         q1 = np.radians(args.joints)
     elif args.named:
-        table = yaml.safe_load(BASKET.read_text())
-        if f"pose_{args.named}" not in table:
-            raise SystemExit(f"no pose_{args.named} in {BASKET}: {[k[5:] for k in table if k.startswith('pose_')]}")
-        q1 = np.array(table[f"pose_{args.named}"], float)
+        q1 = named_pose(args.named)
     else:
         q1 = pose_ik(arm, *args.pose, math.radians(args.pitch), math.radians(args.roll), q0)
         if q1 is None:
             raise SystemExit(f"--pose {args.pose} pitch {args.pitch}: no IK solution inside the joint limits")
     for j, n in enumerate(ARM):
         lo, hi = arm.joints[n]["lim"] or (-math.pi, math.pi)
-        if not lo <= q1[j] <= hi:
-            raise SystemExit(f"{n} {math.degrees(q1[j]):.1f} deg outside the URDF limits [{math.degrees(lo):.1f}, {math.degrees(hi):.1f}]")
+        for q in (q0, q1):
+            if not lo <= q[j] <= hi:
+                raise SystemExit(f"{n} {math.degrees(q[j]):.1f} deg outside the URDF limits [{math.degrees(lo):.1f}, {math.degrees(hi):.1f}]")
+    if math.degrees(np.max(np.abs(q1 - q0))) < 1.0:
+        raise SystemExit("start = target (arm is already there) — nothing to move; give a start pose with --from (e.g. --from stow)")
     t_move = args.time or max(1.0, math.degrees(np.max(np.abs(q1 - q0))) / args.speed)
     tip0, tip1 = arm.mark(q0), arm.mark(q1)
     print(f"start  [deg] {np.round(np.degrees(q0), 1)}  tip {np.round(tip0 * 1000)} mm")
@@ -256,6 +271,12 @@ def main():
         spin(2.0)
     summary = []
     try:
+        if np.max(np.abs(q0 - q_now)) > math.radians(1.0):  # --from: go to the start pose first (not measured)
+            t_pre = max(1.0, math.degrees(np.max(np.abs(q0 - q_now))) / args.speed)
+            print(f"to start pose ({args.start}) in {t_pre:.1f} s")
+            ok, err = move(q0, t_pre, "pre")
+            if not ok:
+                raise SystemExit(f"could not reach the start pose: {err}")
         legs = []
         for r in range(1, args.rounds + 1):
             legs.append((f"r{r}_go", q1))

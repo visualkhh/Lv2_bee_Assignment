@@ -218,13 +218,25 @@ def "beebot"
                                 {
                                     over "gripper_link"
                                     {
+                                        over "gripper_cam_bracket" (
+                                            instanceable = false
+                                        )
+                                        {
+                                            over "gripper_cam_bracket" (
+                                                prepend apiSchemas = ["MaterialBindingAPI"]
+                                            )
+                                            {
+                                                rel material:binding = </beebot/Looks/pla_blue>
+                                            }
+                                        }
+
                                         over "gripper_cam_link"
                                         {
-                                            over "camera_wrist_link" (
+                                            over "camera_rear_link" (
                                                 instanceable = false
                                             )
                                             {
-                                                over "camera_wrist_link" (
+                                                over "camera_rear_link" (
                                                     prepend apiSchemas = ["MaterialBindingAPI"]
                                                 )
                                                 {
@@ -235,13 +247,6 @@ def "beebot"
                                                     )
                                                     {
                                                         rel material:binding = </beebot/Looks/glass_black>
-                                                    }
-
-                                                    over "mount" (
-                                                        prepend apiSchemas = ["MaterialBindingAPI"]
-                                                    )
-                                                    {
-                                                        rel material:binding = </beebot/Looks/pla_blue>
                                                     }
                                                 }
                                             }

@@ -103,7 +103,7 @@ gripper = ActionClient(node, ParallelGripperCommand, "/gripper_controller/grippe
 GRIPPER_OPEN_M = 0.0265  # skills arm_io.hpp (URDF limit)
 
 
-def release():
+def release(msg="gripper opened (puck released)"):
     """open the gripper so the puck drops back on the box — pulling it out of a closed hand trips the gripper overcurrent"""
     if not gripper.wait_for_server(timeout_sec=3.0):
         print("  gripper action not up — open it by hand")
@@ -113,7 +113,7 @@ def release():
     fut = gripper.send_goal_async(g)
     rclpy.spin_until_future_complete(node, fut, timeout_sec=3.0)
     spin(1.0)
-    print("  gripper opened (puck released)")
+    print(f"  {msg}")
 
 
 load_params = node.create_client(SetParameters, "/skill_load/set_parameters")
@@ -313,6 +313,7 @@ with open(out, "w", newline="") as fh:
             input(f"\n[round {n}] pucks standing on the box, hands clear. Enter = start{' (auto: no stops)' if args.auto else ''}, Ctrl-C = quit ")
             t0 = time.time()
             bag = RoundBag(n)
+            release("gripper opened (round start)")  # a hand left closed or holding a puck from the last round
             ok, why = run("pose", Skill.Goal(target="stow"))
             print(f"  stow: {'ok' if ok else why}")
 

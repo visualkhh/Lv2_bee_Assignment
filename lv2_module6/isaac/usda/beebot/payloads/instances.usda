@@ -485,6 +485,12 @@ def Scope "Instances"
         }
     }
 
+    def Xform "gripper_cam_bracket" (
+        prepend references = @./geometries.usd@</Geometries/gripper_cam_bracket>
+    )
+    {
+    }
+
     def Xform "camera_wrist_link" (
         prepend references = @./geometries.usd@</Geometries/camera_wrist_link>
     )

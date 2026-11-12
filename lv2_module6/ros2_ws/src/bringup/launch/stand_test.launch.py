@@ -37,6 +37,9 @@ FIXED = {'use_slam': 'false', 'localization': 'true', 'nvblox_map': '', 'use_nav
 
 def generate_launch_description():
     passthrough = {k: v for k, v in _main.ROS_SYSTEM_ARGS.items() if k not in FIXED}
+    # bringup의 'auto'(USB 감지)는 bringup.launch.py의 setup_map이 true/false로 바꾸는데 여기엔 그 단계가 없음 →
+    #   'auto' 그대로 ros_system에 가면 카메라 조건(== 'true')이 거짓이라 gripper_cam이 안 뜸. 팔 테스트는 손 카메라가 필수라 true.
+    passthrough['use_gripper_cam'] = ('true', 'gripper_cam 개별 스위치 (use_cameras와 AND) · 팔 테스트는 손 카메라 필수')
     # 서서 팔만 쓰는데 자이로 영점이 틀어지면 odom yaw가 혼자 돎 → map 기준으로 기억한 퍽이 돌아감 (11/08 실기: 2번째 퍽을 엉뚱한 데서 집음)
     passthrough['ekf_imu'] = ('false', 'EKF yaw 회전속도 = IMU 자이로 · false(기본)면 바퀴 — 수동 주행은 바퀴 yaw로 충분')
     learning = {'enabled': LaunchConfiguration('learning_enabled')}

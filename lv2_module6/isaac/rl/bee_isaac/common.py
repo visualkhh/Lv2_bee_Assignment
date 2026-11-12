@@ -22,8 +22,8 @@ PUCK_H = 0.06
 FINGER_TIP = 0.0206
 GRIP_DEPTH = 0.020
 GRASP_Z = PUCK_H - GRIP_DEPTH + FINGER_TIP  # end effector above the puck bottom when grasped
-# wrist D435 colour camera in gripper_link (URDF gripper_cam_joint + gripper_cam_optical_joint; pitch 20 deg toward the fingers, measured 11-08)
-_CP = 0.349066
+# wrist D435 colour camera in gripper_link (URDF gripper_cam_joint + gripper_cam_optical_joint; pitch 20.8 deg toward the fingers, measured 11-08, +0.8 deg 11-12 with bracket CB_A)
+_CP = 0.363028
 CAM_OFF_G = (0.081681 - 0.0043 * math.cos(_CP), -0.000273 + 0.0325, 0.040325 + 0.0043 * math.sin(_CP))  # colour optical origin
 CAM_AXES_G = ((math.cos(_CP), 0.0, -math.sin(_CP)), (0.0, -1.0, 0.0), (-math.sin(_CP), 0.0, -math.cos(_CP)))  # optical z, x, y
 

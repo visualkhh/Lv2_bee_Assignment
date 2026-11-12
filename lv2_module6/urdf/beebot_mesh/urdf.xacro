@@ -782,10 +782,11 @@
     <limit effort="20.0" lower="0.0000" upper="0.0265" velocity="0.07"/>
     <mimic joint="gripper_left_joint" multiplier="1" offset="0"/>
   </joint>
+  <!-- gripper_cam pitch 20.0 -> 20.8 deg (11/12 실측, 브래킷 CB_A 교체 후): look 자세 책상 평면 피팅 pitch + 높이 = +0.82° · −4.9 mm, 높이 몫은 팔 장착(arm_mount) 4.7 mm 과대였음 -->
   <joint name="gripper_cam_joint" type="fixed">
     <parent link="gripper_link"/>
     <child link="gripper_cam_link"/>
-    <origin rpy="-0.00014947924188481 0.3490658503988659 -0.0010995446528302402" xyz="0.08168099999994151 -0.0002730000175021933 0.04032500000000001"/>
+    <origin rpy="-0.00014947924188481 0.363028484 -0.0010995446528302402" xyz="0.08168099999994151 -0.0002730000175021933 0.04032500000000001"/>
   </joint>
   <link name="gripper_cam_link">
     <inertial>
@@ -967,36 +968,36 @@
       <state_interface name="effort"/>  <!-- 바퀴 모터 전류 [A] (S 맨 끝) -->
     </joint>
     <joint name="joint1">
-      <!-- [rad] 영점 오프셋: 서보 값 = 관절값 + offset (실측) — 11/08: joint1 0에서 손끝(축에서 0.20 m)이 왼쪽 10 mm → +2.86° -->
-      <param name="offset">-0.050</param>
+      <!-- [rad] 영점 오프셋: 서보 값 = 관절값 + offset (실측) — 11/11 팔 교체 후: 0자세 손끝(축에서 0.341 m)이 오른쪽 4 mm → +0.010, joint1 적분 켠 뒤 1 mm 더 → +0.013 (11/08 −0.050은 교체 전 팔) -->
+      <param name="offset">0.013</param>
       <command_interface name="position"/>
       <state_interface name="position"/>
       <state_interface name="velocity"/>
       <state_interface name="effort"/>
     </joint>
     <joint name="joint2">
-      <param name="offset">0.0</param>  <!-- [rad] 영점 오프셋: 서보 값 = 관절값 + offset (실측) -->
+      <param name="offset">0.010</param>  <!-- [rad] 영점 오프셋: 서보 값 = 관절값 + offset (실측) — 11/11: 4자세 손끝 + 0자세 축 높이 맞춤 joint2 −0.58° (0자세에서 위팔이 뒤로 기움) -->
       <command_interface name="position"/>
       <state_interface name="position"/>
       <state_interface name="velocity"/>
       <state_interface name="effort"/>
     </joint>
     <joint name="joint3">
-      <param name="offset">0.0</param>  <!-- [rad] 영점 오프셋: 서보 값 = 관절값 + offset (실측) -->
+      <param name="offset">0.040</param>  <!-- [rad] 영점 오프셋: 서보 값 = 관절값 + offset (실측) — 11/11: 0자세 joint4 축이 joint3 축보다 3 mm 높음(0.016일 때) → +1.4° 더 -->
       <command_interface name="position"/>
       <state_interface name="position"/>
       <state_interface name="velocity"/>
       <state_interface name="effort"/>
     </joint>
     <joint name="joint4">
-      <param name="offset">0.0</param>  <!-- [rad] 영점 오프셋: 서보 값 = 관절값 + offset (실측) -->
+      <param name="offset">-0.036</param>  <!-- [rad] 영점 오프셋: 서보 값 = 관절값 + offset (실측) — 11/11: 0자세(손 수평) 손끝 줄자 344 mm vs TF 351.6 → 실제 관절이 +2.08° 더 숙임 · 손 수직 80 mm는 일치 · gripper_cam 책상 평면 7자세 피팅과 맞음 -->
       <command_interface name="position"/>
       <state_interface name="position"/>
       <state_interface name="velocity"/>
       <state_interface name="effort"/>
     </joint>
     <joint name="joint5">
-      <param name="offset">0.0</param>  <!-- [rad] 영점 오프셋: 서보 값 = 관절값 + offset (실측) -->
+      <param name="offset">-0.027</param>  <!-- [rad] 영점 오프셋: 서보 값 = 관절값 + offset (실측) — 11/11: gripper_cam 책상 평면 7자세(j5 ±30° 포함) 피팅 +1.53° -->
       <command_interface name="position"/>
       <state_interface name="position"/>
       <state_interface name="velocity"/>

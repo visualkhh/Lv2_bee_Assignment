@@ -42,11 +42,14 @@ def Xform "World"
 {
     def "beebot" (
         prepend payload = @./beebot/beebot.usda@
+        variants = {
+            string pose = "gaze"
+        }
     )
     {
-        quatf xformOp:orient = (0.70816374, 0, 0, 0.70604825)
+        quatf xformOp:orient = (0.009779734, 0, 0, -0.9999522)
         float3 xformOp:scale = (1, 1, 1)
-        double3 xformOp:translate = (-1.2533819028979472, -2.6893812549332266, 0.0000013708473880491565)
+        double3 xformOp:translate = (-2.096337379355188, -2.5118501001997964, 0.0000013708473627360718)
         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
 
         over "Geometry"
@@ -191,7 +194,7 @@ def Xform "World"
                         over "Imu_Sensor"
                         {
                             quatd xformOp:orient = (1, 0, 0, -0)
-                            double3 xformOp:translate = (1.4901161193847656e-8, -2.384185791015625e-7, 0)
+                            double3 xformOp:translate = (0, -2.384185791015625e-7, 0)
                             uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
                         }
                     }
@@ -228,7 +231,6 @@ def Xform "World"
 
             over "joint1"
             {
-                float drive:angular:physics:targetPosition = 0
                 bool[] isaac:actuator (
                     displayName = "Actuator"
                 )
@@ -240,13 +242,11 @@ def Xform "World"
                 )
                 float physics:lowerLimit = -179.99985
                 float physics:upperLimit = 179.99985
-                float state:angular:physics:position = 0
                 float state:angular:physics:velocity = 0
             }
 
             over "joint2"
             {
-                float drive:angular:physics:targetPosition = -109
                 bool[] isaac:actuator (
                     displayName = "Actuator"
                 )
@@ -258,13 +258,11 @@ def Xform "World"
                 )
                 float physics:lowerLimit = -110
                 float physics:upperLimit = 109.99999
-                float state:angular:physics:position = -109
                 float state:angular:physics:velocity = 0
             }
 
             over "joint3"
             {
-                float drive:angular:physics:targetPosition = 77
                 bool[] isaac:actuator (
                     displayName = "Actuator"
                 )
@@ -276,13 +274,11 @@ def Xform "World"
                 )
                 float physics:lowerLimit = -89.999985
                 float physics:upperLimit = 80
-                float state:angular:physics:position = 77
                 float state:angular:physics:velocity = 0
             }
 
             over "joint4"
             {
-                float drive:angular:physics:targetPosition = 51.7
                 bool[] isaac:actuator (
                     displayName = "Actuator"
                 )
@@ -294,7 +290,6 @@ def Xform "World"
                 )
                 float physics:lowerLimit = -97.402824
                 float physics:upperLimit = 112.87269
-                float state:angular:physics:position = 51.7
                 float state:angular:physics:velocity = 0
             }
 
@@ -311,7 +306,6 @@ def Xform "World"
                 )
                 float physics:lowerLimit = -180.00002
                 float physics:upperLimit = 180.00002
-                float state:angular:physics:position = 0
                 float state:angular:physics:velocity = 0
             }
 
@@ -559,6 +553,18 @@ def Xform "World"
                 }
             }
         }
+    }
+
+    def "barcode" (
+        prepend references = @./barcode/barcode.usda@
+        variants = {
+            string code = "P2-01"
+        }
+    )
+    {
+        float3 xformOp:rotateXYZ = (0, 0, 1.56)
+        double3 xformOp:translate = (-2.7317, -2.42, 0.15)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ"]
     }
 
     def Xform "start_boxes"
@@ -979,7 +985,7 @@ def "Render" (
                 bool omni:rtx:scene:useViewLightingMode
                 rel orderedVars = </Render/Vars/LdrColor>
                 custom bool overrideClipRange = 0
-                uniform int2 resolution = (1285, 654)
+                uniform int2 resolution = (1285, 738)
             }
 
             def RenderProduct "Replicator" (
