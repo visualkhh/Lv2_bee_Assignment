@@ -130,9 +130,11 @@ MissionManager::MissionManager()
         const auto * row = reinterpret_cast<const uint16_t *>(&m->data[y * m->step]);
         for (uint32_t x = m->width / 2 - 30; x < m->width / 2 + 30; ++x) if (row[x]) v.push_back(row[x]);
       }
+      grip_front_at_ = now();
       if (v.size() < 300) { grip_front_m_ = -1.0; return; }  // 너무 가까워 depth가 비거나 측정 없음
       std::nth_element(v.begin(), v.begin() + v.size() / 10, v.end());  // 가까운 쪽 10 % — 반투명 판 너머를 재도 가장 가까운 면 기준
       grip_front_m_ = v[v.size() / 10] * 0.001;
+      grip_front_at_ = now();
     });
   // 비우면 출발(관측) 자리에서 그대로 바코드를 봄 — 이동 없음 (실기 11-12: 출발 자리에서 신호등·바코드가 다 보이고,
   //   26 cm 뒤 자리로 가려면 Nav2가 전진만 해서 돌아섰다 다시 돌아 한 바퀴를 돎)
@@ -300,7 +302,8 @@ void MissionManager::barcode_phase() {
   //    (coordinator는 새 계획이 오면 진행 중 goal을 취소함 · 취소된 gaze 결과는 waiting_plan_이 바뀌어 무시됨)
   // ③ gaze에 도착하고 barcode_gaze_wait_s 안에 못 읽으면 팔은 그대로 barcode_advance_step_m씩 앞으로 (최대 barcode_advance_max_m)
   //    — 가는 도중에 읽혀도 바로 접음. 끝나면 팔 접고 다가간 만큼 똑바로 후진 (approach 후진)
-  // ④ barcode_pole_s + barcode_timeout_s 안에 못 읽으면 (또는 다 다가가도) stow 뒤 barcode_missing
+  //    다가가기는 손 카메라 정면 depth가 barcode_min_gap_m보다 멀 때만 (모르거나 1 s 넘게 안 오면 안 감) · 최대 barcode_advance_max_m
+  // ④ 더 다가갈 수 없는 자리에서 barcode_timeout_s 동안 안 읽히면 (gaze에 못 가면 pole_s + timeout_s) stow·후진 뒤 barcode_missing
   // 이번에 실제로 본 바코드만 — /tracked_objects의 barcode(last_seen ≥ 시작) 또는 시작 뒤 받은 /mission/qr
   note("바코드 — pole_front_cam으로 먼저");
   phase_started_ = now();
@@ -308,6 +311,7 @@ void MissionManager::barcode_phase() {
   gaze_at_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
   advanced_m_ = 0.0;
   moving_ = false;
+  grip_front_m_ = -1.0;  // 지난 실행 값을 믿지 않음 — 이번 단계의 손 카메라 depth로만
   if (!robot_arena(barcode_origin_)) barcode_origin_ = start_;  // 다가갔다가 돌아올 자리
   timer_ = create_wall_timer(std::chrono::milliseconds(250), [this]() {
     if (phase_ != Phase::BARCODE) { timer_->cancel(); return; }
@@ -329,7 +333,8 @@ void MissionManager::barcode_phase() {
       // gaze에서 안 읽히면 팔은 그대로 한 걸음 앞으로 (바코드 = 출발 자리 정면)
       const bool waited = gaze_at_.nanoseconds() > 0 && (now() - gaze_at_).seconds() > barcode_gaze_wait_s_;
       // 읽힐 때까지 다가감 — 손 카메라 정면이 barcode_min_gap_m보다 가깝거나(또는 depth를 모르면) · 최대 거리면 그만
-      const bool room = grip_front_m_ > barcode_min_gap_m_ + barcode_advance_step_m_ * 0.5 &&
+      const bool fresh = (now() - grip_front_at_).seconds() < 1.0;  // 1 s 넘게 depth가 안 오면 모름 → 안 다가감
+      const bool room = fresh && grip_front_m_ > barcode_min_gap_m_ + barcode_advance_step_m_ * 0.5 &&
                         advanced_m_ + barcode_advance_step_m_ <= barcode_advance_max_m_ + 1e-6;
       if (waited && !moving_ && room) {
         Pose2 r;

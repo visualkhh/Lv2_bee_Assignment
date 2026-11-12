@@ -138,6 +138,7 @@ private:
   bool gaze_sent_ = false;        // 이번 BARCODE에서 팔을 뻗었는지 (끝날 때 접을지)
   double barcode_gaze_wait_s_ = 3.0, barcode_advance_step_m_ = 0.06, barcode_advance_max_m_ = 0.30, barcode_min_gap_m_ = 0.13;
   double grip_front_m_ = -1.0;    // 손 카메라 정면(화면 가운데) depth 하위 10 % [m] (-1 = 모름) — 바코드 다가갈 때 멈춤 기준
+  rclcpp::Time grip_front_at_{0, 0, RCL_ROS_TIME};  // grip_front_m_을 마지막으로 잰 시각
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr grip_depth_sub_;
   rclcpp::Time gaze_at_{0, 0, RCL_ROS_TIME};  // gaze 도착(또는 다가간 뒤) 시각
   double advanced_m_ = 0.0;       // 바코드 쪽으로 다가간 거리
