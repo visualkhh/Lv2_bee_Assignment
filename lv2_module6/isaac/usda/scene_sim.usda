@@ -44,9 +44,9 @@ def Xform "World"
         prepend payload = @./beebot/beebot.usda@
     )
     {
-        quatf xformOp:orient = (0.009779734, 0, 0, -0.9999522)
+        quatf xformOp:orient = (6.123234e-17, 0, 0, -1)
         float3 xformOp:scale = (1, 1, 1)
-        double3 xformOp:translate = (-2.032889239541674, -2.314902170477975, 0.000001370847368953321)
+        double3 xformOp:translate = (-2.03289, -2.314902170477975, 0.000001370847368953321)
         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
 
         over "Geometry"

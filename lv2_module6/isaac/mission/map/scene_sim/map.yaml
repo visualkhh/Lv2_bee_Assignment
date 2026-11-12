@@ -1,0 +1,8 @@
+# isaac/mission/make_map.py — ../usda/scene_sim.usda 벽 · 기둥 · map 원점 = 로봇을 켠 자리 · z 0.02~0.47 m
+image: map.pgm
+mode: trinary
+resolution: 0.05
+origin: [-4.126, -5.606, 0.0]
+negate: 0
+occupied_thresh: 0.65
+free_thresh: 0.25
