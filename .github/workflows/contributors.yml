@@ -24,6 +24,17 @@ jobs:
       - name: Fetch all branches (main만 아님)
         run: git fetch --prune origin '+refs/heads/*:refs/remotes/origin/*'
 
+      - name: Setup deploy key (main push)
+        env:
+          DEPLOY_KEY: ${{ secrets.CONTRIBUTORS_DEPLOY_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts
+          git remote set-url origin git@github.com:${{ github.repository }}.git
+          git remote -v
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
