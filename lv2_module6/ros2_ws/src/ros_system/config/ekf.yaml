@@ -5,6 +5,9 @@ ekf_filter_node:
     frequency: 50.0
     two_d_mode: true
     publish_tf: true
+    # 주기 진단 카운터 켬 — 끄면(robot_localization 3.10 기본) /odometry/filtered가 50 Hz로 나와도 진단은 "No events recorded"
+    #   → TUI·diagnostics가 EKF 오류로 보였음 (실기 11-11: 켠 뒤 Filter diagnostic updater · odometry filtered topic status OK, 49.4 Hz)
+    print_diagnostics: true
     map_frame: map
     odom_frame: odom
     base_link_frame: base_footprint
