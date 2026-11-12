@@ -50,7 +50,7 @@ bool is_puck(const perception::msg::TrackedObject & o) { return o.class_name.rfi
 bool is_lying(const perception::msg::TrackedObject & o) { return o.class_name == "puck_lying"; }
 // coordinator가 사람·안전 때문에 멈춘 실패 — 다시 시도하지 않고 미션을 멈춤 (estop · 수동/탐사 전환 · 다른 계획이 끼어듦)
 bool interrupted(const std::string & why) {
-  for (const char * p : {"estop", "manual", "explore", "cancelled"})
+  for (const char * p : {"estop", "manual", "explore", "cancelled", "preempted"})
     if (why.rfind(p, 0) == 0) return true;
   return false;
 }
@@ -132,7 +132,7 @@ MissionManager::MissionManager()
   tf_buffer_ = std::make_unique<tf2_ros::Buffer>(get_clock());
   tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
   const auto latched = rclcpp::QoS(1).reliable().transient_local();
-  goals_pub_ = create_publisher<SubGoalArray>("/task/sub_goals", rclcpp::QoS(10).reliable().transient_local());
+  execute_client_ = rclcpp_action::create_client<ExecutePlan>(this, "/task/execute_plan");
   state_pub_ = create_publisher<MissionState>("/mission/state", latched);
   markers_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>("/mission/markers", latched);
   walls_pub_ = create_publisher<nav_msgs::msg::OccupancyGrid>("/arena/walls", latched);
@@ -163,15 +163,6 @@ MissionManager::MissionManager()
     });
   basket_sub_ = create_subscription<plan::msg::BasketState>("/coordinator/basket", rclcpp::QoS(1).reliable().transient_local(),
     [this](plan::msg::BasketState::ConstSharedPtr m) { basket_ = m; if (active_) publish_state(); });
-  status_sub_ = create_subscription<TaskStatus>("/task/status", rclcpp::QoS(10).reliable().transient_local(),
-    [this](TaskStatus::ConstSharedPtr s) {
-      if (!waiting_plan_ || s->plan_id != waiting_plan_ || s->state == TaskStatus::RUNNING) return;
-      waiting_plan_ = 0;
-      auto done = std::move(waiting_done_);
-      const bool ok = s->state == TaskStatus::SUCCEEDED;
-      if (!ok && interrupted(s->reason)) { stop("interrupted: " + s->reason); return; }
-      done(ok, s->reason);
-    });
   markers_timer_ = create_wall_timer(std::chrono::seconds(1), [this]() { publish_markers(); });
   diag_.setHardwareID("beebot");
   diag_.add("상태", [this](diagnostic_updater::DiagnosticStatusWrapper & s) {
@@ -673,13 +664,15 @@ void MissionManager::go_home(bool corrected) {
 
 void MissionManager::stop(const std::string & why) {
   active_ = false;
+  const auto goal = waiting_goal_;
+  waiting_goal_.reset();
   waiting_plan_ = 0;
+  waiting_done_ = nullptr;
   phase_ = Phase::ERROR;
   error_ = why;
   if (timer_) timer_->cancel();
-  SubGoalArray stop;  // plan_id 0 + 빈 목록 = coordinator 정지 (진행 중 goal 취소)
-  stop.header.stamp = now();
-  goals_pub_->publish(stop);
+  if (goal) execute_client_->async_cancel_goal(goal);
+  else if (execute_client_) execute_client_->async_cancel_all_goals();
   write_log("error.json", "{\"why\": " + q(why) + ", \"results\": [" + [&] {
     std::vector<std::string> v;
     for (const auto & r : results_) v.push_back(q(r));
@@ -723,14 +716,36 @@ void MissionManager::publish_state() {
 // ---------- skill 요청
 void MissionManager::run(std::vector<SubGoal> goals, Done done) {
   if (!active_) return;  // abort·오류 뒤에 남은 콜백이 새 계획을 보내지 않게
-  SubGoalArray plan;
-  plan.header.stamp = now();
-  plan.plan_id = PLAN_ID_BASE + ++plan_seq_;
+  ExecutePlan::Goal goal;
+  goal.plan_id = PLAN_ID_BASE + ++plan_seq_;
   for (size_t i = 0; i < goals.size(); ++i) goals[i].step = static_cast<uint32_t>(i + 1);
-  plan.goals = std::move(goals);
-  waiting_plan_ = plan.plan_id;
+  goal.goals = std::move(goals);
+  const uint32_t plan_id = goal.plan_id;
+  waiting_plan_ = plan_id;
   waiting_done_ = std::move(done);
-  goals_pub_->publish(plan);
+  rclcpp_action::Client<ExecutePlan>::SendGoalOptions options;
+  options.goal_response_callback = [this, plan_id](const ExecuteGoalHandle::SharedPtr & handle) {
+    if (waiting_plan_ != plan_id) return;
+    if (!handle) {
+      waiting_plan_ = 0;
+      auto done = std::move(waiting_done_);
+      done(false, "coordinator_unavailable");
+      return;
+    }
+    waiting_goal_ = handle;
+  };
+  options.result_callback = [this, plan_id](const ExecuteGoalHandle::WrappedResult & result) {
+    if (waiting_plan_ != plan_id || !active_) return;
+    waiting_plan_ = 0;
+    waiting_goal_.reset();
+    auto done = std::move(waiting_done_);
+    const bool ok = result.code == rclcpp_action::ResultCode::SUCCEEDED && result.result && result.result->success;
+    const std::string why = result.result && !result.result->reason.empty() ? result.result->reason :
+      (result.code == rclcpp_action::ResultCode::CANCELED ? "cancelled" : "coordinator_failed");
+    if (!ok && interrupted(why)) { stop("interrupted: " + why); return; }
+    done(ok, why);
+  };
+  execute_client_->async_send_goal(goal, options);
 }
 
 void MissionManager::run_retry(std::vector<SubGoal> goals, Done done, int tries) {

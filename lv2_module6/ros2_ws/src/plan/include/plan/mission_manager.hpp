@@ -5,9 +5,9 @@
 //   입력: ✉️ /cmd/mission (std_msgs/String "start" | "abort")
 //         ✉️ /mission/signal (확정 답) · /mission/signal_status (사이클마다 — ok · error) · /mission/qr (바코드 원문) — perception
 //         ✉️ /tracked_objects (퍽 tag·color·shape(box|cyl) · 장소 상자 location_box(tag · 윗면 가운데) · barcode · last_seen)
-//         ✉️ /task/status (coordinator 결과)
+//         🎬 /task/execute_plan (ExecutePlan action — coordinator 계획 실행 결과)
 //         ✉️ photo_topic (사진 찍을 때만 잠깐 구독) · TF map → base_footprint
-//   출력: ✉️ /task/sub_goals (SubGoalArray, plan_id = PLAN_ID_BASE + n) → coordinator
+//   출력: 🎬 /task/execute_plan (SubGoal[] + plan_id = PLAN_ID_BASE + n) → coordinator
 //         ✉️ /mission/state (plan/MissionState, latched) · /mission/markers (RViz)
 //         ✉️ 기록 log_dir/<시작 시각>/ signal · allocation · build · verify · return · error .json + photos/ · /diagnostics
 //   단계 (순서와 실패 시 갈 곳은 mission_solver next_phase):
@@ -36,12 +36,14 @@
 #include "perception/msg/tracked_object_array.hpp"
 #include "plan/mission_solver.hpp"
 #include "plan/plan_next.hpp"
+#include "plan/action/execute_plan.hpp"
 #include "nav_msgs/msg/occupancy_grid.hpp"
 #include "plan/msg/basket_state.hpp"
 #include "plan/msg/mission_state.hpp"
 #include "plan/msg/sub_goal_array.hpp"
 #include "plan/msg/task_status.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "rclcpp_action/rclcpp_action.hpp"
 #include "sensor_msgs/msg/image.hpp"
 #include "std_msgs/msg/string.hpp"
 #include "tf2_ros/buffer.h"
@@ -53,7 +55,7 @@ namespace plan {
 using plan::msg::MissionState;
 using plan::msg::SubGoal;
 using plan::msg::SubGoalArray;
-using plan::msg::TaskStatus;
+using ExecutePlan = plan::action::ExecutePlan;
 
 struct Box { double x, y, half; };  // arena [m] — 정사각 박스 (윗면 = box_top_z)
 
@@ -79,7 +81,7 @@ private:
   void result(const std::string & text);         // 퍽·장소 결과 (실패해도 계속) → /mission/state · build.json
   void stop(const std::string & why);            // ERROR — coordinator 정지
 
-  // skill 요청 — 계획 하나를 보내고 /task/status로 끝을 기다림. run_retry는 실패하면 retries번까지 다시
+  // skill 요청 — 계획 하나를 ExecutePlan action으로 보내고 result를 기다림. run_retry는 실패하면 retries번까지 다시
   void run(std::vector<SubGoal> goals, Done done);
   void run_retry(std::vector<SubGoal> goals, Done done, int tries = 0);
   // 박스 위 점(arena)을 다룰 자리로 navigate + approach — 점에서 가까운 변부터, 실패하면 다음 변 (최대 approach_tries)
@@ -139,7 +141,9 @@ private:
   Phase phase_ = Phase::IDLE;
   std::string note_, error_;
   bool active_ = false;
+  using ExecuteGoalHandle = rclcpp_action::ClientGoalHandle<ExecutePlan>;
   uint32_t plan_seq_ = 0, waiting_plan_ = 0;
+  ExecuteGoalHandle::SharedPtr waiting_goal_;
   Done waiting_done_;
   perception::msg::MissionSignal signal_;
   bool signal_ready_ = false;           // 이번 READ에서 확정 답을 받음
@@ -182,7 +186,7 @@ private:
 
   std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
-  rclcpp::Publisher<SubGoalArray>::SharedPtr goals_pub_;
+  rclcpp_action::Client<ExecutePlan>::SharedPtr execute_client_;
   rclcpp::Publisher<MissionState>::SharedPtr state_pub_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr markers_pub_;
   rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr walls_pub_;  // /arena/walls (map, latched) → nvblox_map이 /map에 겹침
@@ -191,7 +195,6 @@ private:
   rclcpp::Subscription<perception::msg::MissionSignal>::SharedPtr signal_sub_, signal_status_sub_;
   std::map<int, perception::msg::TrackedObject> last_seen_;  // 태그 → 마지막으로 본 트랙 (locate memory)
   rclcpp::Subscription<perception::msg::TrackedObjectArray>::SharedPtr objects_sub_;
-  rclcpp::Subscription<TaskStatus>::SharedPtr status_sub_;
   rclcpp::Subscription<plan::msg::BasketState>::SharedPtr basket_sub_;
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr photo_sub_;
   rclcpp::TimerBase::SharedPtr timer_, markers_timer_;
