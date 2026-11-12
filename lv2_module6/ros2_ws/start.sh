@@ -278,6 +278,23 @@ fi
 
 # 지도 폴더 기본 = 이 워크스페이스의 map/ (테스트베드 /ws/map 과 같은 자리) — map:=slam(새 폴더 매핑) · saved(저장 지도, 기본)
 case " $* " in *" map_dir:="*) ;; *) set -- "$@" "map_dir:=$HERE/map" ;; esac
+# Foxglove 접속 안내 — 같은 와이파이의 아이패드(mDNS 이름)를 찾아 보여 주고, 아이패드에서 열 링크(qrencode가 있으면 QR)를 찍음
+#   아이패드 앱을 로봇이 대신 열 수는 없음 → 아이패드 카메라로 QR을 찍거나 링크를 열면 Foxglove가 로봇에 바로 붙음
+foxglove_hint() {
+  case " $* " in *" use_foxglove:=false "*) return ;; esac
+  ros2 pkg prefix foxglove_bridge >/dev/null 2>&1 || { echo "Foxglove: foxglove_bridge 없음 (sudo apt install ros-lyrical-foxglove-bridge)"; return; }
+  local port=8765 a ip ipads url
+  for a in "$@"; do case "$a" in foxglove_port:=*) port="${a#*:=}" ;; esac; done
+  ip=$(ip -4 -o addr show scope global 2>/dev/null | awk '$2 !~ /^(docker|l4tbr|usb)/ {sub(/\/.*/, "", $4); print $4; exit}' || true)
+  ipads=$(timeout 3 avahi-browse -rtp _companion-link._tcp 2>/dev/null | awk -F';' '$1=="=" && $3=="IPv4" && ($4 ~ /iPad/ || $7 ~ /iPad/) {print $7" ("$8")"}' | sort -u || true)  # set -e·pipefail: avahi 없음·timeout도 계속
+  url="https://app.foxglove.dev/view?ds=foxglove-websocket&ds.url=ws%3A%2F%2F${ip}%3A${port}"
+  echo "=== Foxglove: ws://${ip}:${port} (또는 ws://$(hostname).local:${port})"
+  [ -n "$ipads" ] && echo "    같은 망의 아이패드: $(echo "$ipads" | awk 'NR>1{printf " · "}{printf "%s", $0}')" || echo "    같은 망에 아이패드 안 보임 (와이파이 확인)"
+  echo "    아이패드에서 열기: $url"
+  if command -v qrencode >/dev/null; then qrencode -t ANSIUTF8 -m 1 "$url"; else echo "    (QR로 찍으려면: sudo apt install qrencode)"; fi
+}
+case "${LAUNCH_FILE:-bringup.launch.py}" in bringup.launch.py) foxglove_hint "$@" ;; esac
+
 # 실행할 launch (기본 전체 bringup) — LAUNCH_FILE=stand_test.launch.py면 가벼운 팔 테스트용
 LAUNCH_FILE="${LAUNCH_FILE:-bringup.launch.py}"
 echo "=== ros2 launch bringup $LAUNCH_FILE $*"
