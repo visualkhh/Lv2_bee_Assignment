@@ -131,7 +131,7 @@ class MissionCmdItem(MenuItem):
 SKILLS = [
     ('1', 'navigate', '이동', ['물체 id 또는 "x,y[,yaw]" (map 좌표)'], '1.5,0.8,0'),
     ('2', 'approach', '박스 앞 직선 접근', ['"x,y,yaw" (map) — 박스 앞 마지막 몇 cm를 저속 직선'], '1.5,0.8,0'),
-    ('3', 'pose', '팔 자세', ['stow · carry_left · carry_right'], 'stow'),
+    ('3', 'pose', '팔 자세', ['stow · carry_left · carry_right · gaze'], 'stow'),
     ('4', 'inspect', '퍽 보기 (태그 읽기)', ['퍽 id 또는 "x,y,z"'], '5'),
     ('5', 'pick', '집기', ['퍽 id (/tracked_objects)'], '5'),
     ('6', 'place', '놓기', ['장소 상자 id 또는 "x,y,z"'], '14'),

@@ -22,7 +22,7 @@ class PoseSkill : public SkillNode {
 public:
   explicit PoseSkill(const rclcpp::NodeOptions & options)
   : SkillNode("skill_pose", options), arm_(*this) {
-    for (const char * n : {"stow", "carry_left", "carry_right", "look"})  // look = inspect 상자 보기 1차 자세 (skill_inspect도 같은 pose_look)
+    for (const char * n : {"stow", "carry_left", "carry_right", "look", "gaze"})  // look = inspect 상자 보기 1차 자세 (skill_inspect도 같은 pose_look) · gaze = 손 카메라로 정면을 가까이 봄 (바코드 등)
       poses_[n] = declare_parameter<std::vector<double>>(std::string("pose_") + n, std::vector<double>{});
     initial_enabled_ = declare_parameter<bool>("initial_pose_enabled", true);
     initial_joints_ = declare_parameter<std::vector<std::string>>("initial_pose_joints", {"joint1", "joint2", "joint3", "joint4", "joint5"});

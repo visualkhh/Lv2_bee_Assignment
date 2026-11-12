@@ -16,7 +16,7 @@ coordinator:
       unload: 90.0
       stand: 90.0
       stand_pick: 90.0
-    pose_names: [stow, carry_left, carry_right]   # pose 단계 검증 (값은 skill_pose — skills/params/basket.yaml) · scan 자세는 없앰 (11-09)
+    pose_names: [stow, carry_left, carry_right, gaze]   # pose 단계 검증 (값은 skill_pose — skills/params/basket.yaml · arm.yaml) · scan 자세는 없앰 (11-09)
     # 적재함 장부 (이 노드만 씀): 파일에 저장해 다시 떠도 이어 감 · load next가 쓰는 칸 (팔이 잘 못 닿는 칸은 실기에서 확인 후 뺌)
     basket_slots: 12
     #   사람이 적재함을 손으로 비웠으면: ros2 service call /coordinator/basket_clear std_srvs/srv/Trigger
@@ -77,10 +77,13 @@ mission_manager:             # 주사위 기억 미션 (documents/mission/README
     match_radius: 0.04                       # [m] 조사 때 퍽 자리와 트랙을 짝짓는 거리
     stand_check_s: 1.0                       # [s] 누운 퍽 stand 뒤 인지가 섰는지 볼 때까지 기다림 → 섰으면 stand_pick, 아직 누웠으면 stand 다시 (retries번)
     verify_radius: 0.15                      # [m] 재검증 때 장소 중심에서 이 안의 퍽만
-    # 바코드 보는 자세 (출발 구역 안) — 관측 자리(−X)에선 바코드(80, 650, 450)가 화면 위·왼쪽 끝에 걸림 (시뮬레이터 렌더 확인).
-    #   조금 뒤로 물러나 바코드 쪽으로 돌면 화면 안. 실물 카메라 시야로 다시 정할 것
-    barcode_pose_arena: [0.950, 0.800, 3.3126]
-    barcode_timeout_s: 20.0                  # [s] 이번에 본 바코드가 없으면 오류
+    # 바코드 보는 자세 [x, y, yaw] (출발 구역 안) — 비우면 출발(관측) 자리에서 그대로 봄 (이동 없음)
+    #   실기 11-12: 출발 자리에서 신호등·바코드 둘 다 인지됨 → 이동 안 함. 예전 시뮬 값 [0.950, 0.800, 3.3126]은
+    #   26 cm 뒤 자리라 Nav2가 돌아섰다 다시 돌아 한 바퀴를 돌았음 (시뮬 렌더에선 바코드가 화면 끝에 걸렸음)
+    #   옮겨서 보려면 아래 줄을 살림 (빈 배열 []은 ROS YAML이 타입을 몰라 못 씀 — 줄을 빼면 코드 기본 = 이동 없음)
+    # barcode_pose_arena: [0.950, 0.800, 3.3126]
+    barcode_timeout_s: 20.0                  # [s] 이번에 본 바코드가 없으면 오류 (팔이 barcode 자세에 간 뒤부터)
+    barcode_arm_pose: gaze                   # 바코드는 팔을 이 자세로 뻗어 gripper_cam으로 읽고 stow로 돌아옴 ("" = 팔 안 움직이고 pole_front_cam만)
     signal_timeout_s: 150.0                  # [s] READ 시작부터 신호 확정까지 (한 사이클 약 27초 · 두 사이클 같아야 확정 — 중간부터 보면 3사이클)
     signal_error_cycles: 2                   # 오류 사이클(count·unknown·range)이 이만큼 이어지면 ERROR — 한 번은 잡음일 수 있어 다음 사이클을 봄
     home_hold_s: 3.0                         # [s] 출발 구역에서 정지 (발제: 3초)
