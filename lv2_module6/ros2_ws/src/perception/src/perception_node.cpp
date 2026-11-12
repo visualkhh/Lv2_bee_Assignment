@@ -1,6 +1,7 @@
 // perception_node 구현 — 설명·선언은 include/perception/perception_node.hpp, main은 perception_node_main.cpp
 //   함수 이름·순서·규칙은 파이썬 scripts/perception_node.py와 같게 맞춤 (같은 곳을 찾아 비교하기 쉽게)
 #include "perception/perception_node.hpp"
+#include "perception/barcode_fallback.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -121,6 +122,19 @@ struct PerceptionNode::Barcode {
       out.push_back({r.text(), {cv::Point2d(p.topLeft().x, p.topLeft().y), cv::Point2d(p.topRight().x, p.topRight().y),
                                 cv::Point2d(p.bottomRight().x, p.bottomRight().y),
                                 cv::Point2d(p.bottomLeft().x, p.bottomLeft().y)}});
+    }
+    if (out.empty()) {  // 보조 읽기 — 라벨 여백이 좁거나 가장자리에 여분 막대가 붙은 바코드 (include/perception/barcode_fallback.hpp)
+      cv::Rect r;
+      const auto text = barcode_fallback(bgr, [](const cv::Mat & g, int bz) {
+        ZXing::ImageView giv(g.data, g.cols, g.rows, ZXing::ImageFormat::Lum, static_cast<int>(g.step));
+        const auto o = ZXing::ReaderOptions().setFormats(ZXing::BarcodeFormat::LinearCodes)
+          .setBinarizer(bz == 0 ? ZXing::Binarizer::FixedThreshold : ZXing::Binarizer::LocalAverage);
+        for (const auto & res : ZXing::ReadBarcodes(giv, o)) if (!res.text().empty()) return res.text();
+        return std::string();
+      }, 0.15, &r);
+      if (!text.empty())
+        out.push_back({text, {cv::Point2d(r.x, r.y), cv::Point2d(r.x + r.width, r.y), cv::Point2d(r.x + r.width, r.y + r.height),
+                              cv::Point2d(r.x, r.y + r.height)}});
     }
 #else
     (void)bgr;
