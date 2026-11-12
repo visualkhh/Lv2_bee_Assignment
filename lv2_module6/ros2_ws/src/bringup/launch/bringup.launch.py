@@ -3,6 +3,7 @@
   ros2 launch bringup bringup.launch.py
   ros2 launch bringup bringup.launch.py use_ros_system:=false            # 📦 대신 faker 등 다른 입력 (faker.launch.py가 씀)
   ros2 launch bringup bringup.launch.py learning_enabled:=false           # 학습 노드 Δ=0 · 프리셋 A 고정 (비교 기준)
+  ros2 launch bringup bringup.launch.py use_foxglove:=false               # Foxglove 브리지 끔 (기본 auto = 설치돼 있으면 ws://<로봇>:8765)
 지도 (실기·테스트베드 공통 — 지도 한 벌 = 폴더 하나 <map_dir>/<map_name>/ nvblox.nvblx · map.pgm · map.yaml):
   ros2 launch bringup bringup.launch.py map:=slam                 # 매핑: 새 폴더 <날짜_시각>/ (map_name:=으로 이름 지정, 있는 이름이면 거부)
   ros2 launch bringup bringup.launch.py map:=saved                # 위치추정: 가장 최근 폴더 (기본)
@@ -28,6 +29,7 @@ import subprocess
 import sys
 import time
 
+from ament_index_python.packages import PackageNotFoundError, get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription, OpaqueFunction, SetLaunchConfiguration
 from launch.conditions import IfCondition
@@ -167,6 +169,24 @@ def setup_map(context):
             SetLaunchConfiguration('use_gripper_cam', ug),
             SetLaunchConfiguration('use_hand_relative', 'true' if use_perception == 'true' and ug == 'true' else 'false')]
 
+def foxglove(context):
+    """Foxglove(맥·아이패드 앱)용 WebSocket 브리지 — auto: foxglove_bridge가 설치돼 있을 때만 · 접속 ws://<로봇 IP 또는 bee.local>:<foxglove_port>
+    부하: 보는 쪽이 구독한 토픽만 보냄 (아무도 안 붙으면 discovery뿐) — 영상은 볼 때만 열 것"""
+    use = LaunchConfiguration('use_foxglove').perform(context).lower()
+    if use == 'false':
+        return []
+    try:
+        get_package_share_directory('foxglove_bridge')
+    except PackageNotFoundError:
+        if use == 'true':
+            raise RuntimeError('use_foxglove:=true인데 foxglove_bridge가 없음 — sudo apt install ros-lyrical-foxglove-bridge')
+        print('[bringup] foxglove_bridge 없음 — Foxglove 안 띄움 (설치: sudo apt install ros-lyrical-foxglove-bridge)')
+        return []
+    return [Node(package='foxglove_bridge', executable='foxglove_bridge', name='foxglove_bridge', output='screen',
+                 parameters=[{'port': int(LaunchConfiguration('foxglove_port').perform(context)), 'address': '0.0.0.0',
+                              'send_buffer_limit': 100_000_000}])]
+
+
 def generate_launch_description():
     learning = {'enabled': LaunchConfiguration('learning_enabled')}
     return LaunchDescription([
@@ -204,8 +224,12 @@ def generate_launch_description():
                               description='인지 노드(perception_node · signal_decoder · hand_relative): auto = 매핑(map:=slam)이면 끔 · true = 항상 · false = 항상 끔. body_filter는 Nav2 충돌감시용이라 그대로'),
         DeclareLaunchArgument('fake_slam', default_value='false',
                               description='true = faker SLAM 대역(코스 map_server · fake_cuvslam · fake_nvblox) — ros_system의 진짜 cuVSLAM·nvblox만 끔'),
+        DeclareLaunchArgument('use_foxglove', default_value='auto',
+                              description='Foxglove 브리지 — auto: foxglove_bridge가 설치돼 있으면 켬 · true(없으면 오류) · false'),
+        DeclareLaunchArgument('foxglove_port', default_value='8765', description='Foxglove WebSocket 포트 (ws://<로봇>:<이 포트>)'),
         *[DeclareLaunchArgument(k, default_value=v, description=d) for k, (v, d) in ROS_SYSTEM_ARGS.items()],
         OpaqueFunction(function=setup_map),
+        OpaqueFunction(function=foxglove),
 
         # GroupAction: ros_system의 launch 인자가 이 파일 인자와 섞이지 않게 범위 분리 — 넘길 것만 골라서
         GroupAction([IncludeLaunchDescription(
