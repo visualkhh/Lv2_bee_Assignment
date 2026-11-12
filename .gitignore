@@ -53,3 +53,8 @@ lv2_module6/tools/artifacts/
 
 # macOS
 .DS_Store
+
+# 도식화 및 문서화 툴 
+.agents/
+.archify/
+graphify-out/
