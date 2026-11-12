@@ -33,6 +33,7 @@ public:
     timeout_s_ = declare_parameter<double>("approach_timeout_s", 30.0);
     res_v_ = declare_parameter<double>("residual_v", 0.02);          // 시뮬 res_v · res_w (행동 1 = 이만큼)
     res_w_ = declare_parameter<double>("residual_w", 0.1);
+    min_speed_ = declare_parameter<double>("approach_min_speed", 0.03);  // [m/s] 실기 바퀴 데드밴드 위 (sim 모드 기준 제어)
     for (const char * name : {"dock_box", "park_home", "drive_arc", "drive_straight"}) {
       Policy p;
       p.model = load_model(name);
@@ -163,6 +164,9 @@ private:
     const double head = reverse ? std::atan2(-gy, -gx) : std::atan2(gy, gx);  // 후진이면 차체 뒤쪽 기준
     const bool far = dist > 0.01, turn_first = far && std::abs(head) > 10.0 * M_PI / 180.0;
     double v = far && !turn_first ? std::clamp(1.5 * gx, -0.12, 0.12) : 0.0;
+    // 실기 바퀴는 약 2~3 cm/s 아래 명령엔 안 움직임 (데드밴드) — 1.4 cm 남기고 멈춰 approach_blocked가 됐음 (11-12).
+    //   아직 도착 전이면 min_speed 아래로 안 내림 (그래야 1 cm 안에 들어가 마지막 방향 맞추기까지 감)
+    if (v != 0.0 && std::abs(v) < min_speed_) v = std::copysign(min_speed_, v);
     double w = turn_first ? std::clamp(3.0 * head, -1.0, 1.0)
              : far ? std::clamp((reverse ? -4.0 : 4.0) * gy, -0.5, 0.5) : std::clamp(3.0 * gyaw, -1.0, 1.0);
     if (dist <= tol_m_ && std::abs(gyaw) < tol_yaw_) still_s_ += 0.05;
@@ -227,6 +231,7 @@ private:
   }
 
   std::string mode_;
+  double min_speed_ = 0.03;
   double speed_, pre_m_, pos_tol_, yaw_tol_, timeout_s_, res_v_, res_w_;
   std::map<std::string, Policy> policies_;
   Policy * pol_ = nullptr;

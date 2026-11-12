@@ -337,11 +337,13 @@ void MissionManager::barcode_phase() {
       const bool room = fresh && grip_front_m_ > barcode_min_gap_m_ + barcode_advance_step_m_ * 0.5 &&
                         advanced_m_ + barcode_advance_step_m_ <= barcode_advance_max_m_ + 1e-6;
       if (waited && !moving_ && room) {
-        Pose2 r;
-        if (robot_arena(r)) {
+        {
           moving_ = true;
           const double d = std::min(barcode_advance_step_m_, grip_front_m_ - barcode_min_gap_m_);  // 마지막 걸음은 남은 만큼만
-          const auto g = to_map(r.x + d * std::cos(r.yaw), r.y + d * std::sin(r.yaw), r.yaw);
+          // 목표 = 출발 자리에서 출발 방향으로 (지금까지 + d) — 지금 자세 기준으로 잡으면 걸음마다 방향 오차가 쌓였음 (11-12: 0 → −9 → −14°)
+          const Pose2 & o = barcode_origin_;
+          const double k = advanced_m_ + d;
+          const auto g = to_map(o.x + k * std::cos(o.yaw), o.y + k * std::sin(o.yaw), o.yaw);
           note(fmt("바코드가 안 읽혀 다가감 (지금까지 %.2f m · 손 카메라 정면 %.2f m · 팔 그대로)", advanced_m_ + d, grip_front_m_));
           run({SubGoal().set__skill("approach").set__target(fmt("%.4f,%.4f,%.4f", g.x, g.y, g.yaw)).set__relation("drive_straight")},
             [this, d](bool ok, const std::string & why) {
@@ -381,7 +383,9 @@ void MissionManager::barcode_done(bool ok, const std::string & why) {
   moving_ = false;
   run(back, [this, ok, why](bool sok, const std::string & swhy) {  // 실패해도 접고(·돌아오고) 끝냄
     if (!ok) { finish(false, why); return; }
-    finish(sok, "barcode_return_failed:" + swhy);
+    // 바코드는 읽었음 — 후진 복귀가 조금 덜 맞아도(approach_blocked 등) 미션은 계속 (다음 이동은 Nav2) · 팔 접기 실패만 멈춤
+    if (!sok) RCLCPP_WARN(get_logger(), "바코드 뒤 복귀 덜 됨 (%s) — 계속", swhy.c_str());
+    finish(sok || swhy.rfind("approach", 0) == 0, "barcode_return_failed:" + swhy);
   });
 }
 
