@@ -976,8 +976,8 @@
       <state_interface name="effort"/>  <!-- 바퀴 모터 전류 [A] (S 맨 끝) -->
     </joint>
     <joint name="joint1">
-      <!-- [rad] 영점 오프셋: 서보 값 = 관절값 + offset (실측) — 11/08: joint1 0에서 손끝(축에서 0.20 m)이 왼쪽 10 mm → +2.86° -->
-      <param name="offset">-0.050</param>
+      <!-- [rad] 영점 오프셋: 서보 값 = 관절값 + offset (실측) — 11/11 팔 교체 후: 0자세 손끝(축에서 0.341 m)이 오른쪽 4 mm → +0.010, joint1 적분 켠 뒤 1 mm 더 → +0.013 (11/08 −0.050은 교체 전 팔) -->
+      <param name="offset">0.013</param>
       <command_interface name="position"/>
       <state_interface name="position"/>
       <state_interface name="velocity"/>
