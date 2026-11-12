@@ -276,6 +276,10 @@ PerceptionNode::PerceptionNode(const rclcpp::NodeOptions & options) : rclcpp::No
   robot_front_x_ = pd("robot_front_x", 0.069);  // base_footprint → 로봇 앞면 [m] (상자 face_dist_m 기준 · 시뮬 pick_env ROBOT_FRONT_X)
   barcode_once_ = pb("barcode_once", true);             // 바코드를 한 번 읽으면 더 안 찾고 읽은 내용만 0.5초마다 다시 냄
   barcode_once_re_ = std::regex(declare_parameter<std::string>("barcode_once_pattern", "P2-0[1-4]"));  // 이 형식일 때만 고정 — 잘못 읽은 값에 묶이지 않게
+  // 바코드는 미션 시작(start · start:BARCODE) 뒤 barcode_window_s 동안만 찾음 — 찾는 데 한 장 4~180 ms(보조 읽기)라 늘 돌리면
+  //   YOLO와 같은 스레드를 막음 (젯슨 11/12 실측). 읽거나 abort면 그만 · barcode_always: true면 예전처럼 항상
+  barcode_window_s_ = pd("barcode_window_s", 180.0);
+  barcode_always_ = pb("barcode_always", false);
 
   // ---- 모델
   std::string model_dir;
@@ -325,7 +329,14 @@ PerceptionNode::PerceptionNode(const rclcpp::NodeOptions & options) : rclcpp::No
   qr_pub_ = create_publisher<std_msgs::msg::String>("/mission/qr", latched);
   // 미션을 (다시) 시작하면 지난 회차에 읽은 바코드를 잊고 새로 읽음 — barcode_once가 옛 값을 계속 내면 바코드 단계가 바로 통과됨 (실기 11-12)
   mission_cmd_sub_ = create_subscription<std_msgs::msg::String>("/cmd/mission", rclcpp::QoS(10).reliable(),
-    [this](std_msgs::msg::String::ConstSharedPtr m) { if (m->data.rfind("start", 0) == 0) barcode_reset_ = true; });
+    [this](std_msgs::msg::String::ConstSharedPtr m) {
+      if (m->data == "start" || m->data == "start:BARCODE") {
+        barcode_reset_ = true;
+        barcode_until_ = wall_s() + barcode_window_s_;
+      } else if (m->data == "abort") {
+        barcode_until_ = 0.0;
+      }
+    });
   for (const std::string cam : {"pole_front_cam", "gripper_cam"}) {
     // 컬러·정렬 depth는 시각 맞춘 쌍으로만 (다른 순간의 컬러·depth를 섞지 않게) · camera_info는 따로
     CamSync cs;
@@ -1162,12 +1173,14 @@ void PerceptionNode::read_barcodes() {
     RCLCPP_INFO(get_logger(), "미션 시작 — 바코드 다시 읽음");
   }
   if (barcode_once_ && !barcode_text_.empty()) {
+    barcode_until_ = 0.0;  // 읽었으면 찾기 창 닫음
     // 이미 읽음 → 바코드 찾기는 더 안 하고 읽은 내용만 다시 냄 (mission_manager는 바코드 단계 시작 뒤에 받은 것만 씀)
     std_msgs::msg::String m;
     m.data = barcode_text_;
     qr_pub_->publish(m);
     return;
   }
+  if (!barcode_always_ && wall_s() > barcode_until_) return;  // 미션 바코드 단계 밖 — 안 찾음
   std::vector<std::pair<std::string, Frame>> frames;
   {
     std::lock_guard<std::mutex> lk(mutex_);

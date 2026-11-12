@@ -115,6 +115,9 @@ private:
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr mission_cmd_sub_;  // /cmd/mission start… → 바코드 기억(barcode_once) 지움
   std::atomic<bool> barcode_reset_{false};
   std::regex barcode_once_re_;
+  std::atomic<double> barcode_until_{0.0};  // 이 시각(wall_s)까지 바코드 찾음 — 미션 start로 엶
+  double barcode_window_s_ = 180.0;
+  bool barcode_always_ = false;
   rclcpp::Publisher<TrackedObjectArray>::SharedPtr pub_;
   std::map<std::string, rclcpp::Publisher<TrackedObjectArray>::SharedPtr> det_pubs_;
   std::map<std::string, rclcpp::Publisher<Image>::SharedPtr> debug_pubs_;
