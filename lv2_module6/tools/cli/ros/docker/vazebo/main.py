@@ -720,7 +720,9 @@ class Sim:
                 bgr = np.clip(f, 0, 255).astype(np.uint8)
             return cam, T, bgr, depth
 
-        stamp = now  # 촬영 시각 = 이 렌더에 쓴 로봇 자세를 읽은 시각
+        # 촬영 시각 = 이 렌더에 쓴 로봇 자세의 시각 — 진짜 위치(ground_truth)면 그 메시지 stamp (브리지 지연만큼 과거),
+        # 아니면(/odom·mock) 읽은 시각. '지금'을 찍으면 fake_nvblox가 다른 시각 TF로 점을 놓아 도는 중 벽이 번진다
+        stamp = (self.opencr.stamp if self.opencr.alive else None) or now
         self.frame_seq = getattr(self, 'frame_seq', 0) + 1
         for cam, T, bgr, depth in self.pool.map(render_one, CAMERAS):
             with self.lock:
@@ -2516,7 +2518,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--snapshot', help='창 없이 화면 한 장을 이 PNG로 저장하고 상태를 출력한 뒤 끝냄')
     parser.add_argument('--spawn', help='map 원점의 미로 좌표 "x,y" (기본: 코스 spawn)')
-    parser.add_argument('--course', default='dice_maze', help='코스 = lv2_module6/course/<이름> (기본 dice_maze · 옛 미로: twin_closed_maze)')
+    parser.add_argument('--course', default='isaac_maze', help='코스(실세계) = cli/ros/fake/real/map/<이름> — isaac_maze(기본, USD) · dice_maze. faker course:=와 같게')
     parser.add_argument('--dice', default='q1', help='dice_maze에서 처음 깔 문제 = dice/<이름>.json (빈 값이면 안 깜)')
     parser.add_argument('--pucks', type=int, default=0, help='시작할 때 무작위로 깔 퍽 수 (기본 0 = 빈 맵 — 테스트·CI는 6)')
     parser.add_argument('--headless', action='store_true',

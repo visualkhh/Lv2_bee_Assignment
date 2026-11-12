@@ -38,6 +38,10 @@ SERVICE_HINTS = {
         'label': 'FollowPath 토글 (RL↔DWB)',
         'default': '{"data": true}',
     },
+    '/controller_server/FollowPath/set_fallback': {
+        'label': '안쪽 controller 바꾸기 (dwb|mppi|rpp|rotation_shim)',
+        'default': '{"controller": "mppi"}',
+    },
     '/controller_server/set_parameters': {
         'label': '파라미터 설정 (SetParameters)',
         'default': '{"parameters": [{"name": "FollowPath.enable", "value": {"type": 1, "bool_value": false}}]}',
@@ -204,10 +208,32 @@ class ControllerServerFeature(NodeFeature):
             else:
                 print(f'실패: {result}')
 
+        def set_fallback():
+            now = '?'
+            for diag_name, values in bus.state.diag_values.items():
+                if 'controller_server' in diag_name:
+                    now = dict(values).get('inner', '?')
+                    break
+            names = {'1': 'dwb', '2': 'mppi', '3': 'rpp', '4': 'rotation_shim'}
+            lines = [f' 지금 안쪽 controller: {now}',
+                     ' 서비스: /controller_server/FollowPath/set_fallback (ml/srv/SetFallback)',
+                     ' 정책 ON 이면 정책이 돌고, OFF(바이패스)일 때 이 controller 가 돈다 — 바꾸는 데 몇 초']
+            choice = app.ui.choose('안쪽 controller 고르기', list(names.items()), lines)
+            if choice not in names:
+                return
+            ok, result = bus.call_service(
+                '/controller_server/FollowPath/set_fallback', 'ml/srv/SetFallback', {'controller': names[choice]})
+            if ok:
+                print(f'FollowPath.set_fallback(controller={names[choice]})')
+                print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+            else:
+                print(f'실패: {result}')
+
         return [
             GoMenu(app, 'a', '서비스 목록 · 호출 (테스트)',
                    ServiceMenu(app, name, self.services(bus, name))),
             ActionItem(app, 'b', '서비스: FollowPath.toggle (RL↔DWB)', toggle),
+            ActionItem(app, 'c', '서비스: FollowPath.set_fallback (안쪽 controller 고르기)', set_fallback),
         ]
 
     @staticmethod

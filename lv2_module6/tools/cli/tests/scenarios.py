@@ -357,38 +357,6 @@ def _(s):
     s.finish()
 
 
-@scenario('ab-route-map-pick')
-def _(s):
-    ROUTE = HERE.parents[1] / 'artifacts' / 'ab' / 'rl_nav_controller' / 'route.json'   # core.ROUTE (ROS 없이 import 못 해서 경로만)
-    if ROUTE.exists():
-        print('SKIP ab-route-map-pick: 지정한 route.json이 이미 있음 — 지우지 않으려고 건너뜀')
-        return
-    try:
-        s.step(b'8', wait=0.4)                               # 8) A/B
-        s.step(ENTER, 'A/B 테스트 (노드별)')
-        s.step(ENTER, 'A/B 테스트 · rl_nav_controller')
-        s.step(b'1', wait=0.2)
-        s.step(ENTER, 'A/B 경로 편집')
-        s.step(b'1', wait=0.2)                               # 1) 지도에서 찍기
-        s.send(ENTER)
-        s.expect('A/B 경로 — 지도에서 찍기', timeout=20)     # 현재 위치 TF(최대 5초) · /map을 받은 뒤에 열림
-        s.step(b'+', '한 칸 =')                              # 지도가 포커스를 받아 바로 확대 (중앙 = 지도)
-        s.step(ENTER, 'G1 추가')                             # 십자선 위치(지도 가운데)에 goal
-        s.step(RIGHT * 2, '자유이동')                       # 방향키 = 지도를 밂 → 로봇 따라가기가 풀림
-        s.step(b']', wait=0.2)                               # 방향 +15°
-        s.step(ENTER, 'G2 추가')
-        s.step(b'-', wait=0.3)                               # 축소
-        s.step(b'r', '따라가기')                         # 다시 로봇 중심
-        s.step(ESC, 'Tab 중앙')                              # Esc → 왼쪽 메뉴로 (힌트에 'Tab 중앙')
-        s.step(b'9', wait=0.3)
-        s.step(ENTER, '저장:')                               # 9) 저장하고 나가기 → route.json 저장
-        import json
-        goals = json.loads(ROUTE.read_text())['route']
-        assert len(goals) == 2 and goals[1]['yaw_deg'] == 15.0, goals
-    finally:
-        ROUTE.unlink(missing_ok=True)
-
-
 @scenario('map-pose-pick-sim-only')
 def _(s):
     s.step(b'4', wait=0.3)                    # 4) 지도/위치
@@ -424,6 +392,17 @@ def _(s):
     s.step(ESC, '·  팔')
     s.finish()
 
+
+@scenario('mission-page')
+def _(s):
+    s.step(b'9', wait=0.4)                         # 9) 미션
+    s.step(ENTER, '[실패 이력 0/10]')               # 디버그 줄 (아직 미션 없음)
+    s.expect('[SLAM]')
+    s.step(ENTER, '미션을 시작할까요?')              # 1) 미션 시작 — 확인
+    s.step(b'y', "[PUB /cmd/mission] 'start'")
+    s.step(ESC, '· 놓음 ')                          # 가짜 세계가 /mission/state로 응답 → 단계·바코드·신호 줄
+    s.step(ESC, '메인 메뉴')
+    s.finish()
 
 def main() -> int:
     only = sys.argv[1:]

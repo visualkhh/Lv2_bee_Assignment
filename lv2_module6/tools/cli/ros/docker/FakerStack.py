@@ -4,7 +4,7 @@
 꺼져 있으면 SIM은 프레임을 쓰지만 fake_camera·monitor가 없어 ROS 쪽이 전부 stale이 된다.
 그래서 docker 모드 진입 시:
   1. 컨테이너가 떠 있는지 확인
-  2. `ros2 launch faker`가 없으면 `test-faker 0`을 백그라운드로 시작
+  2. `ros2 launch faker`가 없으면 `test-faker 0`을 백그라운드로 시작 — 떠 있으면 붙기만 한다 (실기처럼: 죽이거나 다시 띄우지 않음)
   3. debug/output/topic/{state/devices,joint_states}/message가 fresh해질 때까지 대기
 종료할 때 faker를 끄지 않는다 (bringup처럼 다음 실행에서 재사용).
 """
@@ -53,7 +53,7 @@ class FakerStack:
     def faker_running(self) -> bool:
         # [r]os2 — 이 셸의 명령줄에 있는 문자열과 자기 자신을 매칭하지 않게
         r = self._docker('exec', self.container, 'bash', '-lc',
-                         "pgrep -f '[r]os2 launch faker' >/dev/null")
+                         "pgrep -f '[r]os2 launch faker faker.launch' >/dev/null")   # ROS 스택 (fake_hardware.launch = 하드웨어는 제외)
         return r.returncode == 0
 
     def stack_busy(self) -> bool:
@@ -93,7 +93,7 @@ class FakerStack:
             return ''
 
     def _start_args(self) -> list[str]:
-        """마지막 지도 모드로 다시 띄운다 — MAPPING이면 새 지도, LOCALIZATION이면 그 지도."""
+        """아무것도 안 떠 있을 때만 — 마지막 /state/map_mode로 띄운다 (MAPPING이면 새 지도, LOCALIZATION이면 그 지도)."""
         mode = self._state_value('map_mode')
         name = self._state_value('map_name')
         if mode == 'LOCALIZATION' and name:
@@ -130,21 +130,15 @@ class FakerStack:
 
         self._write_topics()
         started = False
-        if self.faker_running():
+        attached = self.faker_running()   # 떠 있던 스택에 붙었으면 이후로도 직접 띄우지 않는다 (state_manager 재시작 틈 포함)
+        if attached:
+            # 실기처럼 — CLI는 떠 있는 스택에 붙기만 한다. 죽이거나 다시 띄우지 않는다 (재시작은 state_manager 몫).
+            #   예전엔 데이터가 늦으면 '좀비'로 보고 죽인 뒤 옛 브리지 값(map_mode NONE)으로 다시 띄워,
+            #   지도 모드 전환(state_manager 재시작) 직후 다시 붙은 CLI가 MAPPING을 NONE으로 되돌렸다 (2026-11-11 실측).
             if self._fresh():
                 print('[docker] test-faker 이미 정상 — ROS 데이터 fresh', flush=True)
                 return True
-            if self.stack_busy():
-                print('[docker] test-faker/build 진행 중 — 끝나기를 기다린다', flush=True)
-            else:
-                # 좀비 launch — ROS 노드가 없는데 launch 프로세스만 남은 경우
-                print('[docker] test-faker는 떠 있지만 ROS 데이터가 없다 — 재시작', flush=True)
-                self._docker('exec', self.container, 'bash', '-lc',
-                             "pkill -TERM -f '[r]os2 launch faker' || true")
-                time.sleep(1.0)
-                if not self._start_faker():
-                    return False
-                started = True
+            print('[docker] test-faker가 떠 있다 — ROS 데이터가 올 때까지 기다린다 (스택은 건드리지 않음)', flush=True)
         elif not self.stack_busy():
             if not self._start_faker():
                 return False
@@ -163,7 +157,7 @@ class FakerStack:
                 print('[docker] 컨테이너가 실행 중에 꺼졌다 (OOM/중지?) — docker ps 확인',
                       flush=True)
                 return False
-            if not started and not self.faker_running() and not self.stack_busy():
+            if not started and not attached and not self.faker_running() and not self.stack_busy():
                 print('[docker] 이전 작업이 끝났다 — test-faker 시작', flush=True)
                 if not self._start_faker():
                     return False

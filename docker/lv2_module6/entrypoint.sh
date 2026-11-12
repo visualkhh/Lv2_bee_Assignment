@@ -35,7 +35,9 @@ if command -v socat >/dev/null 2>&1; then
   socat -u /dev/ttyV1,raw,echo=0 OPEN:/debug/output/hardware/serial,creat,append &
   # 3. 파일 → 시리얼 (input/hardware/serial에 추가된 내용을 앱으로 전송)
   # -u 단방향 필수: 양방향이면 이 프로세스가 /dev/ttyV1 읽기를 나눠가져 output/hardware/serial이 유실됨
-  tail -c +1 -F /debug/input/hardware/serial 2>/dev/null | socat -u - /dev/ttyV1,raw,echo=0 &
+  # -s 0.02: 바인드 마운트(Docker Desktop)는 inotify가 안 와 tail이 폴링으로 떨어짐 — 기본 1초면 S가 1초씩 뭉쳐 와
+  #           BeebotSystem이 'OpenCR 상태(S) 수신 없음'(0.5초 초과)을 계속 냄
+  tail -s 0.02 -c +1 -F /debug/input/hardware/serial 2>/dev/null | socat -u - /dev/ttyV1,raw,echo=0 &
 fi
 # 준비 완료 표시: docker run -d 직후 바로 exec하는 쪽(CI)은 이 파일이 생길 때까지 기다린다
 touch /run/testbed-ready

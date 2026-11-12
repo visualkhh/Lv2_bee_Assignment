@@ -1,7 +1,7 @@
 // fake_opencr 구현 — 설명·선언은 include/faker/fake_opencr.hpp, main은 fake_opencr_main.cpp
 // 물리 상수 — 로봇 외곽(FOOT_*)은 충돌 판정용. 0.18은 퍽 밀기 판정에만 씀
 // 로봇 외곽 (base_footprint 기준, URDF base 상자 앞 +0.069 · 뒤 −0.233 · 바퀴 바깥 ±0.153) — 박스 앞 1~2 cm까지 붙는 박스 접근용.
-constexpr double FOOT_FRONT = 0.069, FOOT_REAR = -0.233, FOOT_SIDE = 0.153;
+// 몸 외곽 기본값 — 실제 값은 파라미터 foot_front·foot_rear·foot_side (faker/config/robot_footprint.yaml = 실제 로봇 USD에서 뽑음)
 #include "faker/fake_opencr.hpp"
 
 #include <array>
@@ -38,8 +38,20 @@ FakeOpenCR::FakeOpenCR() : rclcpp::Node("fake_opencr") {
   comm_down_ = declare_parameter<bool>("comm_down", false);
   arm_grabbed_ = declare_parameter<bool>("arm_grabbed", false);
   declare_parameter<std::vector<int64_t>>("hw_error", std::vector<int64_t>(8, 0));
+  // 켤 때 팔·그리퍼 각 — 실기는 꺼져 있는 동안 팔이 stow로 접혀 있어 켜면 그 각이 읽힌다 (전부 0 = 팔을 위로 편 자세가 아님).
+  //   faker.launch가 skills/params/basket.yaml pose_stow(팔 5축)를 넘긴다. 6번째(그리퍼)를 안 주면 0(닫힘).
+  foot_front_ = declare_parameter<double>("foot_front", foot_front_);   // 몸 외곽 (base_footprint 기준) — 실제 로봇 USD에서
+  foot_rear_ = declare_parameter<double>("foot_rear", foot_rear_);
+  foot_side_ = declare_parameter<double>("foot_side", foot_side_);
+  const auto start_joints = declare_parameter<std::vector<double>>("start_joints", std::vector<double>{});
+  for (size_t j = 0; j < start_joints.size() && j < joint_pos_.size(); ++j) joint_pos_[j] = start_joints[j];
+  joint_cmd_ = joint_pos_;  // 첫 명령이 오기 전엔 그 자세를 유지
   if (!map_yaml.empty() && !load_map(map_yaml)) {
     RCLCPP_WARN(get_logger(), "지도 로드 실패 (%s) — 충돌 없이 동작", map_yaml.c_str());
+  } else if (!map_yaml.empty()) {
+    RCLCPP_INFO(get_logger(), "충돌 월드 %s — 원점 (%.3f, %.3f) · %.3f m/칸 · %dx%d · 시작 (%.3f, %.3f) 겹침 %d · 몸 앞 %.3f 뒤 %.3f 옆 ±%.3f",
+                map_yaml.c_str(), map_ox_, map_oy_, map_res_, map_w_, map_h_, x_, y_, collide(x_, y_, yaw_) ? 1 : 0,
+                foot_front_, foot_rear_, foot_side_);
   }
   cmd_stream_.open(serial_out_, std::ios::in);
   if (cmd_stream_) cmd_stream_.seekg(0, std::ios::end);  // 지금부터 붙는 C만
@@ -118,7 +130,9 @@ bool FakeOpenCR::load_map(const std::string & yaml_path) {
       }
       if (auto v = val("resolution"); !v.empty()) map_res_ = std::stod(v);
       if (auto v = val("origin"); !v.empty()) {
-        std::sscanf(v.c_str(), "[%lf, %lf", &map_ox_, &map_oy_);
+        // 형식 앞 공백 = 입력의 공백을 건너뜀. 예전 "[%lf, %lf"는 값 앞 공백(" [-0.964, …") 때문에 하나도 못 읽어
+        //   원점이 (0, 0)으로 남았다 — 충돌 월드가 카메라·뷰어 월드보다 원점만큼 밀림 (2026-11-11)
+        if (std::sscanf(v.c_str(), " [ %lf , %lf", &map_ox_, &map_oy_) != 2) return false;
       }
     }
     if (image.empty()) return false;
@@ -152,22 +166,37 @@ bool FakeOpenCR::occupied(double x, double y) const {
   if (map_.empty()) return false;
   const int col = static_cast<int>((x - map_ox_) / map_res_);
   const int row = static_cast<int>((map_oy_ + map_h_ * map_res_ - y) / map_res_);  // 0행 = 위 = 큰 y
-  if (col < 0 || col >= map_w_ || row < 0 || row >= map_h_) return true;  // 지도 밖 = 벽
-  return map_[static_cast<size_t>(row) * map_w_ + col] < 128;
+  hit_wx_ = x;
+  hit_wy_ = y;
+  hit_col_ = col;
+  hit_row_ = row;
+  if (col < 0 || col >= map_w_ || row < 0 || row >= map_h_) {
+    hit_val_ = 256;
+    return true;  // 지도 밖 = 벽
+  }
+  hit_val_ = map_[static_cast<size_t>(row) * map_w_ + col];
+  return hit_val_ < 128;
 }
 
 bool FakeOpenCR::collide(double x, double y, double yaw) const {
   if (map_.empty()) return false;
-  if (occupied(x, y)) return true;
+  if (occupied(x, y)) {
+    hit_lx_ = hit_ly_ = 0.0;  // 몸 중심
+    return true;
+  }
   const double c = std::cos(yaw), s = std::sin(yaw);
-  const double corner[5][2] = {{FOOT_FRONT, FOOT_SIDE}, {FOOT_FRONT, -FOOT_SIDE}, {FOOT_REAR, -FOOT_SIDE}, {FOOT_REAR, FOOT_SIDE},
-                               {FOOT_FRONT, FOOT_SIDE}};
+  const double corner[5][2] = {{foot_front_, foot_side_}, {foot_front_, -foot_side_}, {foot_rear_, -foot_side_}, {foot_rear_, foot_side_},
+                               {foot_front_, foot_side_}};
   for (int e = 0; e < 4; ++e) {  // 외곽 네 변을 1 cm 간격으로
     const double ax = corner[e][0], ay = corner[e][1], bx = corner[e + 1][0], by = corner[e + 1][1];
     const int n = static_cast<int>(std::hypot(bx - ax, by - ay) / 0.01) + 1;
     for (int k = 0; k <= n; ++k) {
       const double lx = ax + (bx - ax) * k / n, ly = ay + (by - ay) * k / n;
-      if (occupied(x + c * lx - s * ly, y + s * lx + c * ly)) return true;
+      if (occupied(x + c * lx - s * ly, y + s * lx + c * ly)) {
+        hit_lx_ = lx;
+        hit_ly_ = ly;
+        return true;
+      }
     }
   }
   return false;
@@ -389,6 +418,14 @@ void FakeOpenCR::tick() {
       bumped_ = true;
     } else {
       bumped_ = true;
+    }
+    if (bumped_) {  // 디버그 — 어디서 무엇에 걸렸나 (collide(nx, ny, nyaw)가 마지막으로 기록한 점)
+      collide(nx, ny, nyaw);
+      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 500,
+        "막힘 bumped: 위치 (%.3f, %.3f) yaw %.1f° · v %.3f w %.3f · 걸린 점 로봇기준 (%.3f, %.3f) → 월드 (%.3f, %.3f) "
+        "픽셀 col %d row %d 값 %d (256=지도 밖) · 지도 원점 (%.3f, %.3f) res %.3f 크기 %dx%d · 지금 자리 겹침 %d",
+        x_, y_, yaw_ * 180.0 / M_PI, v, w, hit_lx_, hit_ly_, hit_wx_, hit_wy_, hit_col_, hit_row_, hit_val_,
+        map_ox_, map_oy_, map_res_, map_w_, map_h_, current_bad ? 1 : 0);
     }
     yaw_ = std::fmod(yaw_ + M_PI, 2 * M_PI);
     if (yaw_ < 0) yaw_ += 2 * M_PI;

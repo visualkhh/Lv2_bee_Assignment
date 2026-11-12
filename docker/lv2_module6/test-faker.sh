@@ -57,7 +57,18 @@ case " $* " in
 esac
 case " $* " in
   *\ mock_hardware:=*) : ;;   # 사용자가 직접 지정하면 그대로
-  *) [ -e /dev/opencr ] || set -- "$@" "mock_hardware:=true" ;;   # 호스트엔 가상 시리얼이 없어서 mock으로 (컨테이너는 entrypoint가 만듦)
+  *) if [ -d /ws/src ]; then
+       # 컨테이너 = 실기처럼: OpenCR(가상 시리얼 /dev/opencr — entrypoint가 만듦)이 있어야 띄운다. 몰래 mock으로 바꾸지 않는다.
+       #   (2026-11-11: 컨테이너 재시작 직후 entrypoint가 /dev/opencr를 만들기 전에 실행돼 mock으로 떴고,
+       #    state_manager가 그 인자를 이어받아 MAPPING까지 fake_opencr·충돌 없이 돌았음)
+       for _ in $(seq 1 30); do [ -e /dev/opencr ] && break; sleep 0.5; done
+       if [ ! -e /dev/opencr ]; then
+         echo "FAIL: /dev/opencr(가상 시리얼) 없음 — entrypoint(socat)를 확인하세요. OpenCR 없이 돌리려면 mock_hardware:=true 를 직접 주세요" >&2
+         exit 2
+       fi
+     else
+       [ -e /dev/opencr ] || set -- "$@" "mock_hardware:=true"   # 호스트 실행엔 가상 시리얼이 없어서 mock
+     fi ;;
 esac
 case " $* " in
   *\ use_monitor:=false*) MONITOR=0 ;;   # 호스트 가벼운 실행용 (도커·CI는 기본 true)
@@ -71,14 +82,31 @@ case " $* " in
        set -- "$@" "map:=slam"; echo "저장 지도 없음 — map:=slam (센서로 지도 작성)"
      fi ;;
 esac
-# 흐름 판정(DUR>0)은 자동 미션이 필요 — 부팅 기본 MANUAL이므로 테스트만 AUTO로 올린다.
-if [ "$DUR" != 0 ]; then
+# 조작 모드 기본값:
+#   - 흐름 판정(DUR>0)은 자동 미션이 필요 → AUTO
+#   - DUR=0으로 띄워 두는 경우에도 저장 지도(map:=saved = LOCALIZATION)면 AUTO
+#     (컨테이너를 껐다 켜도 지도가 있으면 바로 주행 가능 — state_manager의 LOCALIZATION 전환과 같은 규칙)
+#   - map:=slam/none은 MANUAL (안전 — 매핑·지도 없음에서 자동 주행 금지)
+WANT_AUTO=0
+[ "$DUR" != 0 ] && WANT_AUTO=1
+case " $* " in *\ map:=saved*) WANT_AUTO=1 ;; esac
+if [ "$WANT_AUTO" = 1 ]; then
   case " $* " in
-    *\ operation:=*) : ;;
+    *\ operation:=*) : ;;   # 사용자가 직접 준 값이 우선
     *) set -- "$@" "operation:=AUTO" ;;
   esac
 fi
 set -m
+# 가짜 하드웨어(fake_opencr = OpenCR 대역)를 ROS 스택보다 먼저, 따로 켠다 — 실기처럼 ROS를 다시 띄워도(state_manager) 하드웨어는 그대로
+#   (로봇 위치·팔 자세 유지). faker.launch는 fake_opencr가 이미 떠 있으면 다시 띄우지 않는다 (fake_hardware.launch.py 설명).
+case " $* " in
+  *\ mock_hardware:=true*) : ;;   # OpenCR 없이 mock — 하드웨어 없음
+  *) COURSE=$(printf '%s\n' "$@" | sed -n 's/^course:=//p' | tail -1)
+     setsid ros2 launch faker fake_hardware.launch.py ${COURSE:+course:=$COURSE} > /tmp/fake_hardware.log 2>&1 &
+     for _ in $(seq 1 30); do pgrep -f 'lib/faker/fake_opencr' >/dev/null && break; sleep 0.5; done
+     pgrep -f 'lib/faker/fake_opencr' >/dev/null || { echo "FAIL: fake_opencr(가짜 하드웨어)가 안 뜸 — /tmp/fake_hardware.log" >&2; exit 2; }
+     echo "가짜 하드웨어 켬 (fake_opencr${COURSE:+ · 코스 $COURSE}) — 로그 /tmp/fake_hardware.log" ;;
+esac
 ros2 launch faker faker.launch.py "$@" > /tmp/faker.log 2>&1 & LAUNCH_PID=$!
 JS=$(timeout 60 ros2 topic echo --once /joint_states sensor_msgs/msg/JointState 2>/dev/null)
 # spawner가 기동 타이밍을 놓치면(FATAL) 컨트롤러 없이 돈다 — 죽은 spawner 치우고 최대 2회 재시도
@@ -114,7 +142,7 @@ if [ "$DUR" = 0 ]; then
   MARKER=/tmp/beebot_restart.pending   # manager.yaml restart_marker와 같게
   echo "실행 중 (로그 /tmp/faker.log)... 종료는 Ctrl+C · 재시작 = /cmd/restart (state_manager)"
   trap 'echo; stop_all; exit 0' INT
-  while kill -0 "$LAUNCH_PID" 2>/dev/null || pgrep -f "ros2 launch faker" >/dev/null || [ -e "$MARKER" ]; do
+  while kill -0 "$LAUNCH_PID" 2>/dev/null || pgrep -f "ros2 launch faker faker.launch" >/dev/null || [ -e "$MARKER" ]; do
     sleep 1
   done
   echo "$(date +%T) faker launch 끝남"

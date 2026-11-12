@@ -81,6 +81,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-lyrical-nav2-navfn-planner \
     ros-lyrical-nav2-controller \
     ros-lyrical-nav2-dwb-controller \
+    ros-lyrical-nav2-mppi-controller \
     ros-lyrical-nav2-behaviors \
     ros-lyrical-nav2-costmap-2d \
     ros-lyrical-nav2-velocity-smoother \
@@ -100,11 +101,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # pick_ik — MoveIt IK 플러그인 (config/moveit/kinematics.yaml). Lyrical apt에 없어 소스로 빌드해 /opt/ros/lyrical에 설치.
 #   팔이 5축이라 기본 KDL은 "위치 + 위→아래 방향" 목표를 못 풀었음 (축이 모자란 팔 — pick_ik는 오차 비용을 줄여 해를 찾음).
-#   커밋 고정 (재현성): PickNikRobotics/pick_ik 7c97fe2 (2026-09-18)
+#   Noble arm64에는 librange-v3-dev apt 패키지가 없어 range-v3도 소스로 설치한다.
+#   커밋 고정 (재현성): range-v3 a8147793, PickNikRobotics/pick_ik 7c97fe2 (2026-09-18)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git ros-lyrical-rsl ros-lyrical-generate-parameter-library ros-lyrical-moveit-core ros-lyrical-tf2-kdl \
-    librange-v3-dev libfmt-dev libexpected-dev \
+    libfmt-dev libexpected-dev \
     && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /tmp/range-v3 && git clone --branch 0.12.0 --depth 1 \
+       https://github.com/ericniebler/range-v3.git /tmp/range-v3 \
+    && cd /tmp/range-v3 && git checkout a81477931a8aa2ad025c6bda0609f38e09e4d7ec \
+    && cmake -S /tmp/range-v3 -B /tmp/range-v3/build \
+       -DRANGE_V3_TESTS=OFF -DRANGE_V3_EXAMPLES=OFF \
+    && cmake --build /tmp/range-v3/build --parallel "$(nproc)" \
+    && cmake --install /tmp/range-v3/build \
+    && rm -rf /tmp/range-v3 \
     && mkdir -p /tmp/pick_ik_ws/src && cd /tmp/pick_ik_ws/src \
     && git clone https://github.com/PickNikRobotics/pick_ik.git && cd pick_ik && git checkout 7c97fe2 \
     && cd /tmp/pick_ik_ws && . /opt/ros/lyrical/setup.sh \
@@ -117,12 +127,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 #   (Jetson 설치: documents/jetson-orin-nano/CUVSLAM.md)
 
 # YOLO perception (CPU 추론용) — torch CPU + ultralytics. libGL은 cv2용.
-# 모델 가중치는 models/yolo/*.pt 로 커밋 (약 6MB) → perception이 share에 설치.
+# 모델 가중치는 models/yolo/*.pt · *.onnx 로 커밋 → perception이 share에 설치.
+# onnx · onnxruntime: perception.yaml model_path가 .onnx일 때 ultralytics가 파이썬으로 읽는 데 필요
+#   (ros-lyrical-onnxruntime-vendor는 C++ 라이브러리라 파이썬에서 못 씀 · 없으면 실행 중 자동 설치 시도 → 실패 → 빈 목록 발행)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 libglib2.0-0 python3-pip ros-lyrical-ament-cmake-pytest \
     && rm -rf /var/lib/apt/lists/* \
     && pip install --break-system-packages --ignore-installed --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
-    && pip install --break-system-packages --ignore-installed --no-cache-dir "numpy<2" ultralytics pytest
+    && pip install --break-system-packages --ignore-installed --no-cache-dir "numpy<2" ultralytics onnx onnxruntime pytest
 
 # Arduino CLI (OpenCR 펌웨어 빌드·업로드용, Linux ARM64/x86_64 지원)
 # 근거: https://docs.arduino.cc/arduino-cli/installation (install.sh + BINDIR)
@@ -182,8 +194,7 @@ COPY docker/lv2_module6/build-ws.sh /usr/local/bin/build-ws
 COPY docker/lv2_module6/ros-restart.sh /usr/local/bin/ros-restart
 COPY docker/lv2_module6/ros-faker-restart.sh /usr/local/bin/ros-faker-restart
 COPY docker/lv2_module6/ros-kill.sh /usr/local/bin/ros-kill
-COPY docker/lv2_module6/test-ab-nav-policy.sh /usr/local/bin/test-ab-nav-policy
-# run-cli·A/B 도구 — Jetson 실기에서도 같은 경로(/ws/tools)로 동작 (개발 컨테이너는 compose 마운트로 덮어씀)
+# run-cli 도구 — Jetson 실기에서도 같은 경로(/ws/tools)로 동작 (개발 컨테이너는 compose 마운트로 덮어씀)
 COPY lv2_module6/tools /ws/tools
 RUN chmod +x /entrypoint.sh /usr/local/bin/test-* /usr/local/bin/build-ws /usr/local/bin/ros-restart /usr/local/bin/ros-faker-restart /usr/local/bin/ros-kill \
     && echo "source /opt/ros/lyrical/setup.bash" >> /root/.bashrc \

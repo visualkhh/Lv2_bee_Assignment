@@ -195,6 +195,40 @@ class SaveMap:
     Response = SaveMapResponse
 
 
+class ToggleRequest(_Msg):
+    def __init__(self, **kw):
+        self.enable = True
+        super().__init__(**kw)
+
+
+class ToggleResponse(_Msg):
+    def __init__(self, **kw):
+        self.success, self.message = True, ''
+        super().__init__(**kw)
+
+
+class Toggle:   # nav2_msgs/srv/Toggle — collision_monitor 켜기·끄기
+    Request = ToggleRequest
+    Response = ToggleResponse
+
+
+class FilePathRequest(_Msg):
+    def __init__(self, **kw):
+        self.file_path = ''
+        super().__init__(**kw)
+
+
+class FilePathResponse(_Msg):
+    def __init__(self, **kw):
+        self.success = True
+        super().__init__(**kw)
+
+
+class FilePath:   # nvblox_msgs/srv/FilePath — nvblox 지도(.nvblx) 저장·불러오기
+    Request = FilePathRequest
+    Response = FilePathResponse
+
+
 class Int32MultiArray(_Msg):
     def __init__(self, data=None):
         self.data = list(data or [])
@@ -217,6 +251,10 @@ class CameraInfo(_Msg):
     pass
 
 
+class PointCloud2(_Msg):  # CLI는 수신 시각만 씀 (raw 구독)
+    pass
+
+
 class _QosEnum:
     RELIABLE = 1
     BEST_EFFORT = 2
@@ -231,4 +269,55 @@ class QoSProfile(_Msg):
         self.reliability = None
         self.durability = None
         self.history = None
+        super().__init__(**kw)
+
+
+# ---------------------------------------------------------------- 가짜 월드가 쓰는 메시지 (nav_msgs/Path · plan · perception · control)
+class Path(_Msg):
+    def __init__(self, **kw):
+        self.header = Header()
+        self.poses = []
+        super().__init__(**kw)
+
+
+class TrackedObjectArray(_Msg):
+    def __init__(self, **kw):
+        self.objects = []
+        super().__init__(**kw)
+
+
+class MotorStatus(_Msg):
+    def __init__(self, **kw):
+        self.joints, self.temperature, self.text = [], [], []
+        self.battery_voltage = float('nan')
+        super().__init__(**kw)
+
+
+class TaskStatus(_Msg):
+    def __init__(self, **kw):
+        self.plan_id, self.step, self.state, self.reason = 0, 0, 0, ''
+        super().__init__(**kw)
+
+
+class SubGoal(_Msg):
+    def __init__(self, **kw):
+        self.step, self.skill, self.target, self.relation, self.offset_m = 0, '', '', '', 0.0
+        super().__init__(**kw)
+
+
+class SubGoalArray(_Msg):
+    def __init__(self, **kw):
+        self.header = Header()
+        self.plan_id = 0
+        self.goals = []
+        super().__init__(**kw)
+
+
+class MissionState(_Msg):
+    def __init__(self, **kw):
+        self.header = Header()
+        self.phase, self.note, self.barcode, self.order, self.error = 'IDLE', '', '', '', ''
+        self.count_r = self.count_y = self.count_g = 0
+        self.tray, self.results = [], []
+        self.placed = self.total = 0
         super().__init__(**kw)

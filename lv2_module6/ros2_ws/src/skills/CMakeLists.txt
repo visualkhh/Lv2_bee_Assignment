@@ -40,7 +40,7 @@ target_link_libraries(${PROJECT_NAME} PUBLIC rclcpp::rclcpp rclcpp_action::rclcp
   diagnostic_updater::diagnostic_updater ament_index_cpp::ament_index_cpp tf2::tf2 tf2_ros::tf2_ros
   ${std_msgs_TARGETS} ${std_srvs_TARGETS} ${geometry_msgs_TARGETS} ${sensor_msgs_TARGETS} ${nav_msgs_TARGETS}
   ${nav2_msgs_TARGETS} ${moveit_msgs_TARGETS} ${control_msgs_TARGETS} ${shape_msgs_TARGETS} ${trajectory_msgs_TARGETS}
-  ${perception_TARGETS} ${control_TARGETS} ${ml_TARGETS} ${plan_TARGETS})
+  ${perception_TARGETS} ${control_TARGETS} ${ml_TARGETS} ml::ml_onnx ${plan_TARGETS})
 foreach(cls NavigateSkill ApproachSkill PoseSkill InspectSkill PickSkill PlaceSkill LoadSkill UnloadSkill StandSkill)
   rclcpp_components_register_nodes(${PROJECT_NAME} "skills::${cls}")
 endforeach()
@@ -48,11 +48,11 @@ install(TARGETS ${PROJECT_NAME} ARCHIVE DESTINATION lib LIBRARY DESTINATION lib 
 install(DIRECTORY include/ DESTINATION include)
 install(DIRECTORY config launch params DESTINATION share/${PROJECT_NAME})
 
-# 학습 정책 — 워크스페이스 공용 lv2_module6/models/skills/<skill>/ (meta.yaml · <skill>.policy · <skill>.onnx) → share/skills/model
+# 학습 정책 — 워크스페이스 공용 lv2_module6/models/skills/<skill>/ (meta.yaml · <skill>.onnx · <skill>.policy) → share/skills/model
 set(SKILLS_MODEL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../models/skills" CACHE PATH "lv2_module6/models/skills")
 if(EXISTS "${SKILLS_MODEL_DIR}")
   install(DIRECTORY "${SKILLS_MODEL_DIR}/" DESTINATION share/${PROJECT_NAME}/model
-    FILES_MATCHING PATTERN "meta.yaml" PATTERN "*.policy" PATTERN "*.onnx")
+    FILES_MATCHING PATTERN "meta.yaml" PATTERN "*.onnx" PATTERN "*.policy")
 endif()
 
 if(BUILD_TESTING)

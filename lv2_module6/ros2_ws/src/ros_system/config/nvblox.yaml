@@ -41,8 +41,9 @@ nvblox_node:
       esdf_slice_min_height: 0.08
       esdf_slice_max_height: 0.3
       # pole_front_cam 바닥은 화면 맨 아래도 0.59 m — depth 잡음은 거리에 따라 커진다 (costmap raytrace는 3.0)
-      # 3.0 → 4.5: 더 멀리까지 지도에 넣는다 (nvblox 기본 7.0). 멀수록 depth 잡음이 커지니 바닥 잡음이 보이면 4.0 · 3.0으로 되돌릴 것
-      projective_integrator_max_integration_distance_m: 4.5
+      # 4.5 → 2.5: 경기장(4.4 m 폭) 벽 너머·트랙 밖까지 '비어 있음'으로 칠해졌음 (실기 2026-11-11, /map). 멀수록 depth 잡음도 커짐
+      #   대신 먼 벽은 가까이 가야 지도에 들어온다 — 너무 안 칠해지면 3.0으로 (nvblox 기본 7.0)
+      projective_integrator_max_integration_distance_m: 2.5
       workspace_bounds_type: "height_bounds"
       workspace_bounds_min_height_m: -0.1
       workspace_bounds_max_height_m: 0.8

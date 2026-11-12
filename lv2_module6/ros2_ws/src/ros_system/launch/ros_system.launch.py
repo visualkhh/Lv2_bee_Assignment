@@ -252,9 +252,11 @@ def nav2_nodes():
         server('nav2_planner', 'planner_server'),
         server('nav2_controller', 'controller_server', remaps=[('cmd_vel', '/cmd_vel_nav')]),
         server('nav2_behaviors', 'behavior_server', remaps=[('cmd_vel', '/cmd_vel_nav')]),
-        # 행동 트리 = config/navigate_to_pose.xml (기본 BT에서 후진만 0.10m로) — 파일 경로라 yaml이 아니라 여기서
+        # 행동 트리 = config/navigate_to_pose.xml · navigate_through_poses.xml
+        #   (기본 BT에서 후진 0.10m · through-poses는 가까운 웨이포인트 제거 반경 0.15m) — 파일 경로라 yaml이 아니라 여기서
         server('nav2_bt_navigator', 'bt_navigator',
-               extra=[{'default_nav_to_pose_bt_xml': share('config', 'navigate_to_pose.xml')}]),
+               extra=[{'default_nav_to_pose_bt_xml': share('config', 'navigate_to_pose.xml'),
+                       'default_nav_through_poses_bt_xml': share('config', 'navigate_through_poses.xml')}]),
         server('nav2_velocity_smoother', 'velocity_smoother',
                remaps=[('cmd_vel', '/cmd_vel_mux'), ('cmd_vel_smoothed', '/cmd_vel_smoothed')], cond=chain),
         server('nav2_collision_monitor', 'collision_monitor', cond=chain),  # 입출력 토픽은 yaml (cmd_vel_in/out_topic)

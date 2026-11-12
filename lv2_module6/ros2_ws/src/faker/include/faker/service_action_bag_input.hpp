@@ -24,7 +24,8 @@
 //   service: /score_grasps · /clear_octomap · /apply_planning_scene · /diff_drive_controller/set_odometry · /reset(EKF)
 //            /fake_opencr/set_parameters (시뮬레이터 환경 버튼 — 미끄럼·마찰·통신 끊김·팔 붙잡기)
 //            /map_saver/save_map (지도 저장 — ros2_ws/map/map.pgm·yaml)
-//   action:  /navigate_to_pose · /execute_task_solution
+//   action:  /navigate_to_pose · /navigate_through_poses · /execute_task_solution
+//            /navigate_through_poses goal data: {"frame_id": "map", "poses": [{"position": {"x","y","z"}, "orientation": {"x","y","z","w"}}, …]}
 //            /move_action (MoveIt MoveGroup — 시뮬레이터 수동 조작 [end_effector 이동]: 손끝 위치 x·y·z → 계획+실행)
 //              goal data: {"x","y","z"[, "frame_id"=base_footprint, "link"=end_effector_link, "group"=arm,
 //                          "orientation"=[x,y,z,w] (기본 위→아래 [1,0,0,0]), "velocity_scaling"=0.3, "plan_only"=false]}
@@ -50,6 +51,7 @@
 #include "moveit_msgs/action/move_group.hpp"
 #include "moveit_msgs/srv/apply_planning_scene.hpp"
 #include "moveit_task_constructor_msgs/action/execute_task_solution.hpp"
+#include "nav2_msgs/action/navigate_through_poses.hpp"
 #include "nav2_msgs/action/navigate_to_pose.hpp"
 #include "nav2_msgs/srv/save_map.hpp"
 #include "rcl_interfaces/srv/set_parameters.hpp"
@@ -116,6 +118,12 @@ private:
       nav2_msgs::action::NavigateToPose::Feedback::ConstSharedPtr fb);
   std::string nav_result_json(const std::string & id,
       const typename rclcpp_action::Client<nav2_msgs::action::NavigateToPose>::WrappedResult & wr);
+  bool make_nav_through_goal(const rapidjson::Value & data,
+      nav2_msgs::action::NavigateThroughPoses::Goal & goal, std::string & err);
+  std::string nav_through_feedback_json(const std::string & id,
+      nav2_msgs::action::NavigateThroughPoses::Feedback::ConstSharedPtr fb);
+  std::string nav_through_result_json(const std::string & id,
+      const typename rclcpp_action::Client<nav2_msgs::action::NavigateThroughPoses>::WrappedResult & wr);
   bool make_mtc_goal(const rapidjson::Value & data,
       moveit_task_constructor_msgs::action::ExecuteTaskSolution::Goal & goal, std::string & err);
   std::string mtc_result_json(const std::string & id,
@@ -184,11 +192,16 @@ private:
   std::map<std::string, ActState> act_;
 
   using NavClient = rclcpp_action::Client<nav2_msgs::action::NavigateToPose>;
+  using NavThroughClient = rclcpp_action::Client<nav2_msgs::action::NavigateThroughPoses>;
   using MtcClient = rclcpp_action::Client<moveit_task_constructor_msgs::action::ExecuteTaskSolution>;
   NavClient::SharedPtr nav_cli_;
   NavClient::GoalHandle::SharedPtr nav_handle_;
   std::shared_future<NavClient::GoalHandle::SharedPtr> nav_goal_fut_;
   std::shared_future<NavClient::WrappedResult> nav_res_fut_;
+  NavThroughClient::SharedPtr through_cli_;
+  NavThroughClient::GoalHandle::SharedPtr through_handle_;
+  std::shared_future<NavThroughClient::GoalHandle::SharedPtr> through_goal_fut_;
+  std::shared_future<NavThroughClient::WrappedResult> through_res_fut_;
   MtcClient::SharedPtr mtc_cli_;
   MtcClient::GoalHandle::SharedPtr mtc_handle_;
   std::shared_future<MtcClient::GoalHandle::SharedPtr> mtc_goal_fut_;

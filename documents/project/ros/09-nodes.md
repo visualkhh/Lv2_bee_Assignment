@@ -15,7 +15,7 @@
 | coordinator | 직접 | plan · ROS 2 노드 | 계획 단계를 skill 노드에 맡기는 순서 — 계획 검증(navigate·approach·pick·place·inspect·pose·load·unload·stand·stand_pick), 물체 → 좌표, 다가가기, 재시도, 적재함 장부, AUTO가 아니면 취소 → /task/status |
 | skill_* (9개) | 직접 | skills · 컴포넌트 (arm_skills · base_skills 컨테이너) | skill마다 액션 서버 `/skills/<skill>` 하나 — navigate · approach · pose · inspect · pick · place · load · unload · stand(+stand_pick). 자기 학습 정책 폴더 `models/skills/<skill>/` ([API.md](../../API.md) 3장) · skill_pose는 시작·스캔 자세도 |
 | grasp_scorer | 직접 | ml · ROS 2 서비스 노드 | 모델 로드, IK 가능 후보만 채점, /score_grasps 응답 |
-| rl_nav_controller | 직접 | ml · Nav2 controller 플러그인 | 관측 375(웨이포인트 5×2 + 가상스캔 360 + v/w/gyro + 이전행동 2), ONNX 추론, inner DWB 바이패스 |
+| rl_nav_controller | 직접 | ml · Nav2 controller 플러그인 | 관측 375(웨이포인트 5×2 + 가상스캔 360 + v/w/gyro + 이전행동 2), ONNX 추론, inner 바이패스(기본 MPPI · fallback_controller) |
 | rl_arm_correction | 직접 | ml · ros2_control chainable controller | reference에 Δ 더하기, enabled 파라미터 |
 | arm_safety_monitor | 직접 | control · ROS 2 노드 | 전류로 접촉 감지, 궤적 취소, coordinator 보고 |
 | manual_control | 직접 | control · ROS 2 노드 | 수동 모드(/state/operation_mode), 원격 조종 → twist_mux, 팔·그리퍼 직접 명령, `/cmd/manual/reboot_motors` → 📞 /beebotsystem/reboot_motors |

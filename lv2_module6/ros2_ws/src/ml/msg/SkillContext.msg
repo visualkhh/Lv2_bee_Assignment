@@ -4,7 +4,7 @@
 std_msgs/Header header
 uint32 run_id             # skill 한 번 실행마다 +1 — 바뀌면 처짐 적분·보정·이전 행동을 0부터 (시뮬 에피소드 시작과 같음)
 string skill              # skills.yaml 이름: place_cell · load_slot · pick_standing_puck · unload_slot … · "" = 보정 끔
-string policy             # 정책 파일 절대 경로 (share/skills/model/<skill>/<skill>.policy) · "" = 이 skill은 정책 안 씀 (Δ = 0)
+string policy             # 정책 파일 절대 경로 (share/skills/model/<skill>/<skill>.onnx 또는 .policy) · "" = 이 skill은 정책 안 씀 (Δ = 0)
 string layout             # 정책 입력 모양 place | pick (ml/arm_obs.hpp) — skill 정책 폴더 meta.yaml
 uint8 phase               # 팔: 0 정지(위) · 1 내려가기 · 2 안정 · 3 쥐기/놓기 · 4 올리기 · 5 대기 (시뮬 _phase와 같음)
 bool holding              # 팔: 목표를 붙들고 있음 → 처짐 적분이 돎 (움직이는 동안은 안 돎)

@@ -23,7 +23,7 @@ class ModeItem(MenuItem):
     def run(self):
         body = [f'현재: {self.state.operation or "-"}']
         if self._target == 'AUTO':
-            body.append('AUTO로 바꾸면 자동 주행이 시작될 수 있습니다.')
+            body.append('AUTO = coordinator가 skill 명령을 받는 상태 (미션 시작은 메인 → 0 미션)')
         if self._target != 'MANUAL' and not self.ui.confirm(
                 f'{self._target}로 전환할까요?', default=False, body=body):
             return STAY
@@ -35,7 +35,7 @@ class ModeMenu(Menu):
     title = '모드'
 
     def items(self):
-        return [ModeItem(self.app, '1', 'AUTO', '자동 미션 (coordinator·Nav2·arm)'),
+        return [ModeItem(self.app, '1', 'AUTO', '자동 (coordinator가 skill 실행 · 미션 시작은 0 미션)'),
                 ModeItem(self.app, '2', 'MANUAL', '수동 주행/팔/그리퍼')]
 
     def center(self):
@@ -46,7 +46,7 @@ class ModeMenu(Menu):
             f' E-STOP: {"ON" if st.emergency else "OFF"}',
             f' 지도: {st.map_mode or "-"}',
             '',
-            ' AUTO 전환 시 자동 주행 시작 주의',
+            ' AUTO = 자동 실행 허용 · 미션 시작/중지는 메인 → 0 미션',
         ]
 
 

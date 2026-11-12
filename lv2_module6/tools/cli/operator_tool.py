@@ -45,7 +45,7 @@ from rclpy.qos import (
     qos_profile_sensor_data,
 )
 from nav_msgs.msg import Odometry
-from sensor_msgs.msg import CameraInfo, Imu, JointState
+from sensor_msgs.msg import CameraInfo, Imu, JointState, PointCloud2
 from std_msgs.msg import Bool, String
 
 from op.bus import Bus
@@ -87,7 +87,7 @@ class OperatorTool(Node):
         self._device_subs: dict[str, object] = {}
         self._restart_note = ''
         self._restart_armed_at = 0.0
-        self.current_screen = ''   # 지금 들어가 있는 최상위 메뉴 키 ('4' …) — 재연결 exec 뒤 복원
+        self.resume_path: list[str] = []   # 지금 열려 있는 화면 항목 키 경로 (예: ['4','8','1']) — 재연결 exec 뒤 이 경로로 복원
         # 화면 틀(Window) 신호 — ROS 폴링·재연결은 'tick', 이름으로 화면 열기는 'navigate'
         self.ui.window.connect('tick', self._on_tick)
         self.ui.window.connect('navigate', self._on_navigate)
@@ -105,6 +105,7 @@ class OperatorTool(Node):
         if not rclpy.ok():   # 종료 신호 — 메뉴 루프를 끝낸다
             raise SystemExit(0)
         self.poll(seconds)
+        self.bus.nav.tick()   # docker 웨이포인트 result 파일 — 다음 goal을 바로 보낸다
         self.check_cli_reconnect()
 
     def _on_navigate(self, name: str, params: dict):
@@ -153,7 +154,7 @@ class OperatorTool(Node):
         if now - self._restart_armed_at < 12.0:
             return
         self.ui.close()
-        os.environ['BEE_RESUME_SCREEN'] = self.current_screen   # 메인 메뉴로 튕기지 않고 보던 메뉴로 (그 안의 하위 화면까지는 복원 안 함)
+        os.environ['BEE_RESUME_PATH'] = ','.join(self.resume_path)   # 보던 화면 그대로 — 메뉴 키 경로를 새 프로세스가 되짚는다
         os.execv(sys.executable, [sys.executable, '-u', str(Path(__file__).resolve()), 'menu'])
 
     def _wire(self):
@@ -170,8 +171,15 @@ class OperatorTool(Node):
         # 상단 생존 표시용 — 수신 시각만 (카메라는 영상 대신 가벼운 camera_info)
         for key, topic, typ in (('odom', '/odom', Odometry), ('imu', '/imu', Imu),
                                 ('front_cam', '/pole_front_cam/color/camera_info', CameraInfo),
-                                ('gripper_cam', '/gripper_cam/color/camera_info', CameraInfo)):
+                                ('gripper_cam', '/gripper_cam/color/camera_info', CameraInfo),
+                                ('cuvslam', '/cuvslam/odom', Odometry)):
             self.create_subscription(typ, topic, lambda _m, key=key: self.state.tick(key), qos_profile_sensor_data)
+        # 점구름은 크니 풀지 않고(raw) 수신 시각만 — raw를 못 받는 대역(fake/docker)이면 이 칸은 ✗
+        try:
+            self.create_subscription(PointCloud2, '/pole_front_cam/depth/color/points_filtered',
+                                     lambda _m: self.state.tick('points'), qos_profile_sensor_data, raw=True)
+        except TypeError:
+            pass
         self.create_subscription(DiagnosticArray, '/diagnostics_agg',
                                  lambda m: self.state.on_diagnostics(m.status), LIVE)
         # 커스텀 msg가 빌드 전이면 해당 줄만 비활성 (cli 동작에는 지장 없음)
@@ -198,6 +206,12 @@ class OperatorTool(Node):
                 LATCHED)
         except Exception:
             pass
+        try:
+            from plan.msg import MissionState  # type: ignore
+            self.create_subscription(MissionState, '/mission/state', self.state.on_mission, LATCHED)
+        except Exception:
+            pass
+        self._wire_mission()
         # 로봇 map 위치 — tf2_ros가 없는 호스트면 칸이 '-'로 남는다
         try:
             from tf2_ros import Buffer, TransformListener
@@ -210,14 +224,44 @@ class OperatorTool(Node):
         from op.pages.nodes import wire_all
         wire_all(self)
 
-    def _update_map_pose(self):
-        try:
-            tr = self._tf_buf.lookup_transform('map', 'base_footprint', rclpy.time.Time())
+    def _wire_mission(self):
+        """미션 화면 디버그 줄·상단 미션 칸용 구독 — msg가 없는 환경이면 그 줄만 빠진다."""
+        subs = (  # (패키지.msg, 클래스, 토픽, QoS, 콜백) — QoS는 발행 쪽과 맞춤 (mission_manager.cpp · coordinator.cpp)
+            ('plan.msg', 'SubGoalArray', '/task/sub_goals', LATCHED, self.state.on_sub_goals),
+            ('plan.msg', 'BasketState', '/coordinator/basket', LATCHED, self.state.on_basket),
+            ('perception.msg', 'MissionSignal', '/mission/signal_status', LIVE, self.state.on_signal_status),
+            ('ml.msg', 'SkillContext', '/skill_context', LIVE, self.state.on_skill_context),
+            # nav2 collision_monitor — 동작이 바뀔 때만 발행
+            ('nav2_msgs.msg', 'CollisionMonitorState', '/collision_monitor_state', LIVE, self.state.on_collision_state),
+        )
+        import importlib
+        for mod, cls, topic, qos, cb in subs:
+            try:
+                typ = getattr(importlib.import_module(mod), cls)
+            except Exception:
+                continue
+            self.create_subscription(typ, topic, cb, qos)
+        try:  # Nav2 주행 진행 (navigate skill이 보낸 goal)
+            from nav2_msgs.action import NavigateToPose  # type: ignore
+            self.create_subscription(NavigateToPose.Impl.FeedbackMessage, '/navigate_to_pose/_action/feedback',
+                                     lambda m: self.state.on_nav_feedback(m.feedback), LIVE)
         except Exception:
-            self.state.map_pose = None
-            return
+            pass
+
+    def _lookup(self, parent: str, child: str):
+        """TF parent → child (x, y, yaw[rad]) — 없으면 None."""
+        try:
+            tr = self._tf_buf.lookup_transform(parent, child, rclpy.time.Time())
+        except Exception:
+            return None
         t, q = tr.transform.translation, tr.transform.rotation
-        self.state.map_pose = (t.x, t.y, math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z)))
+        return (t.x, t.y, math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z)))
+
+    def _update_map_pose(self):
+        self.state.map_pose = self._lookup('map', 'base_footprint')
+        mo = self._lookup('map', 'odom')   # SLAM 보정 — 튀면 cuVSLAM이 위치를 고친 것 (루프 클로저 · 재위치)
+        if mo is not None:
+            self.state.on_map_odom(*mo)
 
     def _on_devices(self, msg: String):
         names = [n.strip() for n in msg.data.split(',') if n.strip()]
@@ -259,11 +303,11 @@ class OperatorTool(Node):
             from op.pages import CalibrateMenu
             return CalibrateMenu(self)
         if name == '8':
-            from op.pages import AbMenu
-            return AbMenu(self)
-        if name == '9':
             from op.pages import TopicBagMenu
             return TopicBagMenu(self)
+        if name == '9':
+            from op.pages import MissionMenu
+            return MissionMenu(self)
         if name == 'diagnostics':
             from op.pages import DiagnosticsMenu
             return DiagnosticsMenu(self)
@@ -272,16 +316,13 @@ class OperatorTool(Node):
     # ------------------------------------------------------------- CLI 진입
     def cmd_menu(self, args) -> int:
         from op.pages import MainMenu
-        key = os.environ.pop('BEE_RESUME_SCREEN', '')
-        if key:
-            self.poll(0.6)
-            page = self.screen(key)
-            if page is not None:
-                self.current_screen = key
-                res = page.show()
-                self.current_screen = ''
-                if res == QUIT:
-                    return 0
+        path = [k for k in os.environ.pop('BEE_RESUME_PATH', '').split(',') if k]
+        if path:   # 재연결로 다시 뜸 — 먼저 /state/*(latched)를 받는다: 모르는 상태로 항목을 열면 '모드가 AUTO가 아님' 같은 확인창이 거짓으로 뜸
+            end = time.monotonic() + 6.0
+            while not self.state.values.get('operation_mode') and time.monotonic() < end:
+                self.poll(0.2)
+        if path:   # 재연결로 다시 뜸 — 메인 메뉴에서 같은 키를 차례로 눌러 보던 화면까지 되돌아간다 (Window.run이 소비)
+            self.ui.window.resume_queue = path
         return int(MainMenu(self).show() or 0)
 
     def __getattr__(self, name: str):
@@ -299,7 +340,25 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog='operator_tool',
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog='''예시:
+        description='bee 운영자 CLI — 인자 없이 실행하면 대화형 메뉴, 명령을 주면 한 번 실행하고 끝난다. '
+                    '메뉴 번호: 1 상태 · 2 장치 · 3 조작 · 4 지도/위치 · 5 노드 · 6 RViz · 7 칼리브레이션 · 8 토픽·bag · 9 미션',
+        epilog='''run-cli가 먼저 받는 명령 (bringup 수명주기·빌드 — real 전용):
+  ./tools/run-cli start                  # bringup 시작 (백그라운드, 로그 ./bringup.log)
+  ./tools/run-cli stop                   # 떠 있는 ROS 전부 끄기
+  ./tools/run-cli restart [all|<노드>]   # 전체 또는 그 노드만 다시 띄움
+  ./tools/run-cli build [colcon 인자…]   # colcon build --symlink-install (예: --packages-select ml)
+
+ROS 층 선택 (모든 명령 앞에 붙임):
+  --source real     진짜 rclpy — bringup·실기 (기본)
+  --source fake     프로세스 안 가짜 ROS + 움직이는 가짜 세계 — ROS·도커 없이 화면 시험
+                    (수동 주행·goal·미션·skill·costmap(c)·경로(p)가 명령에 반응. 값은 전부 더미 — ros/fake/FakeWorld.py)
+  --source docker   도커 test-faker가 /debug에 쓰는 파일 브리지 (--debug-dir 경로 · --no-sim · --no-faker)
+  docker는 plan 메시지를 몰라서 미션 상태(/mission/state)는 안 보임
+
+예시:
+  ./tools/run-cli mission status
+  ./tools/run-cli mission start
+  ./tools/run-cli --source fake menu
   ./tools/run-cli status
   ./tools/run-cli menu
   ./tools/run-cli
@@ -311,11 +370,6 @@ def build_parser() -> argparse.ArgumentParser:
   ./tools/run-cli map status
   ./tools/run-cli map save
   ./tools/run-cli node status controller_server   # RL/DWB 상태
-  ./tools/run-cli ab nodes
-  ./tools/run-cli ab rl_nav_controller status
-  ./tools/run-cli ab rl_nav_controller record --label 정책
-  ./tools/run-cli ab rl_nav_controller stop
-  ./tools/run-cli ab rl_nav_controller report --last
 ''')
     sub = parser.add_subparsers(dest='command', required=True)
 
@@ -326,14 +380,21 @@ def build_parser() -> argparse.ArgumentParser:
                         help='/diagnostics_agg 요약 · 이름 일부를 주면 그 항목 상세(값 전부) — 예: --diagnostics signal_decoder')
     status.add_argument('--topics', action='store_true', help='/state/topics 전체 출력')
 
-    mode = sub.add_parser('mode', help='조작 모드 AUTO/MANUAL/TEACH 전환 (TEACH = 팔 토크 끄고 손으로 자세)')
-    mode.add_argument('mode', type=str.lower, choices=('auto', 'manual', 'teach'))
+    mode = sub.add_parser('mode', help='조작 모드 AUTO/MANUAL 전환')
+    mode.add_argument('mode', type=str.lower, choices=('auto', 'manual'))
 
     estop = sub.add_parser('estop', help='비상정지 on/off/status')
     estop.add_argument('state', type=str.lower, choices=('on', 'off', 'status'))
 
     collision = sub.add_parser('collision', help='collision_monitor 켜기/끄기/상태 (MANUAL·MAPPING이면 자동으로 꺼짐 — 직접 바꿀 때)')
     collision.add_argument('state', type=str.lower, choices=('on', 'off', 'status'))
+
+    bag = sub.add_parser('bag', help='bag 녹화 + CPU·메모리·GPU 부하 기록 — start | stop | status (메뉴 8)')
+    bag.add_argument('action', type=str.lower, choices=('start', 'stop', 'status'))
+    bag.add_argument('--label', '-l', default=None, help='start: 폴더 이름에 붙일 라벨 (예: asis_manual)')
+    bag.add_argument('--topics', nargs='*', default=None, help='start: 이 토픽만 (생략하면 진단 프리셋)')
+    bag.add_argument('--regex', default=None, help='start: 토픽 정규식 (프리셋 대신)')
+    bag.add_argument('--no-sys', action='store_true', help='start: 부하(sys.csv) 기록 끔')
 
     drive = sub.add_parser('drive', help='바퀴 수동 주행 (MANUAL 모드)')
     drive.add_argument('direction', type=str.lower, choices=('forward', 'back', 'left', 'right', 'stop'))
@@ -342,7 +403,7 @@ def build_parser() -> argparse.ArgumentParser:
     drive.add_argument('--duration', type=_positive_float, default=1.0, help='주행 시간 [s] (기본 1.0)')
     drive.add_argument('--force', action='store_true', help='MANUAL 상태 확인을 건너뜀 (위험)')
 
-    calibrate = sub.add_parser('calibrate', help='칼리브레이션 (메뉴: 13) — wheel: 계획을 수동 경로로 재생하며 응답을 raw.csv로 기록 (로봇이 움직임)')
+    calibrate = sub.add_parser('calibrate', help='칼리브레이션 (메뉴 7) — wheel: 계획을 수동 경로로 재생하며 응답을 raw.csv로 기록 (로봇이 움직임)')
     cal_sub = calibrate.add_subparsers(dest='part', required=True)
     cal_wheel = cal_sub.add_parser('wheel', help='바퀴 응답 (MANUAL 모드 — 계획 JSON 재생)')
     cal_wheel.add_argument('plan', nargs='?', default=str(Path(__file__).resolve().parent / 'op' / 'pages' / 'calibration' / 'wheel' / 'command.json'),
@@ -365,7 +426,7 @@ def build_parser() -> argparse.ArgumentParser:
     arm.add_argument('action', type=str.lower, choices=('show', 'set', 'delta', 'home', 'initial', 'reboot', 'capture'),
                      help='initial = skills.yaml(skill_pose) 시작 자세(initial_pose·initial_gripper)로 · '
                           'reboot = Hardware Error(과부하 등) 난 모터만 재부팅 (/cmd/manual/reboot_motors) · '
-                          'capture = 지금 팔·그리퍼 자세를 skills.yaml(skill_pose) initial_pose·initial_gripper 형식으로 출력 (보통 mode teach로 손으로 잡은 뒤)')
+                          'capture = 지금 팔·그리퍼 자세를 skills.yaml(skill_pose) initial_pose·initial_gripper 형식으로 출력')
     arm.add_argument('targets', nargs='*', help='관절 목표: joint1=0.0 joint2=0.4 (all=0.0 가능)')
     arm.add_argument('--force', action='store_true', help='MANUAL/MAPPING 확인을 건너뜀 (위험)')
 
@@ -377,8 +438,9 @@ def build_parser() -> argparse.ArgumentParser:
     gripper.add_argument('--force', action='store_true', help='MANUAL 상태 확인을 건너뜀 (위험)')
 
     map_parser = sub.add_parser('map', help='지도 모드·지도 전환·저장')
-    map_parser.add_argument('action', type=str.lower, choices=('status', 'list', 'mode', 'switch', 'save'))
-    map_parser.add_argument('name', nargs='?', help='mode: mapping/localization · switch: 지도 이름')
+    map_parser.add_argument('action', type=str.lower, choices=('status', 'list', 'mode', 'switch', 'save', 'delete', 'rename'))
+    map_parser.add_argument('name', nargs='?', help='mode: mapping/localization · switch·delete·rename: 지도 이름')
+    map_parser.add_argument('--to', help='rename 새 이름')
     map_parser.add_argument('--file', help='save 출력 경로 (기본: <map_dir>/<현재 지도>/map)')
     map_parser.add_argument('--map-dir', help='save 기본 지도 폴더 (기본: ros2_ws/map)')
     map_parser.add_argument('--format', default='pgm', choices=('pgm', 'png', 'bmp'),
@@ -389,29 +451,22 @@ def build_parser() -> argparse.ArgumentParser:
     map_parser.add_argument('--no-localize', dest='localize', action='store_false',
                             help='save만 하고 MAPPING 유지')
 
-    beep = sub.add_parser('beep', help='OpenCR 부저 — 인자 없으면 기본음, beep <Hz 100~8000> <ms 10~2000> (메뉴: 0 비프음)')
+    beep = sub.add_parser('beep', help='OpenCR 부저 — 인자 없으면 기본음, beep <Hz 100~8000> <ms 10~2000> (메뉴 1 상태 → 삑)')
     beep.add_argument('value', nargs='*', help='Hz ms (예: 4000 300)')
+
+    mission = sub.add_parser('mission', help='주사위 미션 — start | abort | status (메뉴 9). mission_manager의 /cmd/mission · /mission/state')
+    mission.add_argument('action', type=str.lower, choices=('start', 'abort', 'status', 'skill', 'stop'),
+                         help='start = 시작 (적재함 장부가 남았으면 거부) · abort = 중지 · status = 지금 단계·진행 · '
+                              'skill <이름> <target> = 세부 명령 한 단계 (예: skill pick 5 · skill navigate 1.5,0.8,0) · stop = 진행 중 전부 취소')
+    mission.add_argument('args', nargs='*', help='skill: <skill 이름> <target>')
 
     sub.add_parser('recover', help='조작이 안 될 때 — 모터 에러 재부팅 + 꺼진 컨트롤러 다시 켜기 (메뉴: 수동·팔·그리퍼 → z)')
 
-    node = sub.add_parser('node', help='노드 상태·재시작·수명주기 활성화 (메뉴: 10 노드)')
+    node = sub.add_parser('node', help='노드 상태·재시작·수명주기 활성화 (메뉴 5 노드)')
     node.add_argument('action', type=str.lower, choices=('list', 'status', 'restart', 'activate'),
                       help='list = 전체 · status <이름> · restart <이름> (수명주기 노드는 active까지) · '
                            'activate <이름> = 수명주기 노드 unconfigured·inactive → active')
     node.add_argument('name', nargs='?', help='노드 이름 (예: velocity_smoother)')
-
-    ab = sub.add_parser('ab', help='A/B 테스트 — ab nodes | ab <노드> <동작> (메뉴: 14)')
-    ab.add_argument('node', nargs='?', default='nodes',
-                    help='노드 이름 (예: rl_nav_controller) 또는 nodes')
-    ab.add_argument('action', nargs='?', default=None,
-                    choices=('status', 'on', 'off', 'record', 'stop', 'report', 'guide'),
-                    help='status · on · off · record · stop · report · guide (생략 시 status)')
-    ab.add_argument('bags', nargs='*', help='report: bag 폴더 2개 (A B)')
-    ab.add_argument('--label', '-l', default=None, help='record/guide: bag 이름에 붙일 라벨 (예: 정책, DWB)')
-    ab.add_argument('--out', default=None, help='record: 저장 폴더 · report: 출력 PNG')
-    ab.add_argument('--last', action='store_true', help='report: 최근 녹화 2개 사용')
-    ab.add_argument('--labels', nargs='*', default=None, help='report: 범례 이름 (예: 정책 DWB)')
-    ab.add_argument('--config', default=None, help='guide: command.json 경로 (기본 tools/cli/op/pages/ab/<노드>/command.json)')
 
     restart = sub.add_parser('restart', help='state_manager에 재시작 요청 (위험) — all = bringup 전체')
     restart.add_argument('target', help='all 또는 노드 이름')

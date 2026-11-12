@@ -1,24 +1,28 @@
-"""Re-export rsl_rl TorchScript policies to self-contained ONNX (weights inside, batch 1) for ml/rl_arm_correction.
+"""TorchScript policy (.pt, rsl_rl or sb3) -> the self-contained ONNX the robot runs (ml::OnnxPolicy, weights inside, batch 1).
 
-train.py's ONNX copy leaves its weights in a side .onnx.data file that is not copied, so that .onnx has no weights.
 usage: python export_onnx.py policies/place_residual_sag.pt ../models/skills/place_cell/place_cell.onnx
-(robot: rl_arm_correction runs models/skills/<skill>/<skill>.policy from ml/scripts/export_policy.py — the .onnx is the reference copy)
-also writes <dst>.check = one random input + the torch output (float32), for the C++ test
+       python export_onnx.py plan_next.pt ../models/plan/plan_next.onnx
+train.py's ONNX copy leaves its weights in a side .onnx.data file that is not copied, so that .onnx has no weights — use this instead.
+Writes metadata bee_test_x / bee_test_y (one random input + the torch output): ml::OnnxPolicy::load checks it, so a wrong export fails on load.
 """
 import sys
 
-import numpy as np
 import onnx
 import torch
 
 src, dst = sys.argv[1], sys.argv[2]
-m = torch.jit.load(src, map_location="cpu")
-n = m.obs_normalizer._mean.shape[1]
+m = torch.jit.load(src, map_location="cpu").eval()
+n = next(v for k, v in m.state_dict().items() if k.endswith("weight") and v.dim() == 2).shape[1]
 torch.onnx.export(m, torch.zeros(1, n), dst, input_names=["obs"], output_names=["actions"], opset_version=17,
                   dynamo=False)
-onnx.checker.check_model(onnx.load(dst))  # fails if the weights went to a side file
+torch.manual_seed(0)
 x = torch.randn(1, n)
 with torch.no_grad():
     y = m(x)
-torch.cat([x.ravel(), y.ravel()]).numpy().astype(np.float32).tofile(dst + ".check")
-print(dst, n)
+model = onnx.load(dst)
+for k, v in {"bee_source": src, "bee_test_x": x, "bee_test_y": y}.items():
+    e = model.metadata_props.add()
+    e.key, e.value = k, v if isinstance(v, str) else ",".join(f"{float(t):.9g}" for t in v.reshape(-1))
+onnx.checker.check_model(model)
+onnx.save_model(model, dst, save_as_external_data=False)
+print(dst, n, tuple(y.shape))

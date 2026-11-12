@@ -17,7 +17,7 @@ const char * kServices[] = {"score_grasps", "clear_octomap", "apply_planning_sce
   "diff_drive_controller/set_odometry", "reset", "fake_opencr/set_parameters",
   "map_saver/save_map", "controller_server/FollowPath/toggle", "set_parameters",
   "controller_server/set_parameters"};
-const char * kActions[] = {"navigate_to_pose", "execute_task_solution", "move_action"};
+const char * kActions[] = {"navigate_to_pose", "navigate_through_poses", "execute_task_solution", "move_action"};
 
 bool get_double(const rapidjson::Value & v, const char * key, double & out) {
   if (!v.HasMember(key) || !v[key].IsNumber()) return false;
@@ -52,7 +52,7 @@ ServiceActionBagInput::ServiceActionBagInput()
 : rclcpp::Node("service_action_bag_input") {
   debug_dir_ = declare_parameter<std::string>("debug_dir", "/debug");
   const double period = declare_parameter<double>("period_s", 0.2);
-  timeout_s_ = declare_parameter<double>("timeout_s", 10.0);
+  timeout_s_ = declare_parameter<double>("timeout_s", 20.0);
   for (auto s : kServices) svc_[s] = SvcState{};
   for (auto a : kActions) act_[a] = ActState{};
   score_cli_ = create_client<ml::srv::ScoreGrasps>("/score_grasps");
@@ -64,6 +64,7 @@ ServiceActionBagInput::ServiceActionBagInput()
   opencr_params_cli_ = create_client<rcl_interfaces::srv::SetParameters>("/fake_opencr/set_parameters");
   save_map_cli_ = create_client<nav2_msgs::srv::SaveMap>("/map_saver/save_map");
   nav_cli_ = rclcpp_action::create_client<nav2_msgs::action::NavigateToPose>(this, "/navigate_to_pose");
+  through_cli_ = rclcpp_action::create_client<nav2_msgs::action::NavigateThroughPoses>(this, "/navigate_through_poses");
   mtc_cli_ = rclcpp_action::create_client<moveit_task_constructor_msgs::action::ExecuteTaskSolution>(
       this, "/execute_task_solution");
   move_cli_ = rclcpp_action::create_client<moveit_msgs::action::MoveGroup>(this, "/move_action");
@@ -687,6 +688,31 @@ void ServiceActionBagInput::poll_goal(const std::string & name) {
       reply("action", "navigate_to_pose", "feedback", nav_feedback_json(gid, fb));
     };
     nav_goal_fut_ = nav_cli_->async_send_goal(g, opt);
+  } else if (name == "navigate_through_poses") {
+    if (!through_cli_->wait_for_action_server(std::chrono::seconds(0))) {
+      reply("action", name, "accept", "{\"goal_id\": \"" + escape_json(st.goal_id) +
+          "\", \"accepted\": false, \"error\": \"server 없음\"}");
+      st.waiting_goal = false;
+      return;
+    }
+    nav2_msgs::action::NavigateThroughPoses::Goal g;
+    if (!make_nav_through_goal(data, g, err)) {
+      reply("action", name, "accept", "{\"goal_id\": \"" + escape_json(st.goal_id) +
+          "\", \"accepted\": false, \"error\": \"" + escape_json(err) + "\"}");
+      st.waiting_goal = false;
+      return;
+    }
+    typename NavThroughClient::SendGoalOptions opt;
+    opt.feedback_callback = [this, gid = st.goal_id](
+        NavThroughClient::GoalHandle::SharedPtr,
+        const std::shared_ptr<const nav2_msgs::action::NavigateThroughPoses::Feedback> fb) {
+      ActState & s = act_["navigate_through_poses"];
+      const auto now = std::chrono::steady_clock::now();
+      if (now - s.last_fb < std::chrono::milliseconds(200)) return;
+      s.last_fb = now;
+      reply("action", "navigate_through_poses", "feedback", nav_through_feedback_json(gid, fb));
+    };
+    through_goal_fut_ = through_cli_->async_send_goal(g, opt);
   } else if (name == "move_action") {
     if (map_mode_ == "MAPPING") {  // 시뮬레이터 팔 조작(손끝 목표·관절 슬라이더·퍽 집기)은 지도 만드는 동안 막음 — 팔은 스캔 자세 고정
       reply("action", name, "accept", "{\"goal_id\": \"" + escape_json(st.goal_id) +
@@ -771,6 +797,8 @@ void ServiceActionBagInput::poll_cancel(const std::string & name) {
   }
   if (name == "navigate_to_pose" && nav_handle_) {
     nav_cli_->async_cancel_goal(nav_handle_);
+  } else if (name == "navigate_through_poses" && through_handle_) {
+    through_cli_->async_cancel_goal(through_handle_);
   } else if (name == "execute_task_solution" && mtc_handle_) {
     mtc_cli_->async_cancel_goal(mtc_handle_);
   } else if (name == "move_action" && move_handle_) {
@@ -781,17 +809,23 @@ void ServiceActionBagInput::poll_cancel(const std::string & name) {
 
 void ServiceActionBagInput::check_action(const std::string & name) {
   ActState & st = act_[name];
+  const auto now0 = std::chrono::seconds(0);
   if (st.waiting_goal) {
-    const auto now0 = std::chrono::seconds(0);
-    bool ready = (name == "navigate_to_pose") ? nav_goal_fut_.wait_for(now0) == std::future_status::ready
-        : (name == "move_action") ? move_goal_fut_.wait_for(now0) == std::future_status::ready
-        : mtc_goal_fut_.wait_for(now0) == std::future_status::ready;
+    bool ready = false;
+    if (name == "navigate_to_pose") ready = nav_goal_fut_.wait_for(now0) == std::future_status::ready;
+    else if (name == "navigate_through_poses") ready = through_goal_fut_.wait_for(now0) == std::future_status::ready;
+    else if (name == "move_action") ready = move_goal_fut_.wait_for(now0) == std::future_status::ready;
+    else ready = mtc_goal_fut_.wait_for(now0) == std::future_status::ready;
     if (ready) {
       bool accepted = false;
       if (name == "navigate_to_pose") {
         nav_handle_ = nav_goal_fut_.get();
         accepted = (nav_handle_ != nullptr);
         if (accepted) nav_res_fut_ = nav_cli_->async_get_result(nav_handle_);
+      } else if (name == "navigate_through_poses") {
+        through_handle_ = through_goal_fut_.get();
+        accepted = (through_handle_ != nullptr);
+        if (accepted) through_res_fut_ = through_cli_->async_get_result(through_handle_);
       } else if (name == "move_action") {
         move_handle_ = move_goal_fut_.get();
         accepted = (move_handle_ != nullptr);
@@ -820,15 +854,19 @@ void ServiceActionBagInput::check_action(const std::string & name) {
     return;
   }
   if (!st.active) return;
-  const auto now0 = std::chrono::seconds(0);
-  bool ready = (name == "navigate_to_pose") ? nav_res_fut_.wait_for(now0) == std::future_status::ready
-      : (name == "move_action") ? move_res_fut_.wait_for(now0) == std::future_status::ready
-      : mtc_res_fut_.wait_for(now0) == std::future_status::ready;
+  bool ready = false;
+  if (name == "navigate_to_pose") ready = nav_res_fut_.wait_for(now0) == std::future_status::ready;
+  else if (name == "navigate_through_poses") ready = through_res_fut_.wait_for(now0) == std::future_status::ready;
+  else if (name == "move_action") ready = move_res_fut_.wait_for(now0) == std::future_status::ready;
+  else ready = mtc_res_fut_.wait_for(now0) == std::future_status::ready;
   if (!ready) return;
   st.active = false;
   if (name == "navigate_to_pose") {
     reply("action", name, "result", nav_result_json(st.goal_id, nav_res_fut_.get()));
     nav_handle_.reset();
+  } else if (name == "navigate_through_poses") {
+    reply("action", name, "result", nav_through_result_json(st.goal_id, through_res_fut_.get()));
+    through_handle_.reset();
   } else if (name == "move_action") {
     reply("action", name, "result", move_result_json(st.goal_id, move_res_fut_.get()));
     move_handle_.reset();
@@ -919,6 +957,66 @@ bool ServiceActionBagInput::make_nav_goal(
   return true;
 }
 
+bool ServiceActionBagInput::make_nav_through_goal(
+    const rapidjson::Value & data, nav2_msgs::action::NavigateThroughPoses::Goal & goal, std::string & err) {
+  if (!data.IsObject() || !data.HasMember("poses") || !data["poses"].IsArray()) {
+    err = "data.poses(array) 필요";
+    return false;
+  }
+  const auto & arr = data["poses"];
+  if (arr.Empty()) {
+    err = "data.poses가 비었음";
+    return false;
+  }
+  const std::string frame = (data.HasMember("frame_id") && data["frame_id"].IsString())
+      ? data["frame_id"].GetString() : "map";
+  goal.poses.header.frame_id = frame;
+  goal.poses.header.stamp = now();
+  for (const auto & p : arr.GetArray()) {
+    if (!p.IsObject()) {
+      err = "poses[] 객체 필요";
+      return false;
+    }
+    geometry_msgs::msg::PoseStamped ps;
+    ps.header.frame_id = frame;
+    ps.header.stamp = now();
+    double x = 0, y = 0, z = 0, ox = 0, oy = 0, oz = 0, ow = 1;
+    if (p.HasMember("position") && p["position"].IsObject()) {
+      get_double(p["position"], "x", x);
+      get_double(p["position"], "y", y);
+      get_double(p["position"], "z", z);
+      if (p.HasMember("orientation") && p["orientation"].IsObject()) {
+        get_double(p["orientation"], "x", ox);
+        get_double(p["orientation"], "y", oy);
+        get_double(p["orientation"], "z", oz);
+        get_double(p["orientation"], "w", ow);
+      }
+    } else if (p.HasMember("x") && p.HasMember("y")) {
+      x = p["x"].GetDouble();
+      y = p["y"].GetDouble();
+      double yaw = 0;
+      get_double(p, "yaw", yaw);
+      oz = std::sin(yaw / 2.0);
+      ow = std::cos(yaw / 2.0);
+    } else {
+      err = "poses[]에 position 또는 x/y 필요";
+      return false;
+    }
+    ps.pose.position.x = x;
+    ps.pose.position.y = y;
+    ps.pose.position.z = z;
+    ps.pose.orientation.x = ox;
+    ps.pose.orientation.y = oy;
+    ps.pose.orientation.z = oz;
+    ps.pose.orientation.w = ow;
+    goal.poses.goals.push_back(ps);
+  }
+  if (data.HasMember("behavior_tree") && data["behavior_tree"].IsString()) {
+    goal.behavior_tree = data["behavior_tree"].GetString();
+  }
+  return true;
+}
+
 std::string ServiceActionBagInput::nav_feedback_json(
     const std::string & id, nav2_msgs::action::NavigateToPose::Feedback::ConstSharedPtr fb) {
   const auto & p = fb->current_pose.pose.position;
@@ -933,6 +1031,32 @@ std::string ServiceActionBagInput::nav_feedback_json(
 
 std::string ServiceActionBagInput::nav_result_json(
     const std::string & id, const NavClient::WrappedResult & wr) {
+  const char * status = "unknown";
+  if (wr.code == rclcpp_action::ResultCode::SUCCEEDED) status = "succeeded";
+  else if (wr.code == rclcpp_action::ResultCode::ABORTED) status = "aborted";
+  else if (wr.code == rclcpp_action::ResultCode::CANCELED) status = "canceled";
+  char b[512];
+  snprintf(b, sizeof(b), "{\"goal_id\": \"%s\", \"status\": \"%s\", \"data\": {\"error_code\": %u, \"error_msg\": \"%s\"}}",
+      escape_json(id).c_str(), status, wr.result ? wr.result->error_code : 9999,
+      wr.result ? escape_json(wr.result->error_msg).c_str() : "no result");
+  return b;
+}
+
+std::string ServiceActionBagInput::nav_through_feedback_json(
+    const std::string & id, nav2_msgs::action::NavigateThroughPoses::Feedback::ConstSharedPtr fb) {
+  const auto & p = fb->current_pose.pose.position;
+  const double yaw = 2 * atan2(fb->current_pose.pose.orientation.z, fb->current_pose.pose.orientation.w);
+  char b[640];
+  snprintf(b, sizeof(b),
+      "{\"goal_id\": \"%s\", \"data\": {\"x\": %.2f, \"y\": %.2f, \"yaw\": %.2f, "
+      "\"distance_remaining\": %.2f, \"recoveries\": %d, \"poses_remaining\": %d}}",
+      escape_json(id).c_str(), p.x, p.y, yaw, fb->distance_remaining, fb->number_of_recoveries,
+      fb->number_of_poses_remaining);
+  return b;
+}
+
+std::string ServiceActionBagInput::nav_through_result_json(
+    const std::string & id, const NavThroughClient::WrappedResult & wr) {
   const char * status = "unknown";
   if (wr.code == rclcpp_action::ResultCode::SUCCEEDED) status = "succeeded";
   else if (wr.code == rclcpp_action::ResultCode::ABORTED) status = "aborted";

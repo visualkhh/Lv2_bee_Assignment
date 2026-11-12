@@ -8,15 +8,18 @@
 """
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 from ..interface import DoneFuture, RosClient, RosNode, RosPublisher, RosSubscription, install_modules
-from ..msgs import OccupancyGrid, SaveMapResponse, _Msg, _Time
+from ..msgs import FilePath, FilePathResponse, OccupancyGrid, SaveMapResponse, ToggleResponse, _Msg, _Time
 
 
 # ---------------------------------------------------------------- 가짜 노드/버스
 BUS: dict[str, list] = {}  # topic -> [(node, callback)]
 PUB_LOG: list[tuple[str, object]] = []
+LATEST: dict[str, object] = {}   # 토픽 → 마지막 메시지 (transient_local처럼 늦게 구독해도 바로 받음)
+LATCHED = ('/mission/state', '/task/status', '/global_costmap/costmap', '/local_costmap/costmap')
 
 
 class _Clock:
@@ -60,16 +63,57 @@ class _FakeClient(RosClient):
 
     def call_async(self, req):
         print(f'[SVC {self.topic_name}] 요청 → 가짜 성공')
-        return DoneFuture(SaveMapResponse(result=True))
+        url = getattr(req, 'map_url', '')
+        if url and self.topic_name.endswith('save_map'):   # map_saver처럼 지금 /map을 파일로 (없으면 실패)
+            grid = LATEST.get('/map')
+            if grid is None:
+                return DoneFuture(SaveMapResponse(result=False))
+            write_map(grid, Path(url))
+            state = getattr(self._node, 'state', None)
+            if state is not None:
+                state.values['map_list'] = '\n'.join(fake_map_names())
+        fpath = getattr(req, 'file_path', '')
+        if fpath and self.topic_name.endswith('save_map'):   # 가짜 nvblox — 위치추정용 지도 파일 (지금 /map을 그 자리에)
+            grid = LATEST.get('/map')
+            if grid is not None:
+                tmp = Path(fpath).with_suffix('')
+                write_map(grid, tmp)
+                tmp.with_suffix('.pgm').replace(fpath)
+                tmp.with_suffix('.yaml').unlink(missing_ok=True)
+            return DoneFuture(FilePathResponse(success=grid is not None))
+        return DoneFuture(ToggleResponse() if hasattr(req, 'enable') else SaveMapResponse(result=True))
 
     def destroy(self):
         pass
 
 
-# ---------------------------------------------------------------- 가짜 /map (ros/map/map.pgm · map.yaml)
-def fake_map():
-    """ros/map/의 지도 → OccupancyGrid (trinary: 밝음=빈 곳 0 · 어두움=벽 100 · 가운데=미확인 -1) — 지도에서 찍기 시험용."""
-    here = Path(__file__).resolve().parent / 'map'
+# ---------------------------------------------------------------- 로봇 지도 (/map) — 실기처럼: 저장 폴더 = <MAP_DIR>/<이름>/map.yaml + map.pgm (실기는 ros2_ws/map)
+# 실세계(벽·충돌)는 RealWorld(fake/real/map/<코스>) — 로봇 지도는 매핑(MAPPING)으로 채우거나 저장 지도(LOCALIZATION)를 읽는다.
+MAP_DIR = Path(__file__).resolve().parent / 'map'   # 테스트 지도 폴더 (도커 /ws/map과 같은 곳 · default = USD로 만든 완벽한 지도, 나머지 git 무시)
+CURRENT = {'name': ''}                                              # 지금 /map 지도 이름 (NONE이면 '')
+
+
+def fake_map_names() -> list[str]:
+    return sorted(p.name for p in MAP_DIR.iterdir() if (p / 'map.yaml').is_file()) if MAP_DIR.is_dir() else []
+
+
+def write_map(grid, base: Path) -> None:
+    """OccupancyGrid → base.pgm + base.yaml (map_saver 형식: 벽 0 · 빈 곳 254 · 미확인 205)."""
+    w, h = int(grid.info.width), int(grid.info.height)
+    base.parent.mkdir(parents=True, exist_ok=True)
+    val = {-1: 205}
+    rows = bytes(0 if v >= 65 else val.get(v, 254 if v <= 25 else 205)
+                 for r in reversed(range(h)) for v in grid.data[r * w:(r + 1) * w])
+    base.with_suffix('.pgm').write_bytes(f'P5\n# fake map_saver\n{w} {h}\n255\n'.encode() + rows)
+    o = grid.info.origin.position
+    base.with_suffix('.yaml').write_text(
+        f'image: {base.name}.pgm\nmode: trinary\nresolution: {float(grid.info.resolution)}\n'
+        f'origin: [{float(o.x):.3f}, {float(o.y):.3f}, 0.0]\nnegate: 0\noccupied_thresh: 0.65\nfree_thresh: 0.25\n')
+
+
+def fake_map(name: str | None = None):
+    """MAP_DIR/<이름>/의 지도 → OccupancyGrid (trinary: 밝음=빈 곳 0 · 어두움=벽 100 · 가운데=미확인 -1) — 지도에서 찍기 시험용."""
+    here = MAP_DIR / (name or CURRENT['name'])
     cfg = {}
     for line in (here / 'map.yaml').read_text().splitlines():
         if ':' in line and not line.lstrip().startswith('#'):
@@ -119,9 +163,43 @@ class FakeRos(RosNode):
     def create_subscription(self, msg_type, topic, callback, qos):
         BUS.setdefault(topic, []).append((self, callback))
         self._fake_subs.append((topic, callback))
-        if topic == '/map':   # transient_local — 구독하면 마지막 지도가 바로 옴
-            callback(fake_map())
+        if topic == '/map':   # transient_local — 구독하면 마지막 지도가 바로 옴 (지도 모드 NONE이면 /map 없음 — 실기처럼)
+            if '/map' in LATEST:
+                callback(LATEST['/map'])
+        elif topic in LATCHED and topic in LATEST:
+            callback(LATEST[topic])
         return _FakeSub()
+
+    def _deliver(self, topic, msg):
+        """가짜 월드가 내는 토픽 — 구독자 콜백으로 바로 (발행 로그는 안 찍음)."""
+        LATEST[topic] = msg
+        for _node, cb in list(BUS.get(topic, [])):
+            try:
+                cb(msg)
+            except Exception as e:  # noqa: BLE001
+                print(f'[fake] 콜백 에러 {topic}: {e}')
+
+    def _switch_map(self, name):
+        """저장 지도로 위치추정 (LOCALIZATION) — 로봇 지도(/map·costmap·경로)를 그 지도로. 실세계(벽)는 그대로."""
+        CURRENT['name'] = name
+        world = getattr(self, 'world', None)
+        if world is not None:
+            world.set_known(fake_map(name))
+
+    def _start_mapping(self, name):
+        """새 매핑 (MAPPING) — 로봇 지도를 비우고 앞 카메라로 채워 간다."""
+        CURRENT['name'] = name
+        world = getattr(self, 'world', None)
+        if world is not None:
+            world.start_mapping()
+
+    def _no_map(self):
+        """지도 없음 (NONE) — /map·costmap을 내지 않는다."""
+        CURRENT['name'] = ''
+        LATEST.pop('/map', None)
+        world = getattr(self, 'world', None)
+        if world is not None:
+            world.clear_map()
 
     def destroy_subscription(self, sub):
         pass
@@ -159,6 +237,9 @@ class FakeRos(RosNode):
         state = getattr(self, 'state', None)
         if state is None:
             return
+        world = getattr(self, 'world', None)
+        if world is not None:
+            world.on_publish(topic, msg)
         vals = state.values
         data = getattr(msg, 'data', None)
         if topic == '/cmd/operation_mode' and isinstance(data, str):
@@ -171,14 +252,20 @@ class FakeRos(RosNode):
             if data == 'NONE':
                 arg = 'map:=none'
                 vals['map_name'] = ''
+                self._no_map()
             elif data == 'MAPPING':
                 arg = 'map:=slam'
+                vals['map_name'] = time.strftime('%Y%m%d_%H%M%S')   # 실기 state_manager처럼 새 지도 이름 = 날짜_시각
+                self._start_mapping(vals['map_name'])
             else:
                 arg = f'map:=saved map_name:={vals.get("map_name")}'
+                if vals.get('map_name') in fake_map_names():
+                    self._switch_map(vals['map_name'])
             vals['restart'] = f'all: 재시작 중 — launch pid 4242 · 바꾼 인자 {arg} (가짜)'
             vals['map_mode'] = data
         elif topic == '/cmd/map_name' and isinstance(data, str):
-            if data in (vals.get('map_list') or '').splitlines():
+            if data in fake_map_names():
+                self._switch_map(data)
                 vals['restart'] = f'all: 재시작 중 — launch pid 4242 · 바꾼 인자 map:=saved map_name:={data} (가짜)'
                 vals['map_mode'], vals['map_name'] = 'LOCALIZATION', data
         elif topic == '/cmd/restart' and isinstance(data, str):
@@ -190,15 +277,34 @@ class FakeRos(RosNode):
                 mode = m.group(1)
                 if mode == 'slam':
                     vals['map_mode'] = 'MAPPING'
-                    vals['map_list'] = 'default\n20261017_223015'
+                    vals['map_name'] = time.strftime('%Y%m%d_%H%M%S')
+                    vals['map_list'] = '\n'.join(fake_map_names())
+                    self._start_mapping(vals['map_name'])
                 elif mode == 'saved':
                     vals['map_mode'] = 'LOCALIZATION'
                     nm = _re.search(r'map_name:=(\S+)', data)
-                    vals['map_name'] = nm.group(1) if nm else 'default'
+                    vals['map_name'] = nm.group(1) if nm else ''
+                    if vals['map_name'] in fake_map_names():
+                        self._switch_map(vals['map_name'])
 
     @classmethod
     def install(cls):
-        install_modules(cls, parameter_client_cls=AsyncParameterClient)
+        install_modules(cls, parameter_client_cls=AsyncParameterClient, spin_once=_spin, custom_msgs=True)
+        import sys
+        import types
+        nv = types.ModuleType('nvblox_msgs')   # 가짜 nvblox 저장 서비스 (MAPPING 중 지도 저장 = .nvblx도 — 실기처럼)
+        nv.__path__ = []
+        nv.srv = types.ModuleType('nvblox_msgs.srv')
+        nv.srv.FilePath = FilePath
+        sys.modules['nvblox_msgs'], sys.modules['nvblox_msgs.srv'] = nv, nv.srv
+
+
+def _spin(node, timeout_sec=0.0):
+    """rclpy.spin_once 대용 — 가짜 월드를 한 걸음 굴리고 잠깐 쉰다 (바쁜 대기 방지)."""
+    world = getattr(node, 'world', None)
+    if world is not None:
+        world.step()
+    time.sleep(min(max(timeout_sec, 0.0), 0.02))
 
 
 class AsyncParameterClient:

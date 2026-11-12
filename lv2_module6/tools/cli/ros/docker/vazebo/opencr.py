@@ -22,6 +22,7 @@ _PARAM_TYPE = {bool: (1, 'bool_value'), float: (3, 'double_value')}
 class OpenCR:
     def __init__(self, spawn):
         self.spawn = spawn
+        self.stamp = None   # 마지막 pose()의 ROS 시각 [s] (없으면 None)
         # 마지막으로 요청한 환경 값 — fake_opencr 기본값(faker.yaml)과 같게 시작 → 같은 값은 안 보냄
         self._env = {'slip': 0.0, 'friction': 1.0, 'comm_down': False, 'arm_grabbed': False}
         self.slip = 0.0
@@ -55,7 +56,12 @@ class OpenCR:
         """진짜 위치 (미로 좌표 x, y, yaw) — 없으면 출발 칸"""
         gt, _ = read_msg('fake_opencr/ground_truth')
         if not gt:
+            self.stamp = None
             return self.spawn[0], self.spawn[1], 0.0
+        s = gt.get('header', {}).get('stamp') or {}
+        # 이 위치의 ROS 시각 — 카메라 촬영 시각으로 쓴다 (브리지로 늦게 온 위치에 '지금'을 찍으면
+        # fake_nvblox가 그 시각 TF로 점을 놓아, 도는 중엔 벽이 번져 지도가 검게 찬다 — 실측)
+        self.stamp = (s.get('sec', 0) + s.get('nanosec', 0) * 1e-9) or None
         p = gt['pose']
         return p['position']['x'] + self.spawn[0], p['position']['y'] + self.spawn[1], yaw_of(p['orientation'])
 

@@ -85,6 +85,9 @@ if SOURCE != 'real':
 
     DEBUG_PATH = Path(DEBUG_DIR).resolve() if DEBUG_DIR else default_debug_dir()
     install(SOURCE, DEBUG_PATH)
+    # 테스트 지도 폴더 = ros/fake/map (도커는 compose가 /ws/map으로 바인드) — 실기 지도(ros2_ws/map)와 섞이지 않게.
+    #   지도 목록·보기·이름 바꾸기·삭제·저장 경로 변환이 이 폴더를 쓴다 (BEEBOT_MAP_DIR을 직접 주면 그게 우선)
+    os.environ.setdefault('BEEBOT_MAP_DIR', str(Path(__file__).resolve().parent / 'ros' / 'fake' / 'map'))
     if SOURCE == 'docker' and not NO_FAKER:
         from ros.docker.FakerStack import FakerStack
         if not FakerStack(DEBUG_PATH).ensure():
@@ -131,17 +134,23 @@ def _save(state) -> None:
 def _seed(app: 'ot.OperatorTool'):
     """가짜 bringup 상태 — status/menu가 볼 화면용."""
     st = app.state
+    if SOURCE == 'fake':   # 저장 지도 폴더 = ros/fake/map/<이름> (BEEBOT_MAP_DIR — 위 install 직후에 정함)
+        from ros.fake.FakeRos import fake_map_names
     st.values.update({
         'operation_mode': 'MANUAL',
         'map_mode': 'NONE',
         'map_name': '',
-        'map_list': 'default\n20261017_223015',
+        'map_list': '\n'.join(__import__('ros.fake.FakeRos', fromlist=['x']).fake_map_names()) if SOURCE == 'fake' else 'default\n20261017_223015',
         'devices': 'pole_front_cam, gripper_cam, opencr, imu, wheels, arm, gripper',
         'topics': '/joint_states · /odom · /tracked_objects (42개)',
         'restartable': 'all · perception · coordinator · manual_control',
         'restart': '',
     })
     st.values.update(_load_saved().get('values', {}))
+    if SOURCE == 'fake':   # 지난 실행이 저장해 둔 목록이 아니라 지금 폴더 기준
+        st.values['map_list'] = '\n'.join(fake_map_names())
+        # 실기처럼 켤 때는 지도 없음(NONE)에서 시작 — 지난 실행의 지도 모드는 이어받지 않는다 (가짜 세계가 새로 켜짐)
+        st.values.update({'map_mode': 'NONE', 'map_name': ''})
     st.emergency = _load_saved().get('emergency', False)
     st.on_emergency(False)
     st.on_devices(['pole_front_cam', 'gripper_cam', 'opencr', 'imu', 'wheels', 'arm', 'gripper'])
@@ -161,6 +170,11 @@ def _seed(app: 'ot.OperatorTool'):
                          values=[KeyValue(key='모드', value='AUTO')]),
         DiagnosticStatus(level=1, name='beebot: opencr', message='모터 에러 없음 · S 줄 지연',
                          values=[KeyValue(key='받은 S 줄', value='48 Hz')])])
+    if SOURCE == 'fake':   # 움직이는 가짜 세계 — 이동·미션·경로·costmap이 명령에 반응
+        from ros.fake.FakeWorld import FakeWorld, attach
+        from ros.fake.RealWorld import RealWorld
+        app.world = FakeWorld(app, RealWorld(os.environ.get('BEEBOT_COURSE') or 'isaac_maze'))   # 실세계 = fake/real/map/<코스>
+        attach(app, app.world)
     try:
         st.on_objects([1, 2, 3])
     except Exception:  # noqa: BLE001

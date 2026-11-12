@@ -2,8 +2,20 @@
 coordinator:
   ros__parameters:
     # 계획 단계를 skill 노드(skills 패키지, /skills/<skill>)에 맡기는 순서 담당 — 팔·주행 값은 skills/config/skills.yaml · skills/params/
-    max_step_failures: 2     # 같은 단계가 이만큼 연속 실패하면 알리고 정지 (규칙 3)
-    server_wait_s: 30.0      # [s] skill 노드가 뜰 때까지 기다리는 시간
+    server_wait_s: 30.0      # [s] skill 노드가 뜰 때까지 기다리는 시간 — 넘으면 skill_unavailable:<skill>
+    # [s] 단계 시간 제한 — skill goal이 이 안에 결과를 안 주면 취소하고 <skill>_timeout (0 = 없음). 시뮬은 /clock 기준
+    #   skill 안의 시간 제한(approach_timeout_s · 그리퍼)이 먼저 걸리고, 이건 skill이 응답 없이 멈췄을 때의 마지막 안전망
+    step_timeout_s:
+      navigate: 120.0        # Nav2 자체 진척 검사·재시도 뒤에도 안 끝날 때
+      approach: 60.0         # approach_timeout_s(30) 뒤
+      pose: 30.0
+      inspect: 60.0
+      pick: 90.0
+      place: 90.0
+      load: 90.0
+      unload: 90.0
+      stand: 90.0
+      stand_pick: 90.0
     pose_names: [stow, carry_left, carry_right, scan]   # pose 단계 검증 (값은 skill_pose — skills/params/basket.yaml · scan_pose.yaml)
     # 적재함 장부 (이 노드만 씀): 파일에 저장해 다시 떠도 이어 감 · load next가 쓰는 칸 (팔이 잘 못 닿는 칸은 실기에서 확인 후 뺌)
     basket_slots: 12
@@ -14,8 +26,15 @@ coordinator:
     box_margin_m: 0.03       # [m] 상자 위에 여러 개 놓을 때 상자 가장자리에서 이만큼 안쪽까지만
     # 팔이 닿게 다가가기 — pick · place · inspect · stand <물체 id> 때 대상이 로봇 중심에서 reach_m 넘으면 먼저 approach_m 앞까지 navigate
     #   바닥 퍽은 팔 회전축(차체 중심 앞 0.05)에서 수평 약 0.08~0.26 — 차체 중심 기준 약 0.13~0.31 (simulator 팔 범위 지도)
-    reach_m: 0.30
-    approach_m: 0.24         # [m] 다가간 뒤 로봇 중심 ~ 물체 중심 (범퍼 0.18 + 여유 — 팔 범위 가운데쯤)
+    # 2026-11-11 실기 재현: reach_m 0.30(팔 최대치 0.31과 거의 붙음)이라 여유가 없어 재현 실패함.
+    #   stand_plan.cpp의 ik_down·waypoints를 그대로 파이썬으로 옮겨 실측 검증한 결과, stand 궤적은 누운 퍽의
+    #   "먼 쪽 끝"부터 쥐고 100°까지 호를 그리므로 필요한 도달거리가 퍽의 축 방향(yaw)에 따라 크게 달라짐 —
+    #   로봇이 퍽을 정면으로 보고 있어도 가장 불리한 yaw(퍽 축이 로봇과 거의 직각)에서는 퍽 중심 거리
+    #   상자 0.234m·실린더 0.238m를 넘으면 궤적 앞부분(첫 8개 경유점)이 기하학적으로 아예 안 풀림
+    #   (k 1.1~1.74 — 여유가 아니라 완전 불능). 0.20으로 낮춰 이 한계 아래로 안전 여유를 둠.
+    #   pick도 0.273m에서 특이점 근처라 grasp_failed_all 재현 — 같은 값으로 보호.
+    reach_m: 0.20
+    approach_m: 0.20         # [m] 다가간 뒤 로봇 중심 ~ 물체 중심 (stand 궤적 실측 안전 한계 0.234m 아래로 여유를 둠)
 mission_manager:             # 주사위 기억 미션 (documents/mission/README.md) — 좌표는 경기장(arena) m · 왼쪽 아래 기둥 원점 · +Y 위
   ros__parameters:
     # 로봇을 켠 자리의 arena 자세 [x, y, yaw] — 운영 규칙: 출발 관측 위치에서 −X(π)를 보고 켬. 다르면 launch 인자 start_pose:=x,y,yaw
@@ -26,6 +45,15 @@ mission_manager:             # 주사위 기억 미션 (documents/mission/README
     #   1·2·6·4·5·3 + L3·L2·L1 = 26.6 m (기존 1→6 + L1→L3 = 33.6 m · −21 %). 비우면 번호 순서
     survey_order: [1, 2, 6, 4, 5, 3]
     build_location_order: [3, 2, 1]
+    # 경기장 벽 선분 [x0, y0, x1, y1, …] (arena, m) — documents/mission/dice-map.png (tools/cli/ros/docker/assets/course/dice_maze/walls.json 벽판 20개)
+    #   ① 벽에 막힌 다가설 자리(벽에서 wall_clearance 안)는 고르지 않음 ② /arena/walls → nvblox_map이 /map에 겹쳐 Nav2가 처음부터 벽을 앎
+    #   (발제: 기존 벽·기둥·박스 위치 유지 — 경기장 고정). 비우면 둘 다 안 함
+    arena_walls: [0.000, 0.000, 4.404, 0.000, 0.000, 6.304, 4.404, 6.304, 0.000, 0.000, 0.000, 6.304, 4.404, 0.000, 4.404, 6.304,
+                  1.838, 4.985, 2.571, 4.985, 0.367, 4.251, 1.101, 4.251, 3.304, 4.251, 4.037, 4.251, 3.304, 3.517, 4.037, 3.517,
+                  1.101, 2.049, 1.838, 2.049, 2.571, 2.049, 3.304, 2.049, 1.101, 1.315, 1.838, 1.315, 2.571, 1.315, 4.037, 1.315,
+                  1.101, 4.985, 1.101, 5.719, 2.571, 4.985, 2.571, 5.719, 3.304, 4.985, 3.304, 5.719, 1.101, 3.517, 1.101, 4.251,
+                  3.304, 2.049, 3.304, 3.517, 1.101, 2.049, 1.101, 2.783, 1.838, 1.315, 1.838, 2.049, 1.101, 0.650, 1.101, 1.315]
+    wall_clearance: 0.22                     # [m] 다가설 자리가 벽에서 이보다 가까우면 그 변은 안 감 (Nav2 robot_radius 0.16 + 여유)
     start_boxes: [1.468, 0.950, 3.670, 3.152, 2.936, 5.354, 0.734, 5.354, 2.202, 5.354, 3.670, 3.886]   # 시작 박스 1~6 중심
     box_half: 0.1025                         # 205 박스 반 변
     puck_offsets_x: [-0.040, 0.040]          # 박스 위 퍽 두 개 — 중심 X±40
@@ -43,7 +71,7 @@ mission_manager:             # 주사위 기억 미션 (documents/mission/README
     approach_tries: 3                        # 접근 자리 실패 시 다른 변으로 몇 번까지
     retries: 2                               # skill(집기·놓기·inspect)이 실패하면 다시 하는 횟수. 그래도 안 되면 그 퍽만 실패로 두고 다음
     planner: "rule"                          # BUILD 순서: rule (배정 순서대로) | plan_next (학습된 플래너가 다음 퍽·복귀 시점을 고름 — 마지막 단계)
-    plan_model: ""                           # 비면 share/ml/model/plan/plan_next.policy
+    plan_model: ""                           # 비면 share/ml/model/plan/plan_next.onnx (.policy 경로를 주면 MlpPolicy로)
     place_tol: 0.010                         # [m] 놓은 뒤 확인 · 재검증 — 칸 중심에서 이 안이어야 성공
     place_search: 0.05                       # [m] 놓은 뒤 확인 때 칸에서 이 안의 퍽만 그 퍽으로 봄
     match_radius: 0.04                       # [m] 조사 때 퍽 자리와 트랙을 짝짓는 거리

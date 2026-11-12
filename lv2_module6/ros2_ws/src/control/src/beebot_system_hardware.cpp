@@ -136,7 +136,12 @@ CallbackReturn BeebotSystemHardware::on_activate(const rclcpp_lifecycle::State &
   // S가 없으면 활성화 실패 — 펌웨어는 모터가 없어도 S를 보내므로 S 없음 = 시리얼 끊김. 0으로 띄우면
   // rl_arm_correction·JTC가 그 0을 "현재 자세"로 붙잡아, 나중에 S가 와도 팔이 0으로 튄다.
   if (!mock_) {
-    const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    // bringup 시작 직후(여러 무거운 노드가 동시에 뜨는 순간)는 Jetson load average가
+    // 실측 19~26까지 치솟아, 이 폴링 스레드가 스케줄링에서 밀려 3초 안에 완전한 S 줄을
+    // 하나도 못 받는 경우가 반복 관측됨(실기: S 필드 개수가 27·41개로 깨져서 옴 — 과부하로
+    // 시리얼 읽기 주기가 밀린 흔적). activate 실패→재시도 루프보다 시간 여유를 늘려
+    // 과부하 구간을 그냥 넘기는 쪽이 더 안정적이라 10초로 늘림(2026-11-11, 반복 재현 확인 후).
+    const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(10);
     while (received_.load() == 0 && std::chrono::steady_clock::now() < until) {
       read_serial();
       std::this_thread::sleep_for(std::chrono::milliseconds(20));

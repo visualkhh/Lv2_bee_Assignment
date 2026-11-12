@@ -34,10 +34,10 @@ def test_empty_without_model():
         for p in ("rate_hz", "model_path", "confidence", "imgsz", "device", "sync_slop", "match_dist",
                   "pixel_sigma", "depth_sigma0", "depth_sigma_k", "process_noise", "process_noise_dynamic",
                   "self_filter", "base_frame", "self_links", "self_radius", "body_radius", "body_height", "track_frame",
-                  "self_arm_hits", "miss_count", "miss_max_range", "miss_edge_px", "miss_occlusion_m",
+                  "self_arm_hits",
                   "puck_colors", "hue_tol", "check_model_color", "size_long_min_cm", "size_long_max_cm",
                   "size_short_min_cm", "square_long_cm", "square_ratio", "stand_ratio", "edge_px", "near_px",
-                  "depth_min_valid", "remember_min_hits"):
+                  "depth_min_valid"):
             assert node.has_parameter(p), p
         end = node.get_clock().now() + rclpy.duration.Duration(seconds=6)
         while node.get_clock().now() < end and ("n" not in got or "names" not in diag):
@@ -315,7 +315,7 @@ def test_arm_in_box():
     assert len(behind) == 0                                # 카메라 뒤는 안 찍힘
 
 
-# ---------- 기억 · 퍽 계열 합치기 (팀 확인 10/22) — 시나리오는 test/memory_check.py와 같음
+# ---------- 2초 규칙 · 퍽 계열 합치기
 FX_T = FY_T = 606.0
 CX_T, CY_T, W_T, H_T = 323.0, 241.0, 640, 480
 
@@ -332,7 +332,7 @@ def _cam_rot(yaw_deg, pitch_deg=18.0):
 
 
 def _view(yaw_deg, depth=None):
-    """prune에 넘기는 그 순간 카메라 (rot, trans, fx, fy, cx, cy, depth_m) — 깊이 없으면 '뒤 배경 5m'"""
+    """그 순간 카메라 (rot, trans, fx, fy, cx, cy, depth_m) — 화면 안 판정(_seen)용 · 깊이 없으면 '뒤 배경 5m'"""
     import numpy as np
     d = depth if depth is not None else np.full((H_T, W_T), 5.0, np.float32)
     return _cam_rot(yaw_deg), np.array([0.0, 0.0, 0.43]), FX_T, FY_T, CX_T, CY_T, d
@@ -362,7 +362,7 @@ def _step(node, t, v, objs):
     from builtin_interfaces.msg import Time
     dets = [_det(**o) for o in objs if _seen(o["p"], v)]
     ids = node.fuse("pole_front_cam", Time(sec=int(t), nanosec=int(round((t % 1) * 1e9))), dets)
-    node.prune(t, set(ids), v)
+    node.prune(t)
     return ids
 
 
@@ -371,41 +371,13 @@ def _names(node):
     return [to_msg(tid, tr).class_name for tid, tr in sorted(node.tracks.items())]
 
 
-def test_remember_out_of_view():
-    """퍽은 화면 밖으로 나가도 기억(같은 id로 다시 이어짐) · 사람은 2초 뒤 삭제 ·
-    그 자리가 잘 보이는데 3번 연속 없으면(집어 감) 삭제 — 1·2번째엔 아직 남음
-    (기억은 같은 자리에서 remember_min_hits(3)번 잡힌 뒤부터 — 처음 3프레임을 보고 시작)"""
-    os.environ.setdefault("ROS_DOMAIN_ID", "101")
-    rclpy.init()
-    try:
-        node = PerceptionNode()
-        node.long_memory = True  # 긴 기억 규칙 시험 (11/04부터 기본은 끔 — 기억은 통합 쪽)
-        puck = {"p": (1.0, 0.0, 0.03)}
-        person = {"p": (1.5, 0.3, 0.9), "cls": "person", "color": ""}
-        for t in (0.0, 0.1, 0.2):  # 처음 3프레임 — 확인(기억 대상)
-            _step(node, t, _view(0), [puck, person])
-        first = min(node.tracks)
-        for k in range(1, 26):  # 왼쪽으로 90° 돌아 둘 다 화면 밖 · 0.2초마다 5초
-            _step(node, 0.2 + 0.2 * k, _view(90), [puck, person])
-        assert _names(node) == ["puck"]
-        assert _step(node, 5.4, _view(0), [puck]) == [first] and len(node.tracks) == 1  # 다시 돌아봄 — 같은 id
-        alive = []
-        for k in range(3):  # 누가 집어 감
-            _step(node, 5.6 + 0.2 * k, _view(0), [])
-            alive.append(len(node.tracks))
-        assert alive == [1, 1, 0]
-    finally:
-        rclpy.shutdown()
-
-
-def test_no_long_memory_default():
-    """(11/04) 기본값 long_memory False — 기억은 통합(판단) 쪽이 맡음: 퍽도 사람처럼 2초 넘게 안 보이면 지움
+def test_tracks_drop_after_timeout():
+    """퍽도 사람처럼 2초(TRACK_TIMEOUT_S) 넘게 안 보이면 지움 — 긴 기억은 통합(판단) 쪽이 맡음
     · 보이는 동안·잠깐 놓쳤다 다시 보이면(2초 안) 같은 id (짧은 추적은 그대로)"""
     os.environ.setdefault("ROS_DOMAIN_ID", "101")
     rclpy.init()
     try:
         node = PerceptionNode()
-        assert node.long_memory is False
         puck = {"p": (1.0, 0.0, 0.03)}
         for t in (0.0, 0.1, 0.2, 0.3):
             _step(node, t, _view(0), [puck])
@@ -414,51 +386,7 @@ def test_no_long_memory_default():
         assert _step(node, 1.0, _view(0), [puck]) == [first]     # 2초 안에 다시 → 같은 id
         for k in range(1, 16):  # 화면 밖 3초
             _step(node, 1.0 + 0.2 * k, _view(90), [puck])
-        assert _names(node) == []                                # 기억 안 함 → 지움
-    finally:
-        rclpy.shutdown()
-
-
-def test_remember_not_counted():
-    """못 봤다고 세지 않는 경우 — 앞이 가려짐(그 자리 깊이가 가까움) · 3m 넘게 멂 · 깊이 없음(너무 가까움) → 계속 기억
-    (3프레임 보고 확인한 뒤 3초 — 확인 전이었다면 2초 규칙으로 지워졌을 시간)"""
-    import numpy as np
-
-    os.environ.setdefault("ROS_DOMAIN_ID", "101")
-    rclpy.init()
-    try:
-        node = PerceptionNode()
-        node.long_memory = True  # 긴 기억 규칙 시험 (11/04부터 기본은 끔 — 기억은 통합 쪽)
-        for p, depth in (((1.0, 0.0, 0.03), np.full((H_T, W_T), 0.5, np.float32)),   # 0.5m 앞에 무언가
-                         ((3.5, 0.0, 0.03), None),                                    # 너무 멂
-                         ((1.0, 0.0, 0.03), np.zeros((H_T, W_T), np.float32))):       # 깊이 0
-            node.tracks.clear()
-            for t in (0.0, 0.1, 0.2):
-                _step(node, t, _view(0), [{"p": p}])
-            for k in range(1, 16):
-                _step(node, 0.2 + 0.2 * k, _view(0, depth), [])
-            assert len(node.tracks) == 1, p
-    finally:
-        rclpy.shutdown()
-
-
-def test_ghost_not_remembered():
-    """유령 퍽 — 카메라 자세(TF)가 영상과 잠깐 어긋나 한 번만 엉뚱한 자리로 찍힌 퍽은 기억하지 않음 (2초 규칙으로 삭제).
-    같은 때 3번 이상 잡힌 진짜 퍽은 기억 (10/22 시뮬레이터: 같은 초록 퍽이 9곳에 남았던 것)"""
-    os.environ.setdefault("ROS_DOMAIN_ID", "101")
-    rclpy.init()
-    try:
-        node = PerceptionNode()
-        node.long_memory = True  # 긴 기억 규칙 시험 (11/04부터 기본은 끔 — 기억은 통합 쪽)
-        real = {"p": (1.0, 0.0, 0.03)}
-        ghost = {"p": (1.0, 0.6, 0.03)}  # TF가 틀린 한 프레임에만 찍힌 자리
-        for t in (0.0, 0.1, 0.2):
-            _step(node, t, _view(0), [real])
-        _step(node, 0.3, _view(30), [ghost])  # 한 번만
-        assert len(node.tracks) == 2
-        for k in range(1, 16):  # 둘 다 화면 밖으로 돌아 3초
-            _step(node, 0.3 + 0.2 * k, _view(150), [])
-        assert [tuple(tr["p"]) for tr in node.tracks.values()] == [real["p"]]
+        assert _names(node) == []                                # 2초 넘게 안 보임 → 지움
     finally:
         rclpy.shutdown()
 
@@ -815,7 +743,6 @@ def test_box_tracks():
     rclpy.init()
     try:
         node = PerceptionNode()
-        node.long_memory = True  # 긴 기억 규칙 시험 (11/04부터 기본은 끔 — 기억은 통합 쪽)
         assert list(node.location_box_size) == [0.205, 0.205, 0.07]
         sb = {**_det((1.0, 0.5, 0.07), cls="start_box", color=""), "size": np.array([0.2, 0.2, 0.07]),
               "yaw": 0.3, "yaw_period": np.pi / 2}
@@ -830,8 +757,8 @@ def test_box_tracks():
         assert node.tracks[b[0]]["yaw_period"] == 2 * np.pi and abs(node.tracks[b[0]]["yaw"] - np.pi) < 1e-9
         # 같은 상자를 뒤에서 봐 생긴 start_box → 장소 상자 자리라 지움
         c = node.fuse("pole_front_cam", Time(sec=3), [{**sb, "z": np.array([2.05, 0.0, 0.07])}])
-        node.tracks[a[0]]["hits"] = node.tracks[b[0]]["hits"] = 5  # 여러 번 잡혀 기억하는 상자 (2초 규칙 밖)
-        node.prune(3.0, set(c) | {a[0], b[0]}, _view(0.0))
+        node.tracks[a[0]]["t"] = 3.0  # 방금 다시 본 상자 (2초 규칙 안)
+        node.prune(3.0)
         assert c[0] not in node.tracks and b[0] in node.tracks and a[0] in node.tracks
     finally:
         rclpy.shutdown()
@@ -883,7 +810,7 @@ def test_box_rois():
 
 def test_capture_dice():
     """주사위 완성 사진: 장소 상자(tag 13) 윗면을 위에서 보는 카메라 → 정사각형으로 펴서 /mission/dice_image 발행 (11/04 발제)
-    윗면 가운데에 빨간 점을 그려 두면 편 사진의 가운데가 빨강이어야 함 · 없는 태그를 요청하면 발행 안 함"""
+    윗면 가운데에 빨간 점을 그려 두면 편 사진의 가운데가 빨강이어야 함 · 상자 트랙이 하나도 없으면 발행 안 함"""
     import cv2
     import numpy as np
     from builtin_interfaces.msg import Time
@@ -894,7 +821,6 @@ def test_capture_dice():
     rclpy.init()
     try:
         node = PerceptionNode()
-        node.long_memory = True  # 긴 기억 규칙 시험 (11/04부터 기본은 끔 — 기억은 통합 쪽)
         node.dice_px = 200
         # 그리퍼캠이 상자(가운데 1.0, 0, 윗면 0.07) 바로 위 0.5 m에서 아래를 봄: 광학 z = -추적 z
         t = TransformStamped()
@@ -907,12 +833,12 @@ def test_capture_dice():
         cv2.circle(img, (320, 240), 12, (0, 0, 255), -1)  # 윗면 가운데 = 화면 가운데
         node.frames["gripper_cam"] = {"bgr": img, "stamp": Time(), "frame_id": "gripper_cam_color_optical_frame",
                                       "fx": 600.0, "fy": 600.0, "cx": 320.0, "cy": 240.0}
-        node.tracks[1] = {"class_name": "location_box", "tag": 13, "p": np.array([1.0, 0.0, 0.07]),
-                          "size": np.array([0.205, 0.205, 0.07]), "yaw": 0.0}
         got = []
         node.dice_pub.publish = lambda m: got.append(m)
-        node.on_capture_dice(Int32(data=12))   # 없는 태그 → 발행 안 함
+        node.on_capture_dice(Int32(data=13))   # 상자 트랙 없음 → 발행 안 함
         assert got == []
+        node.tracks[1] = {"class_name": "location_box", "tag": 13, "p": np.array([1.0, 0.0, 0.07]),
+                          "size": np.array([0.205, 0.205, 0.07]), "yaw": 0.0}
         node.on_capture_dice(Int32(data=13))
         assert len(got) == 1 and got[0].width == 200 and got[0].height == 200
         top = np.frombuffer(bytes(got[0].data), np.uint8).reshape(200, 200, 3)
@@ -947,8 +873,7 @@ def test_capture_dice():
         top = np.frombuffer(bytes(got[0].data), np.uint8).reshape(200, 200, 3)
         assert top[95:105, 95:105].reshape(-1, 3).mean(0)[0] > 200
 
-        # (11/04) 긴 기억을 끄면(기본) 요청한 태그 상자 트랙이 없어도 지금 보이는 가장 가까운 상자로 찍음
-        node.long_memory = False
+        # 요청한 태그 상자 트랙이 없으면 지금 보이는 가장 가까운 상자로 찍음
         got.clear()
         node.on_capture_dice(Int32(data=12))
         assert len(got) == 1
@@ -1003,10 +928,10 @@ def test_merge_duplicate_pucks():
     assert len(merge_overlap_dets([d((100, 100, 140, 180), 0.6, tag=4), d((102, 98, 142, 175), 0.9, tag=5)], 0.5)) == 2  # 태그 다름
     assert len(merge_overlap_dets([d((100, 100, 140, 180), 0.6), {**d((102, 98, 142, 175), 0.9), "color": "green"}], 0.5)) == 2
 
-    tr = lambda p, t, **kw: {"class_name": "puck", "p": np.array(p), "P": np.eye(3), "t": t, "color": "red", "hits": 3, "seen": {}, **kw}
+    tr = lambda p, t, **kw: {"class_name": "puck", "p": np.array(p), "P": np.eye(3), "t": t, "color": "red", "seen": {}, **kw}
     tracks = {1: tr([0.257, 0.026, 0.13], 1.0), 2: tr([0.258, 0.034, 0.13], 2.0, tag=4), 3: tr([0.172, -0.03, 0.13], 2.0)}
     assert merge_tracks(tracks, 0.03) == {2: 1}
-    assert sorted(tracks) == [1, 3] and tracks[1]["tag"] == 4 and tracks[1]["hits"] == 6 and tracks[1]["p"][1] == 0.034
+    assert sorted(tracks) == [1, 3] and tracks[1]["tag"] == 4 and tracks[1]["p"][1] == 0.034
     tracks = {1: tr([0.25, 0.03, 0.13], 1.0, tag=4), 2: tr([0.26, 0.03, 0.13], 2.0, tag=10)}
     assert merge_tracks(tracks, 0.03) == {} and len(tracks) == 2  # 태그가 다르면 다른 퍽
 

@@ -326,10 +326,7 @@ def _setup(args):
     spawn = tuple(float(v) for v in args.spawn.split(',')) if args.spawn else None
     course = args.course
     bg_dir, floor_dir, wall_dir = vazebo.BG_DIR, vazebo.FLOOR_DIR, vazebo.WALL_DIR
-    if ASSETS is not None:
-        course_file = ASSETS / 'course' / args.course / 'walls.json'
-        if course_file.is_file():
-            course = course_file
+    if ASSETS is not None:   # 코스(실세계)는 cli/ros/fake/real/map — maze.load가 이름으로 찾는다
         bg_dir, floor_dir, wall_dir = ASSETS / 'background', ASSETS / 'floor', ASSETS / 'wall'
         if (ASSETS / 'dice').is_dir():
             vazebo.dice.PROBLEM_DIR = ASSETS / 'dice'
@@ -451,7 +448,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--snapshot', help='창 없이 화면 한 장을 이 PNG로 저장하고 끝냄')
     parser.add_argument('--spawn', help='map 원점의 미로 좌표 "x,y" (기본: 코스 spawn)')
-    parser.add_argument('--course', default='dice_maze', help='코스 = lv2_module6/course/<이름>')
+    parser.add_argument('--course', default='isaac_maze', help='코스(실세계) = cli/ros/fake/real/map/<이름> — isaac_maze(기본, USD) · dice_maze. faker course:=와 같게')
     parser.add_argument('--dice', default='q1', help='dice_maze 문제 = dice/<이름>.json (빈 값이면 안 깜)')
     parser.add_argument('--pucks', type=int, default=0, help='추가로 무작위 배치할 퍽 수')
     parser.add_argument('--headless', action='store_true', help='창 없이 카메라 송출만')

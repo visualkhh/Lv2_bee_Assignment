@@ -12,6 +12,7 @@ class MenuItem(Component, ABC):
 
     key: str = ''
     focusable = True
+    resumable = True    # 재연결로 CLI가 다시 뜰 때 이 항목을 자동으로 다시 열어 보던 화면으로 돌아옴 (shows_busy가 False인 '화면 항목'만)
     shows_busy = True   # 누르면 '처리 중' 창 (하위 화면으로 들어가는 항목은 바로 열리니 False)
 
     def __init__(self, app):
@@ -34,7 +35,16 @@ class MenuItem(Component, ABC):
 
     def activate(self) -> str:
         """Enter로 골랐을 때 · 소스에서 직접 부를 때 — '처리 중' 창 · print 가로채 결과창 · run()."""
-        return self.ui.window.perform(self.label(), self.run, self.shows_busy)
+        # 열려 있는 화면 항목의 키를 경로로 쌓는다 — 재연결 exec 뒤 이 경로를 되짚어 보던 화면 그대로 복원
+        #   (처리 중 창이 뜨는 동작 항목은 안 쌓음 — 지도 모드 전환처럼 재시작을 부르는 동작을 다시 보내지 않게)
+        track = bool(self.key) and not self.shows_busy and self.resumable
+        if track:
+            self.app.resume_path.append(self.key)
+        try:
+            return self.ui.window.perform(self.label(), self.run, self.shows_busy)
+        finally:
+            if track:
+                self.app.resume_path.pop()
 
 
 class ActionItem(MenuItem):
@@ -69,11 +79,7 @@ class GoMenu(MenuItem):
     def run(self) -> str:
         if self._page is None:
             return STAY
-        self.app.current_screen = self.key   # 자동 재연결이 다시 띄울 때 이 메뉴로 돌아오게
-        try:
-            return self._page.show()
-        finally:
-            self.app.current_screen = ''
+        return self._page.show()
 
 
 class InfoItem(MenuItem):

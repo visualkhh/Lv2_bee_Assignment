@@ -57,14 +57,14 @@ install(DIRECTORY config DESTINATION share/${PROJECT_NAME})
 # 패키지 단독 실행용 (전체 로봇은 bringup)
 install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})
 
-# 학습 가중치 — 워크스페이스 공용 lv2_module6/models/yolo/*.pt 를 share에 설치
+# 학습 가중치 — 워크스페이스 공용 lv2_module6/models/yolo/*.pt · *.onnx 를 share에 설치
 # (urdf와 같은 패턴: ROS 밖 train_yolo.py가 쓰는 파일을 패키지가 가져옴)
 set(MODEL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../models/yolo" CACHE PATH "lv2_module6/models/yolo")
-file(GLOB MODEL_FILES "${MODEL_DIR}/*.pt")
+file(GLOB MODEL_FILES "${MODEL_DIR}/*.pt" "${MODEL_DIR}/*.onnx")  # .onnx = 젯슨용 (ultralytics가 onnxruntime으로 읽음)
 if(MODEL_FILES)
   install(FILES ${MODEL_FILES} DESTINATION share/${PROJECT_NAME}/model)
 else()
-  message(WARNING "YOLO 가중치 없음 (${MODEL_DIR}/*.pt) — 노드는 빈 목록 발행")
+  message(WARNING "YOLO 가중치 없음 (${MODEL_DIR}/*.pt · *.onnx) — 노드는 빈 목록 발행")
 endif()
 
 # --- 테스트: colcon test --packages-select perception

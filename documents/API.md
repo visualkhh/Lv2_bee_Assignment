@@ -29,44 +29,43 @@ C++ 헤더는 타입명을 snake_case로: `TrackedObjectArray` → `perception/m
 uint32 id
 string class_name
 float32 confidence
-geometry_msgs/PoseWithCovariance pose   # map 기준 — 두 카메라 융합 위치 + 위치 공분산 · 퍽·상자는 방향(yaw)을 구하면 orientation + 공분산 yaw 대각, 모르면 단위 쿼터니언 (필드 뜻: documents/API.md)
+geometry_msgs/PoseWithCovariance pose   # map 기준 — 두 카메라 융합 위치 + 위치 공분산 · 퍽은 방향(yaw)을 구하면 orientation + 공분산 yaw 대각, 모르면 단위 쿼터니언 (필드 뜻: documents/API.md)
 geometry_msgs/Vector3 size              # m — x·y = 카메라 영상 박스 가로·세로 폭 환산 (map 축 아님), z = 클래스 기본값
 builtin_interfaces/Time last_seen       # 마지막 관측 영상 시각
 string[] cameras                        # 본 카메라 전부 (pole_front_cam | gripper_cam) — 오래 전에 본 것부터, 마지막 = 가장 최근
-                                        # 빈 배열([]) = 지도에 위치는 기억하지만 현재 어느 카메라에도 안 잡힘 (벽 뒤·시야 밖·집어 든 직후 등)
-                                        #   → pose(마지막 위치)·last_seen(마지막 시각)은 유효 — 그 위치로 navigate 가능
-                                        #   → 물체 삭제 정책: 퍽·location_box·start_box·barcode는 miss_count번 연속 미검출 시 삭제 / 사람·장애물·신호등은 TRACK_TIMEOUT_S(2초) 후 삭제
 int32[2] px                             # 마지막 카메라(cameras 끝) 영상 속 박스 중심 픽셀 [u, v]
 string color                            # 퍽: red | orange | yellow | green | blue | purple | white | black | unknown (영상 색 — 태그 번호와 무관) · 신호등 상태: red | yellow | green | off | all(두 색 이상 동시) · 그 외 빈 값 (박스 가운데 HSV)
-diagnostic_msgs/KeyValue[] details      # 클래스별 속성 — puck: posture · tag(AprilTag 0~11 — 번호는 무작위, 색과 무관) · shape(box | cyl) · yaw_period(90 | 180 deg — 방향 대칭 주기, 방향을 알 때만) · distance(로봇 중심~물체 바닥 위 m, /tracked_objects만) / location_box: tag(12~14) · yaw_period(360 = 태그 법선 · 태그 방향을 못 구했으면 90 = 윗면 변) / start_box: yaw_period 90 / barcode: content(작업 지시) / traffic_light: state · 그 외 빈 배열
+diagnostic_msgs/KeyValue[] details      # 클래스별 속성 — puck: posture · tag(AprilTag 0~11 — 번호는 무작위, 색과 무관) · shape(box | cyl) · yaw_period(90 | 180 deg — 방향 대칭 주기, 방향을 알 때만) · distance(로봇 중심~물체 바닥 위 m, /tracked_objects만) / location_box: tag(12~14) · yaw_period(360 태그 법선 · 못 구했으면 90 윗면 변) / start_box: yaw_period 90 / barcode: content(작업 지시) / traffic_light: state · 그 외 빈 배열
 ```
 
-표식 (발제 「AprilTag와 바코드 실제 배포 표식」, tag36h11 — OpenCV aruco로 읽음): 퍽 16mm 번호 0~11 → 그 퍽의 `tag`(**번호는 무작위 — 색과 무관**, 색은 `color` · 한 번 읽으면 기억 · gripper_cam이 위에서 봐야 읽힘 — coordinator `inspect`) ·
-장소 48mm L1~L3 = 12~14 (상자 옆면) · 줄무늬 바코드(P2-01 …) = 장소 작업 지시 → class `barcode` 물체(`content`) + `/mission/qr`.
+표식 (발제 「AprilTag와 바코드 실제 배포 표식」, tag36h11 — OpenCV aruco로 읽음): 퍽 16mm 번호 0~11 → 그 퍽의 `tag`(**번호는 무작위 — 색과 무관**, 색은 `color` · 트랙이 살아 있는 동안 유지 · gripper_cam이 위에서 봐야 읽힘 — coordinator `inspect`) ·
+장소 48mm L1~L3 = 12~14 (상자 **윗면** — 윗면 어디에 붙는지는 미정) · 줄무늬 바코드(P2-01 …) = 장소 작업 지시 → class `barcode` 물체(`content`) + `/mission/qr`.
 
 **상자** (205×205×70mm): depth로 바닥 위 상자 윗면(약 7cm 판)을 찾아 위치 = **윗면 가운데**, `size` = 잰 가로·세로·높이(붙은 상자는 큰 판 하나로).
-- 장소 태그(12~14)가 붙어 있으면 class **`location_box`** (L1~L3 — 놓는 곳) · `tag` · 방향 = 태그 법선(상자 밖 = 로봇이 다가오는 쪽, `yaw_period` 360). 태그를 비스듬히 봐서 법선을 못 구했으면 윗면 변 방향(`yaw_period` 90) — 나중에 태그를 정면으로 보면 360으로 바뀜. **받는 쪽은 `yaw_period`로 판단.**
-  태그만 보이고 윗면을 못 찾으면 태그에서 상자 안쪽으로 반 변(`location_box_size`) 옮긴 곳 · 기본 크기 · 그때 z는 태그 높이 · `yaw_period` 360. 태그 법선도 못 구했으면 태그 위치 그대로 · 방향 없음(단위 쿼터니언, `yaw_period` 없음).
-- 태그가 없으면 class **`start_box`** (퍽이 처음 있던 곳) · 방향 = 윗면 변 방향(`yaw_period` 90). 같은 자리에 `location_box`가 있으면 지움 (장소 상자를 뒤·옆에서 본 것).
-- 퍽·상자·바코드는 안 보여도 기억.
+- 장소 태그(12~14)가 윗면(가장자리 8cm 여유 포함) 안에 있으면 class **`location_box`** (L1~L3 — 놓는 곳) · `tag`. 방향 = 윗면 변 방향(`yaw_period` 90 — 네 옆면 중 어느 면인지만 앎, 정해진 앞면 없음).
+  (태그가 옆면에 붙어 정면으로 보이면 그 태그 법선 방향 · `yaw_period` 360 — 윗면 태그에는 해당 없음.) **받는 쪽은 `yaw_period`로 판단.**
+  태그만 보이고 윗면을 못 찾으면(멀거나 일부만 보임) **태그 위치 그대로** · 기본 크기 · 방향 없음(단위 쿼터니언, `yaw_period` 없음) — 태그가 윗면 가운데가 아니면 상자 가운데와 최대 약 10cm 어긋남. 가까이 가서 윗면을 찾으면 윗면 가운데로 바뀜.
+- 태그가 없으면 class **`start_box`** (퍽이 처음 있던 곳) · 방향 = 윗면 변 방향(`yaw_period` 90). 같은 자리에 `location_box`가 있으면 지움 (장소 상자를 태그가 안 보이는 쪽에서 본 것).
+- 윗면이 화면 가장자리에 잘린 상자는 방향 없음 (가운데·크기만) — 잘린 사각형 방향은 크게 틀림.
+- **모든 물체는 어느 카메라에도 2초(`TRACK_TIMEOUT_S`) 안 보이면 목록에서 빠짐** — 지금 보이는 것만 발행, 안 보이는 물체의 긴 기억은 통합(판단) 노드가 맡음.
 
 물체 하나 = 추적 트랙 하나. 카메라마다 YOLO 박스 → 박스 중심 픽셀 + 박스 안 정렬 depth 중앙값으로 3D 점 1개 → 영상 시각의 TF로 map 변환 →
 **자기 몸이면 버림** — 3D: 팔 링크를 잇는 선분 6cm 안 · 차체 반경 0.2m 안 바닥 위 / 영상: 팔(TF 링크를 화면에 투영, 두께 4cm)과 겹치는 박스(퍽 제외 — 박스 일부만 팔이면 depth가 팔 뒤 바닥이라 3D로는 못 거름) → 같은 클래스·0.4m 안의 트랙에 1:1로 붙여 **칼만 갱신(두 카메라 융합)**. 포인트 클라우드는 쓰지 않는다 (객체 단위 융합). 구현: [perception_node.py](../lv2_module6/ros2_ws/src/perception/scripts/perception_node.py), 파라미터: [perception.yaml](../lv2_module6/ros2_ws/src/perception/config/perception.yaml).
 
 | 필드 | 뜻 | 주의 |
 | --- | --- | --- |
-| `id` | 추적 번호 (1부터 증가) — mission_manager·coordinator·grasp_scorer가 같은 물체를 이 번호로 가리킴 (`SubGoal.target`) | **기억하는 물체**(`puck*` · `goal_zone` · `station_zone` · `qr_board` · `location_box` · `start_box` · `barcode`, `remember_min_hits`번 이상 잡힌 것)는 안 보여도 남음 — 그 자리가 잘 보이는데 `miss_count`번 연속 못 찾을 때만 삭제(옮겨짐·집어 감). 그 밖(사람·장애물·신호등)은 어느 카메라에도 **2초** 안 보이면 삭제 → 다시 보이면 **새 번호**. 번호는 재사용 안 함 |
-| `class_name` | YOLO: `puck` · `puck_lying` · `goal_zone` · `station_zone` · `qr_board` · `obstacle` · `person` · `traffic_light` / 표식·depth: `location_box`(장소 상자 — AprilTag 12~14) · `start_box`(태그 없는 상자) · `barcode`(바코드 P2-xx) | YOLO 클래스는 모델의 `names`를 따름 (`puck_red`처럼 색이 붙은 이름은 `puck` + color로 나눔). 다른 클래스끼리는 가까워도 합치지 않음 |
+| `id` | 추적 번호 (1부터 증가) — mission_manager·coordinator·grasp_scorer가 같은 물체를 이 번호로 가리킴 (`SubGoal.target`) | **모든 물체**는 어느 카메라에도 **2초** 안 보이면 삭제 → 다시 보이면 **새 번호**. 번호는 재사용 안 함. 안 보이는 동안 기억할 물체는 받는 쪽(통합 노드)이 따로 저장 |
+| `class_name` | YOLO: `puck`(서 있는 퍽) · `puck_lying`(누운 퍽) · `traffic_light` · `person` · `obstacle` / 표식·depth: `location_box`(장소 상자 — AprilTag 12~14) · `start_box`(태그 없는 상자) · `barcode`(바코드 P2-xx) — 이 8개만 나감 | 모델 이름(`bee_yolo11n_v5.pt`: `puck_red_box` · `puck_green_cyl` … · `traffic_light_red` · `traffic_light_off` …)은 나눠서 냄: 퍽 → `puck` + `color` + `details.shape`(+ 자세), 신호등 → `traffic_light` + 상태(`color` · `details.state`). 다른 클래스끼리는 가까워도 합치지 않음 |
 | `confidence` | 마지막 관측의 YOLO 신뢰도 (0~1, `confidence` 파라미터 이상만) | 평균 아님 |
 | `pose.pose.position` | map 좌표 [m] — 원점 = map 원점(시뮬레이터: 출발 칸 `spawn`), x 앞 · y 왼쪽 · z 위(바닥 ≈ 0). **추적은 odom 기준, 발행 순간의 map ← odom(cuVSLAM 최신 보정)으로 바꿔 냄** — 보정이 바뀌면(맞든 틀리든) 로봇 위치와 함께 옮겨져 로봇과의 상대 위치는 유지. 위치추정 자체가 틀리면 map 좌표는 그만큼 통째로 어긋남 | 박스 중심 방향의 **카메라 쪽 앞면 점** — 실제 중심보다 카메라 쪽으로 물체 반지름쯤 당겨짐 (퍽 2~3cm). z도 앞면 점 높이. 두 카메라가 다른 방향에서 보면 일부 상쇄 |
-| `pose.pose.orientation` | 바닥 위 회전(yaw)만 `(0, 0, sin(yaw/2), cos(yaw/2))` — 퍽(모양·태그로 구했을 때) · `location_box`(태그 법선, 못 구했으면 윗면 변) · `start_box`(윗면 변). 모르면 `(0, 0, 0, 1)` | 방향 주기는 `details.yaw_period` — 90이면 90°마다 같은 자세(사각 퍽·시작 상자), 180이면 누운 퍽 긴 축, 360이면 구분됨(태그 법선을 구한 장소 상자). 같은 `location_box`도 처음엔 90이었다가 태그를 정면으로 보면 360이 됨 공분산 yaw 대각(35)이 작으면 아는 방향 |
+| `pose.pose.orientation` | 바닥 위 회전(yaw)만 `(0, 0, sin(yaw/2), cos(yaw/2))` — 퍽(모양·태그로 구했을 때) · `location_box`·`start_box`(윗면 변). 모르면 `(0, 0, 0, 1)` | 방향 주기는 `details.yaw_period` — 90이면 90°마다 같은 자세(사각 퍽·상자), 180이면 누운 퍽 긴 축, 360이면 구분됨(옆면 태그 법선 — 윗면 태그 상자는 해당 없음). 공분산 yaw 대각(35)이 작으면 아는 방향. 상자 면 앞에 설 때: 면 방향 = yaw + k·90°, 면 위치 = 가운데 + 0.1025m × 그 방향 |
 | `pose.covariance` | 6×6 행 우선. **위치 3×3 블록**(인덱스 0~2·6~8·12~14) = 융합 위치 불확실성 [m²], 회전 대각(21·28·35) = 1e3(모름) | 관측 잡음만 반영 — 위의 앞면 쏠림(바이어스)은 안 들어감. 관측 σ: depth 축 `depth_sigma0 + depth_sigma_k·z²`, 가로·세로 `pixel_sigma·z/f` |
 | `size` | [m] x = 박스 가로 폭 · y = 박스 세로 높이 (픽셀 × 거리 / 초점거리), z = 클래스 기본값(퍽 0.06 — 발제 30×30×60mm, 누운 퍽 0.03 등). 크기를 못 재면 셋 다 클래스 기본값. **상자(`location_box`·`start_box`)는 잰 윗면 가로·세로 · 높이(바닥~윗면)** | 퍽은 **map 축 크기가 아님** (카메라 영상 기준). 관측마다 칼만 이득 비율로 갱신 |
 | `last_seen` | 마지막으로 관측된 **영상 시각** (카메라 header.stamp) | `TrackedObjectArray.header.stamp`(발행 시각)과 다름 |
-| `cameras` | 이 트랙을 본 카메라 전부 `pole_front_cam` · `gripper_cam` — 마지막으로 본 시각 순, **끝 = 가장 최근에 본 카메라** | **빈 배열(`[]`) = 지도에 위치는 기억하고 있지만 현재 어느 카메라에도 잡히지 않음** (벽 뒤·시야 밖·집어 든 직후 등). 비어 있어도 `pose`(마지막 관측 위치)·`last_seen`(마지막 관측 시각)은 유효 — 그 위치로 navigate 가능. 따로 `camera` 필드는 없음 — `cameras[-1]`. **물체 종류별 삭제 정책**: 퍽·목표구역·QR판은 안 보여도 유지(옮겨졌다고 판단되면 `miss_count`번 연속 미검출 시 삭제) / 사람·장애물·신호등은 `TRACK_TIMEOUT_S`(2초) 안 보이면 삭제. 수신 측 판별 패턴: `cameras` 비어 있으면 "알고 있지만 현재 미관측" / `last_seen` 기준 경과 시간으로 얼마나 전에 봤는지 구분 |
-| `px` | `cameras` 끝 카메라 영상(640×480) 속 박스 중심 픽셀 `[u, v]` — 그 영상에 표시할 때 씀 | 다른 카메라 영상의 좌표가 아님 |
+| `cameras` | 이 트랙을 본 카메라 전부 `pole_front_cam` · `gripper_cam` — 마지막으로 본 시각 순, **끝 = 가장 최근에 본 카메라** | 목록에 있는 물체는 늘 2초 안에 본 것이라 빈 배열은 나오지 않음. 따로 `camera` 필드는 없음 — `cameras[-1]`. 얼마나 전에 봤는지는 `last_seen`으로 |
+| `px` | `cameras` 끝 카메라 영상(640×360) 속 박스 중심 픽셀 `[u, v]` — 그 영상에 표시할 때 씀 | 다른 카메라 영상의 좌표가 아님 |
 | `color` | 퍽: `red` · `orange` · `yellow` · `green` · `blue` · `purple` · `white` · `black` · `unknown` / 신호등: `red` · `yellow` · `green` · `off` · `all`(두 색 이상 동시 — 신호등 미션 단계 구분) / 그 외 `""` | 박스 가운데(가장자리 20%씩 뺌 — 바닥 안 섞이게) HSV 다수결, 채도 없는 화소가 대부분이면 흰색·검정. 마지막 관측 값. 퍽으로 보는 색은 `puck_colors`(빨강·초록). 태그 번호와 무관 |
-| `details` | `puck`: `posture`(standing·lying) · `tag` · `shape`(box 사각기둥 · cyl 원기둥) · `yaw_period` · `distance` / `location_box`: `tag` · `yaw_period`(360 태그 법선 · 90 윗면 변) / `start_box`: `yaw_period`(90) / `barcode`: `content` / `traffic_light`: `state` | `tag`·`content`·`shape`는 한 번 읽으면 기억 (멀어져 못 읽어도 덮지 않음). `distance` = 로봇(base_footprint) 중심~물체 바닥 위 거리 [m], 발행 순간 · `/tracked_objects`에만 |
+| `details` | `puck`·`puck_lying`: `posture`(standing·lying) · `tag`(0~11) · `shape`(box 사각기둥 · cyl 원기둥) · `yaw_period`(90 · 180) / `location_box`: `tag`(12~14) · `yaw_period`(90 윗면 변 · 옆면 태그면 360) / `start_box`: `yaw_period`(90) / `barcode`: `content`(작업 지시 문자열) / `traffic_light`: `state`(red · yellow · green · off · all) / **모든 클래스**: `distance` (로봇 TF가 있을 때). 값이 없으면 그 key가 없음 (빈 값을 넣지 않음) | key·value는 모두 문자열 (`yaw_period`는 도 단위 정수, `distance`는 소수 셋째 자리 m). `tag`·`content`·`shape`는 트랙이 살아 있는 동안 유지 (멀어져 못 읽어도 덮지 않음 — 2초 안 보여 트랙이 지워지면 같이 사라짐). `distance` = 로봇(base_footprint) 중심~물체 바닥 위 거리 [m], 발행 순간 · `/tracked_objects`에만 |
 
 <a id="api-msg-trackedobjectarray"></a>
 ### perception/msg/TrackedObjectArray ([파일](../lv2_module6/ros2_ws/src/perception/msg/TrackedObjectArray.msg))
@@ -82,43 +81,27 @@ TrackedObject[] objects
 
 #### `cameras` 필드 활용 패턴
 
-`cameras` 빈 배열 여부로 **"현재 보이는지 / 지도에만 기억된 상태인지"** 를 구분할 수 있다.
+`cameras` = 그 물체를 본 카메라 (끝이 가장 최근). `/tracked_objects`에 있는 물체는 모두 2초 안에 본 것이라 빈 배열은 없다.
 
 ```
-cameras = ["pole_front_cam"]              → 지금 pole_front_cam에 잡힘
-cameras = ["pole_front_cam","gripper_cam"]→ 두 카메라 모두 잡힘 (끝이 가장 최근)
-cameras = []                              → 지도에 위치는 있지만 현재 어느 카메라에도 안 잡힘
+cameras = ["pole_front_cam"]              → pole_front_cam만 봄
+cameras = ["pole_front_cam","gripper_cam"]→ 두 카메라 모두 봄 (끝이 가장 최근)
 ```
 
-수신 측 판별 예시 (Python):
+수신 측 예시 (Python):
 
 ```python
 from rclpy.time import Time
 
 for obj in tracked_objects.objects:
-    # ① 지금 카메라에 잡히는 것만
-    if obj.cameras:
-        latest_cam = obj.cameras[-1]   # 가장 최근에 본 카메라
+    latest_cam = obj.cameras[-1]   # 가장 최근에 본 카메라 (px는 이 카메라 영상 좌표)
 
-    # ② 지도엔 알지만 지금 안 보이는 것 (벽 뒤·시야 밖·집어 든 직후)
-    if not obj.cameras:
-        # pose(마지막 위치)·last_seen(마지막 시각)은 여전히 유효
-        # → 그 위치로 navigate하면 가까이 갔을 때 cameras가 다시 채워짐
-        pass
-
-    # ③ 최근 N초 이내에 본 것 (now는 node.get_clock().now())
-    last = Time.from_msg(obj.last_seen)
-    age_s = (now - last).nanoseconds / 1e9
-    if age_s < 2.0:
-        pass  # 2초 이내 관측
+    # 얼마나 전에 봤는지 (now는 node.get_clock().now()) — 2초를 넘으면 목록에서 빠짐
+    age_s = (now - Time.from_msg(obj.last_seen)).nanoseconds / 1e9
 ```
 
-물체 종류별 삭제 정책:
-
-| 클래스 | 안 보일 때 | 삭제 조건 |
-|--------|-----------|-----------|
-| `puck` · `location_box` · `start_box` · `barcode` · `goal_zone` | `cameras=[]` 유지 | `miss_count`번 연속 미검출 (그 자리가 잘 보이는데 없는 경우 — 옮겨지거나 집어 감) |
-| `person` · `obstacle` · `traffic_light` | `cameras=[]` 유지 | `TRACK_TIMEOUT_S`(2.0초) 안 보이면 트랙 삭제 |
+삭제 정책: **모든 클래스**가 어느 카메라에도 `TRACK_TIMEOUT_S`(2.0초) 안 보이면 트랙 삭제 → 다시 보이면 새 `id`.
+안 보이는 물체(시야 밖 퍽·지나온 상자 등)를 기억해야 하면 받는 쪽(통합·판단 노드)이 마지막 `pose`·`details`를 저장해서 쓴다.
 
 <a id="api-msg-subgoal"></a>
 ### plan/msg/SubGoal ([파일](../lv2_module6/ros2_ws/src/plan/msg/SubGoal.msg))

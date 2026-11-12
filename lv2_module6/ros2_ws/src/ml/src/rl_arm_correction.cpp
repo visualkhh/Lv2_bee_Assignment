@@ -175,12 +175,13 @@ std::shared_ptr<const RlArmCorrection::Skill> RlArmCorrection::policy_for(const 
   if (!arm_layout_from(m.layout, s->layout)) {
     RCLCPP_WARN(log, "%s: 입력 모양 '%s' 모름 — 보정 없음", m.skill.c_str(), m.layout.c_str());
     s = nullptr;
-  } else if (!s->policy.load(m.policy, why) || s->policy.obs_dim() != arm_obs_size(s->layout) || s->policy.act_dim() != 5) {
+  } else if (!s->policy.load(m.policy, why) || s->policy.inputs() != arm_obs_size(s->layout) ||
+             s->policy.outputs() != 5) {
     RCLCPP_ERROR(log, "%s: 정책을 못 씀 %s — %s (입력 %zu, 필요 %zu)", m.skill.c_str(), m.policy.c_str(), why.c_str(),
-                 s->policy.obs_dim(), arm_obs_size(s->layout));
+                 s->policy.inputs(), arm_obs_size(s->layout));
     s = nullptr;
   } else {
-    RCLCPP_INFO(log, "%s: 정책 %s (%s 모양)", m.skill.c_str(), m.policy.c_str(), m.layout.c_str());
+    RCLCPP_INFO(log, "%s: 정책 %s (%s 모양 · %s)", m.skill.c_str(), m.policy.c_str(), m.layout.c_str(), s->policy.runtime());
   }
   cache_[m.policy] = s;  // 못 쓰는 파일도 기억 (매번 다시 읽지 않게)
   return s;
@@ -282,7 +283,11 @@ return_type RlArmCorrection::update_and_write_commands(const rclcpp::Time & time
       in.cam_z = hand_.rel.z;
       in.insp_x = hand_.insp_rel.x; in.insp_y = hand_.insp_rel.y; in.insp_z = hand_.insp_rel.z;
       arm_obs(it->layout, in, obs_.data());
-      it->policy.act_into(obs_.data(), act_.data());
+      try {
+        it->policy.act_into(obs_.data(), act_.data());
+      } catch (const std::exception &) {  // 추론 실패 → 이번 주기 보정 없음 (기준 동작만)
+        act_.assign(5, 0.0);
+      }
       act2_ = act1_;
       act1_ = prev_act_;  // 행동 기록은 정책이 돈 스텝에만 (시뮬 pick_env와 같음)
       for (int i = 0; i < 5; ++i) {

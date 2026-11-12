@@ -9,6 +9,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "diagnostic_msgs/msg/diagnostic_array.hpp"
@@ -21,7 +22,9 @@
 #include "pluginlib/class_loader.hpp"
 #include "rclcpp/node_interfaces/node_parameters_interface.hpp"
 #include "rclcpp/timer.hpp"
+#include "ml/fallback_controller.hpp"
 #include "ml/onnx_policy.hpp"
+#include "ml/srv/set_fallback.hpp"
 #include "sensor_msgs/msg/imu.hpp"
 #include "sensor_msgs/msg/laser_scan.hpp"
 #include "sensor_msgs/msg/point_cloud2.hpp"
@@ -81,6 +84,18 @@ private:
   nav2::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;
 
   std::mutex mtx_;
+  // inner(바이패스) controller 는 실행 중에 바꿀 수 있다 (~/<name>/set_fallback) — inner_ 를 부르는 동안·바꾸는 동안은 inner_mtx_
+  //   잠금 순서: mtx_ → inner_mtx_ (그 반대로 잡지 않는다)
+  std::mutex inner_mtx_;
+  std::string inner_key_ = "mppi";          // 지금 쓰는 inner 별칭
+  bool active_ = false;                    // activate()~deactivate() — 새 inner 도 같은 상태로 만든다
+  nav_msgs::msg::Path last_path_;          // 새 inner 에 다시 넘길 마지막 전역 경로
+  double last_speed_limit_ = 0.0;
+  bool last_speed_pct_ = false;
+  bool have_speed_limit_ = false;
+  nav2::ServiceServer<ml::srv::SetFallback>::SharedPtr fallback_srv_;
+  // 바꾸기: 새 inner 를 먼저 만들고 설정·활성화까지 성공해야 교체한다 (실패하면 이전 inner 유지). {성공, 메시지}
+  std::pair<bool, std::string> switch_inner(const std::string & want);
   bool enable_ = false;
   bool enable_requested_ = false;  // YAML/toggle 의도 — 모델이 없어 enable_을 내려도 이유를 구분한다
   bool use_scan_ = false;
@@ -109,6 +124,7 @@ private:
   double lidar_inflation_ = 0.02;  // [m] 사용자 안전 여유 — 기본 2 cm (학습 1~5 cm)
   double max_lin_ = 0.26, max_ang_ = 1.82, v_min_ratio_ = -0.2;
   double speed_ratio_ = 1.0;
+  bool heading_cap_ = true;     // 경로 방향 속도 상한 (heading_speed_cap)
   double extra_lin_vel_ = 0.0;  // [m/s] 정책 출력에 더하는 추가 선속도 (0~0.10, max_lin 상한 유지)
   double extra_ang_vel_ = 0.0;  // [rad/s] 정책 출력에 더하는 추가 각속도 (0~0.50, max_ang 상한 유지)
   int points_stride_ = 4;

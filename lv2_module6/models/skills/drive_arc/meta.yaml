@@ -4,6 +4,7 @@ skill: drive_arc
 kind: base            # arm (rl_arm_correction이 계산) | base (skill_approach가 계산)
 layout: nav          # ml/nav_obs.hpp 13
 use: true
+runtime: onnx         # onnx (기본, ONNX Runtime) | policy (같은 정책의 .policy · 실측에서 ONNX가 나쁘면)
 node: skill_approach
 sim_baseline: 91.8      # [%] 학습 없이 기준 동작만 (1024판)
 sim_policy: 100.0        # [%] 학습 뒤

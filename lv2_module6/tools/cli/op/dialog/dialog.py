@@ -20,7 +20,7 @@ class Dialog:
     """모달 창 기반 — 박스 그리기·크기·화면에서 지우기·키 루프(run)는 여기서, 내용과 키 처리는 하위 클래스가.
 
     Page → Menu → 각 화면처럼, 창도 Dialog → InputDialog · KeyDialog · PagerDialog · BusyDialog ·
-    TeleopDialog(bus.py) · RouteRvizDialog(pages/ab) 로 상속해서 만든다. 밖에서 내부 줄을 직접 바꾸지 않는다.
+    TeleopDialog(bus.py) 로 상속해서 만든다. 밖에서 내부 줄을 직접 바꾸지 않는다.
       content()    박스 안 줄 목록 (기본: 제목 · 빈 줄 · body)
       on_key(k)    키 하나 → CONTINUE(계속) 또는 결과(창 닫고 run()이 돌려줌)
       on_tick()    키가 있든 없든 매 주기 — ROS 폴링 등 (기본: ui.tick — 상단 상태바)

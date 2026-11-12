@@ -1,0 +1,8 @@
+{
+ "spawn_xy_m": [
+  -0.1851,
+  -2.3696
+ ],
+ "spawn_yaw_deg": 170.09,
+ "source": "isaac/usda/scene_sim.usda — /World/beebot 위치를 /World/maze 좌표로 (tools/cli/ros/fake/RealWorld.py가 읽음)"
+}

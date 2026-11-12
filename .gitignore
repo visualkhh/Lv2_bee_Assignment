@@ -33,6 +33,9 @@ lv2_module6/firmware/build/
 /lv2_module6/ros2_ws/map/*
 # 지도 정본(nvblox.nvblx)은 커서 커밋 안 함 — default 폴더도 미리보기(map.pgm·yaml)만
 /lv2_module6/ros2_ws/map/*/nvblox.nvblx
+# 테스트 지도 (fake·도커 /ws/map) — default(USD로 만든 완벽한 지도, build_world.py)만 커밋
+/lv2_module6/tools/cli/ros/fake/map/*
+!/lv2_module6/tools/cli/ros/fake/map/default/
 
 
 /log/
@@ -50,3 +53,8 @@ lv2_module6/tools/artifacts/
 
 # macOS
 .DS_Store
+
+# 도식화 및 문서화 툴 
+.agents/
+.archify/
+graphify-out/

@@ -62,6 +62,7 @@ find_package(realtime_tools REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   srv/ScoreGrasps.srv
+  srv/SetFallback.srv
   msg/SkillContext.msg
   msg/ArmCorrectionDebug.msg
   DEPENDENCIES geometry_msgs std_msgs perception)
@@ -76,19 +77,24 @@ target_compile_features(${PROJECT_NAME}_nodes PUBLIC cxx_std_17)
 target_link_libraries(${PROJECT_NAME}_nodes PUBLIC rclcpp::rclcpp ${geometry_msgs_TARGETS} ${sensor_msgs_TARGETS}
   ${nav_msgs_TARGETS} ${nav2_msgs_TARGETS} ${std_msgs_TARGETS} ${std_srvs_TARGETS} ${perception_TARGETS}
   ${msgs_cpp} ament_index_cpp::ament_index_cpp diagnostic_updater::diagnostic_updater)
-# OnnxPolicy는 항상 컴파일 (vendor 없으면 스텁 → load()가 예외, 호출 쪽은 바이패스)
-add_library(ml_onnx STATIC src/onnx_policy.cpp)
-set_target_properties(ml_onnx PROPERTIES POSITION_INDEPENDENT_CODE ON)  # 플러그인(.so)에도 링크
-target_include_directories(ml_onnx PUBLIC include)
+# OnnxPolicy — 모든 학습 정책의 추론 한 곳 (rl_arm_correction · rl_nav_controller · skills · plan이 링크)
+#   공유 라이브러리로 설치·공개 (ml::ml_onnx). ONNX Runtime은 PRIVATE — 헤더는 Ort를 앞선언만 함
+#   항상 컴파일 (vendor 없으면 스텁 → load()가 실패, 호출 쪽은 바이패스)
+add_library(ml_onnx SHARED src/onnx_policy.cpp)
+target_compile_features(ml_onnx PUBLIC cxx_std_17)
+target_include_directories(ml_onnx PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include> $<INSTALL_INTERFACE:include/${PROJECT_NAME}>)
 target_link_libraries(${PROJECT_NAME}_nodes PUBLIC ml_onnx)
 if(ML_ONNX_FOUND)
-  target_compile_definitions(ml_onnx PUBLIC ML_HAS_ONNX)
-  target_link_libraries(ml_onnx PUBLIC ${ML_ONNX_LINK_TARGET})
+  target_compile_definitions(ml_onnx PRIVATE ML_HAS_ONNX)
+  target_link_libraries(ml_onnx PRIVATE ${ML_ONNX_LINK_TARGET})
   message(STATUS "ml: ONNX Runtime 사용 (${ML_ONNX_LINK_TARGET})")
 else()
   message(WARNING "ml: onnxruntime_vendor 없음 — ONNX 없이 빌드 (Δ=0 통과 · 정책 바이패스). "
                   "설치: sudo apt install ros-lyrical-onnxruntime-vendor")
 endif()
+install(TARGETS ml_onnx EXPORT export_ml_onnx LIBRARY DESTINATION lib ARCHIVE DESTINATION lib RUNTIME DESTINATION bin)
+ament_export_targets(export_ml_onnx HAS_LIBRARY_TARGET)
 # GPU ONNX Runtime을 /opt/onnxruntime 같은 기본 경로 밖에 두면 provider .so를 찾도록 rpath를 박는다.
 function(ml_onnx_rpath target)
   if(ML_ONNX_RPATH)
@@ -97,6 +103,7 @@ function(ml_onnx_rpath target)
       INSTALL_RPATH "${ML_ONNX_RPATH}")
   endif()
 endfunction()
+ml_onnx_rpath(ml_onnx)
 foreach(node grasp_scorer)
   add_executable(${node} src/${node}_main.cpp)
   target_link_libraries(${node} ${PROJECT_NAME}_nodes)
@@ -114,7 +121,7 @@ target_link_libraries(rl_nav_controller PUBLIC rclcpp::rclcpp rclcpp_lifecycle::
   tf2_geometry_msgs::tf2_geometry_msgs ament_index_cpp::ament_index_cpp
   ${geometry_msgs_TARGETS} ${nav_msgs_TARGETS} ${sensor_msgs_TARGETS} ${std_srvs_TARGETS}
   ${diagnostic_msgs_TARGETS})
-target_link_libraries(rl_nav_controller PUBLIC ml_onnx)
+target_link_libraries(rl_nav_controller PUBLIC ml_onnx ${msgs_cpp})   # ml/srv/SetFallback (런타임 inner 교체)
 ml_onnx_rpath(rl_nav_controller)
 pluginlib_export_plugin_description_file(nav2_core rl_nav_controller.xml)
 install(TARGETS rl_nav_controller LIBRARY DESTINATION lib)
@@ -125,7 +132,8 @@ target_compile_features(rl_arm_correction PUBLIC cxx_std_17)
 target_include_directories(rl_arm_correction PUBLIC include)
 target_link_libraries(rl_arm_correction controller_interface::controller_interface
   hardware_interface::hardware_interface pluginlib::pluginlib rclcpp::rclcpp rclcpp_lifecycle::rclcpp_lifecycle
-  realtime_tools::realtime_tools ament_index_cpp::ament_index_cpp ${perception_TARGETS} ${msgs_cpp} ${std_srvs_TARGETS})
+  realtime_tools::realtime_tools ament_index_cpp::ament_index_cpp ${perception_TARGETS} ${msgs_cpp} ${std_srvs_TARGETS} ml_onnx)
+ml_onnx_rpath(rl_arm_correction)
 pluginlib_export_plugin_description_file(controller_interface rl_arm_correction.xml)
 install(TARGETS rl_arm_correction LIBRARY DESTINATION lib)
 
@@ -148,6 +156,9 @@ if(BUILD_TESTING)
   ament_add_gtest(test_mlp_policy test/test_mlp_policy.cpp TIMEOUT 60)
   target_include_directories(test_mlp_policy PRIVATE include)
   target_compile_definitions(test_mlp_policy PRIVATE MODEL_DIR="${MODEL_DIR}")
+  ament_add_gtest(test_onnx_policy test/test_onnx_policy.cpp TIMEOUT 120)
+  target_compile_definitions(test_onnx_policy PRIVATE MODEL_DIR="${MODEL_DIR}")
+  target_link_libraries(test_onnx_policy ml_onnx)
   ament_add_gtest(test_nav_policy_onnx test/test_nav_policy_onnx.cpp TIMEOUT 120)
   target_include_directories(test_nav_policy_onnx PRIVATE include)
   target_compile_definitions(test_nav_policy_onnx PRIVATE MODEL_DIR="${MODEL_DIR}")
@@ -159,13 +170,15 @@ if(BUILD_TESTING)
   ament_add_gtest(test_rl_arm_correction test/test_rl_arm_correction.cpp)
   target_link_libraries(test_rl_arm_correction rl_arm_correction)
   ament_add_gtest(test_nav_obs test/test_nav_obs.cpp TIMEOUT 60)
+  ament_add_gtest(test_fallback_controller test/test_fallback_controller.cpp TIMEOUT 60)
+  target_include_directories(test_fallback_controller PRIVATE include)
   target_include_directories(test_nav_obs PRIVATE include)
   ament_add_test(test_launch GENERATE_RESULT_FOR_RETURN_CODE_ZERO
     COMMAND ros2 launch "${CMAKE_CURRENT_SOURCE_DIR}/launch/ml.launch.py" --show-args
     TIMEOUT 60)
 endif()
 
-# 헤더 (mlp_policy.hpp — plan의 plan_next도 씀)
+# 헤더 (policy.hpp · onnx_policy.hpp · mlp_policy.hpp · arm_obs.hpp · nav_obs.hpp — skills · plan도 씀)
 install(DIRECTORY include/ DESTINATION include/${PROJECT_NAME})
 ament_export_include_directories(include/${PROJECT_NAME})
 ament_export_dependencies(rosidl_default_runtime)

@@ -26,6 +26,8 @@ fake_slam:=true (기본) — 실기 SLAM(cuVSLAM + nvblox)의 대신:
   fake_camera ×2   realsense2_camera (pole_front_cam, gripper_cam) — 시뮬레이터가 debug/input/hardware/camera/에 쓴 프레임.
                    시뮬레이터 없이(headless)면 회색 영상 + 현재 /map을 ray-casting한 depth (costmap·collision_monitor가 벽을 봄)
   fake_opencr      OpenCR (기본. mock_hardware:=true면 안 뜸 — 유일한 OpenCR, 미끄럼·충돌·통신 끊김, 진짜 위치 ~/ground_truth 발행 · 환경은 파라미터 · /cmd/fake_opencr/set_pose)
+                   켤 때 팔 = stow (skills basket.yaml pose_stow — 실기는 꺼져 있는 동안 팔이 접혀 있음)
+                   = 하드웨어: fake_hardware.launch.py — test-faker가 따로 켜 두면 ROS 재시작(state_manager)에도 안 꺼짐 (실기 OpenCR처럼)
   move_group       진짜 (bringup use_moveit:=true 기본 — 실기와 같음, MTC 대역 fake_moveit 삭제됨)
 호스트 파일 연동 (통제실·시뮬레이션):
   monitor_manager  토픽 → debug/topic/<토픽>/message (JSON) · image.jpg
@@ -35,7 +37,7 @@ ml:=real이면 진짜 ml 노드를 띄운다 — 모델이 없거나 learning_en
 
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
@@ -73,12 +75,25 @@ def is_real(name):
     return PythonExpression(["'", LaunchConfiguration(name), "' == 'real'"])
 
 
+def opencr_if_not_running(context):
+    """fake_opencr = 하드웨어 — 이미 떠 있으면(test-faker가 따로 켬 · 실기 OpenCR처럼) 다시 띄우지 않는다.
+    없으면(CI·직접 실행) fake_hardware.launch.py를 포함해 함께 띄운다. mock_hardware:=true면 안 띄움."""
+    import subprocess
+    if context.launch_configurations.get('mock_hardware', 'false') != 'false':
+        return []
+    running = subprocess.run(['pgrep', '-f', 'lib/faker/fake_opencr'], capture_output=True).returncode == 0
+    if running:
+        print('[faker] fake_opencr(하드웨어)가 이미 떠 있다 — 그대로 쓴다 (ROS 재시작에도 로봇 위치·팔 자세 유지)')
+        return []
+    return [include('faker', 'fake_hardware.launch.py', {'course': LaunchConfiguration('course')})]
+
+
 def generate_launch_description():
     return LaunchDescription([
         arg('ml', 'fake', 'fake = ML 대역(도커·CI 기본, GPU 불필요) · real = 진짜 ml 노드·컨트롤러 — 아래 넷의 기본값'),
         *[arg(n, LaunchConfiguration('ml'), f'{n}: fake | real (기본 = ml)') for n in ML],
         arg('learning_enabled', 'true', '학습 노드 on/off (ml:=real일 때)'),
-        arg('course', 'dice_maze', '시뮬레이터 월드 코스 = faker/world/<이 이름>.yaml (fake_opencr 충돌 모델 — 로봇 지도 아님) — 기본 dice_maze · 옛 미로: twin_closed_maze · Isaac 학습 미로: isaac_maze'),
+        arg('course', 'isaac_maze', '실세계 코스 = faker/world/<이 이름>.yaml (fake_opencr 충돌 모델 — tools/course/build_world.py가 tools/cli/ros/fake/real/map/<이름>에서 만듦) — 기본 isaac_maze(Isaac 미로 USD) · dice_maze(주사위 경기장). 뷰어 --course와 같게'),
         arg('start_pose', '[0.734, 0.950, 0.0]', 'mission_manager 출발 자세 arena [x, y, yaw] (비면 plan.yaml) — 시뮬레이터는 +X를 보고 켬'),
         arg('map', 'none', 'none = 지도 없음(기본) · slam = 센서로 새 지도 · saved = 저장한 nvblox.nvblx로 위치추정'),
         arg('operation', 'MANUAL', '초기 조작 모드: MANUAL(기본) | AUTO | TEACH'),
@@ -118,9 +133,7 @@ def generate_launch_description():
              condition=IfCondition(PythonExpression(["'", LaunchConfiguration('use_gz_cameras'), "' == 'false'"]))),
         fake('fake_camera', 'gripper_cam', respawn=True,
              condition=IfCondition(PythonExpression(["'", LaunchConfiguration('use_gz_cameras'), "' == 'false'"]))),
-        fake('fake_opencr', 'fake_opencr', {
-            'map_yaml': PathJoinSubstitution([FindPackageShare('faker'), 'world', [LaunchConfiguration('course'), '.yaml']]),
-        }, condition=IfCondition(PythonExpression(["'", LaunchConfiguration('mock_hardware'), "' == 'false'"]))),
+        OpaqueFunction(function=opencr_if_not_running),   # fake_opencr = 하드웨어 (fake_hardware.launch.py)
         *[fake(f'fake_{n}', n, condition=IfCondition(PythonExpression(["'", LaunchConfiguration(n), "' == 'fake'"])))
           for n in ML_NODES],
         # fake_slam(기본): fake_cuvslam(map→odom) + fake_nvblox(/map·ESDF — MAPPING은 점구름으로 지도를 쌓는다)

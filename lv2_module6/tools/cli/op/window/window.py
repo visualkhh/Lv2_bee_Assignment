@@ -33,6 +33,7 @@ class Window:
         self.focus = self.menu_bar          # 지금 키를 받는 부품 (menu_bar | center_comp | top_bar)
         self.center_comp = None             # 중앙에 올린 포커스 가능한 부품 (예: 지도) — center_fn이 그 부품을 그림
         self._signals: dict[str, list] = {}
+        self.resume_queue: list[str] = []   # 재연결 뒤 자동으로 열 항목 키 경로 — run이 화면마다 하나씩 소비
         self.title: str | None = None
         self.center_fn = None               # 창이 떠 있는 동안 중앙 실시간 갱신용
         self.back = self.main = True
@@ -104,6 +105,16 @@ class Window:
                 if once or result in (MAIN, QUIT):
                     return result
                 continue
+            if self.resume_queue and not once:   # 재연결 복원 — 이 화면에서 경로의 다음 항목을 연다 (없으면 복원 중단)
+                key = self.resume_queue.pop(0)
+                item = next((i for i in items if getattr(i, 'key', None) == key), None)
+                if item is None:
+                    self.resume_queue.clear()
+                else:
+                    result = item.activate()
+                    if result in (MAIN, QUIT):
+                        return result
+                    continue
             k = self._wait_key(title, center_fn, timeout)
             if once:
                 self._once_idx[title] = bar.idx

@@ -188,4 +188,14 @@ TEST(MissionSolver, VisitOrder) {  // plan.yaml survey_order · build_location_o
   EXPECT_EQ(plan::visit_order({1, 1, 2}, 3), (std::vector<size_t>{0, 1, 2}));   // 중복 → 번호 순서
   EXPECT_EQ(plan::visit_order({0, 1, 2}, 3), (std::vector<size_t>{0, 1, 2}));   // 범위 밖
   EXPECT_EQ(plan::visit_order({3, 2, 1}, 3), (std::vector<size_t>{2, 1, 0}));
+  
+TEST(MissionSolver, WallDistanceDropsBlockedSide) {  // 시작 박스 1 서쪽 다가설 자리는 x 1.101 벽 위 → 거름
+  const std::vector<double> walls = {1.101, 0.650, 1.101, 1.315};
+  const auto poses = plan::approach_poses(1.468, 0.950, 0.1025, 1.428, 0.950, 0.25);
+  ASSERT_EQ(poses.size(), 4u);
+  EXPECT_NEAR(poses[0].x, 1.1155, 1e-3);                                   // 퍽에서 가까운 서쪽 변이 먼저
+  EXPECT_LT(plan::wall_distance(poses[0].x, poses[0].y, walls), 0.22);     // 벽에서 1.5 cm → 뺄 대상
+  for (size_t i = 1; i < 4; ++i) EXPECT_GT(plan::wall_distance(poses[i].x, poses[i].y, walls), 0.22);
+  EXPECT_NEAR(plan::wall_distance(1.101, 0.200, walls), 0.450, 1e-9);      // 선분 끝점까지
+  EXPECT_TRUE(std::isinf(plan::wall_distance(0, 0, {})));
 }

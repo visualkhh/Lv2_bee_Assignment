@@ -139,6 +139,64 @@ TEST_F(RosTest, ManualModeStopsRunningPlan) {
     [&]() { for (auto & s : got) if (s.plan_id == 8 && s.reason == "manual_override") return true; return false; }));
 }
 
+// skill 노드가 server_wait_s 안에 안 뜨면 어느 skill인지 붙여 실패: skill_unavailable:pose (#130)
+TEST_F(RosTest, MissingSkillServerNamesTheSkill) {
+  auto node = std::make_shared<Coordinator>(rclcpp::NodeOptions().parameter_overrides(
+    {{"basket_file", ""}, {"server_wait_s", 1.0}}));
+  auto probe = std::make_shared<rclcpp::Node>("probe_no_server");
+  const auto latched = rclcpp::QoS(10).reliable().transient_local();
+  auto objects_pub = probe->create_publisher<TrackedObjectArray>("/tracked_objects", rclcpp::QoS(5).reliable());
+  auto goals_pub = probe->create_publisher<SubGoalArray>("/task/sub_goals", latched);
+  std::vector<TaskStatus> got;
+  auto sub = probe->create_subscription<TaskStatus>("/task/status", latched, [&](TaskStatus::SharedPtr m) { got.push_back(*m); });
+  rclcpp::executors::SingleThreadedExecutor exec;
+  exec.add_node(node);
+  exec.add_node(probe);
+  SubGoalArray plan;
+  plan.plan_id = 51;
+  plan.goals.push_back(SubGoal().set__step(1).set__skill("pose").set__target("stow"));
+  goals_pub->publish(plan);
+  ASSERT_TRUE(spin_until(exec, [&]() { objects_pub->publish(TrackedObjectArray()); },
+    [&]() { for (auto & s : got) if (s.plan_id == 51 && s.state == TaskStatus::FAILED) return true; return false; }, 10.0));
+  std::string reason;
+  for (auto & s : got) if (s.plan_id == 51 && s.state == TaskStatus::FAILED) reason = s.reason;
+  EXPECT_EQ(reason, "skill_unavailable:pose");
+}
+
+// skill이 goal을 받고 결과를 안 주면 step_timeout_s.<skill> 뒤 취소하고 <skill>_timeout으로 실패 (#131)
+TEST_F(RosTest, SilentSkillTimesOutAndIsCancelled) {
+  auto node = std::make_shared<Coordinator>(rclcpp::NodeOptions().parameter_overrides(
+    {{"basket_file", ""}, {"step_timeout_s.pose", 0.5}}));
+  auto probe = std::make_shared<rclcpp::Node>("probe_silent_skill");
+  const auto latched = rclcpp::QoS(10).reliable().transient_local();
+  auto objects_pub = probe->create_publisher<TrackedObjectArray>("/tracked_objects", rclcpp::QoS(5).reliable());
+  auto goals_pub = probe->create_publisher<SubGoalArray>("/task/sub_goals", latched);
+  std::vector<TaskStatus> got;
+  auto sub = probe->create_subscription<TaskStatus>("/task/status", latched, [&](TaskStatus::SharedPtr m) { got.push_back(*m); });
+  using GH = rclcpp_action::ServerGoalHandle<Skill>;
+  std::shared_ptr<GH> held;  // 결과를 안 줌 (멈춘 skill)
+  bool cancelled = false;
+  auto server = rclcpp_action::create_server<Skill>(probe, "/skills/pose",
+    [](const rclcpp_action::GoalUUID &, std::shared_ptr<const Skill::Goal>) { return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE; },
+    [&](const std::shared_ptr<GH>) { cancelled = true; return rclcpp_action::CancelResponse::ACCEPT; },
+    [&](const std::shared_ptr<GH> h) { held = h; });
+  rclcpp::executors::SingleThreadedExecutor exec;
+  exec.add_node(node);
+  exec.add_node(probe);
+  SubGoalArray plan;
+  plan.plan_id = 1000052;  // mission_manager 계획 번호대
+  plan.goals.push_back(SubGoal().set__step(1).set__skill("pose").set__target("stow"));
+  goals_pub->publish(plan);
+  ASSERT_TRUE(spin_until(exec, [&]() { objects_pub->publish(TrackedObjectArray()); },
+    [&]() { for (auto & s : got) if (s.plan_id == plan.plan_id && s.state == TaskStatus::FAILED) return true; return false; }, 10.0));
+  std::string reason;
+  for (auto & s : got) if (s.plan_id == plan.plan_id && s.state == TaskStatus::FAILED) reason = s.reason;
+  EXPECT_EQ(reason, "pose_timeout");
+  EXPECT_TRUE(held != nullptr);
+  ASSERT_TRUE(spin_until(exec, [] {}, [&]() { return cancelled; }));
+  if (held && held->is_canceling()) held->canceled(std::make_shared<Skill::Result>());
+}
+
 // 단계를 skill 노드에 맡김: load next → /skills/load에 빈 칸 0 · 모양을 보내고, 성공이면 장부에 적고 계획 SUCCEEDED
 TEST_F(RosTest, HandsStepToSkillNodeAndKeepsLedger) {
   auto node = std::make_shared<Coordinator>(rclcpp::NodeOptions().parameter_overrides({{"basket_file", ""}}));

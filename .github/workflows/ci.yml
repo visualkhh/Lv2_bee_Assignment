@@ -72,7 +72,7 @@ jobs:
         #   firmware/                      lv2_module6/firmware 폴더 전체 (스케치·upload.sh·README)
         #   firmware/build/<스케치>/*.bin  test-firmware가 컴파일한 결과 (/debug/firmware에서 복사 — OpenCR용이라 아키텍처 무관)
         #   *.sh                           lv2_module6/ros2_ws의 실행 스크립트 전부 + docker/lv2_module6/*.sh (entrypoint.sh 제외)
-        #   tools/cli·tools/rviz  run-cli · A/B · 리포트 (tests·bag·artifacts 제외)
+        #   tools/cli·tools/rviz  run-cli (tests·bag·artifacts 제외)
         #   ARCH                           이 패키지의 아키텍처 (start.sh가 확인)
         #   TARGET                         이 패키지의 OS·아키텍처 (예: ubuntu-24.04-aarch64)
         # - install: test-bringup이 --symlink-install로 빌드 → cp -L로 링크 대상 실제 파일을 담음.
@@ -90,7 +90,7 @@ jobs:
           cp lv2_module6/ros2_ws/fastdds.xml lv2_module6/ros2_ws/fastdds_local_only.xml ros2_ws/   # _local = 실기 기기 안 격리 (SHM만)
           cp docker/lv2_module6/*.sh ros2_ws/   # test-*.sh · build-ws.sh · ros-kill.sh · ros-restart.sh (entrypoint.sh 제외 — 컨테이너 전용)
           rm -f ros2_ws/entrypoint.sh
-          # tools/ (run-cli · A/B · 리포트) — 실기에서 wget 묶음으로 바로 실행. tests·log·bag·artifacts·__pycache__ 제외.
+          # tools/ (run-cli) — 실기에서 wget 묶음으로 바로 실행. tests·log·bag·artifacts·__pycache__ 제외.
           mkdir -p ros2_ws/tools && cp -r lv2_module6/tools/cli lv2_module6/tools/rviz ros2_ws/tools/
           cp lv2_module6/tools/run-cli lv2_module6/tools/run-rviz lv2_module6/tools/requirements.txt lv2_module6/tools/setting-venv.sh ros2_ws/tools/
           [ -f lv2_module6/tools/README.md ] && cp lv2_module6/tools/README.md ros2_ws/tools/
@@ -132,12 +132,17 @@ jobs:
       # 테스트 로그(monitor_manager 기록·input/hardware/serial·output/hardware/serial)는 실패했을 때만 원인 확인용으로 올린다.
       - name: Collect debug (실패 시)
         # launch 로그 · 토픽 기록 · input/hardware/serial·output/hardware/serial · 패키지 테스트 결과
+        # testbed 컨테이너가 없을 수도(Build 실패·docker run 실패) → 이 step 자체는 절대 실패 금지 (진짜 원인 가림 방지).
+        # /debug는 호스트 lv2_module6/debug에 바인드 마운트라 컨테이너 없이도 로그가 남아있음.
         if: failure()
         run: |
           docker exec testbed bash -c 'cp /tmp/*.log /debug/ 2>/dev/null; mkdir -p /debug/test_results && for d in /ws/build/*/test_results; do cp -r "$d" "/debug/test_results/$(basename "$(dirname "$d")")"; done' || true
-          docker cp testbed:/debug ./debug && find ./debug -type f | sort
+          docker cp testbed:/debug ./debug 2>/dev/null || cp -r lv2_module6/debug ./debug 2>/dev/null || mkdir -p ./debug || true
+          docker logs testbed 2>&1 | tail -n 200 > ./debug/container.log 2>/dev/null || echo "(컨테이너 없음 — Build/test-all 이전 단계 로그 확인)" > ./debug/container.log || true
+          find ./debug -type f | sort || true
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: debug-${{ matrix.label }}
           path: debug
+          if-no-files-found: warn

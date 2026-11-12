@@ -50,7 +50,7 @@ target_link_libraries(${PROJECT_NAME}_nodes PUBLIC rclcpp::rclcpp rclcpp_action:
   ${std_msgs_TARGETS} ${std_srvs_TARGETS} ${geometry_msgs_TARGETS} ${nav2_msgs_TARGETS} ${nav_msgs_TARGETS}
   tf2::tf2 tf2_ros::tf2_ros
   ${moveit_msgs_TARGETS} ${control_msgs_TARGETS} ${shape_msgs_TARGETS} ${visualization_msgs_TARGETS}
-  ${perception_TARGETS} ${control_TARGETS} ${ml_TARGETS} ${msgs_cpp} diagnostic_updater::diagnostic_updater ament_index_cpp::ament_index_cpp
+  ${perception_TARGETS} ${control_TARGETS} ${ml_TARGETS} ml::ml_onnx ${msgs_cpp} diagnostic_updater::diagnostic_updater ament_index_cpp::ament_index_cpp
   ${OpenCV_LIBS})
 foreach(node coordinator mission_manager)
   add_executable(${node} src/${node}_main.cpp)
