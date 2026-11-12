@@ -1019,7 +1019,7 @@ class Bus:
 
     def _local_map_path(self, path: Path) -> Path:
         """로봇 쪽 지도 경로 → 이 컴퓨터에서 보이는 경로. 도커는 CLI(호스트)와 지도(컨테이너 /ws/map)가 다른 곳에 있다:
-        /ws/map/<이름>/… → 호스트 lv2_module6/ros2_ws/map/<이름>/… (compose 바인드). 그 밖은 그대로."""
+        /ws/map/<이름>/… → 호스트 lv2_module6/tools/cli/ros/docker/map/<이름>/… (compose 바인드). 그 밖은 그대로."""
         try:
             return self.default_map_dir() / path.relative_to('/ws/map')
         except ValueError:

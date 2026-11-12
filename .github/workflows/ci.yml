@@ -57,7 +57,7 @@ jobs:
             -v ${{ github.workspace }}/lv2_module6/ros2_ws/fastdds.xml:/ws/fastdds.xml \
             -v ${{ github.workspace }}/lv2_module6/models:/models \
             -v ${{ github.workspace }}/lv2_module6/urdf:/ws/urdf \
-            -v ${{ github.workspace }}/lv2_module6/ros2_ws/map:/ws/map \
+            -v ${{ github.workspace }}/lv2_module6/tools/cli/ros/docker/map:/ws/map \
             -v ${{ github.workspace }}/lv2_module6/firmware:/firmware \
             -v ${{ github.workspace }}/lv2_module6/debug:/debug \
             lv2-module6:testbed sleep infinity

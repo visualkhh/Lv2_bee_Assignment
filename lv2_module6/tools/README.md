@@ -332,7 +332,7 @@ cd tools
   TUI **7) 지도 → 6) 지도 저장**도 같은 확인창을 띄웁니다.
   기본 경로는 `<state_manager의 map_dir>/<현재 지도 이름>/map` — map_saver가 도는 쪽(로봇·컨테이너) 경로라 원격 PC에서 CLI를 써도 맞습니다.
   `map_dir`을 못 읽으면 이 컴퓨터의 `ros2_ws/map`(또는 `BEEBOT_MAP_DIR`). `--file` · `--map-dir`는 그대로 씁니다.
-- **테스트 지도 폴더는 따로** — `--source fake`·`--source docker`는 `tools/cli/ros/fake/map/`을 씁니다 (도커는 compose가 `/ws/map`으로 바인드 · `BEEBOT_MAP_DIR`을 주면 그게 우선). 실기 지도(`ros2_ws/map`)와 섞이지 않습니다.
+- **테스트 지도 폴더는 따로** — `--source fake`는 `tools/cli/ros/fake/map/`, `--source docker`는 `tools/cli/ros/docker/map/`을 씁니다 (도커는 compose가 `/ws/map`으로 바인드 · `BEEBOT_MAP_DIR`을 주면 그게 우선). 실기 지도(`ros2_ws/map`)와 섞이지 않습니다.
   `default` = `tools/course/build_world.py`가 Isaac 미로 USD로 만든 **완벽한 지도**(벽 100 · 미로 안 0 · 밖 미지)라 매핑 없이 바로 `map switch default` → LOCALIZATION 주행 시험. 커밋되는 건 `default`만입니다.
 
 ### 노드 (상태 · 파라미터 · 진단 · 재시작)

@@ -36,6 +36,8 @@ lv2_module6/firmware/build/
 # 테스트 지도 (fake·도커 /ws/map) — default(USD로 만든 완벽한 지도, build_world.py)만 커밋
 /lv2_module6/tools/cli/ros/fake/map/*
 !/lv2_module6/tools/cli/ros/fake/map/default/
+/lv2_module6/tools/cli/ros/docker/map/*
+!/lv2_module6/tools/cli/ros/docker/map/default/
 
 
 /log/

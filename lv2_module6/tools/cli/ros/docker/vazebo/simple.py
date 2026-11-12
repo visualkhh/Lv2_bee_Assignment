@@ -51,6 +51,17 @@ HEADER_H = 26
 MAX_W, MAX_H = 1500, 900
 VIEW_W, VIEW_H = 640, 480
 
+# 3D 뷰 로봇 색 (BGR) — 회색 바닥·벽과 구분되게 주황
+ROBOT_TINT_BGR = (30, 90, 235)
+
+
+def _tint_rgb(rgb):
+    """URDF 링크 색(BGR)을 로봇 색 계열로 — 원래 밝기로 명암만 남긴다."""
+    b, g, r = rgb
+    lum = (0.114 * float(b) + 0.587 * float(g) + 0.299 * float(r)) / 255.0
+    k = 0.55 + 0.65 * min(1.0, lum)
+    return tuple(min(255, int(c * k)) for c in ROBOT_TINT_BGR)
+
 # 뷰어가 실제로 읽는 토픽 — monitor_manager가 이 파일을 보고 동적으로 구독한다.
 VIEW_TOPICS = (
     '/state/operation_mode', '/state/map_mode', '/state/map_name', '/state/map_list',
@@ -138,8 +149,8 @@ class OrbitCamera:
         self.target = None
         self.pan = np.zeros(3)
         self.yaw = 0.0
-        self.pitch = math.radians(33.0)
-        self.distance = 2.4
+        self.pitch = math.radians(38.0)
+        self.distance = 3.2
         self.follow = True
         self.drag = None
         self.dirty = True
@@ -157,8 +168,8 @@ class OrbitCamera:
         self.target = np.array([x, y, 0.3])
         self.pan[:] = 0.0
         self.yaw = yaw + math.pi          # 로봇 뒤
-        self.pitch = math.radians(33.0)
-        self.distance = 2.4
+        self.pitch = math.radians(38.0)
+        self.distance = 3.2
         self.follow = True
         self.dirty = True
 
@@ -259,7 +270,7 @@ def world_view(sim, cam: OrbitCamera):
                 _GL_FAILED = True
         if _GL is not None:
             try:
-                img = _decorate_world(_GL.render(sim, cam))
+                img = _decorate_world(_GL.render(sim, cam, robot_tint=ROBOT_TINT_BGR))
                 cam.cache, cam.last_render, cam.dirty = img, time.time(), False
                 return img
             except Exception as exc:  # noqa: BLE001
@@ -278,9 +289,9 @@ def world_view(sim, cam: OrbitCamera):
         things = ([dict(p) for p in sim.pucks + sim.props] + [dict(sim.goal)] +
                   [dict(z) for z in sim.stations])
     body = sim.body
-    boxes = [(twb @ sim.kin.pose(link, q) @ To, sx, sy, sz, rgb)
+    boxes = [(twb @ sim.kin.pose(link, q) @ To, sx, sy, sz, _tint_rgb(rgb))
              for link, To, (sx, sy, sz), rgb in body.boxes]
-    meshes = [(twb @ sim.kin.pose(link, q) @ To, tris, rgb)
+    meshes = [(twb @ sim.kin.pose(link, q) @ To, tris, _tint_rgb(rgb))
               for link, To, tris, rgb in body.meshes]
     joints = tuple(sorted((n, round(v, 2)) for n, v in q.items() if 'wheel' not in n))
     rel_key = tuple(np.round((np.linalg.inv(twb) @ T).ravel(), 3))

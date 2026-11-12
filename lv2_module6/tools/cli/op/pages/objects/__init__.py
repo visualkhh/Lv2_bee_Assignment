@@ -22,9 +22,20 @@ def _get(o, name, default=''):
     return getattr(o, name, default)
 
 
+def _seq(o, name) -> list:
+    """rosidl 배열(고정 크기·numpy)을 list로 — `value or []`는 numpy에서 ambiguous하다."""
+    v = getattr(o, name, None)
+    if v is None:
+        return []
+    try:
+        return list(v)
+    except TypeError:
+        return []
+
+
 def object_label(i: int, o) -> str:
     """목록 한 줄 — #id 클래스 (색 · 태그)."""
-    det = {kv.key: kv.value for kv in _get(o, 'details', []) or []}
+    det = {kv.key: kv.value for kv in _seq(o, 'details')}
     extra = ' '.join(x for x in (_get(o, 'color', ''), ('태그 ' + det['tag']) if 'tag' in det else '') if x and x != 'unknown')
     return f'#{_get(o, "id", i)} {_get(o, "class_name", "") or "?"}' + (f' ({extra})' if extra else '')
 
@@ -39,7 +50,7 @@ def object_lines(o, now_s: float | None = None) -> list[str]:
         p, q = pp.position, pp.orientation
         out.append(f' 위치(map) x {p.x:+.3f}  y {p.y:+.3f}  z {p.z:+.3f} m')
         out.append(f' 방향      yaw {_yaw_deg(q):+.1f}°')
-        cov = list(_get(pose, 'covariance', []) or [])
+        cov = _seq(pose, 'covariance')
         if len(cov) >= 8 and cov[0] >= 0 and cov[7] >= 0:
             out.append(f' 위치 오차 ±x {math.sqrt(cov[0]):.3f}  ±y {math.sqrt(cov[7]):.3f} m (공분산 1σ)')
     sz = _get(o, 'size', None)
@@ -52,13 +63,13 @@ def object_lines(o, now_s: float | None = None) -> list[str]:
     if ls is not None and now_s is not None:
         age = now_s - (ls.sec + ls.nanosec * 1e-9)
         out.append(f' 마지막 관측 {age:.1f} s 전')
-    cams = list(_get(o, 'cameras', []) or [])
+    cams = _seq(o, 'cameras')
     if cams:
         out.append(f' 본 카메라  {", ".join(cams)}  (마지막 = {cams[-1]})')
-    px = list(_get(o, 'px', []) or [])
+    px = _seq(o, 'px')
     if len(px) == 2:
         out.append(f' 영상 픽셀  u {px[0]}  v {px[1]}')
-    det = list(_get(o, 'details', []) or [])
+    det = _seq(o, 'details')
     if det:
         out += ['', ' 속성 (details)']
         out += [f'   {kv.key:<14} {kv.value}' for kv in det]

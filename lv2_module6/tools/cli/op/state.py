@@ -126,8 +126,8 @@ class StateStore:
     def on_joints(self, names, positions, velocities=None, efforts=None):
         self._touch()
         self.tick('joint_states')
-        vels = list(velocities or [])
-        effs = list(efforts or [])
+        vels = [] if velocities is None else list(velocities)
+        effs = [] if efforts is None else list(efforts)
         for i, name in enumerate(names):
             if i < len(positions):
                 self.joints[name] = positions[i]

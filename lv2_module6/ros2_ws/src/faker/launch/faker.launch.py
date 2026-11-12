@@ -98,7 +98,7 @@ def generate_launch_description():
         arg('map', 'none', 'none = 지도 없음(기본) · slam = 센서로 새 지도 · saved = 저장한 nvblox.nvblx로 위치추정'),
         arg('operation', 'MANUAL', '초기 조작 모드: MANUAL(기본) | AUTO | TEACH'),
         arg('fake_slam', 'true', 'true = 테스트베드 SLAM 대역(fake_cuvslam · fake_nvblox — 센서로 지도) · false = 진짜 cuVSLAM·nvblox (GPU)'),
-        arg('map_dir', '/ws/map', '지도 폴더 (호스트 ros2_ws/map 바인드) — 지도마다 <map_name>/ nvblox.nvblx · map.pgm · map.yaml'),
+        arg('map_dir', '/ws/map', '지도 폴더 (호스트 tools/cli/ros/docker/map 바인드) — 지도마다 <map_name>/ nvblox.nvblx · map.pgm · map.yaml'),
         arg('map_name', '', '지도 폴더 이름 — slam: 비우면 날짜_시각으로 새로 · saved: 비우면 default (nvblox.nvblx 없으면 가장 최근 — bringup이 정함)'),
         arg('use_monitor', 'true', 'false = monitor_manager 끔 (호스트 가벼운 실행용 — PASS 판정에서 기록 검사 제외)'),
         arg('mock_hardware', 'false', 'false(기본) = controller_manager가 가상 시리얼(/dev/opencr)로 fake_opencr와 통신 · true = OpenCR 없이 mock (물리 없음)'),
