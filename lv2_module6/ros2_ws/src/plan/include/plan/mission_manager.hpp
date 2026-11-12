@@ -148,6 +148,7 @@ private:
   bool moving_ = false;           // 다가가는 중
   bool returning_ = false;        // 바코드 뒤 팔 접고 제자리로 돌아오는 중
   bool light_warned_ = false;     // 이번 관측에서 신호등 안 보임 경고를 했음
+  bool hold_noted_ = false;       // 신호 확정까지 다가가기 보류 안내를 했음
   double light_check_s_ = 8.0;    // 관측 시작 뒤 이만큼 신호등이 안 보이면 경고 [s]
   double signal_read_min_s_ = 60.0;  // READ에 들어온 뒤 최소 이만큼은 신호를 봄 (관측 시간을 바코드에 다 써도) [s]
   rclcpp::Time read_phase_at_{0, 0, RCL_ROS_TIME};

@@ -342,6 +342,7 @@ void MissionManager::barcode_phase() {
   gaze_sent_ = false;
   returning_ = false;
   light_warned_ = false;
+  hold_noted_ = false;
   bad_barcode_.clear();
   gaze_at_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
   advanced_m_ = 0.0;
@@ -390,7 +391,12 @@ void MissionManager::barcode_phase() {
         });
       }
       // gaze에서 안 읽히면 팔은 그대로 한 걸음 앞으로 (바코드 = 출발 자리 정면)
-      const bool waited = gaze_at_.nanoseconds() > 0 && (now() - gaze_at_).seconds() > barcode_gaze_wait_s_;
+      // 신호가 확정되기 전에는 다가가지 않음 — 움직이면 오른쪽 신호등이 pole_front_cam 시야 밖으로 나감 (11-12 실기: 다가가다 신호 못 읽음)
+      //   확정되면 그때부터 다가감 · 신호 시간(signal_timeout_s)이 지나면 기다리지 않음 (READ에서 signal_timeout)
+      const bool hold = signal_window_ && !signal_ready_ && (now() - read_started_).seconds() < signal_timeout_s_;
+      if (hold && gaze_at_.nanoseconds() > 0) gaze_at_ = now();  // 기다리는 동안은 바코드 대기·포기 시간을 안 셈
+      if (hold && !hold_noted_ && gaze_at_.nanoseconds() > 0) { hold_noted_ = true; note("gaze 제자리에서 바코드·신호 — 신호 확정 뒤에 다가감"); }
+      const bool waited = !hold && gaze_at_.nanoseconds() > 0 && (now() - gaze_at_).seconds() > barcode_gaze_wait_s_;
       // 읽힐 때까지 다가감 — 손 카메라 정면이 barcode_min_gap_m보다 가깝거나(또는 depth를 모르면) · 최대 거리면 그만
       const bool fresh = (now() - grip_front_at_).seconds() < 1.0;  // 1 s 넘게 depth가 안 오면 모름 → 안 다가감
       const bool room = fresh && grip_front_m_ > barcode_min_gap_m_ + barcode_advance_step_m_ * 0.5 &&
