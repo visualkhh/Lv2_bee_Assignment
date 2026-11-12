@@ -87,7 +87,6 @@ private:
 
   void go_observe();
   void barcode_phase();
-  void barcode_read();                                // 바코드 기다림 (팔을 barcode 자세로 둔 뒤)
   void barcode_done(bool ok, const std::string & why);  // 팔 stow로 → 다음 단계
   void read_phase();
   void survey(size_t box);
@@ -134,7 +133,9 @@ private:
   double box_top_z_, puck_h_, grid_step_, standoff_, approach_gap_, verify_radius_, match_radius_;
   double place_tol_, place_search_, corr_max_;
   Pose2 barcode_pose_;
-  std::string barcode_arm_pose_;  // 바코드 읽을 때 팔 자세 ("" = 안 움직임)
+  std::string barcode_arm_pose_;
+  double barcode_pole_s_ = 3.0;   // 팔을 뻗기 전에 pole_front_cam으로 보는 시간
+  bool gaze_sent_ = false;        // 이번 BARCODE에서 팔을 뻗었는지 (끝날 때 접을지)  // 바코드 읽을 때 팔 자세 ("" = 안 움직임)
   bool observe_move_ = false;  // barcode_pose_arena가 있으면 그 자리로 갔다가 관측 자리로 돌아옴
   double signal_timeout_s_, barcode_timeout_s_, home_hold_s_;
   int signal_error_cycles_ = 2;

@@ -114,6 +114,7 @@ MissionManager::MissionManager()
   signal_error_cycles_ = static_cast<int>(declare_parameter<int64_t>("signal_error_cycles", 2));
   barcode_timeout_s_ = declare_parameter<double>("barcode_timeout_s", 20.0);
   barcode_arm_pose_ = declare_parameter<std::string>("barcode_arm_pose", "gaze");
+  barcode_pole_s_ = declare_parameter<double>("barcode_pole_s", 3.0);
   // 비우면 출발(관측) 자리에서 그대로 바코드를 봄 — 이동 없음 (실기 11-12: 출발 자리에서 신호등·바코드가 다 보이고,
   //   26 cm 뒤 자리로 가려면 Nav2가 전진만 해서 돌아섰다 다시 돌아 한 바퀴를 돎)
   const auto bp = declare_parameter<std::vector<double>>("barcode_pose_arena", std::vector<double>{});
@@ -275,43 +276,48 @@ void MissionManager::go_observe() {
 }
 
 void MissionManager::barcode_phase() {
-  if (barcode_arm_pose_.empty()) { barcode_read(); return; }
-  // 팔을 앞으로 뻗어 gripper_cam으로 — pole_front_cam은 해상도가 모자라 바코드 막대를 못 가름 (실기 11-12)
-  note("팔 " + barcode_arm_pose_ + " 자세 → 손 카메라로 바코드");
-  run({SubGoal().set__skill("pose").set__target(barcode_arm_pose_)}, [this](bool ok, const std::string & why) {
-    if (!ok) { barcode_done(false, "barcode_pose_failed:" + why); return; }
-    barcode_read();
-  });
-}
-
-void MissionManager::barcode_done(bool ok, const std::string & why) {
-  if (barcode_arm_pose_.empty()) { ok ? finish(true, "") : finish(false, why); return; }
-  run({stow()}, [this, ok, why](bool sok, const std::string & swhy) {  // 실패해도 팔은 접고 끝냄
-    if (!ok) { finish(false, why); return; }
-    finish(sok, "barcode_stow_failed:" + swhy);
-  });
-}
-
-void MissionManager::barcode_read() {
+  // ① 지금 자세(pole_front_cam)로 barcode_pole_s 동안 먼저 봄 → 읽히면 팔 안 움직임
+  // ② 안 읽히면 팔을 barcode_arm_pose(gaze)로 뻗으며 계속 봄 — 가는 도중에 읽혀도 바로 stow 계획을 보내 멈추고 접음
+  //    (coordinator는 새 계획이 오면 진행 중 goal을 취소함 · 취소된 gaze 결과는 waiting_plan_이 바뀌어 무시됨)
+  // ③ barcode_pole_s + barcode_timeout_s 안에 못 읽으면 stow 뒤 barcode_missing
   // 이번에 실제로 본 바코드만 — /tracked_objects의 barcode(last_seen ≥ 시작) 또는 시작 뒤 받은 /mission/qr
-  note("바코드 읽는 중");
+  note("바코드 — pole_front_cam으로 먼저");
   phase_started_ = now();
-  timer_ = create_wall_timer(std::chrono::milliseconds(500), [this]() {
+  gaze_sent_ = false;
+  timer_ = create_wall_timer(std::chrono::milliseconds(250), [this]() {
     if (phase_ != Phase::BARCODE) { timer_->cancel(); return; }
     if (objects_) for (const auto & o : objects_->objects)
       if (o.class_name == "barcode" && rclcpp::Time(o.last_seen, RCL_ROS_TIME) >= phase_started_) barcode_ = detail(o, "content");
     if (barcode_.empty() && barcode_rx_ >= phase_started_) barcode_ = barcode_msg_;
+    const double t = (now() - phase_started_).seconds();
     if (barcode_.empty()) {
-      if ((now() - phase_started_).seconds() > barcode_timeout_s_) { timer_->cancel(); barcode_done(false, "barcode_missing"); }
+      if (!gaze_sent_ && !barcode_arm_pose_.empty() && t > barcode_pole_s_) {
+        gaze_sent_ = true;
+        note("팔 " + barcode_arm_pose_ + " 자세로 뻗으며 손 카메라로 바코드");
+        run({SubGoal().set__skill("pose").set__target(barcode_arm_pose_)}, [this](bool ok, const std::string & why) {
+          if (ok || phase_ != Phase::BARCODE || !barcode_.empty()) return;  // 도착하면 그대로 계속 봄
+          timer_->cancel();
+          barcode_done(false, "barcode_pose_failed:" + why);
+        });
+      }
+      if (t > barcode_pole_s_ + barcode_timeout_s_) { timer_->cancel(); barcode_done(false, "barcode_missing"); }
       return;
     }
     timer_->cancel();
-    RCLCPP_INFO(get_logger(), "바코드 %s", barcode_.c_str());
+    RCLCPP_INFO(get_logger(), "바코드 %s (%.1f s · %s)", barcode_.c_str(), t, gaze_sent_ ? "손 카메라" : "팔 안 움직임");
     snap("barcode");
-    if (!observe_move_) { barcode_done(true, ""); return; }  // 이미 관측 자리 — 팔만 접음
+    if (!observe_move_) { barcode_done(true, ""); return; }  // 이미 관측 자리 — 팔을 뻗었으면 접음
     const auto p = to_map(start_.x, start_.y, M_PI);  // 관측 = 출발 자리에서 −X(π)를 봄 — 팔부터 접고 이동
     run({stow(), SubGoal().set__skill("navigate").set__target(fmt("%.3f,%.3f,%.3f", p.x, p.y, p.yaw))},
       [this](bool ok, const std::string & why) { finish(ok, "observe_nav_failed:" + why); });
+  });
+}
+
+void MissionManager::barcode_done(bool ok, const std::string & why) {
+  if (!gaze_sent_) { ok ? finish(true, "") : finish(false, why); return; }  // 팔을 안 움직였음
+  run({stow()}, [this, ok, why](bool sok, const std::string & swhy) {  // 뻗던 중이면 이 계획이 gaze를 취소하고 접음 · 실패해도 접고 끝냄
+    if (!ok) { finish(false, why); return; }
+    finish(sok, "barcode_stow_failed:" + swhy);
   });
 }
 

@@ -83,6 +83,7 @@ mission_manager:             # 주사위 기억 미션 (documents/mission/README
     #   옮겨서 보려면 아래 줄을 살림 (빈 배열 []은 ROS YAML이 타입을 몰라 못 씀 — 줄을 빼면 코드 기본 = 이동 없음)
     # barcode_pose_arena: [0.950, 0.800, 3.3126]
     barcode_timeout_s: 20.0                  # [s] 이번에 본 바코드가 없으면 오류 (팔이 barcode 자세에 간 뒤부터)
+    barcode_pole_s: 3.0                      # [s] 먼저 pole_front_cam으로 보는 시간 — 읽히면 팔 안 움직임, 아니면 barcode_arm_pose로 뻗으며 계속 봄 (가다 읽히면 바로 접음)
     barcode_arm_pose: gaze                   # 바코드는 팔을 이 자세로 뻗어 gripper_cam으로 읽고 stow로 돌아옴 ("" = 팔 안 움직이고 pole_front_cam만)
     signal_timeout_s: 150.0                  # [s] READ 시작부터 신호 확정까지 (한 사이클 약 27초 · 두 사이클 같아야 확정 — 중간부터 보면 3사이클)
     signal_error_cycles: 2                   # 오류 사이클(count·unknown·range)이 이만큼 이어지면 ERROR — 한 번은 잡음일 수 있어 다음 사이클을 봄
