@@ -284,11 +284,8 @@ void Coordinator::submit_plan(const SubGoalArray & plan, std::shared_ptr<Execute
 
 void Coordinator::queue_plan(PlanRequest request) {
   if (pending_plan_ && pending_plan_->action && pending_plan_->action != request.action) {
-    auto result = std::make_shared<ExecutePlan::Result>();
-    result->success = false;
-    result->final_step = 0;
-    result->reason = "preempted";
-    pending_plan_->action->abort(result);
+    const bool cancelled = pending_plan_->action->is_canceling();
+    finish_action(pending_plan_->action, false, cancelled, 0, cancelled ? "cancelled" : "preempted");
   }
   pending_plan_ = std::make_shared<PlanRequest>(std::move(request));
 }
@@ -296,6 +293,7 @@ void Coordinator::queue_plan(PlanRequest request) {
 void Coordinator::start_plan(PlanRequest request) {
   plan_ = std::move(request.plan);
   active_plan_action_ = std::move(request.action);
+  ++gen_;  // 이전 계획·취소 callback이 새 계획을 건드리지 않게
   idx_ = 0;
   approached_ = static_cast<size_t>(-1);
   placed_.clear();
@@ -544,6 +542,7 @@ void Coordinator::publish_feedback(const std::string & stage) {
 void Coordinator::next() {
   if (!running_) return;  // 수동 전환 등으로 이미 멈춘 뒤 도착한 결과
   ++idx_;
+  ++gen_;  // 단계가 바뀌면 늦게 도착한 이전 child result를 무시
   run_step();
 }
 
@@ -551,6 +550,7 @@ void Coordinator::next() {
 void Coordinator::fail(const std::string & reason) {
   if (!running_) return;  // 이미 멈춤 (수동 전환으로 취소된 goal의 결과 등)
   const auto & g = plan_.goals[idx_];
+  ++gen_;  // 실패 뒤 남은 goal/result callback은 이 계획을 다시 건드리지 않게
   running_ = false;
   RCLCPP_WARN(get_logger(), "step %u 실패 (%s)", g.step, reason.c_str());
   status(g.step, TaskStatus::FAILED, reason);
@@ -596,7 +596,7 @@ bool Coordinator::approach_if_far(const SubGoal & g) {
   Skill::Goal sg;
   sg.pose.header.frame_id = "map";
   sg.pose.pose = approach_pose(ox, oy, rx, ry, approach_m_);
-  send("navigate", sg, [this](const Skill::Result &) { run_step(); },  // 같은 단계를 다시 (이번엔 다가가기를 건너뜀)
+  send("navigate", sg, [this](const Skill::Result &) { ++gen_; run_step(); },  // 같은 단계를 다시 (이번엔 다가가기를 건너뜀)
        [this](const std::string &) {});
   return true;
 }
