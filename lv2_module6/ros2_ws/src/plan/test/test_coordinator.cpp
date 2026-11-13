@@ -176,16 +176,25 @@ TEST_F(RosTest, ExecutePlanActionRunsLegacySkillAndPublishesTelemetry) {
     [&](SubGoalArray::SharedPtr m) { current.push_back(*m); });
   auto status_sub = probe->create_subscription<TaskStatus>("/task/status", rclcpp::QoS(10).reliable().transient_local(),
     [&](TaskStatus::SharedPtr m) { status.push_back(*m); });
+  // feedback은 action의 feedback topic을 직접 구독 — client feedback_callback은 goal 응답을 처리하기 전에 온 feedback을
+  // "unknown goal"로 버려서(rclcpp_action), executor 순서에 따라 받거나 못 받음
+  auto feedback_sub = probe->create_subscription<ExecutePlan::Impl::FeedbackMessage>("/task/execute_plan/_action/feedback",
+    rclcpp::QoS(10), [&](ExecutePlan::Impl::FeedbackMessage::SharedPtr m) { feedback.push_back(m->feedback); });
   using SkillHandle = rclcpp_action::ServerGoalHandle<Skill>;
+  std::shared_ptr<rclcpp::TimerBase> done_timer;
   auto skill_server = rclcpp_action::create_server<Skill>(probe, "/skills/pose",
     [](const rclcpp_action::GoalUUID &, std::shared_ptr<const Skill::Goal>) {
       return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
     },
     [](const std::shared_ptr<SkillHandle>) { return rclcpp_action::CancelResponse::ACCEPT; },
-    [](const std::shared_ptr<SkillHandle> h) {
-      auto result = std::make_shared<Skill::Result>();
-      result->success = true;
-      h->succeed(result);
+    [&](const std::shared_ptr<SkillHandle> h) {
+      // 바로 끝내면 feedback 구독이 연결되기 전에 계획이 끝날 수 있음 — 조금 뒤 성공
+      done_timer = probe->create_wall_timer(std::chrono::milliseconds(300), [&, h]() {
+        done_timer->cancel();
+        auto result = std::make_shared<Skill::Result>();
+        result->success = true;
+        h->succeed(result);
+      });
     });
   auto client = rclcpp_action::create_client<ExecutePlan>(probe, "/task/execute_plan");
   std::shared_ptr<ExecutePlan::Result> result;
@@ -198,7 +207,6 @@ TEST_F(RosTest, ExecutePlanActionRunsLegacySkillAndPublishesTelemetry) {
   goal.plan_id = 71;
   goal.goals.push_back(SubGoal().set__step(1).set__skill("pose").set__target("stow"));
   rclcpp_action::Client<ExecutePlan>::SendGoalOptions options;
-  options.feedback_callback = [&](auto, const std::shared_ptr<const ExecutePlan::Feedback> f) { feedback.push_back(*f); };
   options.result_callback = [&](const rclcpp_action::ClientGoalHandle<ExecutePlan>::WrappedResult & wrapped) {
     result_code = wrapped.code;
     result = wrapped.result;
