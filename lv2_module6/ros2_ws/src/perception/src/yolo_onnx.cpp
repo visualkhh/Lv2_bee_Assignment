@@ -48,7 +48,8 @@ struct YoloOnnx::Impl {
   std::map<int, std::string> names;
 };
 
-YoloOnnx::YoloOnnx(const std::string & path, const std::string & device, int cpu_threads, int imgsz)
+YoloOnnx::YoloOnnx(const std::string & path, const std::string & device, int cpu_threads, int imgsz,
+                   const std::string & cudnn_conv_algo_search, bool arena_same_as_requested)
 : impl_(std::make_shared<Impl>()) {
   auto & m = *impl_;
   // GPU를 원하나: "cuda" · "cuda:0" · "0"(GPU 번호, ultralytics device 표기)
@@ -66,6 +67,10 @@ YoloOnnx::YoloOnnx(const std::string & path, const std::string & device, int cpu
     if (cuda) {
       OrtCUDAProviderOptions cuda_options{};
       cuda_options.device_id = device_id;
+      cuda_options.cudnn_conv_algo_search = cudnn_conv_algo_search == "heuristic" ? OrtCudnnConvAlgoSearchHeuristic
+                                            : cudnn_conv_algo_search == "default"   ? OrtCudnnConvAlgoSearchDefault
+                                                                                    : OrtCudnnConvAlgoSearchExhaustive;
+      cuda_options.arena_extend_strategy = arena_same_as_requested ? 1 : 0;  // 1 = kSameAsRequested · 0 = kNextPowerOfTwo
       so.AppendExecutionProvider_CUDA(cuda_options);  // CUDA 빌드가 아니면 여기서 예외
     }
     return so;

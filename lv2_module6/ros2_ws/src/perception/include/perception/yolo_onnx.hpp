@@ -28,8 +28,15 @@ class YoloOnnx {
 public:
   // path: ultralytics로 내보낸 .onnx (예: bee_yolo11n_v5.onnx — 입력 1×3×384×640 고정)
   // device: "cuda" · "0"(GPU 번호) → GPU 시도 · 그 밖("cpu")은 CPU
+  // GPU 메모리 설정 (기본 = ONNX Runtime 기본 = 지금까지와 같음)
+  //   cudnn_conv_algo_search: exhaustive(ORT 기본 — 처음에 conv를 다 재 봄) · heuristic · default
+  //   arena_same_as_requested: GPU 메모리 묶음을 필요한 만큼만 늘림 (false = ORT 기본, 2배씩)
+  //   젯슨 11/14 측정(bringup 끈 채, 200장): exhaustive→heuristic+same 프로세스 RSS 962→954MB · 검출 비트까지 같음 ·
+  //   추론 12.4~12.7ms 그대로 · default는 820MB지만 4배 느림(55ms) — 메모리 대부분(~570MB)은 첫 추론 때 올라오는 CUDA·cuDNN 커널
   // cpu_threads: CPU로 돌 때 연산 스레드 수 (코어를 다 쓰면 제어·Nav2가 밀림) · imgsz: 입력 크기가 고정이 아닐 때 정사각형 한 변
-  YoloOnnx(const std::string & path, const std::string & device, int cpu_threads, int imgsz);
+  YoloOnnx(const std::string & path, const std::string & device, int cpu_threads, int imgsz,
+           const std::string & cudnn_conv_algo_search = "exhaustive",
+           bool arena_same_as_requested = false);
   bool ok() const;               // 모델을 읽었나
   std::string provider() const;  // 실제로 쓰는 장치 (CUDAExecutionProvider / CPUExecutionProvider)
   std::string error() const;     // 못 읽었으면 이유 · GPU를 못 써서 CPU로 바꿨으면 그 이유

@@ -193,6 +193,9 @@ PerceptionNode::PerceptionNode(const rclcpp::NodeOptions & options) : rclcpp::No
   device_ = ps("device", "cuda");                       // cuda (젯슨 GPU — ONNX Runtime CUDA, 안 되면 저절로 CPU) · cpu
                                                         //   bringup은 device를 안 넘겨서 기본값이 쓰임 → GPU부터 시도
   cpu_threads_ = pi("cpu_threads", 2);                  // CPU 추론 스레드 수 (제어·Nav2가 밀리지 않게)
+  // GPU 메모리 설정 (yolo_onnx.hpp) · 시작할 때만 · 기본 = ORT 기본 (실기 측정 뒤 바꿀지 정함)
+  const std::string conv_algo = ps("cudnn_conv_algo_search", "exhaustive");  // exhaustive · heuristic · default
+  const bool arena_same = pb("gpu_arena_same_as_requested", false);
   // OpenCV 스레드 수 — 프로세스 전체 (AprilTag 3번 · resize · cvtColor · morphology …). 0 = OpenCV 기본(코어 수) · 시작할 때만
   if (const auto n = declare_parameter<int>("cv_threads", 0); n > 0) cv::setNumThreads(n);
   RCLCPP_INFO(get_logger(), "OpenCV 스레드 %d개 (cv_threads)", cv::getNumThreads());
@@ -306,7 +309,7 @@ PerceptionNode::PerceptionNode(const rclcpp::NodeOptions & options) : rclcpp::No
       RCLCPP_WARN(get_logger(), "%s: .onnx만 읽음 (C++판) — %s", what, path.c_str());
       return nullptr;
     }
-    auto m = std::make_unique<YoloOnnx>(path, device_, cpu_threads_, imgsz_);
+    auto m = std::make_unique<YoloOnnx>(path, device_, cpu_threads_, imgsz_, conv_algo, arena_same);
     if (!m->ok()) {
       RCLCPP_WARN(get_logger(), "%s 로드 실패 (%s)", what, m->error().c_str());
       return nullptr;
