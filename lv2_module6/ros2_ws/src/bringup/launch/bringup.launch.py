@@ -249,11 +249,14 @@ def generate_launch_description():
                               'nvblox_map': LaunchConfiguration('nvblox_map')}.items())],
             condition=IfCondition(LaunchConfiguration('use_ros_system'))),
         # SLAM(slam·saved)일 때: 지도 저장 서버 (사람이 보는 미리보기 — 위치추정은 nvblox.nvblx) — /map_saver/save_map → <map_dir>/<map_name>/map.pgm·yaml (시뮬레이터 [지도 저장])
+        # 끌 때 빨리 포기 (SIGINT → 3초 → SIGTERM → 3초 → SIGKILL) — ros_system QUICK_STOP과 같은 이유
         Node(package='nav2_map_server', executable='map_saver_server', name='map_saver', output='screen',
+             sigterm_timeout='3', sigkill_timeout='3',
              condition=IfCondition(PythonExpression(["'", LaunchConfiguration('use_ros_system'), "'.lower() == 'true' and '",
                                                      LaunchConfiguration('use_slam'), "' == 'true'"]))),
         Node(package='nav2_lifecycle_manager', executable='lifecycle_manager', name='lifecycle_manager_map_saver',
              output='screen', parameters=[{'autostart': True, 'node_names': ['map_saver'], 'bond_timeout': 60.0}],
+             sigterm_timeout='3', sigkill_timeout='3',
              condition=IfCondition(PythonExpression(["'", LaunchConfiguration('use_ros_system'), "'.lower() == 'true' and '",
                                                      LaunchConfiguration('use_slam'), "' == 'true'"]))),
 
