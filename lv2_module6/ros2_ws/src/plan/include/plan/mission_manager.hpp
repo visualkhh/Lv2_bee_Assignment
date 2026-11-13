@@ -240,7 +240,10 @@ private:
   double acorr_gate_ = 0.6, acorr_max_shift_ = 0.8, acorr_max_rot_ = 0.35, acorr_min_sep_ = 1.0;
   double acorr_alpha_ = 0.3, acorr_range_ = 2.5, acorr_outlier_ = 0.15;
   int acorr_min_hits_ = 3;
-  ArenaCorr acorr_, acorr_walls_;     // 지금 보정 · /arena/walls를 마지막으로 보낸 보정
+  ArenaCorr acorr_, acorr_walls_;
+  // 11-14 실기: 보정이 2~3 cm씩 흔들려 3 cm 문턱을 계속 넘김 → /arena/walls 40 s에 10번 다시 → Nav2 costmap 정적 층이 매번 다시 잡혀 벽에 부딪힘
+  double acorr_step_m_ = 0.03, acorr_step_rad_ = 0.017;     // 보정을 바꾸는 최소 변화 (그 안은 버림 — 목표·기록 흔들림 막음)
+  double acorr_walls_m_ = 0.15, acorr_walls_rad_ = 0.087;   // /arena/walls를 다시 보내는 최소 변화 (0이면 안 보냄)     // 지금 보정 · /arena/walls를 마지막으로 보낸 보정
   std::vector<Mark> marks_;           // 시작 박스 0..5 · 장소 상자 6..8
   void update_corr(const perception::msg::TrackedObjectArray & m);
   std::vector<std::string> results_;
