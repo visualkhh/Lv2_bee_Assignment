@@ -94,6 +94,9 @@ mission_manager:             # 주사위 기억 미션 (documents/mission/README
     barcode_advance_max_m: 0.30              # [m] 최대 다가가는 거리 (안전 상한 — 반투명 벽은 depth가 판 너머를 잴 수 있음) — 끝나면 팔 접고 그만큼 똑바로 후진
     barcode_pole_s: 3.0                      # [s] 먼저 pole_front_cam으로 보는 시간 — 읽히면 팔 안 움직임, 아니면 barcode_arm_pose로 뻗으며 계속 봄 (가다 읽히면 바로 접음)
     barcode_arm_pose: gaze                   # 바코드는 팔을 이 자세로 뻗어 gripper_cam으로 읽고 stow로 돌아옴 ("" = 팔 안 움직이고 pole_front_cam만 — 그때는 perception barcode_pole_s도 크게)
+    barcode_gaze_after_signal: true          # 신호를 팔 접은 채(pole_front_cam) 먼저 확정한 뒤 gaze로 뻗음 — 11-14 실기: gaze로 2분 넘게 기다리다 joint2 과부하로 팔이 처져 손 카메라가 바닥만 봄
+    arm_sag_rad: 0.25                        # [rad] gaze 유지 중 관절이 도착 값에서 이만큼 넘게 벗어나면 팔 처짐으로 보고 정지 (0 = 끔)
+    motor_error_stop: true                   # OpenCR 모터 에러(과부하 등) 진단이 뜨면 미션 바로 정지 (motor_error: … — ~/reboot_motors 뒤 다시)
     signal_timeout_s: 150.0                  # [s] 관측(BARCODE) 시작부터 신호 확정까지 — 바코드와 같이 봄 (한 사이클 약 27초 · 12개 한 번이면 확정)
     signal_read_min_s: 60.0                  # [s] 바코드에 시간을 다 써도 READ에 들어온 뒤 최소 이만큼은 신호를 봄
     light_check_s: 8.0                       # [s] 관측 시작 뒤 이만큼 pole_front_cam에 신호등이 안 보이면 경고 (방향·팔 가림)

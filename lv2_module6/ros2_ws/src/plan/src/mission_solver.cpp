@@ -199,7 +199,7 @@ Phase next_phase(Phase p, bool ok, bool diag) {
 bool diag_fatal(bool ok, const std::string & why, int & stuck_streak, int stuck_limit) {
   if (ok) { stuck_streak = 0; return false; }
   for (const char * f : {"estop", "manual", "explore", "cancelled", "preempted", "aborted", "arm_contact", "collision",
-                         "overcurrent", "coordinator_unavailable"})
+                         "overcurrent", "coordinator_unavailable", "motor_error", "arm_sag"})
     if (why.find(f) != std::string::npos) return true;
   if (why.find("nav_no_progress") != std::string::npos || why.find("nav_failed") != std::string::npos)
     return ++stuck_streak >= stuck_limit;

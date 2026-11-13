@@ -148,6 +148,27 @@ MissionManager::MissionManager()
   barcode_advance_step_m_ = declare_parameter<double>("barcode_advance_step_m", 0.06);
   barcode_advance_max_m_ = declare_parameter<double>("barcode_advance_max_m", 0.30);
   barcode_min_gap_m_ = declare_parameter<double>("barcode_min_gap_m", 0.13);
+  barcode_gaze_after_signal_ = declare_parameter<bool>("barcode_gaze_after_signal", barcode_gaze_after_signal_);
+  arm_sag_rad_ = declare_parameter<double>("arm_sag_rad", arm_sag_rad_);
+  motor_error_stop_ = declare_parameter<bool>("motor_error_stop", motor_error_stop_);
+  joint_sub_ = create_subscription<sensor_msgs::msg::JointState>("/joint_states", rclcpp::SensorDataQoS(),
+    [this](sensor_msgs::msg::JointState::ConstSharedPtr m) {
+      for (size_t i = 0; i < m->name.size() && i < m->position.size(); ++i)
+        if (m->name[i].rfind("joint", 0) == 0) joints_now_[m->name[i]] = m->position[i];  // 팔 joint1~5만
+    });
+  // OpenCR 모터 에러 — ros2_control 하드웨어 진단 "모터 에러: joint2 과부하 → ~/reboot_motors …" (ERROR)
+  diag_sub_ = create_subscription<diagnostic_msgs::msg::DiagnosticArray>("/diagnostics", rclcpp::QoS(50),
+    [this](diagnostic_msgs::msg::DiagnosticArray::ConstSharedPtr m) {
+      for (const auto & st : m->status) {
+        if (st.message.find("모터 에러") == std::string::npos) continue;
+        if (st.level < diagnostic_msgs::msg::DiagnosticStatus::ERROR) continue;
+        const auto cut = st.message.find(" →");
+        const std::string what = st.message.substr(0, cut);
+        if (what != motor_error_) RCLCPP_ERROR(get_logger(), "%s (%s)", what.c_str(), st.name.c_str());
+        motor_error_ = what;
+        if (motor_error_stop_ && active_) stop("motor_error: " + what + " — ~/reboot_motors 뒤 다시");
+      }
+    });
   // 손 카메라 정면 거리 — 바코드 단계에서만 계산 (화면 가운데 60×60 px depth 하위 10 %, 0 = 측정 없음은 뺌)
   grip_depth_sub_ = create_subscription<sensor_msgs::msg::Image>(
     declare_parameter<std::string>("gripper_depth_topic", "/gripper_cam/aligned_depth_to_color/image_raw"), rclcpp::SensorDataQoS(),
@@ -381,6 +402,9 @@ void MissionManager::barcode_phase() {
   hold_noted_ = false;
   bad_barcode_.clear();
   gaze_at_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
+  gaze_free_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
+  gaze_wait_noted_ = false;
+  gaze_joints_.clear();
   advanced_m_ = 0.0;
   moving_ = false;
   grip_front_m_ = -1.0;  // 지난 실행 값을 믿지 않음 — 이번 단계의 손 카메라 depth로만
@@ -416,12 +440,32 @@ void MissionManager::barcode_phase() {
     if (barcode_rx_ >= phase_started_) take(barcode_msg_);
     const double t = (now() - phase_started_).seconds();
     if (barcode_.empty()) {
-      if (!gaze_sent_ && !barcode_arm_pose_.empty() && t > barcode_pole_s_) {
+      // 신호 확정 전에는 팔을 접은 채 기다림 (barcode_gaze_after_signal) — 뻗은 채 오래 버티면 joint2 과부하 (11-14 실기)
+      const bool signal_wait = signal_window_ && !signal_ready_ && signal_error_.empty() &&
+                               (now() - read_started_).seconds() < signal_timeout_s_;
+      const bool arm_wait = barcode_gaze_after_signal_ && signal_wait;
+      if (!arm_wait && t > barcode_pole_s_ && gaze_free_.nanoseconds() == 0) gaze_free_ = now();
+      if (arm_wait && !gaze_sent_ && t > barcode_pole_s_ && !gaze_wait_noted_) {
+        gaze_wait_noted_ = true;
+        note("팔 접은 채 신호 먼저 확정 (팔 과부하 방지) — 확정 뒤 " + barcode_arm_pose_ + "로 바코드");
+      }
+      // gaze 유지 중 관절이 처지면(과부하·토크 꺼짐) 손 카메라가 바닥을 봄 — 기다리지 않고 정지
+      if (arm_sag_rad_ > 0 && gaze_at_.nanoseconds() > 0 && !gaze_joints_.empty()) {
+        for (const auto & [name, q0] : gaze_joints_) {
+          const auto it = joints_now_.find(name);
+          if (it == joints_now_.end() || std::abs(it->second - q0) <= arm_sag_rad_) continue;
+          RCLCPP_ERROR(get_logger(), "gaze 유지 중 %s가 %.2f rad 벗어남 — 팔 처짐 (과부하?)", name.c_str(), it->second - q0);
+          timer_->cancel();
+          barcode_done(false, "arm_sag:" + name);
+          return;
+        }
+      }
+      if (!gaze_sent_ && !barcode_arm_pose_.empty() && t > barcode_pole_s_ && !arm_wait) {
         gaze_sent_ = true;
         note("팔 " + barcode_arm_pose_ + " 자세로 뻗으며 손 카메라로 바코드");
         run({SubGoal().set__skill("pose").set__target(barcode_arm_pose_)}, [this](bool ok, const std::string & why) {
           if (phase_ != Phase::BARCODE || !barcode_.empty()) return;
-          if (ok) { gaze_at_ = now(); return; }  // 도착 — 그대로 계속 봄
+          if (ok) { gaze_at_ = now(); gaze_joints_ = joints_now_; return; }  // 도착 — 그대로 계속 봄 (관절 값 기억: 처짐 감시)
           timer_->cancel();
           barcode_done(false, "barcode_pose_failed:" + why);
         });
@@ -459,7 +503,8 @@ void MissionManager::barcode_phase() {
       // 포기는 더 다가갈 수 없는 마지막 자리에서 barcode_timeout_s를 기다린 뒤에만 (다가가는 시간은 안 셈 — 실기 11-12: 23 s 전체
       //   제한에 걸려 1 s 뒤 읽힌 바코드를 놓침) · gaze에 아예 못 가면 pole_s + timeout_s
       const bool final_wait = gaze_at_.nanoseconds() > 0 && !moving_ && !room && (now() - gaze_at_).seconds() > barcode_timeout_s_;
-      const bool no_gaze = gaze_at_.nanoseconds() == 0 && t > barcode_pole_s_ + barcode_timeout_s_;
+      const bool no_gaze = gaze_at_.nanoseconds() == 0 && gaze_free_.nanoseconds() > 0 &&
+                           (now() - gaze_free_).seconds() > barcode_timeout_s_;  // gaze를 보낼 수 있게 된 뒤 timeout 안에 도착 못 함
       if (final_wait || no_gaze) {
         timer_->cancel();
         barcode_done(false, bad_barcode_.empty() ? "barcode_missing" : "unknown_barcode:" + bad_barcode_);
