@@ -7,6 +7,7 @@
 #   ISAAC_ROS_LAUNCH=isaac_manipulator_demo.launch.py ISAAC_AUTOPLAY=1 isaac/standalone/isaac_sim.sh  # SLAM·Nav2 없는 팔 시연
 #   ISAAC_HEADLESS=1 ISAAC_AUTOPLAY=1 isaac/standalone/isaac_sim.sh approach   # 창 없이 (자동 시험 · approach_batch.sh), Play 자동
 #   BEE_START_MINIMIZED=1 isaac/standalone/isaac_sim.sh   # 로딩 중 창을 계속 최소화 (기본 끔 · 첫 10초 튀는 건 Kit이 먼저라 못 막음 — 완전히 피하려면 ISAAC_HEADLESS=1)
+#   BEE_MAP_FREEZE=1 isaac/standalone/isaac_sim.sh <scene>   # cuVSLAM map→odom 보정 끔 (시험용 — 출발 값에 고정, TF map = EKF odom)
 #   BEE_SIM_NOISE=0 isaac/standalone/isaac_sim.sh   # 센서 노이즈 끔 (기본 1 = 컬러 모션블러 · 깊이 노이즈 · IMU 노이즈, 실물보다 약하게 · 2 = 두 배)
 #   필요: ros2_ws 빌드(install/), sudo apt install ros-lyrical-depth-image-proc
 #

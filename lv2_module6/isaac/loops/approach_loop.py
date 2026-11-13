@@ -26,6 +26,14 @@ frame. The end error is against the true box when the pucks are found, else agai
 
 Output: logs/approach_<ts>/ = result.json (steps, end pose error, per-second track) + bag/ (MCAP, sim time).
 Robot ends at the box: run isaac/standalone/runtime/reset.sh before the next try.
+
+Real robot (--real): run in a shell that already talks to the robot's stack (its ROS env is used as is, wall clock).
+    python3 approach_loop.py 3 --real --exit 0.165            # start box 3 of plan.yaml
+    python3 approach_loop.py 3 --real --start-pose 0.734 0.950 3.1416   # robot was not switched on at start_pose_arena
+Box centre: plan.yaml start_boxes (arena) -> map with start_pose_arena (map = where the robot was switched on, as
+mission_manager). Sides are checked against plan.yaml arena_walls. Ground truth instead of Isaac: the two pucks on the box
+as /tracked_objects sees them (class puck, puck_offsets_x apart), turned into the robot frame with the TF of the same
+moment - so the map drift cancels and the result is the robot pose relative to the real box (perception accuracy included).
 """
 import argparse
 import atexit
@@ -43,7 +51,7 @@ ISAAC_PY = os.path.expanduser(os.environ.get('ISAACSIM_VENV', '~/pa-course/.venv
 TOPICS = ('^/(tf|tf_static|odom|odometry/filtered|cuvslam/odom|imu|cmd_vel|cmd_vel_nav|cmd_vel_mux|cmd_vel_smoothed|'
           'plan|unsmoothed_plan|transformed_global_plan|collision_monitor_state|collision_monitor/triggering_points|'
           'polygon_approach|polygon_slowdown|local_costmap/published_footprint|task/.*|skills/(pose|navigate|approach)/.*|'
-          'navigate_to_pose/_action/.*|state/(emergency|operation_mode|collision)|rosout)$')
+          'navigate_to_pose/_action/.*|state/(emergency|operation_mode|collision)|rosout|joint_states|tracked_objects)$')
 TOPICS_FULL = TOPICS[:-2] + '|map|local_costmap/costmap|global_costmap/costmap)$'
 SIDES = {'west': (-1, 0, 0.0), 'east': (1, 0, math.pi), 'south': (0, -1, math.pi / 2), 'north': (0, 1, -math.pi / 2)}
 
@@ -109,6 +117,67 @@ def truth(pucks_map, box):
     return rx, ry, math.remainder(yaw, 2 * math.pi)
 
 
+PLAN_YAML = os.path.join(HERE, '..', '..', 'ros2_ws', 'src', 'plan', 'config', 'plan.yaml')
+
+
+def plan_cfg():
+    """mission_manager parameters of plan.yaml (arena layout)."""
+    import yaml
+    d = yaml.safe_load(open(PLAN_YAML))
+    return next(v['ros__parameters'] for k, v in d.items() if 'start_boxes' in v.get('ros__parameters', {}))
+
+
+def arena_to_map(x, y, yaw, start):
+    """mission_solver arena_to_map: map = base_footprint where the robot was switched on at start (arena x, y, yaw)."""
+    dx, dy = x - start[0], y - start[1]
+    c, s = math.cos(-start[2]), math.sin(-start[2])
+    return c * dx - s * dy, s * dx + c * dy, math.remainder(yaw - start[2], 2 * math.pi)
+
+
+def segment_distance(walls):
+    """Function (x, y) -> distance [m] to the nearest wall segment [x0, y0, x1, y1, ...] (same frame)."""
+    segs = [walls[i:i + 4] for i in range(0, len(walls) - 3, 4)]
+
+    def dist(x, y):
+        best = math.inf
+        for x0, y0, x1, y1 in segs:
+            vx, vy = x1 - x0, y1 - y0
+            t = max(0.0, min(1.0, ((x - x0) * vx + (y - y0) * vy) / max(vx * vx + vy * vy, 1e-12)))
+            best = min(best, math.hypot(x - x0 - t * vx, y - y0 - t * vy))
+        return best
+    return dist
+
+
+def real_truth(objects, p, box, axis_map, sep, now_s, max_age=1.0):
+    """Robot pose (x, y, yaw) relative to the real box, written in the plan's map frame, from the 2 pucks on it.
+    objects: /tracked_objects (map), p: TF map pose of the robot at the same time. A puck pair is symmetric (180 deg),
+    so the yaw closest to the TF yaw is taken. None when no fresh pair about sep apart is seen near the box."""
+    if objects is None or p is None:
+        return None
+    c, s = math.cos(p[2]), math.sin(p[2])
+    rf = lambda x, y: (c * (x - p[0]) + s * (y - p[1]), -s * (x - p[0]) + c * (y - p[1]))
+    pk = [rf(o.pose.pose.position.x, o.pose.pose.position.y) for o in objects.objects
+          if o.class_name == 'puck' and now_s - (o.last_seen.sec + o.last_seen.nanosec * 1e-9) <= max_age]
+    eb = rf(*box)
+    best = None
+    for i in range(len(pk)):
+        for j in range(i + 1, len(pk)):
+            d = math.hypot(pk[j][0] - pk[i][0], pk[j][1] - pk[i][1])
+            mid = ((pk[i][0] + pk[j][0]) / 2, (pk[i][1] + pk[j][1]) / 2)
+            off = math.hypot(mid[0] - eb[0], mid[1] - eb[1])
+            if abs(d - sep) < 0.025 and off < 0.30 and (best is None or off < best[0]):
+                best = (off, mid, math.atan2(pk[j][1] - pk[i][1], pk[j][0] - pk[i][0]))
+    if best is None:
+        return None
+    _, mid, axis_robot = best
+    yaw = axis_map - axis_robot
+    if abs(math.remainder(yaw - p[2], 2 * math.pi)) > math.pi / 2:
+        yaw += math.pi
+    yaw = math.remainder(yaw, 2 * math.pi)
+    c, s = math.cos(yaw), math.sin(yaw)
+    return box[0] - (c * mid[0] - s * mid[1]), box[1] - (s * mid[0] + c * mid[1]), yaw
+
+
 LIFECYCLE = ('bt_navigator', 'controller_server', 'planner_server', 'behavior_server', 'collision_monitor', 'velocity_smoother')
 
 
@@ -167,6 +236,11 @@ def main():
     ap.add_argument('--scene', help='scene usda (default: ISAAC_SCENE of the running Isaac)')
     ap.add_argument('--policy', default='dock_box', help='approach policy (goal.target)')
     ap.add_argument('--half', type=float, default=0.1025, help='[m] box half side (plan.yaml box_half)')
+    ap.add_argument('--real', action='store_true', help='real robot: plan.yaml boxes/walls, pucks seen by perception as truth')
+    ap.add_argument('--start-pose', type=float, nargs=3, metavar=('X', 'Y', 'YAW'),
+                    help='--real: arena pose the robot was switched on at (default plan.yaml start_pose_arena)')
+    ap.add_argument('--exit', type=float, default=0.0,
+                    help='[m] after docking, back straight out this far (approach exit, as mission_manager does) - 0 = off')
     ap.add_argument('--standoff', type=float, default=0.25, help='[m] Nav2 stops this far from the side (plan.yaml standoff)')
     ap.add_argument('--gap', type=float, default=0.085, help='[m] approach to this gap base_footprint-side (plan.yaml approach_gap)')
     ap.add_argument('--wall-clearance', type=float, default=0.22, help='[m] skip sides closer to a wall (plan.yaml)')
@@ -179,26 +253,45 @@ def main():
                     help='[m] shift the box hint sent to the robot (map frame) — the true box stays where the USD has it')
     a = ap.parse_args()
 
-    # ROS env of the running stack — must be set before rclpy starts
-    ros_env = proc_env('isaac_system.launch.py')
-    if not ros_env:
-        sys.exit('isaac_system.launch.py is not running — start isaac/standalone/isaac_sim.sh <scene> and press Play')
-    for k in ('ROS_DOMAIN_ID', 'ROS_AUTOMATIC_DISCOVERY_RANGE', 'FASTDDS_DEFAULT_PROFILES_FILE'):
-        if k in ros_env:
-            os.environ[k] = ros_env[k]
-    scene = a.scene or ros_env.get('ISAAC_SCENE') or proc_env('isaac_startup.py').get('ISAAC_SCENE') \
-        or os.path.join(ISAAC, 'usda', 'scene_sim.usda')
-    scene_name = os.path.splitext(os.path.basename(scene))[0]
+    if a.real:  # this shell's ROS env, plan.yaml arena
+        cfg = plan_cfg()
+        start_arena = a.start_pose or cfg['start_pose_arena']
+        boxes = cfg['start_boxes']
+        if not 1 <= a.box <= len(boxes) // 2:
+            sys.exit(f'plan.yaml has start boxes 1..{len(boxes) // 2}')
+        bx, by, axis_map = arena_to_map(boxes[2 * a.box - 2], boxes[2 * a.box - 1], 0.0, start_arena)
+        walls = []
+        for i in range(0, len(cfg['arena_walls']) - 3, 4):
+            w = cfg['arena_walls'][i:i + 4]
+            walls += [*arena_to_map(w[0], w[1], 0.0, start_arena)[:2], *arena_to_map(w[2], w[3], 0.0, start_arena)[:2]]
+        near_wall = segment_distance(walls)
+        sep = abs(cfg['puck_offsets_x'][1] - cfg['puck_offsets_x'][0])
+        scene_name, pucks_map = 'real', {}
+        print(f'real robot · start pose (arena) {[round(v, 3) for v in start_arena]} · plan.yaml {PLAN_YAML}')
+    else:
+        # ROS env of the running stack — must be set before rclpy starts
+        ros_env = proc_env('isaac_system.launch.py')
+        if not ros_env:
+            sys.exit('isaac_system.launch.py is not running — start isaac/standalone/isaac_sim.sh <scene> and press Play')
+        for k in ('ROS_DOMAIN_ID', 'ROS_AUTOMATIC_DISCOVERY_RANGE', 'FASTDDS_DEFAULT_PROFILES_FILE'):
+            if k in ros_env:
+                os.environ[k] = ros_env[k]
+        scene = a.scene or ros_env.get('ISAAC_SCENE') or proc_env('isaac_startup.py').get('ISAAC_SCENE') \
+            or os.path.join(ISAAC, 'usda', 'scene_sim.usda')
+        scene_name = os.path.splitext(os.path.basename(scene))[0]
 
-    bx, by, pucks_map = box_in_map(scene, a.box)
-    if len(pucks_map) < 2:
-        print(f'  only {len(pucks_map)} puck on start_{a.box} — no ground truth, errors use the TF map frame')
-    near_wall = wall_distance(scene_name)
+        bx, by, pucks_map = box_in_map(scene, a.box)
+        if len(pucks_map) < 2:
+            print(f'  only {len(pucks_map)} puck on start_{a.box} — no ground truth, errors use the TF map frame')
+        near_wall = wall_distance(scene_name)
     sides = []
     for name, (sx, sy, yaw) in SIDES.items():
         d = a.half + a.standoff
         nav = (bx + sx * d, by + sy * d, yaw)
-        sides.append((name, nav, near_wall(nav[0], nav[1])))
+        # a wall between the box face and the standoff point (large --standoff) -> Nav2 would drive around to the far side
+        steps = int((d - a.half) / 0.02)
+        crossed = any(near_wall(bx + sx * (a.half + 0.02 * i), by + sy * (a.half + 0.02 * i)) < 0.05 for i in range(1, steps + 1))
+        sides.append((name, nav, 0.0 if crossed else near_wall(nav[0], nav[1])))
     sides.sort(key=lambda s: math.hypot(s[1][0], s[1][1]))  # nearest to the robot's start (map origin) first
     if a.side:
         side = next(s for s in sides if s[0] == a.side)
@@ -230,8 +323,8 @@ def main():
     bag = None
     if a.bag != 'off':
         bag = subprocess.Popen(
-            ['ros2', 'bag', 'record', '--node-name', 'approach_record', '--disable-keyboard-controls', '--use-sim-time',
-             '--regex', TOPICS_FULL if a.bag == 'full' else TOPICS, '--include-hidden-topics',
+            ['ros2', 'bag', 'record', '--node-name', 'approach_record', '--disable-keyboard-controls',
+             *([] if a.real else ['--use-sim-time']), '--regex', TOPICS_FULL if a.bag == 'full' else TOPICS, '--include-hidden-topics',
              '-s', 'mcap', '--storage-preset-profile', 'zstd_fast', '-o', os.path.join(out, 'bag')],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
 
@@ -245,14 +338,15 @@ def main():
         atexit.register(stop_bag)
 
     rclpy.init()
-    node = rclpy.create_node('approach_loop', parameter_overrides=[rclpy.parameter.Parameter('use_sim_time', value=True)])
+    node = rclpy.create_node('approach_loop', parameter_overrides=[rclpy.parameter.Parameter('use_sim_time', value=not a.real)])
     q = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.TRANSIENT_LOCAL)
     pub = node.create_publisher(SubGoalArray, '/task/sub_goals', q)
     tf = Buffer()
     TransformListener(tf, node)
     plan_id = int(time.time()) % 100000 + 1
     steps, state = [], {}
-    labels = {1: 'pose stow', 2: 'navigate', 3: f'approach {a.policy}'}
+    labels = {1: 'pose stow', 2: 'navigate', 3: f'approach {a.policy}', 4: 'approach exit'}
+    last_step = 4 if a.exit > 0 else 3
 
     def pose():
         try:
@@ -272,13 +366,21 @@ def main():
         if m.state != TaskStatus.RUNNING:
             steps.append({'step': m.step, 'skill': labels.get(m.step, ''), 'ok': m.state == TaskStatus.SUCCEEDED,
                           'reason': m.reason, 'end_s': round(t, 1)})
-        if m.state == TaskStatus.FAILED or (m.step == 3 and m.state == TaskStatus.SUCCEEDED):
+        # judge the dock when step 3 ends (exit moves the robot afterwards) - with an exit the coordinator may only say "4 RUNNING"
+        if 'docked' not in state and ((m.step == 3 and m.state != TaskStatus.RUNNING) or m.step == 4):
+            state['docked'] = (pose(), true_pose() or state.get('last_truth'))  # real: pucks may blink this instant
+        if m.state == TaskStatus.FAILED or (m.step == last_step and m.state == TaskStatus.SUCCEEDED):
             state['done'] = m
         elif m.state == TaskStatus.RUNNING and m.step > 1:  # previous step finished
             steps.append({'step': m.step - 1, 'skill': labels[m.step - 1], 'ok': True, 'reason': '', 'end_s': round(t, 1)})
     node.create_subscription(TaskStatus, '/task/status', on_status, q)
     seen = {}
     node.create_subscription(TrackedObjectArray, '/tracked_objects', lambda m: seen.__setitem__('m', m), 5)
+
+    def true_pose():  # sim: Isaac pucks · real: pucks seen by perception, with the TF of now
+        if a.real:
+            return real_truth(seen.get('m'), pose(), (bx, by), axis_map, sep, node.get_clock().now().nanoseconds * 1e-9)
+        return truth(pucks_map, (bx, by))
 
     def to_robot(px, py, rp):  # map point -> robot frame of pose rp
         c, s = math.cos(rp[2]), math.sin(rp[2])
@@ -315,8 +417,9 @@ def main():
     state['t0'] = time.time()
     pub.publish(SubGoalArray(plan_id=plan_id, goals=[
         SubGoal(step=1, skill='pose', target='stow'),
-        SubGoal(step=2, skill='navigate', target=fmt(nav_hint)),
-        SubGoal(step=3, skill='approach', target=fmt((*app_hint, a.gap, a.half), 4), relation=a.policy)]))
+        SubGoal(step=2, skill='navigate', target=fmt(nav_hint), relation='look'),
+        SubGoal(step=3, skill='approach', target=fmt((*app_hint, a.gap, a.half), 4), relation=a.policy)] +
+        ([SubGoal(step=4, skill='approach', target=f'{a.exit:.3f}', relation='exit')] if a.exit > 0 else [])))
     track, last = [], 0.0
     try:
         while 'done' not in state and time.time() - state['t0'] < a.timeout:
@@ -325,7 +428,9 @@ def main():
                 last = time.time()
                 p = pose()
                 if p:
-                    tp = truth(pucks_map, (bx, by))
+                    tp = true_pose()
+                    if tp:
+                        state['last_truth'] = tp
                     loc = tp and [round((p[0] - tp[0]) * 1000, 1), round((p[1] - tp[1]) * 1000, 1),
                                   round(math.degrees(math.remainder(p[2] - tp[2], 2 * math.pi)), 2)]
                     track.append([round(last - state['t0'], 1), *(round(v, 4) for v in p), loc, box_meas(p, tp)])
@@ -343,8 +448,12 @@ def main():
               'track_fields': ['t_s', 'x', 'y', 'yaw (TF map)', 'loc_mm [dx, dy, dyaw_deg] TF - truth',
                                'meas [dx_mm, dy_mm] robot frame vs true box, [size_a, size_b] mm, yaw_deg, camera'], 'start_pose': start, 'end_pose': end,
               'ok': bool(state.get('done')) and state['done'].state == TaskStatus.SUCCEEDED, 'steps': steps, 'track': track}
-    tend = truth(pucks_map, (bx, by))
+    tend = true_pose()
     result['true_end_pose'] = tend
+    if 'docked' in state:  # error = where the dock ended, before any exit
+        result['exit_end_pose'], result['exit_true_end_pose'] = end, tend
+        end, tend = state['docked']
+        result['end_pose'], result['true_end_pose'] = end, tend
     if tend:
         end = tend  # judge against the real box, not the (possibly drifted) map
     if end:
