@@ -58,6 +58,19 @@ def params(node_name, **args):
     return {}
 
 
+def stop_timeouts(node_name):
+    """노드 하나의 끌 때 (SIGINT→SIGTERM, SIGTERM→SIGKILL) 초"""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('ros_system_launch', LAUNCH)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    ctx = LaunchContext()
+    for e in mod.generate_launch_description().entities:
+        if isinstance(e, Node) and e._Node__node_name == node_name:
+            return perform_substitutions(ctx, e.sigterm_timeout), perform_substitutions(ctx, e.sigkill_timeout)
+    return None
+
+
 def main():
     base = {'use_cameras': 'false', 'use_ros2_control': 'false', 'use_nav2': 'false', 'use_twist_mux': 'false'}
     on = nodes(**base)
@@ -80,6 +93,9 @@ def main():
         ('위치추정: 시작할 때 불러옴', load_loc == '/maps/a/nvblox.nvblx'),
         ('위치추정: 저장 안 함', save_loc == ''),
         ('cuVSLAM이 map→odom', params('cuvslam_slam', **base).get('publish_map_tf') is True),
+        ('Nav2·lifecycle_manager는 끌 때 3+3초', all(stop_timeouts(n) == ('3', '3') for n in
+                                                  ('planner_server', 'controller_server', 'lifecycle_manager_base', 'lifecycle_manager_navigation'))),
+        ('nvblox(끌 때 지도 저장)는 launch 기본 5+5초', stop_timeouts('nvblox_node') == ('5', '5')),
     ]
     bad = [name for name, ok in checks if not ok]
     for name, ok in checks:

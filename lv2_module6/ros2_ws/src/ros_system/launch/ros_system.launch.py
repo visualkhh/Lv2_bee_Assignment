@@ -48,6 +48,11 @@ CONTROLLERS = ['joint_state_broadcaster', 'imu_sensor_broadcaster', 'diff_drive_
 # pointcloud.enable만 주면 조용히 무시되어 publisher가 0개가 된다.
 POINTCLOUD_PARAM = 'pointcloud__neon_' if os.uname().machine in ('aarch64', 'arm64') else 'pointcloud'
 
+# 끌 때(Ctrl+C·/cmd/restart) 빨리 포기할 노드 — launch 기본은 SIGINT → 5초 → SIGTERM → 5초 → SIGKILL(최대 10초).
+# Nav2 서버(costmap 정리 중)·lifecycle_manager·move_group이 SIGINT에 멈춰 늘 10초를 다 채웠다(CI 로그). 지킬 상태가 없으니 3+3초.
+# 하드웨어(ros2_control_node — OpenCR 정지)·RealSense(USB 놓기)·nvblox(매핑이면 끌 때 지도 저장)는 기본 5+5초 그대로.
+QUICK_STOP = {'sigterm_timeout': '3', 'sigkill_timeout': '3'}
+
 
 def flag(name, default, description):
     return DeclareLaunchArgument(name, default_value=default, description=description)
@@ -139,7 +144,7 @@ def move_group_node():
         robot_description_semantic = f.read()
     return Node(
         package='moveit_ros_move_group', executable='move_group', name='move_group', output='screen',
-        condition=IfCondition(LaunchConfiguration('use_moveit')),
+        condition=IfCondition(LaunchConfiguration('use_moveit')), **QUICK_STOP,
             parameters=[
                 {'robot_description': ParameterValue(Command(urdf_xacro(
                     ' mock_hardware:=false port:=/dev/opencr')), value_type=str),
@@ -248,7 +253,7 @@ def nav2_nodes():
 
     def server(package, executable, name=None, remaps=(), extra=(), cond=None):
         return Node(package=package, executable=executable, name=name or executable, output='screen',
-                    condition=cond or on, parameters=params + list(extra), remappings=list(remaps))
+                    condition=cond or on, parameters=params + list(extra), remappings=list(remaps), **QUICK_STOP)
     return [
         server('nav2_planner', 'planner_server'),
         server('nav2_controller', 'controller_server', remaps=[('cmd_vel', '/cmd_vel_nav')]),

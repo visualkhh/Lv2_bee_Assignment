@@ -4,6 +4,7 @@
     python3 train_plan.py eval --model plan_next.zip --episodes 1000   # 기준선(지금 규칙)과 비교
     python3 train_plan.py eval --episodes 1000                         # 기준선·계산기만
     python3 train_plan.py train --teacher solver                       # 계산기를 따라 한 뒤 강화학습
+    python3 train_plan.py eval --model ../../../models/plan/plan_next.onnx --stand 0.3  # 로봇 ONNX 평가 · 세우기 성공률 바꿔 민감도
 """
 import argparse
 import statistics
@@ -43,33 +44,43 @@ def main():
     ap.add_argument("--lr", type=float, default=1e-4, help="강화학습 학습률 (따라 하기 뒤에는 작게)")
     ap.add_argument("--bc_episodes", type=int, default=500, help="따라 하기 판 수 (0 = 강화학습만)")
     ap.add_argument("--teacher", choices=TEACHERS, default="baseline", help="따라 할 플래너: 지금 규칙 · 계산기")
+    ap.add_argument("--stand", type=float, default=None, help="세우기 성공률 바꾸기 (민감도) — 학습·평가 둘 다")
     a = ap.parse_args()
+    probs = {} if a.stand is None else {"stand": a.stand}
 
     from sb3_contrib import MaskablePPO
     if a.mode == "train":
-        model = MaskablePPO("MlpPolicy", MissionSim(seed=0), n_steps=4096, batch_size=512, gamma=0.995,
+        model = MaskablePPO("MlpPolicy", MissionSim(probs, seed=0), n_steps=4096, batch_size=512, gamma=0.995,
                             ent_coef=0.001, learning_rate=a.lr, verbose=0, seed=0)
         if a.bc_episodes:
-            warm_start(model, a.bc_episodes, TEACHERS[a.teacher])
-            print(f"{a.teacher} 따라 하기 뒤:", run(MissionSim(), policy_of(model), 300, a.seed))
+            warm_start(model, a.bc_episodes, TEACHERS[a.teacher], probs)
+            print(f"{a.teacher} 따라 하기 뒤:", run(MissionSim(probs), policy_of(model), 300, a.seed))
         model.learn(total_timesteps=a.steps)
         model.save(a.out)
         a.model = a.out
-    env = MissionSim()
+    env = MissionSim(probs)
     print("기준선 (지금 규칙):", run(env, baseline_action, a.episodes, a.seed))
     print("계산기 (최단 순서):", run(env, solver_action, a.episodes, a.seed))
     if a.model:
-        print("plan_next (학습):  ", run(env, policy_of(MaskablePPO.load(a.model)), a.episodes, a.seed))
+        pol = onnx_policy(a.model) if a.model.endswith(".onnx") else policy_of(MaskablePPO.load(a.model))
+        print("plan_next (학습):  ", run(env, pol, a.episodes, a.seed))
 
 
 def policy_of(model):
     return lambda e: int(model.predict(e._obs(), action_masks=e.action_masks(), deterministic=True)[0])
 
 
-def warm_start(model, episodes, teacher, epochs=30):
+def onnx_policy(path):
+    """로봇이 읽는 .onnx 그대로 (plan_next.hpp next와 같음: 막은 행동 빼고 가장 높은 것)"""
+    import onnxruntime as ort
+    sess = ort.InferenceSession(path)
+    return lambda e: int(np.where(e.action_masks(), sess.run(None, {"obs": e._obs()[None]})[0][0], -np.inf).argmax())
+
+
+def warm_start(model, episodes, teacher, probs=None, epochs=30):
     """teacher(지금 규칙 또는 계산기)를 먼저 따라 하게 함 (행동 복제) — 처음부터 강화학습만 하면 '바로 복귀'에 갇힘."""
     import torch
-    env = MissionSim(seed=1)
+    env = MissionSim(probs, seed=1)
     obs, masks, acts = [], [], []
     for k in range(episodes):
         env.reset(seed=1 + k)

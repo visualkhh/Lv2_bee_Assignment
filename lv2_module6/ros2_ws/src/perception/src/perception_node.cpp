@@ -12,6 +12,7 @@
 #include <functional>
 #include <sstream>
 
+#include <opencv2/core/utility.hpp>
 #include <opencv2/imgproc.hpp>
 
 #include "ament_index_cpp/get_package_share_path.hpp"
@@ -192,6 +193,9 @@ PerceptionNode::PerceptionNode(const rclcpp::NodeOptions & options) : rclcpp::No
   device_ = ps("device", "cuda");                       // cuda (젯슨 GPU — ONNX Runtime CUDA, 안 되면 저절로 CPU) · cpu
                                                         //   bringup은 device를 안 넘겨서 기본값이 쓰임 → GPU부터 시도
   cpu_threads_ = pi("cpu_threads", 2);                  // CPU 추론 스레드 수 (제어·Nav2가 밀리지 않게)
+  // OpenCV 스레드 수 — 프로세스 전체 (AprilTag 3번 · resize · cvtColor · morphology …). 0 = OpenCV 기본(코어 수) · 시작할 때만
+  if (const auto n = declare_parameter<int>("cv_threads", 0); n > 0) cv::setNumThreads(n);
+  RCLCPP_INFO(get_logger(), "OpenCV 스레드 %d개 (cv_threads)", cv::getNumThreads());
   sync_slop_ = pd("sync_slop", 0.05);                   // 컬러·depth 시각 차 허용 [s]
   max_frame_age_s_ = pd("max_frame_age_s", TRACK_TIMEOUT_S);
   max_tf_fallback_age_s_ = pd("max_tf_fallback_age_s", 0.3);  // 영상 시각 TF가 없을 때 최신 TF 허용 시각 차 [s] (0 = 한도 없음)
