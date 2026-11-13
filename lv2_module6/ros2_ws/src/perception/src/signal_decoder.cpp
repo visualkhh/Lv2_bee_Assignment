@@ -16,6 +16,16 @@ std::string text(const std::vector<std::string> & seg) {
 }
 }  // namespace
 
+std::string light_state(const std::vector<std::pair<double, std::string>> & lights, double now_s, double max_age_s) {
+  const std::pair<double, std::string> * lit = nullptr, * any = nullptr;
+  for (const auto & l : lights) {
+    if (now_s - l.first >= max_age_s) continue;  // 오래 못 본 것은 안 씀
+    if (!any || l.first > any->first) any = &l;
+    if ((is_color(l.second) || l.second == "all") && (!lit || l.first > lit->first)) lit = &l;
+  }
+  return lit ? lit->second : any ? any->second : "";
+}
+
 SignalDecoder::SignalDecoder(SignalParams p) : p_(std::move(p)) {}
 
 bool SignalDecoder::feed(double t, const std::string & state, MissionSignal & out) {
@@ -148,14 +158,13 @@ SignalDecoderNode::SignalDecoderNode()
 }
 
 void SignalDecoderNode::on_objects(const perception::msg::TrackedObjectArray & m) {
-  // 가장 최근에 본 신호등 하나 — 0.6초 넘게 못 봤으면 '안 보임'(= 꺼짐으로 셈. 꺼진 신호등은 YOLO가 놓치기 쉬움)
+  // 0.6초 안에 본 신호등 중 켜진 것 우선, 없으면 가장 최근 것 — 다 못 봤으면 '안 보임'(= 꺼짐으로 셈. 꺼진 신호등은 YOLO가 놓치기 쉬움)
+  //   (신호등이 트랙 둘로 잡혀도 꺼진 쪽을 따라가지 않게 — light_state)
   const rclcpp::Time now_t = now();
-  const perception::msg::TrackedObject * best = nullptr;
-  for (const auto & o : m.objects) {
-    if (o.class_name != "traffic_light") continue;
-    if (!best || rclcpp::Time(o.last_seen) > rclcpp::Time(best->last_seen)) best = &o;
-  }
-  state_ = best && (now_t - rclcpp::Time(best->last_seen, now_t.get_clock_type())).seconds() < 0.6 ? best->color : "";
+  std::vector<std::pair<double, std::string>> lights;
+  for (const auto & o : m.objects)
+    if (o.class_name == "traffic_light") lights.emplace_back(rclcpp::Time(o.last_seen, now_t.get_clock_type()).seconds(), o.color);
+  state_ = light_state(lights, now_t.seconds(), 0.6);
   MissionSignal out;
   if (!dec_.feed(now_t.seconds(), state_, out)) return;
   out.header.stamp = now_t;  // 사이클 끝을 확인한 시각 (로그용)

@@ -272,3 +272,14 @@ TEST(Signal, NoiseInsideBlinkGapDoesNotMerge) {
   EXPECT_EQ(s.got[0].raw, "R G R R G R G G Y G Y G");
   EXPECT_TRUE(s.got[1].ok);
 }
+
+TEST(Signal, LightStatePrefersLit) {
+  // 11/13 젯슨: 신호등이 트랙 둘로 잡혀 꺼진 쪽(off)이 더 최근이어도 켜진 쪽 색을 씀
+  using L = std::vector<std::pair<double, std::string>>;
+  EXPECT_EQ(perception::light_state(L{{9.9, "off"}, {9.8, "green"}}, 10.0, 0.6), "green");
+  EXPECT_EQ(perception::light_state(L{{9.9, "off"}, {9.0, "green"}}, 10.0, 0.6), "off");   // 켜진 쪽이 오래됨 → 최근 것
+  EXPECT_EQ(perception::light_state(L{{9.9, "all"}, {9.8, "off"}}, 10.0, 0.6), "all");     // 두 색 동시도 켜짐
+  EXPECT_EQ(perception::light_state(L{{9.95, "red"}, {9.9, "yellow"}}, 10.0, 0.6), "red");  // 켜진 것 둘이면 최근
+  EXPECT_EQ(perception::light_state(L{{8.0, "red"}}, 10.0, 0.6), "");                      // 못 본 지 오래 = 안 보임
+  EXPECT_EQ(perception::light_state(L{}, 10.0, 0.6), "");
+}

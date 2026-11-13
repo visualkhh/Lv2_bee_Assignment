@@ -52,6 +52,11 @@ struct SignalParams {
 };
 
 // 신호등 상태 샘플을 시간 순으로 받아 사이클별로 해석 (ROS 없이 — 테스트용으로 따로)
+// 신호등 상태 하나 고르기 — lights = (마지막 본 시각 [s], 색) 목록. max_age_s 안에 본 것 중 켜진 것(red·yellow·green·all)이
+//   있으면 그중 가장 최근 색, 없으면 가장 최근 것의 색, 아무것도 없으면 "" (안 보임 = 꺼짐으로 셈).
+//   11/13 젯슨: 신호등이 트랙 둘로 갈려 꺼진 쪽(off)을 따라가다 깜빡임 사이 1초 꺼짐이 3초 소등처럼 보여 사이클이 끊김
+std::string light_state(const std::vector<std::pair<double, std::string>> & lights, double now_s, double max_age_s);
+
 class SignalDecoder {
 public:
   explicit SignalDecoder(SignalParams p = {});

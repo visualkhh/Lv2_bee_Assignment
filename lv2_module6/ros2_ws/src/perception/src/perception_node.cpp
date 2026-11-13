@@ -37,7 +37,9 @@ constexpr double QR_GAP_S = 10.0;  // 바코드가 이만큼 안 보였다가 �
 // 모델 없을 때의 기본 클래스 (모델이 있으면 모델 안 이름)
 const std::vector<std::string> CLASSES = {"puck", "puck_lying", "goal_zone", "station_zone", "qr_board", "obstacle", "person",
                                           "traffic_light"};
-const std::set<std::string> DYNAMIC_CLASSES = {"person"};  // 스스로 움직이는 물체 — 예측 잡음 process_noise_dynamic
+const std::set<std::string> DYNAMIC_CLASSES = {"person"};
+// 경기장에 하나뿐인 물체 — 위치가 match_dist 넘게 튀어도 새 트랙을 만들지 않고, 둘이 생기면 하나로 합침 (11/13 신호등이 둘로 갈림)
+const std::set<std::string> SINGLE_CLASSES = {"traffic_light"};  // 스스로 움직이는 물체 — 예측 잡음 process_noise_dynamic
 
 double wall_s() { return std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count(); }
 double mono_s() { return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
@@ -552,7 +554,9 @@ void PerceptionNode::update_tracks(const std::string & cam, Frame & s, const std
           if (z > 0.05f && z < 6.0f) valid.push_back(z);
         }
       if (valid.size() < 8) continue;
-      zm = np_median(valid);
+      // 신호등은 가늘어 박스 대부분이 뒤 벽 — 중간값이면 벽까지 거리가 섞여 프레임마다 0.4 m 넘게 튀고 트랙이 둘로 갈렸음
+      //   (11/13 젯슨: 신호등 2개 → signal_decoder가 꺼진 쪽을 따라가 사이클이 끊김) → 가까운 쪽 20 %(몸체 앞면)
+      zm = cls == "traffic_light" ? np_percentile(valid, 20) : np_median(valid);
       // 신호등: 이름에 상태가 있으면 그대로 · 없으면 램프 HSV로
       color = !model_color.empty() ? model_color : classify_color(cls, s.bgr(cv::Range(bx.y0, bx.y1), cv::Range(bx.x0, bx.x1)));
     }
@@ -666,7 +670,9 @@ void PerceptionNode::update_tracks(const std::string & cam, Frame & s, const std
   {
     std::lock_guard<std::mutex> lk(mutex_);
     tids = fuse(cam, now_stamp, dets);
-    const auto gone = merge_tracks(tracks_, track_merge_m_);
+    auto gone = merge_tracks(tracks_, track_merge_m_);
+    for (const auto & c : SINGLE_CLASSES)
+      for (const auto & [b, a] : merge_single(tracks_, c)) gone[b] = a;
     for (auto & t : tids)
       if (gone.count(t)) t = gone.at(t);
     prune(now_s);
@@ -953,7 +959,7 @@ std::vector<int> PerceptionNode::fuse(const std::string & cam, const builtin_int
     for (const auto & [tid, tr] : tracks_) {
       if (!same_object(tr, dets[i])) continue;
       const cv::Vec3d e = dets[i].z - tr.p;
-      if (cv::norm(e) >= match_dist_) continue;
+      if (cv::norm(e) >= match_dist_ && !SINGLE_CLASSES.count(tr.class_name)) continue;  // 하나뿐인 물체는 거리 한도 없음
       const cv::Vec3d x = (pred[tid] + dets[i].R).solve(e, cv::DECOMP_LU);
       pairs.emplace_back(e.dot(x), i, tid);
     }

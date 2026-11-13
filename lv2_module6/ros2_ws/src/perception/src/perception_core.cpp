@@ -223,6 +223,25 @@ std::map<int, int> merge_tracks(std::map<int, Track> & tracks, double dist_m) {
   return gone;
 }
 
+std::map<int, int> merge_single(std::map<int, Track> & tracks, const std::string & cls) {
+  std::map<int, int> gone;
+  int keep = -1;
+  for (auto it = tracks.begin(); it != tracks.end();) {  // map이라 번호 오름차순 — 처음 것이 가장 오래된 번호
+    if (it->second.class_name != cls) { ++it; continue; }
+    if (keep < 0) { keep = it->first; ++it; continue; }
+    Track & ta = tracks.at(keep);
+    const Track & tb = it->second;
+    if (tb.t > ta.t) {  // 더 최근에 본 쪽의 위치·상태(신호등 색)·본 자리
+      ta.p = tb.p; ta.P = tb.P; ta.t = tb.t; ta.color = tb.color; ta.conf = tb.conf;
+      ta.camera = tb.camera; ta.px = tb.px; ta.last_seen_sec = tb.last_seen_sec; ta.last_seen_nsec = tb.last_seen_nsec;
+    }
+    for (const auto & [c, s] : tb.seen) ta.seen[c] = std::max(ta.seen.count(c) ? ta.seen.at(c) : s, s);
+    gone[it->first] = keep;
+    it = tracks.erase(it);
+  }
+  return gone;
+}
+
 // ---------- 자기 몸
 double seg_dist(const cv::Vec3d & p, const cv::Vec3d & a, const cv::Vec3d & b) {
   const cv::Vec3d ab = b - a;

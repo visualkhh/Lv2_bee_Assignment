@@ -85,6 +85,8 @@ cv::Vec3d puck_center(const cv::Vec3d & p, const cv::Vec3d & cam, double offset,
 double box_iou(const Box & a, const Box & b);
 std::vector<Det> merge_overlap_dets(const std::vector<Det> & dets, double iou_min);
 std::map<int, int> merge_tracks(std::map<int, Track> & tracks, double dist_m);
+// 경기장에 하나뿐인 종류(cls)의 트랙을 가장 오래된 번호 하나로 — 위치·색은 가장 최근에 본 트랙 것 (지운 번호 → 남긴 번호)
+std::map<int, int> merge_single(std::map<int, Track> & tracks, const std::string & cls);
 
 // ---------- 자기 몸
 struct Body {
