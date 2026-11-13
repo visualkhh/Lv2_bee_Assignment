@@ -12,7 +12,7 @@
 #
 # 자동: GitHub Actions .github/workflows/slack-stats.yml이 매일 09:30 KST에 실행.
 # 이 스크립트는 로컬 수동 fallback이다 (`--fetch` 또는 덤프 ZIP).
-# 매일 도는 contributors action은 CONTRIBUTORS 블록만 갱신하므로
+# GitHub/Notion/Slack은 각자 workflow가 자기 블록만 갱신하므로
 # 이 스크립트가 만드는 SLACK_STATS 블록과 겹치지 않는다.
 set -euo pipefail
 

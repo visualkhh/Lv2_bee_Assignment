@@ -1,6 +1,6 @@
 # GitHub Actions에서 Slack 채널을 직접 긁어 README의 SLACK_STATS 블록을 갱신한다.
 # SLACK_TOKEN · SLACK_COOKIE 는 Repository Secrets에서 읽는다.
-# contributors.yml과 분리된 SLACK_STATS 블록만 갱신하므로 서로 덮어쓰지 않는다.
+# GitHub/Notion과 분리된 SLACK_STATS 블록만 갱신하므로 서로 덮어쓰지 않는다.
 name: slack-stats
 
 on:
