@@ -33,7 +33,8 @@ from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, LaunchConfiguration, PathJoinSubstitution, PythonExpression
-from launch_ros.actions import Node, SetRemap
+from launch_ros.actions import LoadComposableNodes, Node, SetRemap
+from launch_ros.descriptions import ComposableNode
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
@@ -195,6 +196,7 @@ def generate_launch_description():
         flag('nvblox_map', '~/.ros/nvblox.nvblx', 'nvblox 지도 파일 — 매핑이면 끌 때 여기에 저장, 위치추정이면 시작할 때 여기서 불러옴'),
         flag('use_cmd_chain', 'true', '바퀴 명령 체인 (velocity_smoother · collision_monitor · lifecycle_manager_base) — use_nav2와 별개: 지도 없이(map:=none)도 수동 조작이 되려면 늘 필요'),
         flag('use_nav2', 'true', '진짜 Nav2 서버 (planner · controller · behavior · bt_navigator) — 바퀴 명령 체인(velocity_smoother · collision_monitor)은 use_cmd_chain'),
+        flag('nav2_composition', 'true', 'Nav2 서버·관리자를 한 프로세스(nav2_container, 컴포넌트)로 — 메모리 절약 · false면 서버마다 프로세스 (예전)'),
         flag('nav2_params_file', share('config', 'nav2_params.yaml'), 'Nav2 파라미터 파일'),
         flag('use_moveit', 'false', 'true면 진짜 move_group (config/moveit) — spawner 완료 후 기동 (동시 기동 레이스 회피)'),
 
@@ -246,35 +248,60 @@ def generate_launch_description():
 LIFECYCLE_DELAY_S = 4.0
 
 
+def when(*names):
+    """launch 인자가 모두 true일 때 켜는 조건 — '!이름'은 false일 때"""
+    expr = []
+    for n in names:
+        expr += [' and ' if expr else '', "'", LaunchConfiguration(n.lstrip('!')), "'.lower() " + ('!=' if n[0] == '!' else '==') + " 'true'"]
+    return IfCondition(PythonExpression(expr))
+
+
 def nav2_nodes():
     """진짜 Nav2 서버 — 노드 이름 = nav2_params.yaml 최상위 키. 관리자 둘로 나눠 올림:
       lifecycle_manager_base       velocity_smoother · collision_monitor — 바퀴 명령 체인 (odom만 있으면 뜸 → 수동 조작은 지도 없이도)
       lifecycle_manager_navigation planner · controller · behavior · bt_navigator — map 필요 (SLAM이 아직 map→odom을 못 내도
                                    이쪽만 실패하고 바퀴 체인은 산다. 하나로 묶으면 global_costmap 실패에 수동 조작까지 막혔음)
-    리매핑만 우리 속도 체인에 맞춘다 (위 모듈 설명)."""
-    on = IfCondition(LaunchConfiguration('use_nav2'))
-    # 바퀴 명령 체인은 Nav2(use_nav2)와 따로 — bringup이 지도 없음(map:=none)이면 use_nav2를 끄는데, 그때도 수동 조작은 돼야 한다
-    chain = IfCondition(LaunchConfiguration('use_cmd_chain'))
+    리매핑만 우리 속도 체인에 맞춘다 (위 모듈 설명).
+    nav2_composition:=true(기본) — Nav2 표준(nav2_bringup use_composition)처럼 서버·관리자를 컴포넌트로 한 프로세스(nav2_container)에.
+      프로세스마다 드는 rclcpp·DDS 바탕 메모리(관리자 하나 ~100 MB PSS)를 한 번만 냄 — 젯슨 8 GB가 바닥나 재부팅됨 (11-14).
+      노드 이름·파라미터·리매핑·관리자 둘 나눔은 그대로. false = 예전처럼 서버마다 프로세스."""
     params = [LaunchConfiguration('nav2_params_file')]
-
-    def server(package, executable, name=None, remaps=(), extra=(), cond=None):
-        return Node(package=package, executable=executable, name=name or executable, output='screen',
-                    condition=cond or on, parameters=params + list(extra), remappings=list(remaps), **QUICK_STOP)
-    return [
-        server('nav2_planner', 'planner_server'),
-        server('nav2_controller', 'controller_server', remaps=[('cmd_vel', '/cmd_vel_nav')]),
-        server('nav2_behaviors', 'behavior_server', remaps=[('cmd_vel', '/cmd_vel_nav')]),
+    bt_xml = {'default_nav_to_pose_bt_xml': share('config', 'navigate_to_pose.xml'),
+              'default_nav_through_poses_bt_xml': share('config', 'navigate_through_poses.xml')}
+    # (패키지, 실행 파일, 컴포넌트 플러그인, 리매핑, 추가 파라미터, 켜는 인자)
+    #   use_cmd_chain = 바퀴 명령 체인 — bringup이 지도 없음(map:=none)이면 use_nav2를 끄는데, 그때도 수동 조작은 돼야 한다
+    servers = [
+        ('nav2_planner', 'planner_server', 'nav2_planner::PlannerServer', [], [], 'use_nav2'),
+        ('nav2_controller', 'controller_server', 'nav2_controller::ControllerServer', [('cmd_vel', '/cmd_vel_nav')], [], 'use_nav2'),
+        ('nav2_behaviors', 'behavior_server', 'behavior_server::BehaviorServer', [('cmd_vel', '/cmd_vel_nav')], [], 'use_nav2'),
         # 행동 트리 = config/navigate_to_pose.xml · navigate_through_poses.xml
         #   (기본 BT에서 후진 0.10m · through-poses는 가까운 웨이포인트 제거 반경 0.15m) — 파일 경로라 yaml이 아니라 여기서
-        server('nav2_bt_navigator', 'bt_navigator',
-               extra=[{'default_nav_to_pose_bt_xml': share('config', 'navigate_to_pose.xml'),
-                       'default_nav_through_poses_bt_xml': share('config', 'navigate_through_poses.xml')}]),
-        server('nav2_velocity_smoother', 'velocity_smoother',
-               remaps=[('cmd_vel', '/cmd_vel_mux'), ('cmd_vel_smoothed', '/cmd_vel_smoothed')], cond=chain),
-        server('nav2_collision_monitor', 'collision_monitor', cond=chain),  # 입출력 토픽은 yaml (cmd_vel_in/out_topic)
+        ('nav2_bt_navigator', 'bt_navigator', 'nav2_bt_navigator::BtNavigator', [], [bt_xml], 'use_nav2'),
+        ('nav2_velocity_smoother', 'velocity_smoother', 'nav2_velocity_smoother::VelocitySmoother',
+         [('cmd_vel', '/cmd_vel_mux'), ('cmd_vel_smoothed', '/cmd_vel_smoothed')], [], 'use_cmd_chain'),
+        ('nav2_collision_monitor', 'collision_monitor', 'nav2_collision_monitor::CollisionMonitor', [], [], 'use_cmd_chain'),  # 입출력 토픽은 yaml
+    ]
+    managers = [('lifecycle_manager_base', 'use_cmd_chain'), ('lifecycle_manager_navigation', 'use_nav2')]
+
+    def server(package, executable, name, remaps, extra, on):
+        return Node(package=package, executable=executable, name=name, output='screen', condition=when(on, '!nav2_composition'),
+                    parameters=params + extra, remappings=remaps, **QUICK_STOP)
+
+    def component(package, plugin, name, remaps, extra, on):
+        return LoadComposableNodes(target_container='/nav2_container', condition=when(on, 'nav2_composition'), composable_node_descriptions=[
+            ComposableNode(package=package, plugin=plugin, name=name, parameters=params + extra, remappings=remaps)])
+    lm = ('nav2_lifecycle_manager', 'lifecycle_manager', 'nav2_lifecycle_manager::LifecycleManager')
+    return [
+        *[server(pkg, exe, exe, r, x, on) for pkg, exe, _, r, x, on in servers],
+        Node(package='rclcpp_components', executable='component_container_isolated', name='nav2_container', output='screen',
+             condition=IfCondition(PythonExpression(["'", LaunchConfiguration('nav2_composition'), "'.lower() == 'true' and ('",
+                                                     LaunchConfiguration('use_nav2'), "'.lower() == 'true' or '",
+                                                     LaunchConfiguration('use_cmd_chain'), "'.lower() == 'true')"])),
+             **QUICK_STOP),
+        *[component(pkg, plugin, exe, r, x, on) for pkg, exe, plugin, r, x, on in servers],
         TimerAction(period=LIFECYCLE_DELAY_S, actions=[
-            server('nav2_lifecycle_manager', 'lifecycle_manager', name='lifecycle_manager_base', cond=chain),
-            server('nav2_lifecycle_manager', 'lifecycle_manager', name='lifecycle_manager_navigation'),
+            *[server(lm[0], lm[1], name, [], [], on) for name, on in managers],
+            *[component(lm[0], lm[2], name, [], [], on) for name, on in managers],
         ]),
     ]
 

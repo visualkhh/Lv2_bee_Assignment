@@ -65,7 +65,9 @@ def stop_timeouts(node_name):
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     ctx = LaunchContext()
-    for e in mod.generate_launch_description().entities:
+    entities = list(mod.generate_launch_description().entities)
+    for e in entities:
+        entities += getattr(e, 'actions', [])  # TimerAction 안 (관리자는 늦게 띄움)
         if isinstance(e, Node) and e._Node__node_name == node_name:
             return perform_substitutions(ctx, e.sigterm_timeout), perform_substitutions(ctx, e.sigkill_timeout)
     return None
@@ -83,6 +85,8 @@ def main():
     save_loc = params('nvblox_node', **m, localization='true').get('after_shutdown_map_save_path')
     load_map = params('nvblox_map', **m, localization='false').get('load_path')
     load_loc = params('nvblox_map', **m, localization='true').get('load_path')
+    nav = {**base, 'use_nav2': 'true'}
+    composed, separate = nodes(**nav), nodes(**nav, nav2_composition='false')
     checks = [
         ('SLAM 노드 전부 (cuVSLAM · depth gate · nvblox · nvblox_map)', slam <= on),
         ('손 카메라 depth gate 없음 (스캔 자세 없앰)', 'gripper_depth_gate' not in on),
@@ -94,7 +98,11 @@ def main():
         ('위치추정: 저장 안 함', save_loc == ''),
         ('cuVSLAM이 map→odom', params('cuvslam_slam', **base).get('publish_map_tf') is True),
         ('Nav2·lifecycle_manager는 끌 때 3+3초', all(stop_timeouts(n) == ('3', '3') for n in
-                                                  ('planner_server', 'controller_server', 'lifecycle_manager_base', 'lifecycle_manager_navigation'))),
+                                                  ('nav2_container', 'planner_server', 'controller_server',
+                                                   'lifecycle_manager_base', 'lifecycle_manager_navigation'))),
+        ('Nav2 기본 = 한 프로세스(nav2_container)', 'nav2_container' in composed and 'controller_server' not in composed),
+        ('nav2_composition:=false = 서버마다 프로세스', 'nav2_container' not in separate and 'controller_server' in separate),
+        ('지도 없음(use_nav2:=false)에도 바퀴 체인용 nav2_container', 'nav2_container' in on),
         ('nvblox(끌 때 지도 저장)는 launch 기본 5+5초', stop_timeouts('nvblox_node') == ('5', '5')),
     ]
     bad = [name for name, ok in checks if not ok]
