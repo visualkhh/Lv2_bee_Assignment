@@ -78,6 +78,10 @@ mission_manager:             # 주사위 기억 미션 (documents/mission/README
     arena_corr_outlier: 0.15       # [m] 맞춘 뒤 잔차가 이보다 큰 상자는 빼고 다시 (근거 3개 이상일 때)
     arena_corr_max_shift: 0.8      # [m] 이동 한계
     arena_corr_max_rot: 0.35       # [rad] 회전 한계 (20°)
+    arena_corr_step_m: 0.03        # [m] 보정을 바꾸는 최소 변화 — 그 안 흔들림은 버림 (11-14 실기: 2~3 cm씩 흔들림)
+    arena_corr_step_rad: 0.017     # [rad] (1°)
+    arena_corr_walls_m: 0.15       # [m] /arena/walls(도면 벽)를 다시 보내는 최소 변화 — 보낼 때마다 Nav2 costmap이 다시 잡힘 · 0 = 안 보냄
+    arena_corr_walls_rad: 0.087    # [rad] (5°)
     # 적재함: 장부(칸 → tag)는 coordinator가 씀 (/coordinator/basket) — 쓰는 칸은 coordinator basket_use. 다 차면 나머지는 시작 박스에서 직접 운반
     box_top_z: 0.070                         # 박스 윗면 = 퍽 바닥
     puck_height: 0.060

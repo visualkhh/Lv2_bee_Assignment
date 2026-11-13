@@ -145,6 +145,10 @@ MissionManager::MissionManager()
   acorr_alpha_ = declare_parameter<double>("arena_corr_alpha", acorr_alpha_);
   acorr_range_ = declare_parameter<double>("arena_corr_range", acorr_range_);
   acorr_outlier_ = declare_parameter<double>("arena_corr_outlier", acorr_outlier_);
+  acorr_step_m_ = declare_parameter<double>("arena_corr_step_m", acorr_step_m_);
+  acorr_step_rad_ = declare_parameter<double>("arena_corr_step_rad", acorr_step_rad_);
+  acorr_walls_m_ = declare_parameter<double>("arena_corr_walls_m", acorr_walls_m_);
+  acorr_walls_rad_ = declare_parameter<double>("arena_corr_walls_rad", acorr_walls_rad_);
   acorr_min_hits_ = static_cast<int>(declare_parameter<int64_t>("arena_corr_min_hits", acorr_min_hits_));
   signal_timeout_s_ = declare_parameter<double>("signal_timeout_s", 150.0);
   signal_error_cycles_ = static_cast<int>(declare_parameter<int64_t>("signal_error_cycles", 2));
@@ -1416,7 +1420,7 @@ void MissionManager::update_corr(const perception::msg::TrackedObjectArray & m) 
   const auto moved = [](const ArenaCorr & a, const ArenaCorr & b, double m, double r) {
     return std::hypot(a.dx - b.dx, a.dy - b.dy) > m || std::abs(a.dth - b.dth) > r;
   };
-  if (c.n == acorr_.n && !moved(c, acorr_, 0.01, 0.005)) return;  // 1 cm · 0.3° 안 변화는 버림 (기록이 넘치지 않게)
+  if (c.n == acorr_.n && !moved(c, acorr_, acorr_step_m_, acorr_step_rad_)) return;  // 작은 흔들림은 버림 (목표·기록이 흔들리지 않게)
   acorr_ = c;
   std::string used;
   for (size_t i = 0; i < marks_.size(); ++i)
@@ -1426,7 +1430,8 @@ void MissionManager::update_corr(const perception::msg::TrackedObjectArray & m) 
   std::snprintf(line, sizeof(line), "{\"t\": %.3f, \"phase\": \"%s\", \"dx\": %.4f, \"dy\": %.4f, \"dth_deg\": %.2f, \"n\": %d, \"boxes\": [",
                 wall_s() - mission_t0_, phase_name(phase_), c.dx, c.dy, c.dth * 180 / M_PI, c.n);
   append_log("arena_correction.jsonl", line + used + "]}");
-  if (moved(acorr_, acorr_walls_, 0.03, 0.017)) { acorr_walls_ = acorr_; publish_walls(); }  // 3 cm · 1° 넘게 바뀌면 /arena/walls 다시
+  // /arena/walls 다시 보내기는 크게 바뀔 때만 — 보낼 때마다 Nav2 costmap 정적 층이 다시 잡힘 (11-14: 주행 중 10번 → 벽에 부딪힘)
+  if (acorr_walls_m_ > 0 && moved(acorr_, acorr_walls_, acorr_walls_m_, acorr_walls_rad_)) { acorr_walls_ = acorr_; publish_walls(); }
 }
 
 // 경기장 벽을 map 격자로 (/arena/walls, latched) — nvblox_map이 /map에 겹쳐 Nav2가 매핑 처음부터 벽을 앎.
