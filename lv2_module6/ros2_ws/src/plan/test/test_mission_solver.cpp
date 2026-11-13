@@ -376,3 +376,17 @@ TEST(ArenaCorr, MatchLandmarkGateAndUnique) {
   EXPECT_EQ(match_landmark(1.6, 1.6, boxes, 0.6), -1);   // 어느 상자에서도 gate 밖
   EXPECT_EQ(match_landmark(0.0, 0.0, {}, 0.6), -1);
 }
+
+TEST(MissionFlow, ParseGoto) {  // start:GOTO:<목록> — 실기 이동 시험
+  StartCmd sc;
+  std::string why;
+  ASSERT_TRUE(parse_start("start:GOTO:S1,2,l3", sc, why)) << why;
+  ASSERT_EQ(sc.go_to.size(), 3u);
+  EXPECT_EQ(sc.go_to[0], "S1");
+  EXPECT_EQ(sc.go_to[1], "S2");
+  EXPECT_EQ(sc.go_to[2], "L3");
+  EXPECT_FALSE(parse_start("start:GOTO:S7", sc, why));
+  EXPECT_EQ(why, "bad_target:S7");
+  EXPECT_FALSE(parse_start("start:GOTO", sc, why));
+  EXPECT_FALSE(parse_start("start:GOTO:L4", sc, why));
+}

@@ -100,6 +100,8 @@ private:
   void barcode_done(bool ok, const std::string & why);  // 팔 stow로 → 다음 단계
   void read_phase();
   void survey(size_t box);
+  std::vector<std::string> goto_;  // start:GOTO 목록 (S1~S6 · L1~L3)
+  void goto_seq(size_t k);         // 목록 k번째 상자에 SURVEY처럼 다가감 → 다음 · 끝나면 RETURN
   void load(size_t box, std::vector<int> found, size_t k);  // 찾은 퍽(tag)을 적재함에 — 트랙 id는 집기 직전에 다시 찾음
   void solve_allocation();
   void build(size_t i);
