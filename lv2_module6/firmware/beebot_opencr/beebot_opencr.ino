@@ -49,10 +49,13 @@ char line[LINE_CAPACITY];
 size_t line_length = 0;
 char pending_c[LINE_CAPACITY];  // 이번 loop에 들어온 마지막 C
 bool has_pending_c = false;
-bool motors_ready = false;  // 바퀴(0·1) 준비됨 — C를 받는다. 팔이 없어도 바퀴는 움직여야 하므로 팔과 따로 본다
+bool motors_ready = false;  // 바퀴나 팔 중 하나라도 준비됨 — C를 받는다. 바퀴만·팔만 연결해도 그쪽은 움직인다
+bool wheels_ready = false;  // 바퀴(0·1) 둘 다 준비됨 — 없으면 바퀴 쪽 읽기·쓰기·점검을 건너뛴다 (팔만 연결한 OpenCR)
 bool arm_ready = false;     // 팔·그리퍼(2~) 전부 준비됨 — 없으면 팔 쪽 읽기·쓰기·점검을 건너뛴다 (응답 대기로 loop가 멈추므로)
 uint32_t last_arm_try_ms = 0;
-constexpr uint32_t ARM_RETRY_MS = 5000;  // 팔이 없을 때 다시 찾는 간격 (찾는 ping이 loop를 잠깐 막으니 드물게)
+uint32_t last_wheel_try_ms = 0;
+constexpr uint32_t ARM_RETRY_MS = 5000;  // 바퀴·팔이 없을 때 다시 찾는 간격 (찾는 ping이 loop를 잠깐 막으니 드물게)
+bool motor_set_up[MOTOR_COUNT] = {};  // 세팅 끝난 모터 — 그룹을 다시 찾을 때 건너뛴다 (응답 없는 모터 때문에 나머지 토크가 흔들리지 않게)
 bool watchdog_tripped = true;  // 첫 C 전에는 움직이지 않음
 uint32_t last_command_ms = 0;
 uint32_t last_state_ms = 0;
@@ -98,7 +101,8 @@ uint8_t motor_id(size_t i)
 
 float rpm_to_rad_s(float rpm) { return rpm * 2.0f * PI / 60.0f; }
 float rad_s_to_rpm(float rad_s) { return rad_s * 60.0f / (2.0f * PI); }
-int32_t rad_to_raw(float rad, float dir) { return lroundf(2048.0f + dir * rad * RAW_PER_RAD); }
+float rad_to_raw_f(float rad, float dir) { return 2048.0f + dir * rad * RAW_PER_RAD; }  // 반올림 전 (히스테리시스용)
+int32_t rad_to_raw(float rad, float dir) { return lroundf(rad_to_raw_f(rad, dir)); }
 float raw_to_rad(int32_t raw, float dir) { return dir * (raw - 2048) / RAW_PER_RAD; }
 
 // 단조 표 구간별 직선 (xs 오름·내림 둘 다, 표 밖은 끝값)
@@ -137,6 +141,8 @@ void enable_motor(size_t i, bool recover)
             recover_since[i] = millis() | 1;
         }
     }
+    if (is_position_motor(i) && i != GRIPPER_INDEX && ARM_POSITION_D_GAIN[i - 2] > 0)  // RAM이라 전원 복귀 때마다
+        dxl.write(id, ADDR_POSITION_D_GAIN, reinterpret_cast<const uint8_t *>(&ARM_POSITION_D_GAIN[i - 2]), 2);
     dxl.torqueOn(id);
     torque_state[i] = true;
 }
@@ -146,11 +152,15 @@ bool setup_motor(size_t i, bool recover)
     const uint8_t id = motor_id(i);
     if (!dxl.ping(id))
         return false;
-    dxl.torqueOff(id);
     const uint8_t mode = i < 2 ? OP_VELOCITY : (i == GRIPPER_INDEX ? OP_CURRENT_BASED_POSITION : OP_POSITION);
-    if (dxl.readControlTableItem(ControlTableItem::OPERATING_MODE, id) != mode)  // EEPROM — 다를 때만 씀 (복구가 반복돼도 닳지 않게)
+    // EEPROM은 토크가 꺼져야 쓸 수 있다 — 다를 때만 쓰고(복구가 반복돼도 닳지 않게), 그때만 토크를 끈다 (팔이 툭 떨어지지 않게)
+    const bool mode_ok = dxl.readControlTableItem(ControlTableItem::OPERATING_MODE, id) == mode;
+    const bool delay_ok = dxl.readControlTableItem(ControlTableItem::RETURN_DELAY_TIME, id) == 0;
+    if (!mode_ok || !delay_ok)
+        dxl.torqueOff(id);
+    if (!mode_ok)
         dxl.setOperatingMode(id, mode);
-    if (dxl.readControlTableItem(ControlTableItem::RETURN_DELAY_TIME, id) != 0)  // EEPROM — 다를 때만 씀
+    if (!delay_ok)
         dxl.writeControlTableItem(ControlTableItem::RETURN_DELAY_TIME, id, 0);
     enable_motor(i, recover);
     return true;
@@ -160,24 +170,38 @@ bool setup_group(size_t from, size_t to)
 {
     bool ok = true;
     for (size_t i = from; i < to; ++i)
-        ok = setup_motor(i, false) && ok;
+    {
+        if (!motor_set_up[i])
+            motor_set_up[i] = setup_motor(i, false);
+        ok = motor_set_up[i] && ok;
+    }
     return ok;
 }
 
-// syncRead는 응답 없는 모터에서 멈추므로, 팔이 없으면 바퀴 2개만 읽는다 (순서 = 바퀴 먼저)
-void update_sync_count()
+// syncRead는 응답 없는 모터에서 멈추므로 준비된 그룹만 읽는다 (순서 = 바퀴 먼저) — sr_index[k] = k번째로 읽는 모터
+size_t sr_index[MOTOR_COUNT];
+void update_sync_list()
 {
-    sr.xel_count = arm_ready ? MOTOR_COUNT : 2;
+    sr.xel_count = 0;
+    for (size_t i = 0; i < MOTOR_COUNT; ++i)
+    {
+        if (i < 2 ? !wheels_ready : !arm_ready)
+            continue;
+        sr_index[sr.xel_count] = i;
+        sr_xels[sr.xel_count].id = motor_id(i);
+        sr_xels[sr.xel_count].p_recv_buf = reinterpret_cast<uint8_t *>(&present_rx[i]);
+        ++sr.xel_count;
+    }
     sr.is_info_changed = true;
 }
 
-// 바퀴와 팔을 따로 찾는다 — 반환값 = 바퀴 준비 (명령을 받을 수 있나). 팔은 arm_ready로 따로
+// 바퀴와 팔을 따로 찾는다 — 반환값 = 명령을 받을 수 있나 (둘 중 하나라도 준비)
 bool setup_motors()
 {
-    const bool wheels = setup_group(0, 2);
+    wheels_ready = setup_group(0, 2);
     arm_ready = setup_group(2, MOTOR_COUNT);
-    update_sync_count();
-    return wheels;
+    update_sync_list();
+    return wheels_ready || arm_ready;
 }
 
 void setup_sync()
@@ -188,13 +212,7 @@ void setup_sync()
     sr.addr = ADDR_PRESENT_CURRENT;
     sr.addr_length = sizeof(Present);
     sr.p_xels = sr_xels;
-    sr.xel_count = MOTOR_COUNT;
-    for (size_t i = 0; i < MOTOR_COUNT; ++i)
-    {
-        sr_xels[i].id = motor_id(i);
-        sr_xels[i].p_recv_buf = reinterpret_cast<uint8_t *>(&present_rx[i]);
-    }
-    sr.is_info_changed = true;
+    update_sync_list();
 
     bw.packet.p_buf = bw_buf;
     bw.packet.buf_capacity = sizeof(bw_buf);
@@ -225,18 +243,23 @@ void bulk_write(const bool *send)
 void read_present()
 {
     // 응답 없는 모터에서 멈추므로 앞에서부터 받은 개수만 반영 (나머지는 직전 값 유지)
+    if (sr.xel_count == 0)
+        return;
     const uint8_t n = dxl.syncRead(&sr);
-    for (uint8_t i = 0; i < n && i < MOTOR_COUNT; ++i)
+    for (uint8_t k = 0; k < n && k < sr.xel_count; ++k)
     {
-        present[i] = present_rx[i];
-        seen[i] = true;
+        present[sr_index[k]] = present_rx[sr_index[k]];
+        seen[sr_index[k]] = true;
     }
 }
 
 void hold_present_pose()
 {
-    dxl.setGoalVelocity(WHEEL_LEFT_ID, 0);
-    dxl.setGoalVelocity(WHEEL_RIGHT_ID, 0);
+    if (wheels_ready)
+    {
+        dxl.setGoalVelocity(WHEEL_LEFT_ID, 0);
+        dxl.setGoalVelocity(WHEEL_RIGHT_ID, 0);
+    }
     for (size_t i = 2; i < MOTOR_COUNT && arm_ready; ++i)
     {
         goal_raw[i] = dxl.getPresentPosition(motor_id(i), UNIT_RAW);
@@ -298,10 +321,12 @@ void set_torque_one(size_t i, bool on)
     }
 }
 
+bool group_ready(size_t i) { return i < 2 ? wheels_ready : arm_ready; }
+
 bool any_torque_on()
 {
     for (size_t i = 0; i < MOTOR_COUNT; ++i)
-        if (torque_state[i])
+        if (torque_state[i] && group_ready(i))  // 없는 그룹의 '켜짐'은 세지 않음 (T,0 뒤에 watchdog이 서게)
             return true;
     return false;
 }
@@ -318,13 +343,13 @@ void apply_torque_line(char *text)
             return;
         const bool on = v[0] != 0.0f;
         for (size_t i = 0; i < MOTOR_COUNT; ++i)
-            if (i < 2 || arm_ready)  // 팔이 없으면 건너뜀 (응답 대기로 loop가 멈춤)
+            if (group_ready(i))  // 없는 그룹은 건너뜀 (응답 대기로 loop가 멈춤)
                 set_torque_one(i, on);
     }
     else
     {
         for (size_t i = 0; i < MOTOR_COUNT; ++i)
-            if (!isnan(v[i]) && (i < 2 || arm_ready))
+            if (!isnan(v[i]) && group_ready(i))
                 set_torque_one(i, v[i] != 0.0f);
     }
     // 하나라도 토크가 켜져 있으면 watchdog 유지, 전부 꺼졌으면 watchdog 정지
@@ -353,7 +378,7 @@ void apply_command(char *text)
     bool send[MOTOR_COUNT] = {};
     // 바퀴: 빈칸·토크 꺼짐 = 정지
     const float wheel_dir[] = {WHEEL_LEFT_DIR, WHEEL_RIGHT_DIR};
-    for (size_t i = 0; i < 2; ++i)
+    for (size_t i = 0; i < 2 && wheels_ready; ++i)  // 바퀴가 없으면 바퀴 칸 무시
     {
         const float rad_s = (isnan(v[i]) || !torque_state[i]) ? 0.0f : v[i] * wheel_dir[i];
         bw_value[i] = lroundf(rad_s_to_rpm(rad_s) / VELOCITY_RPM_PER_UNIT);
@@ -364,8 +389,14 @@ void apply_command(char *text)
     {
         if (!arm_ready || isnan(v[i]) || !torque_state[i])  // 팔이 없으면 명령 생략
             continue;
-        bw_value[i] = i == GRIPPER_INDEX ? rad_to_raw(gripper_m_to_servo_rad(v[i]), 1.0f)
-                                         : rad_to_raw(v[i], ARM_DIR[i - 2]);
+        const float f = i == GRIPPER_INDEX ? rad_to_raw_f(gripper_m_to_servo_rad(v[i]), 1.0f)
+                                           : rad_to_raw_f(v[i], ARM_DIR[i - 2]);
+        // 목표가 지금 목표에서 GOAL_HYSTERESIS_RAW 안이면 다시 쓰지 않음 (2026-11-10 떨림 시험)
+        //   - 같은 Goal Position을 10 ms마다 쓰면 1 tick 떨림
+        //   - 정지 중 보정(처짐 적분·앞먹임·정책)의 tick 이하 흔들림이 반올림 경계에서 목표를 뒤집음
+        if (fabsf(f - static_cast<float>(goal_raw[i])) < GOAL_HYSTERESIS_RAW)
+            continue;
+        bw_value[i] = lroundf(f);
         goal_raw[i] = bw_value[i];
         send[i] = true;
     }
@@ -465,6 +496,9 @@ void apply_reboot_line(char *text)
     for (size_t i = 0; i < MOTOR_COUNT; ++i)
         pick[i] = whole ? (!isnan(v[0]) && v[0] != 0.0f) : (!isnan(v[i]) && v[i] != 0.0f);
     for (size_t i = 0; i < MOTOR_COUNT; ++i)
+        if (pick[i] && !group_ready(i))
+            pick[i] = false;  // 없는 그룹은 건너뜀 (응답 대기로 loop가 멈춤)
+    for (size_t i = 0; i < MOTOR_COUNT; ++i)
         if (pick[i])
             dxl.reboot(motor_id(i));
     const uint32_t start = millis();
@@ -509,7 +543,17 @@ void check_motors()
         if (dxl.ping(motor_id(2)))
         {
             arm_ready = setup_group(2, MOTOR_COUNT);
-            update_sync_count();
+            update_sync_list();
+        }
+    }
+    if (!wheels_ready && now - last_wheel_try_ms >= ARM_RETRY_MS)
+    {
+        // 바퀴가 없다 (팔만 연결한 OpenCR · 바퀴 선을 뽑음) — 같은 방식으로 왼바퀴만 먼저 ping
+        last_wheel_try_ms = now;
+        if (dxl.ping(motor_id(0)))
+        {
+            wheels_ready = setup_group(0, 2);
+            update_sync_list();
         }
     }
     if (now - last_check_ms < MOTOR_CHECK_MS)
@@ -517,7 +561,7 @@ void check_motors()
     last_check_ms = now;
     for (size_t i = 0; i < MOTOR_COUNT; ++i)
     {
-        if (i >= 2 && !arm_ready)  // 팔이 없다 — 읽지 않고 '응답 없음'으로 보고
+        if (!group_ready(i))  // 그 그룹이 없다 — 읽지 않고 '응답 없음'으로 보고
         {
             hw_error[i] = -1;
             hw_temp[i] = -1;
@@ -561,6 +605,14 @@ void send_state()
     const float wheel_dir[] = {WHEEL_LEFT_DIR, WHEEL_RIGHT_DIR};
     for (size_t i = 0; i < 2; ++i)
     {
+        if (!wheels_ready && !seen[i])
+        {
+            // 바퀴 없음 (팔만 연결) — SBC는 바퀴 칸에 nan이 있으면 줄을 버리므로 0으로 채운다 (팔 상태는 그대로 받게)
+            print_value(0.0f);
+            print_value(0.0f);
+            print_value(0.0f);
+            continue;
+        }
         print_value(or_nan(i, wheel_dir[i] * present[i].position / RAW_PER_RAD));
         print_value(or_nan(i, wheel_dir[i] * rpm_to_rad_s(present[i].velocity * VELOCITY_RPM_PER_UNIT)));
         print_value(or_nan(i, wheel_dir[i] * present[i].current * CURRENT_MA_PER_UNIT / 1000.0f));  // 바퀴 진행 방향 기준 부호
@@ -604,7 +656,7 @@ void setup()
     dxl.begin(DXL_BAUD);
     dxl.setPortProtocolVersion(DXL_PROTOCOL_VERSION);
     setup_sync();
-    motors_ready = setup_motors();  // 바퀴가 응답해야 명령을 받는다 (팔·그리퍼가 없어도 바퀴는 움직임 · 팔은 arm_ready로 따로, check_motors가 다시 찾음 · 상태는 늘 보냄)
+    motors_ready = setup_motors();  // 바퀴나 팔 중 하나라도 응답하면 명령을 받는다 (없는 쪽은 check_motors가 다시 찾음 · 상태는 늘 보냄)
     last_check_ms = millis();
 }
 

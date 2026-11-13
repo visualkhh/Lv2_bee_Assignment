@@ -3,7 +3,7 @@
   window.navigate('map', mode=…, source=…, …)  또는  MapPage(app, …)
     mode    'view'  지도 보기만 (기본)
             'goals' A/B 경로 goal 찍기 — start·goals(이미 있는 경로) · 저장하면 on_save(goals)
-            'goal'  이동 목표 (Nav2) — 여러 웨이포인트를 찍어 g로 순서대로 보낸다 (구간 경로는 Nav2 planner)
+            'goal'  이동 목표 (Nav2) — 여러 웨이포인트를 찍어 g(한 점씩 NavigateToPose)·G(NavigateThroughPoses)로 보낸다
             'pose'  로봇 위치 지정 — 십자선 위치(+방향)를 on_pose(x, y, yaw_deg)로 보냄
     source  None = 지금 /map(live · 로봇 점 표시) · 경로 = 저장된 지도 yaml(map_server 형식)
     title   화면 제목 (기본 = mode에 따라)
@@ -24,6 +24,7 @@ from ...defs import BACK, MAIN, QUIT, STAY
 from ...dialog import fmt_pose
 from ...views.map import FREE, OCC, UNKNOWN, CostGrid, MapGrid, MapView
 from ...views.map.map_view import LOCAL_PLAN_RGB, PLAN_RGB
+PREVIEW_RGB = (0, 200, 120)   # planner에 계산만 요청한 예상 경로 (초록)
 from ...terminal import DIM
 from ...menus import ActionItem, Menu
 
@@ -73,6 +74,7 @@ class MapPage(Menu):
         self.plan_on = False          # p — Nav2 전역(/plan)·지역(/local_plan) 경로 겹침
         self._plans: dict = {'plan': None, 'local_plan': None}   # 종류 → (받은 시각, [(x, y)…])
         self._waypoints: tuple[int, list[tuple[float, float]]] | None = None   # (plan_id, 경유점) — /task/sub_goals의 navigate·approach 목표
+        self._preview: list[tuple[float, float]] | None = None   # v — planner에 계산만 요청한 예상 경로
 
     # ---------------------------------------------------------------- 동작 (키 · 메뉴 공용)
     def pick(self) -> None:
@@ -101,7 +103,8 @@ class MapPage(Menu):
                     self.msg = '바로 전 웨이포인트와 같은 자리 — 추가 안 함'
                     return
             self.goals.append(goal)
-            self.msg = f'웨이포인트 {len(self.goals)}개 추가 {fmt_pose(self.goals[-1])}{note} — 전송: g'
+            self._preview = None   # 웨이포인트가 바뀌었다 — 예상 경로는 다시 계산
+            self.msg = f'웨이포인트 {len(self.goals)}개 추가 {fmt_pose(self.goals[-1])}{note} — 전송: g(한 점씩) · G(한 번에)'
         else:
             self._send_pose(x, y)
 
@@ -118,6 +121,26 @@ class MapPage(Menu):
         except Exception as exc:
             self.msg = f'FAIL: {exc}'
 
+    def set_initial_pose_here(self) -> None:
+        """십자선 위치·방향을 로봇 초기 위치로 — /initialpose (faker는 텔레포트). 위치를 잃었을 때 여기서 바로."""
+        x, y = self.view.center
+        pose = {'x': round(x, 3), 'y': round(y, 3), 'yaw_deg': round(self.yaw, 1)}
+        if not self.ui.confirm('여기를 로봇 초기 위치로 지정할까요?',
+                               body=[fmt_pose(pose), '위치추정(LOCALIZATION)에서 위치를 잃었을 때 쓰세요']):
+            self.msg = '취소'
+            return
+        try:
+            self.ui.busy('초기 위치 지정')
+            self.ui.progress('로봇 위치 이동 + odom·EKF 리셋 중…')
+            try:
+                with self.ui.capture():
+                    self.bus.nav.set_robot_pose(pose['x'], pose['y'], pose['yaw_deg'])
+            finally:
+                self.ui._busy = None
+            self.msg = f'초기 위치 {fmt_pose(pose)}'
+        except Exception as exc:
+            self.msg = f'FAIL: {exc}'
+
     def undo_goal(self) -> None:
         p = self.bus.nav.nav_progress() if hasattr(self.bus.nav, 'nav_progress') else None
         if p and p['state'] == 'running':
@@ -125,6 +148,7 @@ class MapPage(Menu):
             return
         if self.goals:
             self.goals.pop()
+            self._preview = None
             self._show_goals = True
             self.msg = ('마지막 웨이포인트 취소' if self.mode == 'goal' else '마지막 goal 취소')
         else:
@@ -136,11 +160,13 @@ class MapPage(Menu):
             self.msg = '주행 중에는 못 지움 — 먼저 취소(x)'
             return
         self.goals.clear()
+        self._preview = None
         self._show_goals = True
         self.msg = '웨이포인트 전체 지움'
 
-    def send_waypoints(self) -> None:
-        """찍어 둔 웨이포인트를 순서대로 Nav2에 보낸다 — 구간 경로는 planner가 채운다."""
+    def send_waypoints(self, through: bool = False) -> None:
+        """찍어 둔 웨이포인트를 Nav2에 보낸다 — through=False(g)=한 점씩 NavigateToPose,
+        True(G)=NavigateThroughPoses 한 번에. 구간 경로는 planner가 채운다."""
         if not self.goals:
             self.msg = '웨이포인트 없음 — Enter로 먼저 찍으세요'
             return
@@ -151,16 +177,17 @@ class MapPage(Menu):
         if bad:
             body.append('WARN: costmap 내접/치명 웨이포인트 — planner가 거부할 수 있습니다')
             body += bad
-        if not self.ui.confirm(f'웨이포인트 {len(self.goals)}개를 순서대로 보낼까요?',
+        how = 'NavigateThroughPoses 한 번에' if through else '한 점씩 NavigateToPose'
+        if not self.ui.confirm(f'웨이포인트 {len(self.goals)}개를 {how}로 보낼까요?',
                                default=not bad, body=body):
             self.msg = '취소' + (' (costmap 내접)' if bad else '')
             return
         try:
             with self.ui.capture() as (out, err):
-                self.bus.nav.send_nav_waypoints(self.goals, 'map')
+                self.bus.nav.send_nav_waypoints(self.goals, 'map', through=through)
             self._canceled = False
             self._show_goals = True
-            self.msg = f'웨이포인트 {len(self.goals)}개 전송 — Nav2가 구간 경로를 계획'
+            self.msg = f'웨이포인트 {len(self.goals)}개 전송 — {how}'
         except Exception as exc:
             self.msg = f'FAIL: {exc}'
 
@@ -171,9 +198,10 @@ class MapPage(Menu):
         self._plans = {'plan': None, 'local_plan': None}
         self._waypoints = None
         self.plan_on = False
-        self._show_goals = False   # 지도 표시만 숨김 — 목록은 남겨 Backspace로 수정
-        self.msg = ('Nav2 주행 취소 — 경로 표시 지움 (웨이포인트 목록은 유지: Backspace)' if active
-                    else '주행 중인 웨이포인트 없음 — 경로 표시 지움 (목록은 유지: Backspace)')
+        self.goals.clear()   # 목록도 비운다 — 남겨 두면 다음 Enter에서 이전 점들이 되살아나 g로 같이 전송됐다 (실기 2026-11-12)
+        self._show_goals = True
+        self.msg = ('Nav2 주행 취소 — 경로·웨이포인트 모두 지움' if active
+                    else '주행 중인 웨이포인트 없음 — 경로·웨이포인트 모두 지움')
 
     def toggle_snap(self) -> None:
         self.snap = not self.snap
@@ -307,14 +335,22 @@ class MapPage(Menu):
             self.pick()
         elif k == 'backspace' and self.mode in ('goals', 'goal'):
             self.undo_goal()
-        elif k in ('g', 'G') and self.mode == 'goal':
-            self.send_waypoints()
+        elif k == 'g' and self.mode == 'goal':
+            self.send_waypoints(through=False)   # 한 점씩 NavigateToPose
+        elif k == 'G' and self.mode == 'goal':
+            self.send_waypoints(through=True)    # NavigateThroughPoses 한 번에
         elif k in ('d', 'D') and self.mode == 'goal':
             self.clear_goals()
         elif k in ('s', 'S') and self.mode == 'goal':
             self.toggle_snap()
         elif k in ('x', 'X') and self.mode == 'goal':
             self.cancel_nav()
+        elif k in ('i', 'I') and self.mode == 'goal':
+            self.set_initial_pose_here()
+        elif k == 'v' and self.mode == 'goal':
+            self.preview_path()
+        elif k == 'V' and self.mode == 'goal':
+            self.clear_preview()
         elif k in ('[', ']', '{', '}') and self.mode != 'view':   # [ ] = 15° · { } = 1° (미세) — 왼쪽 키([ {)는 좌회전(반시계, +) · 오른쪽 키(] })는 우회전(시계, −)
             self.turn({'[': YAW_STEP, ']': -YAW_STEP, '{': 1.0, '}': -1.0}[k])
         elif k in ('c', 'C'):
@@ -391,19 +427,60 @@ class MapPage(Menu):
         return self.app.state.task_status or ''
 
     def _plan_lines(self):
-        """겹칠 경로 [(점들, 색)] + 상태 글자 (끝점 G = 전역 · L = 지역). 15초 넘게 안 온 경로는 버림 (지난 주행 것이 남아 보이지 않게)."""
-        if not self.plan_on:
+        """겹칠 경로 [(점들, 색)] + 상태 글자 (끝점 G = 전역 · L = 지역 · 미리보기 = 초록). 15초 넘게 안 온 경로는 버림 (지난 주행 것이 남아 보이지 않게)."""
+        if not self.plan_on and not self._preview:
             return [], ''
         now, out, info = time.monotonic(), [], []
+        if self._preview and len(self._preview) > 1:
+            out.append((self._preview, PREVIEW_RGB))
+            info.append(f'미리보기(초록) {len(self._preview)}점')
         for kind, label, rgb in (('plan', '전역(파랑 G)', PLAN_RGB), ('local_plan', '지역(보라 L)', LOCAL_PLAN_RGB)):
+            if not self.plan_on:
+                break
             got = self._plans.get(kind)
             if got and now - got[0] <= self.PLAN_FRESH_S and len(got[1]) > 1:
                 out.append((got[1], rgb))
                 info.append(f'{label} {len(got[1])}점')
-        wps = self._waypoint_pts()
+        wps = self._waypoint_pts() if self.plan_on else []
         if wps:
             info.append(f'경유점(주황 번호) {len(wps)}개')
-        return out, ('경로(p): ' + ' · '.join(info) if info else f'경로(p): 없음 — 주행 중이 아니거나 {self.PLAN_FRESH_S:.0f}초 넘게 안 옴')
+        if not info:
+            return [], f'경로(p): 없음 — 주행 중이 아니거나 {self.PLAN_FRESH_S:.0f}초 넘게 안 옴'
+        return out, '경로: ' + ' · '.join(info)
+
+    def preview_path(self) -> None:
+        """찍어 둔 웨이포인트로 planner에 경로만 계산 (v) — 로봇은 움직이지 않는다. 전송은 g/G."""
+        if not self.goals:
+            self.msg = '웨이포인트 없음 — Enter로 먼저 찍으세요'
+            return
+        if self.source:
+            self.msg = '저장 지도에는 planner가 없음 — 지금 지도(live)에서만'
+            return
+        try:
+            self.ui.busy('예상 경로 계산')
+            self.ui.progress('Nav2 planner에 경로 요청 중… (로봇은 움직이지 않음)')
+            try:
+                with self.ui.capture():
+                    pts = self.bus.nav.preview_path(
+                        self.goals, 'map',
+                        on_wait=lambda sec: self.ui.progress(f'Nav2 planner 계산 중… {sec:.1f}s'))
+            finally:
+                self.ui._busy = None
+            if len(pts) < 2:
+                self.msg = 'planner가 경로를 내지 않음 (출발/목표 확인)'
+                return
+            self._preview = pts
+            self.msg = f'예상 경로 {len(pts)}점 — 초록 · 전송은 g'
+        except Exception as exc:  # noqa: BLE001 — 화면에 이유를 남긴다
+            self.msg = f'FAIL: {exc}'
+
+    def clear_preview(self) -> None:
+        """예상 경로 지우기 (V)."""
+        if self._preview is None:
+            self.msg = '예상 경로 없음'
+            return
+        self._preview = None
+        self.msg = '예상 경로 지움'
 
     # ---------------------------------------------------------------- 화면
     def items(self):
@@ -414,8 +491,12 @@ class MapPage(Menu):
                 'pose': [('로봇 위치로 지정 — 십자선 위치 (Enter)', self.pick)],
                 'goal': [('웨이포인트 추가 — 십자선 위치 (Enter)', self.pick),
                          ('마지막 웨이포인트 취소 (Backspace)', self.undo_goal),
-                         ('웨이포인트 전송 — 순서대로 주행 (g)', self.send_waypoints),
+                         ('웨이포인트 한 점씩 주행 — NavigateToPose (g)', lambda: self.send_waypoints(through=False)),
+                         ('웨이포인트 한 번에 주행 — NavigateThroughPoses (G)', lambda: self.send_waypoints(through=True)),
                          ('웨이포인트 전체 지우기 (d)', self.clear_goals),
+                         ('예상 경로 미리보기 — 계산만 (v)', self.preview_path),
+                         ('예상 경로 지우기 (V)', self.clear_preview),
+                         ('로봇 초기 위치 지정 — 십자선 위치 (i)', self.set_initial_pose_here),
                          (lambda: f'가운데 스냅 (s) — {_onoff(self.snap)}', self.toggle_snap),
                          ('Nav2 주행 취소 (x)', self.cancel_nav)],
                 'view': []}[self.mode]
@@ -464,7 +545,13 @@ class MapPage(Menu):
             return cached
         inbox = self._cost_inbox[kind]
         if inbox:
-            self._cost[kind] = CostGrid.from_msg(inbox[-1])
+            grid = CostGrid.from_msg(inbox[-1])
+            if grid.frame_id not in ('', 'map'):
+                # local costmap은 odom 프레임 — map 기준 자세로 변환해 겹쳐야 로봇·지도와 맞는다
+                parent = self.bus.nav.frame_pose(grid.frame_id)
+                if parent is not None:
+                    grid.set_parent(parent[0], parent[1], math.radians(parent[2]))
+            self._cost[kind] = grid
             self._cost_at[kind] = now
         return self._cost.get(kind)
 
@@ -499,7 +586,7 @@ class MapPage(Menu):
                   f'한 칸 = {v.vp.scale * 100:.0f} cm · {"● 따라가기" if v.following else "○ 자유이동"}',
                   (f'방향 {self.yaw:+.0f}°' if self.mode == 'pose' else
                    f'방향 {self.yaw:+.0f}° · goal {len(self.goals)}개' if self.mode == 'goals' else
-                   f'방향 {self.yaw:+.0f}° · 웨이포인트 {len(self.goals)}개 (Enter 추가 · g 전송)' if self.mode == 'goal'
+                   f'방향 {self.yaw:+.0f}° · 웨이포인트 {len(self.goals)}개 (Enter 추가 · g 한 점씩 · G 한 번에)' if self.mode == 'goal'
                    else '보기 전용')]
         if plan_info:
             status.append(plan_info)
@@ -590,7 +677,7 @@ class MapPage(Menu):
             return STAY
         self.view = MapView(grid, self.term.color, extra_key=self._extra_key)
         if self.mode == 'goal':
-            self.view.hints += ' · g 전송 · d 전체 지우기 · s 중앙 스냅 · x 취소 · Backspace 마지막 취소'
+            self.view.hints += ' · g 전송 · v 예상 경로 · V 지우기 · d 전체 지우기 · i 초기 위치 · s 중앙 스냅 · x 취소 · Backspace 마지막 취소'
         if self.source is None:  # live 지도일 때만 costmap 겹침 — 저장 지도에는 현재 costmap이 없다
             from nav_msgs.msg import OccupancyGrid
             from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy

@@ -1,0 +1,11 @@
+# skill 정책 폴더 — 이 skill 노드가 읽음 (skills/include/skills/model.hpp). 한 줄 "키: 값"
+
+skill: pick_standing_far
+kind: arm            # arm (rl_arm_correction이 계산) | base (skill_approach가 계산)
+layout: pick_far      # 정책 입력 모양 (ml/arm_obs.hpp pick_far 68 = pick_box 67 + 먼 퍽 표시)
+use: false           # 11/13 실기: 켜면 손이 퍽 윗부분으로 가 놓침 (시뮬 팔 처짐이 실물보다 커서 보정을 과하게 배움) · 끄면 잘 잡힘 — 실물 처짐에 맞춰 다시 학습하기 전까지 끔
+node: skill_pick_far
+sim_baseline: 78.0      # [%] 학습 없이 기준 동작만 (16384판, 박스 거리 1~5 cm · 퍽 좌우 ±8 cm · 흔들림 켬, 속도 0.3)
+sim_policy: 99.3        # [%] 학습 뒤 — 속도 0.5 (4096판, 박스 각도 ±45° 추가) · 0.6 98.8 · 0.7 97.9 (퍽 270 mm 안쪽은 99.0) · 0.3 92.0 (학습 안 한 속도)
+source: 전승혜 pick_far_by_6600 (pick_far_y에서 이어서, train.py --task pick_far --cfg common_dr=1,far_box_yaw_deg=45,vel_scale_range=0.5:0.7)
+note: 7680대 × 3000번 이어서 학습 (11-13) · 속도 0.5~0.7에서만 학습 → skills.yaml far_contact_vel_scale 0.5~0.7로 · 시뮬만, 실기 미확인

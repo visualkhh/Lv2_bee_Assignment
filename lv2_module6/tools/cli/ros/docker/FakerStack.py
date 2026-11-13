@@ -22,6 +22,7 @@ DEFAULT_CONTAINER = 'lv2_module6'
 # 나머지(진단·카메라·포인트클라우드 등)는 호스트가 input/monitor/*.topics로 동적 요청한다.
 TOPICS = (
     '/state/operation_mode', '/state/map_mode', '/state/map_name', '/state/map_list',
+    '/state/collision',
     '/state/devices', '/state/restartable', '/state/topics', '/state/restart', '/state/emergency',
     '/state/devices/pole_front_cam', '/state/devices/gripper_cam', '/state/devices/opencr',
     '/state/devices/imu', '/state/devices/wheels', '/state/devices/arm', '/state/devices/gripper',

@@ -96,17 +96,30 @@ class CostGrid:
     지도 화면에서 코스트맵을 겹쳐 볼 때만 쓴다.
     """
 
-    def __init__(self, width: int, height: int, res: float, ox: float, oy: float, data):
+    def __init__(self, width: int, height: int, res: float, ox: float, oy: float, data,
+                 frame_id: str = 'map'):
         self.w, self.h, self.res, self.ox, self.oy = width, height, res, ox, oy
         self.data = data
+        self.frame_id = frame_id
+        self.parent = None   # map 기준 (x, y, yaw[rad]) — 이 지도가 다른 프레임(예: odom)일 때 map 좌표로 바꾼다
 
     @classmethod
     def from_msg(cls, m) -> 'CostGrid':
         i = m.info
+        frame = getattr(getattr(m, 'header', None), 'frame_id', '') or 'map'
         return cls(int(i.width), int(i.height), float(i.resolution), float(i.origin.position.x),
-                   float(i.origin.position.y), m.data)
+                   float(i.origin.position.y), m.data, frame)
+
+    def set_parent(self, x: float, y: float, yaw: float) -> None:
+        """이 격자의 프레임 → map 변환 (map 기준 x, y, yaw). local costmap은 odom이라 필요하다."""
+        self.parent = (float(x), float(y), float(yaw))
 
     def code(self, wx: float, wy: float) -> int:
+        if self.parent is not None:   # map → 이 프레임 (역변환)
+            px, py, yaw = self.parent
+            dx, dy = wx - px, wy - py
+            wx = math.cos(yaw) * dx + math.sin(yaw) * dy
+            wy = -math.sin(yaw) * dx + math.cos(yaw) * dy
         c = math.floor((wx - self.ox) / self.res)
         r = math.floor((wy - self.oy) / self.res)
         if not (0 <= c < self.w and 0 <= r < self.h):

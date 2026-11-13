@@ -23,8 +23,12 @@
 //           → <map_dir>/<이름>/nvblox.nvblx 있으면 map:=saved map_name:=<이름>으로 다시 띄움 (nvblox_map이 시작할 때 불러옴 — 위치추정)
 //     출력: ✉️ /state/map_name (std_msgs/String, transient_local) — 지금 쓰는 지도 폴더 이름 (파라미터 map_name = launch가 정한 지도 폴더,
 //           빈 값 = 폴더 없음) → 시뮬레이터 [지도 저장]이 같은 폴더에 map.pgm·yaml
-//   재시작 (실기 bringup · 테스트베드 같은 길 — 예전엔 테스트베드 test-faker 0 셸만 받아서 실기엔 받는 쪽이 없었음)
-//     입력: ✉️ /cmd/restart (std_msgs/String)
+//   충돌 감시 (collision_monitor 켬/끔 — 실제 toggle은 manual_control이 서비스로 수행)
+//     입력: ✉️ /cmd/collision (std_msgs/String "on" | "off" | "auto") — 직접 켬/끔은 모드가 바뀔 때까지 유지
+//     출력: ✉️ /state/collision (std_msgs/String, transient_local) — "on:auto" | "off:auto" | "on:direct" | "off:direct"
+//           auto = MANUAL·MAPPING이면 끔, 그 밖엔 켬. direct = 조작자가 직접 정한 값 (모드 바뀌면 auto로 복귀)
+//           → manual_control이 구독해 collision_monitor toggle 서비스를 호출한다
+//   재시작 (실기 bringup · 테스트베드 같은 길 — 예전엔 테스트베드 test-faker 0 셸만 받아서 실기엔 받는 쪽이 없었음)//     입력: ✉️ /cmd/restart (std_msgs/String)
 //           "node <이름>"         그 노드 프로세스만 — 명령줄·환경·작업 폴더를 /proc에서 그대로 읽어 끄고 같은 것으로 다시 (파라미터 유지)
 //                                 이름 = __node:= 리매핑, 없으면 실행 파일 이름(<이름> · <이름>_node). 이 노드를 띄운 launch 아래에서만 찾음
 //                                 (Nav2 수명주기 노드는 다시 떠도 unconfigured — lifecycle_manager가 다시 활성화해야 함)
@@ -81,6 +85,8 @@ private:
   void publish_map_list();
   void publish(rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub, const std::string & value);
   void request_restart(const std::string & text);
+  void request_collision(const std::string & cmd);
+  void apply_collision(bool force = false);
   void publish_restartable();
   void publish_devices();
   void publish_topics();
@@ -88,6 +94,8 @@ private:
   bool recent(const std::string & key) const;
 
   std::string operation_ = "AUTO", map_mode_, map_name_, map_dir_, map_list_, map_error_;
+  std::string collision_cmd_ = "auto";   // "auto" | "on" | "off" — /cmd/collision
+  std::string collision_ = "";           // 마지막 발행 값 ("on:auto" …)
   std::string restart_prepare_, restart_log_, restart_marker_, restart_registry_, restart_note_, restartable_;
   bool restartable_published_ = false;
   // 연결된 장치·토픽 상태 (/state/devices · /state/topics)
@@ -106,12 +114,13 @@ private:
   bool map_list_published_ = false;
   bool estop_ = false;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr operation_pub_, map_pub_, map_name_pub_, map_list_pub_, restart_pub_, restartable_pub_;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr collision_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr devices_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr topics_pub_;
   rclcpp::TimerBase::SharedPtr map_list_timer_, device_timer_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr estop_pub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr estop_sub_;
-  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr op_req_sub_, map_req_sub_, map_name_sub_, restart_sub_;
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr op_req_sub_, map_req_sub_, map_name_sub_, restart_sub_, collision_sub_;
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_state_sub_;
   rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr front_cam_info_sub_, gripper_cam_info_sub_;
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;

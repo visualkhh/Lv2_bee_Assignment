@@ -3,6 +3,7 @@
   ros2 launch bringup bringup.launch.py
   ros2 launch bringup bringup.launch.py use_ros_system:=false            # 📦 대신 faker 등 다른 입력 (faker.launch.py가 씀)
   ros2 launch bringup bringup.launch.py learning_enabled:=false           # 학습 노드 Δ=0 · 프리셋 A 고정 (비교 기준)
+  ros2 launch bringup bringup.launch.py use_foxglove:=true                # Foxglove 브리지 켬 (기본 false · ws://<로봇>:8765)
 지도 (실기·테스트베드 공통 — 지도 한 벌 = 폴더 하나 <map_dir>/<map_name>/ nvblox.nvblx · map.pgm · map.yaml):
   ros2 launch bringup bringup.launch.py map:=slam                 # 매핑: 새 폴더 <날짜_시각>/ (map_name:=으로 이름 지정, 있는 이름이면 거부)
   ros2 launch bringup bringup.launch.py map:=saved                # 위치추정: 가장 최근 폴더 (기본)
@@ -28,6 +29,7 @@ import subprocess
 import sys
 import time
 
+from ament_index_python.packages import PackageNotFoundError, get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription, OpaqueFunction, SetLaunchConfiguration
 from launch.conditions import IfCondition
@@ -141,10 +143,15 @@ def setup_map(context):
         found = detected_serials() if serial else None
         ug = 'true' if (found is None or serial in found) else 'false'   # 못 알아내면 예전처럼 켬
         if ug == 'false':
-            print(f'WARN: gripper_cam serial {serial} 감지 안 됨 — gripper_cam · gripper_depth_gate · hand_relative를 안 띄움', file=sys.stderr)
+            print(f'WARN: gripper_cam serial {serial} 감지 안 됨 — gripper_cam · hand_relative를 안 띄움', file=sys.stderr)
     # 인지(YOLO 등)는 지도 만들 때(MAPPING) 쓰이지 않는다 — 실기에서는 CPU 코어 하나의 절반을 먹어 주행이 끊겼다 (2026-11-09).
     #   perception:=auto(기본) = 매핑이면 끔 · true/false = 강제. faker 테스트베드(fake_slam)는 그대로 켠다.
     pm = LaunchConfiguration('perception').perform(context).lower()
+    if LaunchConfiguration('use_mission').perform(context).lower() == 'false':
+        pm = 'false'   # 미션을 끄면 인지도 끔 — 아래 use_perception:=true가 다시 켤 수 있다
+    up = LaunchConfiguration('use_perception').perform(context).lower()   # use_perception:=true|false가 perception:=보다 우선 (use_* 인자와 같은 모양)
+    if up in ('true', 'false'):
+        pm = up
     if pm not in ('auto', 'true', 'false'):
         raise RuntimeError(f'perception:={pm} — auto | true | false')
     use_perception = 'false' if (pm == 'false' or (pm == 'auto' and effective == 'slam' and not fake_slam)) else 'true'
@@ -162,11 +169,41 @@ def setup_map(context):
             SetLaunchConfiguration('use_gripper_cam', ug),
             SetLaunchConfiguration('use_hand_relative', 'true' if use_perception == 'true' and ug == 'true' else 'false')]
 
+def foxglove(context):
+    """Foxglove(맥·아이패드 앱)용 WebSocket 브리지 — 기본 끔 (use_foxglove:=true로 켬) · auto: foxglove_bridge가 설치돼 있을 때만 · 접속 ws://<로봇 IP 또는 bee.local>:<foxglove_port>
+    부하: 보는 쪽이 구독한 토픽만 보냄 (아무도 안 붙으면 discovery뿐) — 영상은 볼 때만 열 것"""
+    use = LaunchConfiguration('use_foxglove').perform(context).lower()
+    if use == 'false':
+        return []
+    try:
+        get_package_share_directory('foxglove_bridge')
+    except PackageNotFoundError:
+        if use == 'true':
+            raise RuntimeError('use_foxglove:=true인데 foxglove_bridge가 없음 — sudo apt install ros-lyrical-foxglove-bridge')
+        print('[bringup] foxglove_bridge 없음 — Foxglove 안 띄움 (설치: sudo apt install ros-lyrical-foxglove-bridge)')
+        return []
+    params = {'port': int(LaunchConfiguration('foxglove_port').perform(context)), 'address': '0.0.0.0',
+              'send_buffer_limit': 100_000_000}
+    if LaunchConfiguration('foxglove_tls').perform(context).lower() == 'true':  # wss:// — 아이패드 Safari(https 페이지)가 ws://를 막을 때
+        d = os.path.expanduser('~/.ros/foxglove')
+        if not os.path.exists(f'{d}/cert.pem'):
+            raise RuntimeError(f'foxglove_tls:=true인데 {d}/cert.pem 없음 — start.sh로 띄우면 만들어짐')
+        params.update({'tls': True, 'certfile': f'{d}/cert.pem', 'keyfile': f'{d}/key.pem'})
+    return [Node(package='foxglove_bridge', executable='foxglove_bridge', name='foxglove_bridge', output='screen',
+                 parameters=[params])]
+
+
 def generate_launch_description():
     learning = {'enabled': LaunchConfiguration('learning_enabled')}
     return LaunchDescription([
         DeclareLaunchArgument('use_ros_system', default_value='true',
                               description='false면 ros_system(📦)을 띄우지 않음'),
+        DeclareLaunchArgument('use_mission', default_value='true',
+                              description='false면 미션에 쓰는 것을 모두 안 띄움 — mission_manager · coordinator · skill 노드(arm_skills·base_skills) · 인지(perception_node·signal_decoder·hand_relative) · grasp_scorer. 주행·수동 조작·body_filter는 그대로 (use_perception:=true 등 개별 인자가 우선)'),
+        DeclareLaunchArgument('use_mission_manager', default_value='true',
+                              description='false면 mission_manager를 띄우지 않음 — 도면 벽(/arena/walls)이 /map에 안 겹침 (매핑·주행 시험용, 미션 불가)'),
+        DeclareLaunchArgument('use_perception', default_value='auto',
+                              description='false면 인지 노드(perception_node · signal_decoder · hand_relative)를 안 띄움 · true면 항상 · auto(기본)면 perception:=를 따름 (body_filter는 Nav2용이라 늘 뜸)'),
         DeclareLaunchArgument('use_ml', default_value='true',
                               description='false면 ml 노드(grasp_scorer)를 띄우지 않음'),
         *[DeclareLaunchArgument(f'use_{n}', default_value=LaunchConfiguration('use_ml'),
@@ -193,8 +230,14 @@ def generate_launch_description():
                               description='인지 노드(perception_node · signal_decoder · hand_relative): auto = 매핑(map:=slam)이면 끔 · true = 항상 · false = 항상 끔. body_filter는 Nav2 충돌감시용이라 그대로'),
         DeclareLaunchArgument('fake_slam', default_value='false',
                               description='true = faker SLAM 대역(코스 map_server · fake_cuvslam · fake_nvblox) — ros_system의 진짜 cuVSLAM·nvblox만 끔'),
+        DeclareLaunchArgument('use_foxglove', default_value='false',
+                              description='Foxglove 브리지 — 기본 false(안 띄움) · true: 띄움(없으면 오류) · auto: 설치돼 있으면'),
+        DeclareLaunchArgument('foxglove_port', default_value='8765', description='Foxglove WebSocket 포트 (ws://<로봇>:<이 포트>)'),
+        DeclareLaunchArgument('foxglove_tls', default_value='false',
+                              description='true = wss:// (~/.ros/foxglove/cert.pem·key.pem) — 아이패드 Safari가 https 페이지에서 ws://를 막을 때'),
         *[DeclareLaunchArgument(k, default_value=v, description=d) for k, (v, d) in ROS_SYSTEM_ARGS.items()],
         OpaqueFunction(function=setup_map),
+        OpaqueFunction(function=foxglove),
 
         # GroupAction: ros_system의 launch 인자가 이 파일 인자와 섞이지 않게 범위 분리 — 넘길 것만 골라서
         GroupAction([IncludeLaunchDescription(
@@ -216,17 +259,24 @@ def generate_launch_description():
 
         node('perception', 'perception_node', condition=IfCondition(LaunchConfiguration('use_perception'))),
         # coordinator: 계획 단계를 skill 노드에 맡기는 순서 담당 (적재함 장부 · 모드·비상정지 취소)
-        node('plan', 'coordinator'),
+        node('plan', 'coordinator', condition=IfCondition(LaunchConfiguration('use_mission'))),
         # skill 노드 — 단계마다 액션 서버 /skills/<skill> (팔: arm_skills 컨테이너 · 주행: base_skills). 학습 정책은 skill마다 models/skills/<skill>/
-        #   시작 자세 · 지도 만들 때 스캔 자세(ros_system/config/scan_pose.yaml)는 skill_pose
+        #   시작 자세(stow)는 skill_pose
         GroupAction([IncludeLaunchDescription(
             PythonLaunchDescriptionSource(PathJoinSubstitution([FindPackageShare('skills'), 'launch', 'skills.launch.py'])),
-            launch_arguments={'grasp_check': LaunchConfiguration('grasp_check')}.items())]),
+            launch_arguments={'grasp_check': LaunchConfiguration('grasp_check')}.items())],
+            condition=IfCondition(LaunchConfiguration('use_mission'))),
         # 주사위 미션 — /cmd/mission start로 시작 (abort로 멈춤). 출발 자세만 launch 인자로 덮어씀
-        node('plan', 'mission_manager', condition=IfCondition(PythonExpression(["'", LaunchConfiguration('start_pose'), "' == ''"]))),
+        node('plan', 'mission_manager', condition=IfCondition(PythonExpression(
+            ["'", LaunchConfiguration('use_mission'), "'.lower() == 'true' and '", LaunchConfiguration('use_mission_manager'),
+             "'.lower() == 'true' and '", LaunchConfiguration('start_pose'), "' == ''"]))),
         node('plan', 'mission_manager', {'start_pose_arena': ParameterValue(LaunchConfiguration('start_pose'), value_type=None)},
-             condition=IfCondition(PythonExpression(["'", LaunchConfiguration('start_pose'), "' != ''"]))),
-        *[node('ml', n, learning, condition=IfCondition(LaunchConfiguration(f'use_{n}'))) for n in ML_NODES],
+             condition=IfCondition(PythonExpression(
+                 ["'", LaunchConfiguration('use_mission'), "'.lower() == 'true' and '", LaunchConfiguration('use_mission_manager'),
+                  "'.lower() == 'true' and '", LaunchConfiguration('start_pose'), "' != ''"]))),
+        *[node('ml', n, learning, condition=IfCondition(PythonExpression(
+            ["'", LaunchConfiguration('use_mission'), "'.lower() == 'true' and '", LaunchConfiguration(f'use_{n}'), "'.lower() == 'true'"])))
+          for n in ML_NODES],
         node('control', 'arm_safety_monitor'),
         node('control', 'manual_control'),
         node('perception', 'body_filter'),

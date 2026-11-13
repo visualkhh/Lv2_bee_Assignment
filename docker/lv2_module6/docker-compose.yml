@@ -35,9 +35,9 @@ services:
       - ../../lv2_module6/urdf:/ws/urdf
       # run-cli 도구 (읽기 전용 — 실행 산출물은 /debug/tools/artifacts 로)
       - ../../lv2_module6/tools:/ws/tools:ro
-      # 테스트 지도 (실기 ros2_ws/map과 따로) — fake_nvblox가 /ws/map/<이름>/nvblox.nvblx(FAKESLAM1)·map_saver가 map.pgm·yaml을 씀.
+      # 테스트 지도 (실기 ros2_ws/map과 따로, docker 전용) — fake_nvblox가 /ws/map/<이름>/nvblox.nvblx(FAKESLAM1)·map_saver가 map.pgm·yaml을 씀.
       # default = tools/course/build_world.py가 USD로 만든 완벽한 지도 (커밋) · 나머지는 git 무시 — 컨테이너가 쓰므로 rw
-      - ../../lv2_module6/tools/cli/ros/fake/map:/ws/map
+      - ../../lv2_module6/tools/cli/ros/docker/map:/ws/map
       # 빌드 산출물(build·install·log)은 컨테이너 안 — 호스트 참고용 install 복사본은 빌드 뒤 /debug/install (docker/lv2_module6/build-ws.sh)
       # OpenCR 펌웨어 스케치 + 컴파일 결과(build/, gitignore) — 컨테이너가 빌드 산출물을 쓰므로 rw
       - ../../lv2_module6/firmware:/firmware

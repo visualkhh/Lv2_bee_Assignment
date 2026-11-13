@@ -58,6 +58,7 @@ class StateStore:
         self.param_clients: dict = {}
         # 상시 상태바용 (없으면 0/빈 값으로 표시, 보드 미동작 아님)
         self.tracked_count = 0
+        self.tracked: list = []                  # /tracked_objects 마지막 메시지의 물체들 (보이는 물체 화면 — 인지가 2 s 안 보이면 빼고 보냄)
         self.task_status = ''
         self.rates: dict[str, Rate] = {}  # 상단 생존 표시 — 키는 bars/state/top_state_bar.py TOPIC_RATES
         self.rl_status: list[float] = []  # controller_server FollowPath RL/DWB 상태
@@ -125,8 +126,8 @@ class StateStore:
     def on_joints(self, names, positions, velocities=None, efforts=None):
         self._touch()
         self.tick('joint_states')
-        vels = list(velocities or [])
-        effs = list(efforts or [])
+        vels = [] if velocities is None else list(velocities)
+        effs = [] if efforts is None else list(efforts)
         for i, name in enumerate(names):
             if i < len(positions):
                 self.joints[name] = positions[i]
@@ -193,8 +194,10 @@ class StateStore:
         self.tick('tracked_objects')
         try:
             self.tracked_count = len(objects)
+            self.tracked = list(objects)
         except Exception:
             self.tracked_count = 0
+            self.tracked = []
         counts: dict[str, int] = {}
         for o in objects or ():
             name = getattr(o, 'class_name', '') or '?'
@@ -272,13 +275,28 @@ class StateStore:
             self.slam_jumps += 1
             self.slam_last_jump = (dist, math.degrees(dyaw), time.strftime('%H:%M:%S'))
 
-    def collision_enabled(self) -> str:
-        """manual_control이 마지막으로 반영한 collision_monitor 켬/끔 (진단 값) — 모르면 '-'."""
+    def collision_diag(self) -> str:
+        """manual_control 진단의 원본 값 — /state/collision 이 없을 때의 폴백 (모르면 '-')."""
         for kvs in self.diag_values.values():
             for k, v in kvs:
                 if k == 'collision_monitor':
                     return v
         return '-'
+
+    def collision_enabled(self) -> str:
+        """/state/collision ("on:auto" | "off:auto" | "on:direct" | "off:direct") → 화면 문구.
+        state_manager가 상태의 주인 — manual_control 진단은 옛 스택 폴백으로만 쓴다."""
+        value = self.values.get('collision') or ''
+        if ':' not in value:
+            return self.collision_diag()
+        state, source = value.split(':', 1)
+        on = state == 'on'
+        if on:
+            return '켬 (직접)' if source == 'direct' else '켬 (자동)'
+        if source == 'direct':
+            return '끔 (직접 — 근접 정지 없이 통과)'
+        why = 'MANUAL' if self.values.get('operation_mode') == 'MANUAL' else 'MAPPING'
+        return f'끔 ({why} — 근접 정지 없이 통과)'
 
     # ---------------------------------------------------------------- 파생
     def device_info(self, name: str) -> tuple[str, str, list[str]]:

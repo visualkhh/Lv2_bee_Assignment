@@ -46,6 +46,10 @@ constexpr uint32_t STATE_PERIOD_MS = 10;              // S 상태 송신 주기 
 constexpr uint32_t MOTOR_CHECK_MS = 500;              // 모터 토크 확인 주기 — 12V를 껐다 켜 토크가 풀린 모터를 다시 켠다 · E 줄 · 모터 온도 읽기도 이 주기
 constexpr uint32_t MOTOR_RETRY_MS = 1000;             // 부팅 때 응답 없던 모터(12V 꺼짐 등) 다시 찾는 주기
 constexpr uint32_t RECOVER_PROFILE_VELOCITY = 20;     // 토크를 다시 켠 팔 관절이 명령 자세로 돌아갈 때 속도 한계 (× 0.229 rpm ≈ 0.48 rad/s)
+// 팔 관절 Position D 게인 (joint1~5, 0 = 쓰지 않음 = 서보 값 그대로, XM430 기본 0)
+//   joint1: 팔 접은 look 자세에서 5.8 Hz ±3.5 tick 공진 (2026-11-10 실측, P 800·D 0) → 감쇠 시험 (300은 효과 없음)
+constexpr uint16_t ARM_POSITION_D_GAIN[] = {1500, 0, 0, 0, 0};
+constexpr float GOAL_HYSTERESIS_RAW = 0.8f;          // 팔·그리퍼 목표를 바꾸는 최소 변화 [tick] — 정지 중 반올림 경계 떨림 방지 (0.8 tick ≈ 0.07°)
 constexpr float RECOVER_DONE_RAD = 0.05f;             // 명령 자세에 이만큼 가까워지면 속도 한계 해제
 constexpr uint32_t RECOVER_TIMEOUT_MS = 10000;        // 못 가도 이 시간 뒤엔 해제
 constexpr uint32_t REBOOT_WAIT_MS = 1000;             // R(모터 재부팅) 후 응답 기다리는 최대 시간
@@ -53,6 +57,7 @@ constexpr uint32_t REBOOT_WAIT_MS = 1000;             // R(모터 재부팅) 후
 // ---- DYNAMIXEL X 시리즈 컨트롤 테이블 (XM430-W350, Protocol 2.0)
 constexpr uint16_t ADDR_TORQUE_ENABLE = 64;
 constexpr uint16_t ADDR_HARDWARE_ERROR = 70;         // bit0 입력전압 · bit2 과열 · bit3 엔코더 · bit4 전기충격 · bit5 과부하 — Reboot로만 풀림
+constexpr uint16_t ADDR_POSITION_D_GAIN = 80;         // 2 byte, RAM (KD = 값/16)
 constexpr uint16_t ADDR_PROFILE_VELOCITY = 112;
 constexpr uint16_t ADDR_GOAL_VELOCITY = 104;
 constexpr uint16_t ADDR_GOAL_POSITION = 116;

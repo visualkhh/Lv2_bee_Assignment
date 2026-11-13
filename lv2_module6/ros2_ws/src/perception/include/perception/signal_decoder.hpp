@@ -16,9 +16,14 @@
 //       - min_off_s보다 짧은 꺼짐(모델이 한두 프레임 놓침)은 구간 안 — 진짜 점멸 사이 꺼짐은 1초
 //       - min_on_s보다 짧은 켜짐 구간은 잡음 — 버리고 꺼짐 시간도 이어서 잼 (3초 꺼짐 중 잡음이 사이클 경계를 지우지 않게)
 //     마지막 켜짐 뒤 꺼짐(신호등 안 보임 포함)이 gap_s 넘게 이어지면 사이클 끝 — 점멸 사이 꺼짐(1초)과 사이클 사이 꺼짐(3초)을 가름
-//     노드가 켜진 뒤 첫 사이클 끝 전의 조각은 버림 (사이클 중간부터 봤을 수 있음)
-//     사이클마다 검사: blinks개인가 · 모르는 색 없나 · 각 색 min_count~max_count인가 → 맞으면 같은 답 연속 횟수를 세고
-//     confirm번 연속 같으면 ok=true (반복 신호 — 한 번 놓치거나 두 번 센 답을 거름)
+//     사이클 끝 앞에서 끊긴 조각(blinks개 미만 — 중간부터 봄 · 놓쳐서 생긴 긴 꺼짐)은 그 사이클의 뒷부분으로 보관(tail_)
+//       → 다음 사이클 앞부분 점멸이 들어와 앞부분 + 보관한 뒷부분 = blinks개가 되면 그 순간 검사 (사이클 끝까지 안 기다림)
+//       예: 3번째를 놓침 → [1 2] (가짜 끝) · [4..12] (진짜 끝 — 보관 교체) · 다음 [1 2 3] → 1 2 3 + 4..12 = 12개
+//       가짜 끝(사이클 중간에 놓쳐 생긴 긴 꺼짐) 뒤 조각은 같은 사이클 나머지라 합이 blinks개가 못 되고, 다음 진짜 끝에서 보관이 바뀜
+//       보관 조각 끝 ~ 다음 첫 켜짐이 tail_gap_max_s보다 길면 버림 — 사이클 사이 소등은 3초, 끝(12번째)이나 처음(1번째)을
+//       놓치면 5초 이상이라 자리를 모름 (예: 12번째를 놓친 1..11을 2..12로 오인하지 않게) · 신호등이 멈췄다 다시 켜진 경우도
+//     검사: blinks개인가 · 모르는 색 없나 · 각 색 min_count~max_count인가 → 맞으면 같은 답 연속 횟수를 세고
+//     confirm번 연속 같으면 ok=true (기본 1 — 12개를 한 번 다 보면 확정, 실기 11-12)
 //     /mission/signal은 새 답이 확정될 때만 (받을 때마다 mission_manager가 다시 계획함). 사이클마다 결과는 /mission/signal_status · 로그(WARN) · 진단
 #include <map>
 #include <string>
@@ -42,10 +47,16 @@ struct SignalParams {
   int blinks = 12;              // 한 사이클 점멸 수 (발제: 12회)
   int min_count = 1;            // 색별 횟수 하한 (발제: 각 1~6회)
   int max_count = 6;            // 색별 횟수 상한
-  int confirm = 2;              // 같은 답이 이만큼 연달아 나와야 ok (반복 신호)
+  double tail_gap_max_s = 4.5;  // 보관한 뒷부분 끝 ~ 다음 사이클 첫 켜짐이 이보다 길면 안 합침 [s] (정상 3초 · 한 칸 놓치면 5초)
+  int confirm = 1;              // 같은 답이 이만큼 연달아 나와야 ok (1 = 12개를 한 번 다 보면 확정)
 };
 
 // 신호등 상태 샘플을 시간 순으로 받아 사이클별로 해석 (ROS 없이 — 테스트용으로 따로)
+// 신호등 상태 하나 고르기 — lights = (마지막 본 시각 [s], 색) 목록. max_age_s 안에 본 것 중 켜진 것(red·yellow·green·all)이
+//   있으면 그중 가장 최근 색, 없으면 가장 최근 것의 색, 아무것도 없으면 "" (안 보임 = 꺼짐으로 셈).
+//   11/13 젯슨: 신호등이 트랙 둘로 갈려 꺼진 쪽(off)을 따라가다 깜빡임 사이 1초 꺼짐이 3초 소등처럼 보여 사이클이 끊김
+std::string light_state(const std::vector<std::pair<double, std::string>> & lights, double now_s, double max_age_s);
+
 class SignalDecoder {
 public:
   explicit SignalDecoder(SignalParams p = {});
@@ -56,7 +67,7 @@ public:
 private:
   std::string blink_color() const;
   bool boundary(MissionSignal & out);
-  void check(MissionSignal & out);
+  void check(MissionSignal & out, const std::vector<std::string> & seq);
 
   SignalParams p_;
   bool in_on_ = false;                        // 켜진 구간 안 (짧은 꺼짐 포함)
@@ -66,8 +77,9 @@ private:
   double off_since_ = -1.0;                   // 꺼짐이 시작된 시각 = 마지막 점멸의 마지막 켜짐 샘플 (음수 = 아직 샘플 없음)
   double off_since_saved_ = -1.0;             // 켜진 구간이 시작되기 전 off_since_ — 잡음이면 되돌림
   bool marked_ = false;                       // 이번 꺼짐 구간이 이미 사이클 끝으로 처리됨
-  bool started_ = false;                      // 사이클 끝을 한 번이라도 봤음 — 그 전 조각은 중간부터 본 것이라 버림
   std::vector<std::string> seg_;              // 지금 사이클의 점멸 (red | yellow | green | unknown)
+  std::vector<std::string> tail_;             // 사이클 끝 앞에서 끊긴 조각 = 그 사이클 뒷부분 (다음 사이클 앞부분과 합쳐 blinks개)
+  double tail_end_ = 0.0;                     // 보관 조각 마지막 켜짐 시각 [s]
   std::string last_raw_;                      // 직전 정상 사이클의 답 (raw)
   int same_ = 0;                              // 같은 정상 답 연속 횟수
 };

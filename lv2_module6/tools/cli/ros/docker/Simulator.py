@@ -22,7 +22,7 @@ CLI = Path(__file__).resolve().parents[2]      # tools/cli
 ROOT = CLI.parents[1]                          # lv2_module6
 SIM_DIR = Path(__file__).resolve().parent / 'vazebo'
 SIM_MAIN = SIM_DIR / 'simple.py'   # 없으면 main.py로 폴백
-SIM_PY = Path(__file__).resolve().parent / '.venv' / 'bin' / 'python'
+SIM_PY = CLI.parent / '.venv' / 'bin' / 'python'   # tools/.venv (setting-venv.sh가 만든다)
 LOG = Path.home() / '.cache' / 'beebot' / 'simulator.log'
 PID_ENV = 'BEEBOT_SIM_PID'
 ASSETS = Path(__file__).resolve().parent / 'assets'
@@ -85,7 +85,7 @@ class Simulator:
             return self
         if not SIM_PY.is_file():
             print(f'[sim] 시뮬레이터 venv 없음: {SIM_PY}\n'
-                  '      cd lv2_module6/simulators && ./setting-venv.sh', file=sys.stderr)
+                  '      cd lv2_module6/tools && ./setting-venv.sh', file=sys.stderr)
             return self
         if sys.platform.startswith('linux') and not (
                 os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY')):

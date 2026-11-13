@@ -4,6 +4,7 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <sstream>
 #include <vector>
@@ -56,6 +57,7 @@ StateManager::StateManager(const rclcpp::NodeOptions & options)
   map_pub_ = create_publisher<std_msgs::msg::String>("/state/map_mode", latched);
   map_name_pub_ = create_publisher<std_msgs::msg::String>("/state/map_name", latched);
   map_list_pub_ = create_publisher<std_msgs::msg::String>("/state/map_list", latched);
+  collision_pub_ = create_publisher<std_msgs::msg::String>("/state/collision", latched);
   restart_pub_ = create_publisher<std_msgs::msg::String>("/state/restart", latched);
   restartable_pub_ = create_publisher<std_msgs::msg::String>("/state/restartable", latched);
   restartable_timer_ = create_wall_timer(std::chrono::seconds(2), [this]() { publish_restartable(); });
@@ -113,9 +115,13 @@ StateManager::StateManager(const rclcpp::NodeOptions & options)
     [this](std_msgs::msg::String::ConstSharedPtr m) { request_map_name(m->data); });
   restart_sub_ = create_subscription<std_msgs::msg::String>("/cmd/restart", rclcpp::QoS(1).reliable(),
     [this](std_msgs::msg::String::ConstSharedPtr m) { request_restart(m->data); });
+  collision_cmd_ = declare_parameter<std::string>("collision", collision_cmd_);
+  collision_sub_ = create_subscription<std_msgs::msg::String>("/cmd/collision", rclcpp::QoS(1).reliable(),
+    [this](std_msgs::msg::String::ConstSharedPtr m) { request_collision(m->data); });
   publish(operation_pub_, operation_);
   publish(map_pub_, map_mode_);
   publish(map_name_pub_, map_name_);
+  apply_collision(true);
   publish_map_list();
   restart_note_ = "시작 (pid " + std::to_string(getpid()) + ")";
   publish(restart_pub_, restart_note_);
@@ -137,6 +143,7 @@ StateManager::StateManager(const rclcpp::NodeOptions & options)
     else s.summary(DiagnosticStatus::OK, operation_ + " · " + map_mode_ + (map_name_.empty() ? "" : " · " + map_name_));
     s.add("조작 모드", operation_);
     s.add("지도 모드", map_mode_);
+    s.add("충돌 감시", collision_);
     s.add("지도 폴더", map_name_.empty() ? "-" : map_name_);
     s.add("지도 경로", map_dir_.empty() ? "-" : map_dir_);
     s.add("비상정지", estop_ ? "ON" : "-");
@@ -176,6 +183,31 @@ void StateManager::set_operation_mode(const std::string & mode) {
   operation_ = mode;
   RCLCPP_WARN(get_logger(), "조작 모드 → %s", operation_.c_str());
   publish(operation_pub_, operation_);
+  collision_cmd_ = "auto";   // 모드가 바뀌면 직접 지정은 끝 — 자동 규칙으로
+  apply_collision();
+}
+
+void StateManager::request_collision(const std::string & cmd) {
+  std::string v;
+  for (char c : cmd) v += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  if (v != "on" && v != "off" && v != "auto") {
+    RCLCPP_WARN(get_logger(), "충돌 감시 요청 '%s' 모름 (on | off | auto)", cmd.c_str());
+    return;
+  }
+  collision_cmd_ = v;
+  RCLCPP_WARN(get_logger(), "충돌 감시 요청 %s", v.c_str());
+  apply_collision();
+}
+
+void StateManager::apply_collision(bool force) {
+  // auto = 수동 조작·지도 만드는 중이면 끔, 그 밖엔 켬. direct = 조작자가 정한 값 (모드 바뀌면 auto로 복귀)
+  const bool auto_off = operation_ == "MANUAL" || map_mode_ == "MAPPING";
+  const std::string state = collision_cmd_ == "auto" ? (auto_off ? "off" : "on") : collision_cmd_;
+  const std::string source = collision_cmd_ == "auto" ? "auto" : "direct";
+  const std::string value = state + ":" + source;
+  if (!force && value == collision_) return;
+  collision_ = value;
+  publish(collision_pub_, value);
 }
 
 void StateManager::request_map_mode(const std::string & mode) {

@@ -90,6 +90,8 @@ public:
                     double open_m = GRIPPER_OPEN_M, bool lift_on_empty = false);
 
   // ---------- 보정 · 입력
+  // 닿는 구간을 contact_step 없이 직접 짜는 skill(pick_far)용 — run_id를 하나 올림 (rl_arm_correction이 처짐 적분·Δ·행동 기록을 0부터)
+  void new_run() { ++run_; }
   void skill_ctx(const SkillModel * policy, uint8_t phase, bool holding, bool live, const Q5 & above, const Q5 & down);
   void ctx_off();
   // hand_relative에 무엇을 잴지 (puck: 퍽 태그 · cell: 칸 가운데 map · slot: 적재함 칸 · none)

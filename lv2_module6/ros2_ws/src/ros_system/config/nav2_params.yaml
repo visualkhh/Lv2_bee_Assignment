@@ -84,26 +84,34 @@ controller_server:
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
       # 이 거리(m) 이상 움직여야 "진행 중"으로 본다. (실측)
-      required_movement_radius: 0.3
+      # 0.3은 좁은 미로의 마지막 접근(남은 거리 < 0.3)에서 10초마다 105를 냈다 — 0.15로 낮춘다.
+      required_movement_radius: 0.15
       # 이 시간(초) 안에 위 거리만큼 못 움직이면 막힘 → 컨트롤러 실패 → BT가 복구(Spin·BackUp·Wait).
-      movement_time_allowance: 10.0
+      movement_time_allowance: 15.0
 
     # 도착 판단 — 목표 위치·방향 허용 오차 안에 들어오면 성공.
     goal_checker:
       plugin: "nav2_controller::SimpleGoalChecker"
       # true면 위치(xy)를 한 번 만족한 뒤엔 기억하고 방향(yaw)만 맞춘다.
       # false면 매 순간 위치·방향을 둘 다 만족해야 한다 — 허용 오차가 좁으면(0.10) 제자리 회전 중
-      #   위치가 살짝 벗어나 도착 판정이 늦어지거나 흔들릴 수 있다. 실기에서 보고 true로 바꿀지 결정.
-      stateful: false
+      #   위치가 살짝 벗어나 도착 판정이 늦어지거나 흔들릴 수 있다.
+      # true (2026-11-12): 실기에서 웨이포인트 근처를 빙빙 돌다 105(진행 못 함)가 났다 — 방향 맞추다 위치가 10 cm 밖으로 밀리는 되풀이를 끊는다.
+      #   안 나아지면 false로 되돌리고(이 줄만) 위치 흔들림(cuVSLAM 보정 잠금)을 본다.
+      stateful: true
       # 목표 위치 허용 오차(m). 퍽 앞 접근 정확도 — 팔 도달 범위가 좁아 기본 0.25보다 작게 (00-overview "도달 범위 주의"). (실측)
-      xy_goal_tolerance: 0.10
-      # 목표 방향 허용 오차(rad). 0.15 ≈ 8.6°. (실측)
-      yaw_goal_tolerance: 0.15
+      # 0.10은 좁은 미로에서 벽/inflation에 막혀 12 cm 앞에서 105가 났다 — 0.15로 넓힌다.
+      xy_goal_tolerance: 0.15
+      # 목표 방향 허용 오차(rad). 0.25 ≈ 14.3°. (실측)
+      yaw_goal_tolerance: 0.25
     # through-poses 기본 BT의 GoalCheckerSelector가 찾는 이름 — 값은 goal_checker와 같게.
     general_goal_checker:
       plugin: "nav2_controller::SimpleGoalChecker"
-      stateful: false
-      xy_goal_tolerance: 0.10
+      stateful: true     # goal_checker와 같게 (위 설명)
+      # through-poses 웨이포인트는 정밀 접근이 아니라 통과 지점이다. 0.10은 너무 좁아
+      # collision_monitor가 벽 앞에서 0.11 m 남기고 멈추면 영원히 도착 판정이 안 났다
+      # (2026-11-12 테스트베드: 최종점 0.11 m 앞에서 스핀 복구만 7회 반복 → 105).
+      # 단일 goal(g)은 goal_checker(0.15/0.25), through(G)는 이 값(0.20/0.15)을 쓴다.
+      xy_goal_tolerance: 0.20
       yaw_goal_tolerance: 0.15
 
     # 경로 추종 플러그인 — ml::RlNavController (RL 정책, ONNX) + inner 바이패스
@@ -183,7 +191,7 @@ controller_server:
         # TF가 이 시간(초)까지 늦어도 허용.
         transform_tolerance: 0.2
         # critics가 "목표 근처"를 판단하는 거리. goal_checker의 xy_goal_tolerance와 같게.
-        xy_goal_tolerance: 0.10
+        xy_goal_tolerance: 0.15
         # 이 속도(m/s)보다 느리면 "멈춘 상태"로 본다 (RotateToGoal이 제자리 회전을 시작하는 조건).
         trans_stopped_velocity: 0.25
         # 이미 최고점보다 나빠진 후보는 남은 critic 계산을 건너뛴다 (계산 절약).
@@ -333,7 +341,8 @@ controller_server:
 # ═════════════════════════════════════════════════════════════════════════════
 
 # ─────────────────────────────────────────────────────────────────────────────
-# planner_server — map 위 전역 경로(/plan). NavFn A* (use_astar) — 목표 쪽으로 거리 추정을 더해 Dijkstra보다 덜 펼쳐 찾음.
+# planner_server — map 위 전역 경로(/plan). SmacPlanner2D — NavFn과 달리 footprint(로봇 몸) 충돌을 검사한다.
+#   NavFn은 로봇을 점으로 보고 팽창 비용만 보므로 벽 모서리에 몸을 붙여 지나갔다 (실측).
 #   이름 GridBased = 기본 BT(navigate_to_pose_w_replanning_and_recovery)가 부르는 planner_id
 # ─────────────────────────────────────────────────────────────────────────────
 planner_server:
@@ -341,11 +350,19 @@ planner_server:
     expected_planner_frequency: 5.0
     planner_plugins: ["GridBased"]
     GridBased:
-      plugin: "nav2_navfn_planner::NavfnPlanner"
+      plugin: "nav2_smac_planner::SmacPlanner2D"
+      # 비용 가중치 — 클수록 벽에서 떨어진(비용 낮은) 칸을 고른다. 1.0이면 모서리에 붙고,
+      # 실측(같은 경로): 1.0 평균 여유 0.424m · 5.0 0.461m (하위 10% 0.220 → 0.293m)
+      cost_travel_multiplier: 5.0
       # 목표가 벽·팽창 영역 안이면 이 거리(m)까지 가까운 빈 곳으로 대신 감 (퍽 앞 접근 자세가 벽에 붙을 때)
       tolerance: 0.20
-      use_astar: true        # A* (false = Dijkstra). 둘 다 최단 경로 — A*는 탐색 칸이 적어 계획이 빠름
+      downsample_costmap: false
+      downsampling_factor: 1
       allow_unknown: true
+      max_iterations: 1000000
+      max_on_approach_iterations: 1000
+      terminal_checking_interval: 5000
+      use_final_approach_orientation: false
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -397,8 +414,10 @@ local_costmap:
       # 로봇 외곽 = 실제 몸 직사각형 (base_footprint 기준 [m]: 앞 0.069 · 뒤 -0.245 · 옆 ±0.151 — beebot.usda 충돌 도형,
       #   faker/config/robot_footprint.yaml과 같은 값). 기준점이 앞 바퀴축 쪽이라 몸이 뒤로 길다 → 원(0.16)은 뒤를 0.13 m 덜 봐서
       #   경로가 벽에 붙고 제자리 회전 때 뒤가 벽에 걸렸다 (테스트베드 실측 2026-11-11: 105 반복·Spin "Collision Ahead").
+      #   padding 0.01은 컨트롤러 추종 오차로 상쇄돼 뒤 모서리가 벽 픽셀에 닿았다 → 0.06으로
+      #   fake_opencr 충돌("막힘 bumped") 없이 지나가게 (2026-11-12: (0.97,-1.46) 뒤 모서리 (1.253,-1.513) 벽).
       footprint: "[[0.069, 0.151], [0.069, -0.151], [-0.245, -0.151], [-0.245, 0.151]]"
-      footprint_padding: 0.01
+      footprint_padding: 0.06
       always_send_full_costmap: true
       plugins: ["voxel_layer", "inflation_layer"]
       voxel_layer:
@@ -446,8 +465,10 @@ global_costmap:
       # 로봇 외곽 = 실제 몸 직사각형 (base_footprint 기준 [m]: 앞 0.069 · 뒤 -0.245 · 옆 ±0.151 — beebot.usda 충돌 도형,
       #   faker/config/robot_footprint.yaml과 같은 값). 기준점이 앞 바퀴축 쪽이라 몸이 뒤로 길다 → 원(0.16)은 뒤를 0.13 m 덜 봐서
       #   경로가 벽에 붙고 제자리 회전 때 뒤가 벽에 걸렸다 (테스트베드 실측 2026-11-11: 105 반복·Spin "Collision Ahead").
+      #   padding 0.01은 컨트롤러 추종 오차로 상쇄돼 뒤 모서리가 벽 픽셀에 닿았다 → 0.06으로
+      #   fake_opencr 충돌("막힘 bumped") 없이 지나가게 (2026-11-12: (0.97,-1.46) 뒤 모서리 (1.253,-1.513) 벽).
       footprint: "[[0.069, 0.151], [0.069, -0.151], [-0.245, -0.151], [-0.245, 0.151]]"
-      footprint_padding: 0.01
+      footprint_padding: 0.06
       resolution: 0.05
       track_unknown_space: true
       always_send_full_costmap: true

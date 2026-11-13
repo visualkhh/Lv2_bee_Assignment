@@ -1,4 +1,4 @@
-# nvblox (SLAM 지도) — depth 2대 + TF(map→카메라) → TSDF → 2D 점유 격자 → nvblox_map이 /map으로
+# nvblox (SLAM 지도) — depth (pole_front_cam) + TF(map→카메라) → TSDF → 2D 점유 격자 → nvblox_map이 /map으로
 # 기준: Isaac ROS 5.0 nvblox_examples_bringup config/nvblox/nvblox_base.yaml · specializations/nvblox_multi_realsense.yaml
 #   (적힌 것만 덮어씀 — 나머지는 nvblox 기본값). 값을 바꾸면 실기에서 /map · ~/mesh(RViz)로 확인
 nvblox_node:
@@ -7,7 +7,7 @@ nvblox_node:
     #   ponytail: cuVSLAM 루프 클로저로 map→odom이 튀면 이미 쌓은 복셀은 안 옮겨짐 — 튐이 크면 global_frame odom + 격자만 map으로 옮기는 방식 검토
     global_frame: map
     use_tf_transforms: true
-    num_cameras: 2                 # camera_0 = pole_front_cam (늘) · camera_1 = gripper_cam (스캔 자세일 때만 — 아니면 depth 전부 0)
+    num_cameras: 1                 # camera_0 = pole_front_cam — gripper_cam은 스캔 자세가 없어져(11-09) 지도에 안 넣음
     voxel_size: 0.05               # [m] Nav2 costmap 해상도와 같게 (퍽 60 mm는 지도 대상 아님 — 인지가 따로)
     mapping_type: "dynamic"
     esdf_mode: "2d"

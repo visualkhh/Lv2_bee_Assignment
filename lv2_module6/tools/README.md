@@ -12,6 +12,7 @@ tools/
 ├── run-rviz         # start|stop|restart 실행기 (기본 start)
 ├── bag/             # rosbag 기록 (record.sh · snap_on_fail.py)
 ├── course/          # Isaac USD → faker/world 지도 (build_map_usd.py)
+├── foxglove/        # Foxglove 레이아웃 (맥·아이패드 — bringup의 foxglove_bridge에 붙음)
 ├── rviz/
 │   ├── start.sh     # RVIZ_CONFIG=operator(기본)·light·mapping
 │   ├── stop.sh
@@ -66,6 +67,19 @@ cd tools
 ```
 
 저장: `~/.cache/beebot/bags/<날짜시각>_<라벨>/` — `*.mcap` + `metadata.yaml` + **`sys.csv`**(1초마다: load1 · cpu_pct · mem_avail_mb · swap_used_mb · gpu_pct · 메모리 큰 프로세스 6개) + `tegrastats.log`(Jetson). 부하 기록기는 `tools/bag/sysmon.py`(표준 라이브러리만, 단독 실행 가능). 시험: `python3 tools/cli/tests/test_bagrec.py`.
+
+### 실기 액션별 계측 runner
+
+`tools/field-test.py`는 센서 확인·저속 wheel probe·Coordinator 단일 skill·MissionManager 미션을 rosbag과 append-only `events.jsonl`로 함께 기록한다. 실행 전 E-stop, mission phase, coordinator, 물체 ID와 skill별 조건을 확인하고, 각 이동 단계마다 별도 입력 확인을 요구한다.
+
+```bash
+./tools/field-test.py run --label perception-cpp
+./tools/field-test.py run --include-camera-data --label perception-cpp   # color/depth/카메라 정보/YOLO 결과도 기록
+./tools/field-test.py run --baseline ~/bee_bags/full_xxx --label perception-cpp-after
+./tools/field-test.py run --attach-active
+```
+
+기본 bag에는 액션·상태·TF·진단·tracked objects를 기록한다. perception 디버깅에서 `--include-camera-data`를 주면 양쪽 카메라의 color/depth와 camera_info, YOLO detections/debug image도 포함한다. 원시 영상은 저장 공간과 Jetson 부하를 크게 늘리므로 짧은 시험 구간에만 켠다. 기존 bag은 baseline으로 읽기 전용 비교에 쓰며, `--attach-active`는 현재 recorder를 중지하지 않는다. 결과는 `~/.cache/beebot/bags/`와 `~/.cache/beebot/field-tests/`에 저장된다.
 
 `start`는 기본값으로 **`ROS_DOMAIN_ID=88` + `ros2_ws/fastdds_local_only.xml`(SHM 전용)** 을 쓴다 — DDS가 기기 밖으로 나가지도 들어오지도 않는다. 셸의 `FASTDDS_DEFAULT_PROFILES_FILE` · `ROS_DOMAIN_ID`를 지정하면 그 값이 우선한다 (PC에서 볼 때는 `fastdds.xml`).
 
@@ -319,7 +333,7 @@ cd tools
   TUI **7) 지도 → 6) 지도 저장**도 같은 확인창을 띄웁니다.
   기본 경로는 `<state_manager의 map_dir>/<현재 지도 이름>/map` — map_saver가 도는 쪽(로봇·컨테이너) 경로라 원격 PC에서 CLI를 써도 맞습니다.
   `map_dir`을 못 읽으면 이 컴퓨터의 `ros2_ws/map`(또는 `BEEBOT_MAP_DIR`). `--file` · `--map-dir`는 그대로 씁니다.
-- **테스트 지도 폴더는 따로** — `--source fake`·`--source docker`는 `tools/cli/ros/fake/map/`을 씁니다 (도커는 compose가 `/ws/map`으로 바인드 · `BEEBOT_MAP_DIR`을 주면 그게 우선). 실기 지도(`ros2_ws/map`)와 섞이지 않습니다.
+- **테스트 지도 폴더는 따로** — `--source fake`는 `tools/cli/ros/fake/map/`, `--source docker`는 `tools/cli/ros/docker/map/`을 씁니다 (도커는 compose가 `/ws/map`으로 바인드 · `BEEBOT_MAP_DIR`을 주면 그게 우선). 실기 지도(`ros2_ws/map`)와 섞이지 않습니다.
   `default` = `tools/course/build_world.py`가 Isaac 미로 USD로 만든 **완벽한 지도**(벽 100 · 미로 안 0 · 밖 미지)라 매핑 없이 바로 `map switch default` → LOCALIZATION 주행 시험. 커밋되는 건 `default`만입니다.
 
 ### 노드 (상태 · 파라미터 · 진단 · 재시작)

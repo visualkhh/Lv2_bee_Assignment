@@ -179,6 +179,17 @@ def _rgb(c):
     return (r / 255.0, g / 255.0, b / 255.0)
 
 
+def _robot_rgb(c, tint=None):
+    """로봇 링크 색 — tint(BGR)가 있으면 그 색으로, 원래 밝기(luma)로 명암만 남긴다."""
+    if tint is None:
+        return _rgb(c)
+    b, g, r = c if not isinstance(c, str) else scene.PALETTE.get(c, (128, 128, 128))
+    lum = (0.114 * b + 0.587 * g + 0.299 * r) / 255.0
+    k = 0.55 + 0.65 * min(1.0, lum)   # 0.55(어두운 부품) ~ 1.2(밝은 부품)
+    tb, tg, tr = tint
+    return tuple(min(1.0, (v / 255.0) * k) for v in (tr, tg, tb))   # 셰이더는 RGB
+
+
 class WorldGL:
     def __init__(self):
         self.ctx = moderngl.create_standalone_context()
@@ -232,7 +243,8 @@ class WorldGL:
         prog['color'].value = color
         vao.render()
 
-    def render(self, sim, cam, debug_dir=None):
+    def render(self, sim, cam, debug_dir=None, robot_tint=None):
+        """robot_tint = (B, G, R) 이면 로봇 링크를 그 색 계열로 칠한다 (원래 밝기로 명암 유지)."""
         cam.sync(sim)
         view = _look_at(cam.eye(), cam.target)
         eye = np.asarray(cam.eye(), np.float32)
@@ -288,10 +300,10 @@ class WorldGL:
             for link, To, (sx, sy, sz), rgb in sim.body.boxes:
                 T = twb @ sim.kin.pose(link, q) @ To
                 m = T @ np.diag([sx / 2, sy / 2, sz / 2, 1.0]).astype(np.float32)
-                self._draw(self.cube, self.proj @ view @ m, m, _rgb(rgb))
+                self._draw(self.cube, self.proj @ view @ m, m, _robot_rgb(rgb, robot_tint))
             for link, To, tris, rgb in sim.body.meshes:
                 T = twb @ sim.kin.pose(link, q) @ To
-                self._draw(self._robot_vao(tris), self.proj @ view @ T, T, _rgb(rgb))
+                self._draw(self._robot_vao(tris), self.proj @ view @ T, T, _robot_rgb(rgb, robot_tint))
 
         self.ctx.finish()
         raw = self.fbo.read(components=3, alignment=1)

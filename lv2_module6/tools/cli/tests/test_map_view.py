@@ -295,10 +295,21 @@ pg.goals = [{'x': 0.0, 'y': 0.0}]
 assert pg._extra_key('x')
 assert pg._plans == {'plan': None, 'local_plan': None}, pg._plans
 assert pg._waypoints is None and not pg.plan_on and pg._canceled, (pg._waypoints, pg.plan_on, pg._canceled)
-assert pg.goals and not pg._show_goals, (pg.goals, pg._show_goals)   # 목록은 남기고 지도 표시만 숨김
+assert not pg.goals, pg.goals   # 목록까지 비운다 — 다음 Enter에서 이전 점이 되살아나면 안 됨
 assert '취소' in pg.msg, pg.msg
 
-# Backspace = 마지막 웨이포인트 취소 — 취소 뒤에도 목록이 남아 있어 바로 고칠 수 있다
+# x 다음에 Enter로 한 점만 찍으면 목록은 그 한 점뿐이다 (이전 웨이포인트가 다시 나타난 버그 회귀)
+pg2 = MapPage.__new__(MapPage)
+pg2.view = MapView(g3, color=False)
+pg2.mode, pg2.snap, pg2.yaw, pg2.msg = 'goal', False, 0.0, ''
+pg2.goals, pg2._canceled, pg2._show_goals = [{'x': 9.0, 'y': 9.0}, {'x': 8.0, 'y': 8.0}], False, True
+pg2.bus = pg.bus
+pg2._plans, pg2._waypoints, pg2.plan_on = {'plan': None, 'local_plan': None}, None, False
+assert pg2._extra_key('x') and not pg2.goals
+pg2.pick()
+assert len(pg2.goals) == 1 and pg2._show_goals, pg2.goals
+
+# Backspace = 마지막 웨이포인트 취소
 pg.goals = [{'x': 0.0, 'y': 0.0}, {'x': 1.0, 'y': 0.0}]
 pg._show_goals, pg.msg = False, ''
 assert pg._extra_key('backspace')

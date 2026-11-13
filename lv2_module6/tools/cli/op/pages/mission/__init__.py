@@ -7,7 +7,13 @@
 from __future__ import annotations
 
 import argparse
+import os
+import shlex
+import shutil
+import subprocess
+import sys
 import time
+from pathlib import Path
 
 from ...defs import STAY
 from ...menus import ActionItem, GoMenu, Menu, MenuItem
@@ -131,7 +137,7 @@ class MissionCmdItem(MenuItem):
 SKILLS = [
     ('1', 'navigate', '이동', ['물체 id 또는 "x,y[,yaw]" (map 좌표)'], '1.5,0.8,0'),
     ('2', 'approach', '박스 앞 직선 접근', ['"x,y,yaw" (map) — 박스 앞 마지막 몇 cm를 저속 직선'], '1.5,0.8,0'),
-    ('3', 'pose', '팔 자세', ['stow · carry_left · carry_right · scan · look'], 'stow'),
+    ('3', 'pose', '팔 자세', ['stow · carry_left · carry_right · gaze · look'], 'stow'),
     ('4', 'inspect', '퍽 보기 (태그 읽기)', ['퍽 id 또는 "x,y,z"'], '5'),
     ('5', 'pick', '집기', ['퍽 id (/tracked_objects)'], '5'),
     ('6', 'place', '놓기', ['장소 상자 id 또는 "x,y,z"'], '14'),
@@ -212,12 +218,45 @@ class BasketClearItem(MenuItem):
         return STAY
 
 
+PLAN_VIEW = Path(__file__).resolve().parents[4] / 'plan' / 'mission_plan.py'   # tools/plan/mission_plan.py
+
+
+class PlanViewItem(MenuItem):
+    """퍽 배정(장소별 그룹·개수·퍽)을 새 창에 — tmux면 새 tmux 창, 화면(DISPLAY)이 있으면 새 터미널, 둘 다 없으면 명령 안내."""
+    key = 'p'
+    shows_busy = False
+
+    def label(self):
+        return '퍽 배정 보기 — 새 창 (미션 시작 뒤 · 장소별 그룹·개수·퍽)'
+
+    def run(self):
+        cmd = [sys.executable, str(PLAN_VIEW)]
+        if os.environ.get('TMUX'):
+            subprocess.Popen(['tmux', 'new-window', '-n', 'plan', shlex.join(cmd)])
+            return STAY
+        if os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY'):
+            for term, flag in (('gnome-terminal', '--'), ('x-terminal-emulator', '-e')):   # -e = Debian 공통 규약
+                if shutil.which(term):
+                    subprocess.Popen([term, flag, *cmd], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                     start_new_session=True)
+                    return STAY
+        self.ui.pager('퍽 배정 보기', '새 창을 열 수 없음 (tmux 밖 · 화면 없음) — 다른 터미널(ssh)에서:\n\n  '
+                      + shlex.join(cmd) + '\n\n(~/.ros/mission 최근 회차의 signal.json · allocation.json을 2초마다 읽음)')
+        return STAY
+
+
 class MissionMenu(Menu):
     title = '미션'
 
     def items(self):
         return [MissionCmdItem(self.app, '1', 'start', '미션 시작', '미션을 시작할까요?'),
                 MissionCmdItem(self.app, '2', 'abort', '미션 중지 (abort)', '미션을 중지할까요? (coordinator도 정지)'),
+                PlanViewItem(self.app),
+                # 단계 하나만 — mission_manager "start:<단계>" (끝나면 DONE · BUILD·VERIFY는 SURVEY 결과가 있어야 해 없음)
+                MissionCmdItem(self.app, 'b', 'start:BARCODE', '단계만: 관측 — 바코드(손 카메라 gaze) + 신호(pole) 동시', '관측 단계(바코드 + 신호)만 실행할까요? (팔·바퀴가 움직임)'),
+                MissionCmdItem(self.app, 'r', 'start:READ', '단계만: 신호 읽기 (READ)', '신호 읽기 단계만 실행할까요?'),
+                MissionCmdItem(self.app, 's', 'start:SURVEY', '단계만: 시작 박스 조사 (SURVEY)', 'SURVEY 단계만 실행할까요? (주행·팔 동작)'),
+                MissionCmdItem(self.app, 'h', 'start:RETURN', '단계만: 출발 구역 복귀 (RETURN)', '복귀 단계만 실행할까요? (주행)'),
                 GoMenu(self.app, '3', '세부 명령 (navigate · pick · place … skill 직접)', SkillMenu(self.app)),
                 BasketClearItem(self.app),
                 ActionItem(self.app, '5', '실패 이력 지우기', self.state.failures.clear)]

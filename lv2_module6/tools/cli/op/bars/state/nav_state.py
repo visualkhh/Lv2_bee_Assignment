@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import time
 
+from ...defs import STAY
 from ...terminal import BOLD, DIM, GREEN, RED, YELLOW
 from .state import State
 
@@ -40,6 +41,33 @@ def collision_text(st) -> tuple[str, str]:
 
 
 class CollisionState(State):
+    focusable = True
+
+    def activate(self):
+        """칸에서 Enter — 지금 상태의 반대로 바꿀지 '현재: · 적용:'을 보여 주고 확인하면 바로 적용한다.
+        켬/끔을 모르면(-·거절) 묻지도 바꾸지도 않는다. 적용은 ./run-cli collision on|off와 같다 (/cmd/collision)."""
+        cur = self.state.collision_enabled()
+        short = cur.split(' ')[0]   # '켬 (자동)' · '끔 (MANUAL — …)' · '거절: …' · '-'
+        if short not in ('켬', '끔'):
+            self.ui.modal_key('충돌 감시', [
+                f'상태를 모름 ({cur})',
+                'Nav2(collision_monitor)와 manual_control이 떠 있는지 확인하세요.'])
+            return STAY
+        want_on = short == '끔'
+        apply = '켬' if want_on else '끔 (근접 정지 없이 통과 — 주의)'
+        body = [f'현재: {cur}', f'적용: {apply}', '']
+        if not want_on:
+            body.insert(2, '끄면 벽·물체 앞에서 자동으로 서지 않습니다. 직접 몰 때만 쓰세요.')
+        body.append('직접 바꾸면 모드가 바뀔 때까지 유지됩니다 (MANUAL·MAPPING은 자동으로 끔)')
+        if not self.ui.confirm('충돌 감시를 켤까요?' if want_on else '충돌 감시를 끌까요?', default=want_on, body=body):
+            return STAY
+        try:
+            ok, text = self.ui.bus.set_collision(want_on)
+        except Exception as exc:   # 서비스 응답 형식이 달라도 TUI가 죽지 않게
+            ok, text = False, str(exc)
+        self.ui.modal_key('충돌 감시', [('적용: ' if ok else '실패: ') + text])
+        return STAY
+
     def text(self) -> str:
         on, action = collision_text(self.state)
         if on == '-' and not action:

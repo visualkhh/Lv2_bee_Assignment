@@ -30,9 +30,10 @@ find_package(plan REQUIRED)
 
 # --- skill 노드: 컴포넌트 하나 = skill 하나 (src/<skill>_skill.cpp) · 공통은 skill_node(액션 틀) · arm_io(팔) · stand_plan(세우기 경유점) · look_plan(inspect 카메라 자세)
 add_library(${PROJECT_NAME} SHARED
-  src/skill_node.cpp src/arm_io.cpp src/stand_plan.cpp src/look_plan.cpp
+  src/skill_node.cpp src/arm_io.cpp src/stand_plan.cpp src/look_plan.cpp src/far_plan.cpp
   src/navigate_skill.cpp src/approach_skill.cpp src/pose_skill.cpp src/inspect_skill.cpp
-  src/pick_skill.cpp src/place_skill.cpp src/load_skill.cpp src/unload_skill.cpp src/stand_skill.cpp)
+  src/pick_skill.cpp src/place_skill.cpp src/load_skill.cpp src/unload_skill.cpp src/stand_skill.cpp
+  src/pick_far_skill.cpp)  # pick_far: 박스 먼 쪽 퍽 (far_plan 경유점)
 target_include_directories(${PROJECT_NAME} PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include> $<INSTALL_INTERFACE:include> ${ml_INCLUDE_DIRS})
 target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_17)
@@ -41,7 +42,7 @@ target_link_libraries(${PROJECT_NAME} PUBLIC rclcpp::rclcpp rclcpp_action::rclcp
   ${std_msgs_TARGETS} ${std_srvs_TARGETS} ${geometry_msgs_TARGETS} ${sensor_msgs_TARGETS} ${nav_msgs_TARGETS}
   ${nav2_msgs_TARGETS} ${moveit_msgs_TARGETS} ${control_msgs_TARGETS} ${shape_msgs_TARGETS} ${trajectory_msgs_TARGETS}
   ${perception_TARGETS} ${control_TARGETS} ${ml_TARGETS} ml::ml_onnx ${plan_TARGETS})
-foreach(cls NavigateSkill ApproachSkill PoseSkill InspectSkill PickSkill PlaceSkill LoadSkill UnloadSkill StandSkill)
+foreach(cls NavigateSkill ApproachSkill PoseSkill InspectSkill PickSkill PlaceSkill LoadSkill UnloadSkill StandSkill PickFarSkill)
   rclcpp_components_register_nodes(${PROJECT_NAME} "skills::${cls}")
 endforeach()
 install(TARGETS ${PROJECT_NAME} ARCHIVE DESTINATION lib LIBRARY DESTINATION lib RUNTIME DESTINATION bin)
@@ -59,6 +60,8 @@ if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   ament_add_gtest(test_stand_plan test/test_stand_plan.cpp TIMEOUT 60)
   target_link_libraries(test_stand_plan ${PROJECT_NAME})
+  ament_add_gtest(test_far_plan test/test_far_plan.cpp TIMEOUT 60)  # 먼 퍽 경유점 = 시뮬 pick_env 먼 퍽 표
+  target_link_libraries(test_far_plan ${PROJECT_NAME})
   ament_add_gtest(test_look_plan test/test_look_plan.cpp TIMEOUT 60)
   target_link_libraries(test_look_plan ${PROJECT_NAME})
   ament_add_gtest(test_skills test/test_skills.cpp TIMEOUT 60)

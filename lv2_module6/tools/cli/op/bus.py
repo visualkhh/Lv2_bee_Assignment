@@ -29,10 +29,8 @@ from .terminal import BOLD, DIM, GREEN, RED, YELLOW, Terminal
 
 try:
     from nav2_msgs.srv import SaveMap as SaveMapSrv
-    from nav2_msgs.srv import Toggle as ToggleSrv
 except ImportError:  # nav2_msgs가 없는 환경에서도 나머지 명령은 동작
     SaveMapSrv = None
-    ToggleSrv = None
 
 
 # 수동 주행 속도 상한 (텔레오퍼 -/= · 메뉴 속도 설정) — Waffle Pi 사양 (바퀴 상한 ≈ 8 rad/s × 0.033 m)
@@ -324,35 +322,43 @@ class Bus:
         """manual_control이 마지막으로 반영한 collision_monitor 상태 (진단 값) — 모르면 '-'."""
         return self.state.collision_enabled()
 
+    def set_collision(self, want: bool) -> tuple[bool, str]:
+        """충돌 감시 켜기/끄기 — /cmd/collision 으로 state_manager에 보내고 /state/collision 이 바뀌길 기다린다.
+        실제 collision_monitor toggle 서비스는 manual_control이 호출한다 (상태의 주인은 state_manager 하나).
+        반환: (성공, 사람이 읽을 결과/이유)."""
+        before = self.state.values.get('collision') or ''
+        pub = self.node.create_publisher(String, '/cmd/collision', 1)
+        try:
+            pub.publish(String(data='on' if want else 'off'))
+            end = time.monotonic() + 2.5
+            while time.monotonic() < end:
+                self._poll(0.2)
+                after = self.state.values.get('collision') or ''
+                if after and after != before and after.startswith('on' if want else 'off'):
+                    return True, self.state.collision_enabled()
+        finally:
+            destroy = getattr(self.node, 'destroy_publisher', None)
+            if destroy is not None:
+                try:
+                    destroy(pub)
+                except Exception:
+                    pass
+        now = self.state.values.get('collision') or ''
+        if not now:
+            return False, 'state_manager 응답 없음 (/state/collision) — bringup이 떠 있는지 확인'
+        return False, f'반영 안 됨 — 지금 {self.state.collision_enabled()}'
+
     def cmd_collision(self, args) -> int:
-        """collision_monitor 켜기/끄기 — /collision_monitor/toggle. 모드가 바뀌면(MANUAL·MAPPING = 끔 · 그 밖 = 켬)
-        manual_control이 다시 정한다. 그 전까지는 이 명령이 정한 대로 유지된다."""
+        """collision_monitor 켜기/끄기/상태 — /cmd/collision → state_manager → manual_control → toggle 서비스."""
         if args.state == 'status':
             self._poll(1.0)
             print(f'collision_monitor: {self.collision_status()}')
             return 0
-        if ToggleSrv is None:
-            print('거부: nav2_msgs가 없어 collision 토글을 쓸 수 없습니다', file=sys.stderr)
-            return 2
-        client = self.node.create_client(ToggleSrv, '/collision_monitor/toggle')
-        try:
-            if not client.wait_for_service(timeout_sec=3.0):
-                print('거부: /collision_monitor/toggle 없음 — Nav2(collision_monitor)가 떠 있는지 확인 (지도 모드 NONE이면 안 뜸)', file=sys.stderr)
-                return 1
-            req = ToggleSrv.Request()
-            req.enable = args.state == 'on'
-            future = client.call_async(req)
-            rclpy.spin_until_future_complete(self.node, future, timeout_sec=5.0)
-            res = future.result() if future.done() else None
-        finally:
-            self.node.destroy_client(client)
-        if res is None:
-            print('요청 실패: collision_monitor 응답 없음', file=sys.stderr)
+        ok, text = self.set_collision(args.state == 'on')
+        if not ok:
+            print(f'거절: {text}', file=sys.stderr)
             return 1
-        if not res.success:
-            print(f'거절: {res.message}', file=sys.stderr)
-            return 1
-        print(f'collision_monitor → {"켬" if args.state == "on" else "끔 (근접 정지 없이 통과 — 주의)"}')
+        print(f'collision_monitor → {text}')
         return 0
 
     # --------------------------------------------------------------------- bag
@@ -1013,7 +1019,7 @@ class Bus:
 
     def _local_map_path(self, path: Path) -> Path:
         """로봇 쪽 지도 경로 → 이 컴퓨터에서 보이는 경로. 도커는 CLI(호스트)와 지도(컨테이너 /ws/map)가 다른 곳에 있다:
-        /ws/map/<이름>/… → 호스트 lv2_module6/ros2_ws/map/<이름>/… (compose 바인드). 그 밖은 그대로."""
+        /ws/map/<이름>/… → 호스트 lv2_module6/tools/cli/ros/docker/map/<이름>/… (compose 바인드). 그 밖은 그대로."""
         try:
             return self.default_map_dir() / path.relative_to('/ws/map')
         except ValueError:

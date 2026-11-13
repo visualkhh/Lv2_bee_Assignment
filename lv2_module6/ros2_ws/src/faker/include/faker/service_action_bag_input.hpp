@@ -48,12 +48,14 @@
 
 #include "control_msgs/srv/set_odometry.hpp"
 #include "ml/srv/score_grasps.hpp"
+#include "ml/srv/set_fallback.hpp"
 #include "moveit_msgs/action/move_group.hpp"
 #include "moveit_msgs/srv/apply_planning_scene.hpp"
 #include "moveit_task_constructor_msgs/action/execute_task_solution.hpp"
 #include "nav2_msgs/action/navigate_through_poses.hpp"
 #include "nav2_msgs/action/navigate_to_pose.hpp"
 #include "nav2_msgs/srv/save_map.hpp"
+#include "nav2_msgs/srv/toggle.hpp"
 #include "rcl_interfaces/srv/set_parameters.hpp"
 #include "rapidjson/document.h"
 #include "rapidjson/stringbuffer.h"
@@ -174,10 +176,12 @@ private:
   std::shared_future<moveit_msgs::srv::ApplyPlanningScene::Response::SharedPtr> scene_fut_;
   rclcpp::Client<control_msgs::srv::SetOdometry>::SharedPtr odom_cli_;
   rclcpp::Client<std_srvs::srv::SetBool>::SharedPtr rl_toggle_cli_;  // controller_server/FollowPath/toggle (RL↔DWB)
+  rclcpp::Client<ml::srv::SetFallback>::SharedPtr rl_fallback_cli_;  // controller_server/FollowPath/set_fallback (DWB↔MPPI 등)
   std::map<std::string, rclcpp::Client<rcl_interfaces::srv::SetParameters>::SharedPtr> set_param_clis_;  // 노드별 set_parameters
   std::shared_future<control_msgs::srv::SetOdometry::Response::SharedPtr> odom_fut_;
   rclcpp::Client<rcl_interfaces::srv::SetParameters>::SharedPtr opencr_params_cli_;
   rclcpp::Client<nav2_msgs::srv::SaveMap>::SharedPtr save_map_cli_;
+  rclcpp::Client<nav2_msgs::srv::Toggle>::SharedPtr collision_toggle_cli_;  // collision_monitor/toggle (충돌 감시 켬/끔)
 
   // 액션 상태 (이름별 1 goal)
   struct ActState {

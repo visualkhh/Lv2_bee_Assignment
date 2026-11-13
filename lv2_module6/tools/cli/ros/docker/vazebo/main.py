@@ -82,7 +82,7 @@ STATE_NAMES = {0: 'RUNNING', 1: 'SUCCEEDED', 2: 'FAILED'}
 LEVEL = {0: ('OK', ''), 1: ('WARN', 'warn'), 2: ('ERROR', 'error'), 3: ('STALE', 'warn')}
 
 FLIP_PITCH = math.radians(60)  # 집을 때와 놓을 때 손 기울기가 이만큼 다르면 퍽 자세가 바뀜 (누움 ↔ 섬)
-MAP_DIR = '/ws/map'  # 지도 폴더 (컨테이너 안 — 호스트 ros2_ws/map). 지도 한 벌 = <이름>/ nvblox.nvblx · map.pgm · map.yaml
+MAP_DIR = '/ws/map'  # 지도 폴더 (컨테이너 안 — 호스트 tools/cli/ros/docker/map). 지도 한 벌 = <이름>/ nvblox.nvblx · map.pgm · map.yaml
 NO_BG = '(격자)'
 NO_FLOOR = '(격자)'
 NO_WALL = '(단색)'

@@ -25,6 +25,12 @@ ManualControl::ManualControl()
     [this](std_msgs::msg::Empty::ConstSharedPtr) { on_reboot(); });
   cm_toggle_ = create_client<nav2_msgs::srv::Toggle>(
     declare_parameter<std::string>("collision_monitor_toggle", "/collision_monitor/toggle"));
+  cm_state_sub_ = create_subscription<std_msgs::msg::String>("/state/collision",
+    rclcpp::QoS(1).reliable().transient_local(),
+    [this](std_msgs::msg::String::ConstSharedPtr m) {
+      cm_override_ = m->data.rfind("on", 0) == 0 ? 1 : 0;
+      cm_source_ = m->data.find("direct") != std::string::npos ? "direct" : "auto";
+    });
   js_sub_ = create_subscription<sensor_msgs::msg::JointState>("/joint_states", 10,
     [this](sensor_msgs::msg::JointState::ConstSharedPtr m) {
       for (size_t i = 0; i < m->name.size() && i < m->position.size(); ++i) current_[m->name[i]] = m->position[i];
@@ -97,18 +103,17 @@ void ManualControl::sync_collision_monitor() {
     cm_applied_ = -1;  // 다시 보이면 (재시작이면 기본 켜짐) 원하는 상태를 또 보냄
     return;
   }
-  // 수동 조작이거나 지도 만드는 중(MAPPING)이면 끈다 — 매핑 중엔 근접 정지가 주행을 끊고(몸 점·잡음), 사람이 직접 몰기 때문.
-  //   매핑 중에 AUTO로 자율 주행을 하면 충돌 감시 없이 달리니 주의 (필요하면 ./run-cli collision on 으로 직접 켬)
-  const bool mapping = map_mode_ == "MAPPING";
-  const int want = (manual_ || mapping) ? 0 : 1;
-  const std::string off_why = manual_ ? "MANUAL" : "MAPPING";
+  if (cm_override_ < 0) return;  // /state/collision 아직 없음 — 건드리지 않는다
+  // desired state is owned by state_manager (/state/collision). 여기서는 그대로 반영만 한다.
+  const int want = cm_override_;
+  const std::string why = cm_source_ == "direct" ? "직접" : manual_ ? "MANUAL" : "MAPPING";
   if (cm_pending_ && std::chrono::steady_clock::now() - cm_sent_ < std::chrono::seconds(3)) return;
   if (cm_applied_ == want) return;
   cm_pending_ = true;
   cm_sent_ = std::chrono::steady_clock::now();
   auto req = std::make_shared<nav2_msgs::srv::Toggle::Request>();
   req->enable = want == 1;
-  cm_toggle_->async_send_request(req, [this, want, off_why](rclcpp::Client<nav2_msgs::srv::Toggle>::SharedFuture f) {
+  cm_toggle_->async_send_request(req, [this, want, why](rclcpp::Client<nav2_msgs::srv::Toggle>::SharedFuture f) {
     cm_pending_ = false;
     const auto res = f.get();
     if (!res->success) {
@@ -117,7 +122,8 @@ void ManualControl::sync_collision_monitor() {
       return;
     }
     cm_applied_ = want;
-    cm_result_ = want ? "켬 (자동)" : "끔 (" + off_why + " — 근접 정지 없이 통과)";
+    cm_result_ = want ? (why == "직접" ? "켬 (직접)" : "켬 (자동)")
+                      : "끔 (" + why + " — 근접 정지 없이 통과)";
     RCLCPP_WARN(get_logger(), "collision_monitor %s", cm_result_.c_str());
   });
 }

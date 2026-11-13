@@ -102,6 +102,9 @@ MissionManager::MissionManager()
   match_radius_ = declare_parameter<double>("match_radius", 0.04);
   stand_check_s_ = declare_parameter<double>("stand_check_s", 1.0);
   verify_radius_ = declare_parameter<double>("verify_radius", 0.15);
+  // 방문 순서 (1부터) — 경기장 고정이라 오프라인 A*(tools/plan/route_order.py, 도면 벽)로 정한 값. 비거나 틀리면 1, 2, 3, …
+  survey_order_ = visit_order(declare_parameter<std::vector<int64_t>>("survey_order", std::vector<int64_t>{}), start_boxes_.size());
+  build_loc_order_ = visit_order(declare_parameter<std::vector<int64_t>>("build_location_order", std::vector<int64_t>{}), 3);
   walls_ = declare_parameter<std::vector<double>>("arena_walls", std::vector<double>{});
   wall_clearance_ = declare_parameter<double>("wall_clearance", 0.22);
   place_tol_ = declare_parameter<double>("place_tol", 0.010);
@@ -110,8 +113,36 @@ MissionManager::MissionManager()
   signal_timeout_s_ = declare_parameter<double>("signal_timeout_s", 150.0);
   signal_error_cycles_ = static_cast<int>(declare_parameter<int64_t>("signal_error_cycles", 2));
   barcode_timeout_s_ = declare_parameter<double>("barcode_timeout_s", 20.0);
-  const auto bp = declare_parameter<std::vector<double>>("barcode_pose_arena", {0.950, 0.800, M_PI + 0.171});
-  barcode_pose_ = {bp.at(0), bp.at(1), bp.at(2)};
+  barcode_arm_pose_ = declare_parameter<std::string>("barcode_arm_pose", "gaze");
+  barcode_pole_s_ = declare_parameter<double>("barcode_pole_s", 3.0);
+  light_check_s_ = declare_parameter<double>("light_check_s", light_check_s_);
+  signal_read_min_s_ = declare_parameter<double>("signal_read_min_s", signal_read_min_s_);
+  barcode_gaze_wait_s_ = declare_parameter<double>("barcode_gaze_wait_s", 3.0);
+  barcode_advance_step_m_ = declare_parameter<double>("barcode_advance_step_m", 0.06);
+  barcode_advance_max_m_ = declare_parameter<double>("barcode_advance_max_m", 0.30);
+  barcode_min_gap_m_ = declare_parameter<double>("barcode_min_gap_m", 0.13);
+  // 손 카메라 정면 거리 — 바코드 단계에서만 계산 (화면 가운데 60×60 px depth 하위 10 %, 0 = 측정 없음은 뺌)
+  grip_depth_sub_ = create_subscription<sensor_msgs::msg::Image>(
+    declare_parameter<std::string>("gripper_depth_topic", "/gripper_cam/aligned_depth_to_color/image_raw"), rclcpp::SensorDataQoS(),
+    [this](sensor_msgs::msg::Image::ConstSharedPtr m) {
+      if (phase_ != Phase::BARCODE || m->encoding != "16UC1" || m->width < 60 || m->height < 60) return;
+      std::vector<uint16_t> v;
+      v.reserve(3600);
+      for (uint32_t y = m->height / 2 - 30; y < m->height / 2 + 30; ++y) {
+        const auto * row = reinterpret_cast<const uint16_t *>(&m->data[y * m->step]);
+        for (uint32_t x = m->width / 2 - 30; x < m->width / 2 + 30; ++x) if (row[x]) v.push_back(row[x]);
+      }
+      grip_front_at_ = now();
+      if (v.size() < 300) { grip_front_m_ = -1.0; return; }  // 너무 가까워 depth가 비거나 측정 없음
+      std::nth_element(v.begin(), v.begin() + v.size() / 10, v.end());  // 가까운 쪽 10 % — 반투명 판 너머를 재도 가장 가까운 면 기준
+      grip_front_m_ = v[v.size() / 10] * 0.001;
+      grip_front_at_ = now();
+    });
+  // 비우면 출발(관측) 자리에서 그대로 바코드를 봄 — 이동 없음 (실기 11-12: 출발 자리에서 신호등·바코드가 다 보이고,
+  //   26 cm 뒤 자리로 가려면 Nav2가 전진만 해서 돌아섰다 다시 돌아 한 바퀴를 돎)
+  const auto bp = declare_parameter<std::vector<double>>("barcode_pose_arena", std::vector<double>{});
+  observe_move_ = bp.size() >= 3;
+  if (observe_move_) barcode_pose_ = {bp.at(0), bp.at(1), bp.at(2)};
   home_hold_s_ = declare_parameter<double>("home_hold_s", 3.0);
   log_dir_ = declare_parameter<std::string>("log_dir", "~/.ros/mission");
   photo_topic_ = declare_parameter<std::string>("photo_topic", "/gripper_cam/color/image_raw");
@@ -143,9 +174,16 @@ MissionManager::MissionManager()
     [this](std_msgs::msg::String::ConstSharedPtr m) { barcode_msg_ = m->data; barcode_rx_ = now(); });
   // 신호 — 이번 READ 시작 뒤에 끝난 사이클만 (지난 회차의 latched 답은 버림).
   //   /mission/signal은 새 답일 때만 나와서 지난 회차와 같은 신호면 다시 안 옴 → 사이클마다 오는 /mission/signal_status의 ok도 확정으로 봄
+  //   BARCODE(관측 — 손 카메라 바코드 + pole_front_cam 신호 동시) 동안에도 받음
+  //   오류 사이클은 팔·바퀴가 멈춰 있을 때만 셈 (움직이는 동안은 팔이 가리거나 흐려서 생긴 오류일 수 있음 — 다음 사이클을 봄)
   const auto on_signal = [this](const perception::msg::MissionSignal & m) {
-    if (phase_ != Phase::READ || signal_ready_ || !signal_error_.empty()) return;
+    const bool barcode = phase_ == Phase::BARCODE;
+    if ((phase_ != Phase::READ && !barcode) || signal_ready_ || !signal_error_.empty()) return;
     if (rclcpp::Time(m.header.stamp, RCL_ROS_TIME) < read_started_) return;
+    if (barcode && !m.ok && !observe_still()) {
+      RCLCPP_WARN(get_logger(), "신호 사이클 %s [%s] (팔·바퀴 움직이는 중 — 안 셈)", m.error.c_str(), m.raw.c_str());
+      return;
+    }
     const auto a = signal_action(m.ok, m.error, signal_streak_, signal_error_cycles_);
     if (a == SignalAction::ACCEPT) { signal_ = m; signal_ready_ = true; }
     else if (a == SignalAction::STOP) { signal_ = m; signal_error_ = m.error; }
@@ -182,7 +220,18 @@ MissionManager::MissionManager()
 // ---------- 단계
 void MissionManager::on_command(const std::string & cmd) {
   if (cmd == "abort") { if (active_) stop("aborted"); return; }
-  if (cmd != "start" || active_) return;
+  // "start" = 처음부터 끝까지 · "start:<단계>" = 그 단계 하나만 (TUI 미션 메뉴 — 실기에서 단계별 시험)
+  //   혼자 돌릴 수 있는 단계만: BARCODE · READ · SURVEY · RETURN (BUILD·VERIFY는 SURVEY 결과가 있어야 함)
+  Phase only = Phase::IDLE;
+  if (cmd.rfind("start:", 0) == 0) {
+    const std::string name = cmd.substr(6);
+    for (const Phase p : {Phase::BARCODE, Phase::READ, Phase::SURVEY, Phase::RETURN})
+      if (name == phase_name(p)) only = p;
+    if (only == Phase::IDLE) { note("단계만 실행 거부: " + name + " (BARCODE · READ · SURVEY · RETURN만)"); return; }
+  } else if (cmd != "start") {
+    return;
+  }
+  if (active_) return;
   int left = 0;
   if (basket_) {
     for (const auto & b : basket_->slots) left += b.filled;
@@ -216,12 +265,18 @@ void MissionManager::on_command(const std::string & cmd) {
   std::strftime(stamp, sizeof(stamp), "%Y%m%d_%H%M%S", std::localtime(&t));
   run_dir_ = log_dir_ + "/" + stamp;
   std::filesystem::create_directories(run_dir_ + "/photos");
-  enter(next_phase(Phase::IDLE, true));
+  only_ = only;
+  signal_window_ = false;
+  if (only != Phase::IDLE) note(std::string("단계만 실행: ") + phase_name(only));
+  enter(only != Phase::IDLE ? only : next_phase(Phase::IDLE, true));
 }
 
 void MissionManager::finish(bool ok, const std::string & why) {
   if (!active_) return;
-  const Phase n = next_phase(phase_, ok);
+  // 단계만 실행이면 여기서 끝 — start:BARCODE는 관측(바코드 + 신호)이라 READ까지
+  const Phase n = only_ == Phase::IDLE ? next_phase(phase_, ok)
+                : !ok ? Phase::ERROR
+                : (only_ == Phase::BARCODE && phase_ == Phase::BARCODE) ? Phase::READ : Phase::DONE;
   if (!ok) result(std::string(phase_name(phase_)) + ": " + why);
   enter(n, why);
 }
@@ -246,42 +301,173 @@ void MissionManager::enter(Phase p, const std::string & why) {
 }
 
 void MissionManager::go_observe() {
-  note("팔 scan 자세 · 바코드 보는 자세로 (출발 구역 안)");
+  // 팔은 stow 그대로 — 예전 pose scan(왼쪽 뒤 150°)은 팔을 뻗은 채 회전해 관성으로 밀리고 무게중심이 쏠림 (11-09 시뮬). stow에서도 pole_front_cam에 신호등이 보임
+  note("바코드 보는 자세로 (출발 구역 안 · 팔 stow)");
+  if (!observe_move_) {  // 출발 자리에서 그대로 봄
+    note("바코드 · 신호등을 출발 자리에서 봄 (이동 없음 · 팔 stow)");
+    finish(true, "");
+    return;
+  }
   const auto p = to_map(barcode_pose_.x, barcode_pose_.y, barcode_pose_.yaw);
-  run({SubGoal().set__skill("pose").set__target("scan"),
-       SubGoal().set__skill("navigate").set__target(fmt("%.3f,%.3f,%.3f", p.x, p.y, p.yaw))},
+  run({SubGoal().set__skill("navigate").set__target(fmt("%.3f,%.3f,%.3f", p.x, p.y, p.yaw))},
     [this](bool ok, const std::string & why) { finish(ok, "observe_nav_failed:" + why); });
 }
 
 void MissionManager::barcode_phase() {
+  // ① 지금 자세(pole_front_cam)로 barcode_pole_s 동안 먼저 봄 → 읽히면 팔 안 움직임
+  // ② 안 읽히면 팔을 barcode_arm_pose(gaze)로 뻗으며 계속 봄 — 가는 도중에 읽혀도 바로 stow 계획을 보내 멈추고 접음
+  //    (coordinator는 새 계획이 오면 진행 중 goal을 취소함 · 취소된 gaze 결과는 waiting_plan_이 바뀌어 무시됨)
+  // ③ gaze에 도착하고 barcode_gaze_wait_s 안에 못 읽으면 팔은 그대로 barcode_advance_step_m씩 앞으로 (최대 barcode_advance_max_m)
+  //    — 가는 도중에 읽혀도 바로 접음. 끝나면 팔 접고 다가간 만큼 똑바로 후진 (approach 후진)
+  //    다가가기는 손 카메라 정면 depth가 barcode_min_gap_m보다 멀 때만 (모르거나 1 s 넘게 안 오면 안 감) · 최대 barcode_advance_max_m
+  // ④ 더 다가갈 수 없는 자리에서 barcode_timeout_s 동안 안 읽히면 (gaze에 못 가면 pole_s + timeout_s) stow·후진 뒤 barcode_missing
   // 이번에 실제로 본 바코드만 — /tracked_objects의 barcode(last_seen ≥ 시작) 또는 시작 뒤 받은 /mission/qr
-  note("바코드 읽는 중");
+  note("관측 — 바코드(pole 3초 뒤 손 카메라 gaze) + 신호(pole_front_cam) 같이");
   phase_started_ = now();
-  timer_ = create_wall_timer(std::chrono::milliseconds(500), [this]() {
+  signal_ = perception::msg::MissionSignal();  // 신호 관측 창을 바코드 시작부터 엶 (READ와 병렬)
+  signal_ready_ = false;
+  signal_streak_ = 0;
+  signal_error_.clear();
+  read_started_ = phase_started_;
+  signal_window_ = true;
+  gaze_sent_ = false;
+  returning_ = false;
+  light_warned_ = false;
+  hold_noted_ = false;
+  bad_barcode_.clear();
+  gaze_at_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
+  advanced_m_ = 0.0;
+  moving_ = false;
+  grip_front_m_ = -1.0;  // 지난 실행 값을 믿지 않음 — 이번 단계의 손 카메라 depth로만
+  if (!robot_arena(barcode_origin_)) barcode_origin_ = start_;  // 다가갔다가 돌아올 자리
+  timer_ = create_wall_timer(std::chrono::milliseconds(250), [this]() {
     if (phase_ != Phase::BARCODE) { timer_->cancel(); return; }
+    if (!signal_error_.empty()) {  // 멈춰 있는데도 신호 오류 사이클이 이어짐 — 추정하지 않고 팔 접고 정지
+      timer_->cancel();
+      write_log("signal.json", "{\"ok\": false, \"error\": " + q(signal_error_) + ", \"raw\": " + q(signal_.raw) + "}\n");
+      barcode_done(false, "signal_" + signal_error_);
+      return;
+    }
+    if (!light_warned_ && (now() - phase_started_).seconds() > light_check_s_) {  // 신호등이 pole_front_cam에 안 보임 — 방향·가림 확인
+      light_warned_ = true;
+      bool seen = false;
+      if (objects_) for (const auto & o : objects_->objects)
+        if (o.class_name == "traffic_light" && rclcpp::Time(o.last_seen, RCL_ROS_TIME) >= phase_started_) seen = true;
+      if (!seen) {
+        RCLCPP_WARN(get_logger(), "관측 %.0f s 동안 신호등이 안 보임 — 로봇 방향·팔 가림 확인 (바코드는 계속)", light_check_s_);
+        note("신호등 안 보임 — 방향·팔 가림 확인");
+      }
+    }
+    // 미등록 바코드(P2-01~04 아님)는 잘못 읽은 것일 수 있어 버리고 계속 찾음 — 끝까지 그것만 보이면 unknown_barcode로 정지 (발제: 미등록 → 안전 정지)
+    const auto take = [this](const std::string & t) {
+      bool asc = false;
+      if (t.empty() || !barcode_.empty()) return;
+      if (parse_barcode(t, asc)) { barcode_ = t; return; }
+      if (t != bad_barcode_) RCLCPP_WARN(get_logger(), "미등록 바코드 '%s' — 버리고 계속 찾음", t.c_str());
+      bad_barcode_ = t;
+    };
     if (objects_) for (const auto & o : objects_->objects)
-      if (o.class_name == "barcode" && rclcpp::Time(o.last_seen, RCL_ROS_TIME) >= phase_started_) barcode_ = detail(o, "content");
-    if (barcode_.empty() && barcode_rx_ >= phase_started_) barcode_ = barcode_msg_;
+      if (o.class_name == "barcode" && rclcpp::Time(o.last_seen, RCL_ROS_TIME) >= phase_started_) take(detail(o, "content"));
+    if (barcode_rx_ >= phase_started_) take(barcode_msg_);
+    const double t = (now() - phase_started_).seconds();
     if (barcode_.empty()) {
-      if ((now() - phase_started_).seconds() > barcode_timeout_s_) { timer_->cancel(); finish(false, "barcode_missing"); }
+      if (!gaze_sent_ && !barcode_arm_pose_.empty() && t > barcode_pole_s_) {
+        gaze_sent_ = true;
+        note("팔 " + barcode_arm_pose_ + " 자세로 뻗으며 손 카메라로 바코드");
+        run({SubGoal().set__skill("pose").set__target(barcode_arm_pose_)}, [this](bool ok, const std::string & why) {
+          if (phase_ != Phase::BARCODE || !barcode_.empty()) return;
+          if (ok) { gaze_at_ = now(); return; }  // 도착 — 그대로 계속 봄
+          timer_->cancel();
+          barcode_done(false, "barcode_pose_failed:" + why);
+        });
+      }
+      // gaze에서 안 읽히면 팔은 그대로 한 걸음 앞으로 (바코드 = 출발 자리 정면)
+      // 신호가 확정되기 전에는 다가가지 않음 — 움직이면 오른쪽 신호등이 pole_front_cam 시야 밖으로 나감 (11-12 실기: 다가가다 신호 못 읽음)
+      //   확정되면 그때부터 다가감 · 신호 시간(signal_timeout_s)이 지나면 기다리지 않음 (READ에서 signal_timeout)
+      const bool hold = signal_window_ && !signal_ready_ && (now() - read_started_).seconds() < signal_timeout_s_;
+      if (hold && gaze_at_.nanoseconds() > 0) gaze_at_ = now();  // 기다리는 동안은 바코드 대기·포기 시간을 안 셈
+      if (hold && !hold_noted_ && gaze_at_.nanoseconds() > 0) { hold_noted_ = true; note("gaze 제자리에서 바코드·신호 — 신호 확정 뒤에 다가감"); }
+      const bool waited = !hold && gaze_at_.nanoseconds() > 0 && (now() - gaze_at_).seconds() > barcode_gaze_wait_s_;
+      // 읽힐 때까지 다가감 — 손 카메라 정면이 barcode_min_gap_m보다 가깝거나(또는 depth를 모르면) · 최대 거리면 그만
+      const bool fresh = (now() - grip_front_at_).seconds() < 1.0;  // 1 s 넘게 depth가 안 오면 모름 → 안 다가감
+      const bool room = fresh && grip_front_m_ > barcode_min_gap_m_ + barcode_advance_step_m_ * 0.5 &&
+                        advanced_m_ + barcode_advance_step_m_ <= barcode_advance_max_m_ + 1e-6;
+      if (waited && !moving_ && room) {
+        {
+          moving_ = true;
+          const double d = std::min(barcode_advance_step_m_, grip_front_m_ - barcode_min_gap_m_);  // 마지막 걸음은 남은 만큼만
+          // 목표 = 출발 자리에서 출발 방향으로 (지금까지 + d) — 지금 자세 기준으로 잡으면 걸음마다 방향 오차가 쌓였음 (11-12: 0 → −9 → −14°)
+          const Pose2 & o = barcode_origin_;
+          const double k = advanced_m_ + d;
+          const auto g = to_map(o.x + k * std::cos(o.yaw), o.y + k * std::sin(o.yaw), o.yaw);
+          note(fmt("바코드가 안 읽혀 다가감 (지금까지 %.2f m · 손 카메라 정면 %.2f m · 팔 그대로)", advanced_m_ + d, grip_front_m_));
+          run({SubGoal().set__skill("approach").set__target(fmt("%.4f,%.4f,%.4f", g.x, g.y, g.yaw)).set__relation("drive_straight")},
+            [this, d](bool ok, const std::string & why) {
+              if (phase_ != Phase::BARCODE || !barcode_.empty()) return;
+              moving_ = false;
+              advanced_m_ += d;  // 실패해도 간 만큼으로 보고 돌아올 때 원래 자리로 감
+              gaze_at_ = now();  // 새 자리에서 다시 barcode_gaze_wait_s 동안 봄
+              if (!ok) RCLCPP_WARN(get_logger(), "바코드 다가가기 멈춤 (%s) — 이 자리에서 봄", why.c_str());
+            });
+        }
+      }
+      // 포기는 더 다가갈 수 없는 마지막 자리에서 barcode_timeout_s를 기다린 뒤에만 (다가가는 시간은 안 셈 — 실기 11-12: 23 s 전체
+      //   제한에 걸려 1 s 뒤 읽힌 바코드를 놓침) · gaze에 아예 못 가면 pole_s + timeout_s
+      const bool final_wait = gaze_at_.nanoseconds() > 0 && !moving_ && !room && (now() - gaze_at_).seconds() > barcode_timeout_s_;
+      const bool no_gaze = gaze_at_.nanoseconds() == 0 && t > barcode_pole_s_ + barcode_timeout_s_;
+      if (final_wait || no_gaze) {
+        timer_->cancel();
+        barcode_done(false, bad_barcode_.empty() ? "barcode_missing" : "unknown_barcode:" + bad_barcode_);
+      }
       return;
     }
     timer_->cancel();
-    RCLCPP_INFO(get_logger(), "바코드 %s", barcode_.c_str());
+    RCLCPP_INFO(get_logger(), "바코드 %s (%.1f s · %s)", barcode_.c_str(), t, gaze_sent_ ? "손 카메라" : "팔 안 움직임");
     snap("barcode");
-    const auto p = to_map(start_.x, start_.y, M_PI);  // 관측 = 출발 자리에서 −X(π)를 봄
-    run({SubGoal().set__skill("navigate").set__target(fmt("%.3f,%.3f,%.3f", p.x, p.y, p.yaw))},
+    if (!observe_move_) { barcode_done(true, ""); return; }  // 이미 관측 자리 — 팔을 뻗었으면 접음
+    const auto p = to_map(start_.x, start_.y, M_PI);  // 관측 = 출발 자리에서 −X(π)를 봄 — 팔부터 접고 이동
+    run({stow(), SubGoal().set__skill("navigate").set__target(fmt("%.3f,%.3f,%.3f", p.x, p.y, p.yaw))},
       [this](bool ok, const std::string & why) { finish(ok, "observe_nav_failed:" + why); });
   });
 }
 
+bool MissionManager::observe_still() const {
+  // 관측 중 팔·바퀴가 멈춰 있음 — pole 3초(팔 stow) 또는 gaze 도착 뒤 · 다가가기·복귀 중 아님
+  return !moving_ && !returning_ && (!gaze_sent_ || gaze_at_.nanoseconds() > 0);
+}
+
+void MissionManager::barcode_done(bool ok, const std::string & why) {
+  if (!gaze_sent_) { ok ? finish(true, "") : finish(false, why); return; }  // 팔을 안 움직였음
+  // 뻗던·다가가던 중이면 이 계획이 진행 중 goal을 취소함 · 팔 접고 → 다가갔으면 원래 자리로 똑바로 후진
+  std::vector<SubGoal> back{stow()};
+  if (advanced_m_ > 0.0 || moving_) {
+    const auto o = to_map(barcode_origin_.x, barcode_origin_.y, barcode_origin_.yaw);
+    back.push_back(SubGoal().set__skill("approach").set__target(fmt("%.4f,%.4f,%.4f", o.x, o.y, o.yaw)).set__relation("drive_straight"));
+  }
+  moving_ = false;
+  returning_ = true;
+  run(back, [this, ok, why](bool sok, const std::string & swhy) {  // 실패해도 접고(·돌아오고) 끝냄
+    returning_ = false;
+    gaze_sent_ = false;  // 팔 접음 (abort 때 다시 접을 필요 없음)
+    if (!ok) { finish(false, why); return; }
+    // 바코드는 읽었음 — 후진 복귀가 조금 덜 맞아도(approach_blocked 등) 미션은 계속 (다음 이동은 Nav2) · 팔 접기 실패만 멈춤
+    if (!sok) RCLCPP_WARN(get_logger(), "바코드 뒤 복귀 덜 됨 (%s) — 계속", swhy.c_str());
+    finish(sok || swhy.rfind("approach", 0) == 0, "barcode_return_failed:" + swhy);
+  });
+}
+
 void MissionManager::read_phase() {
-  note("신호 12회 관측 중");
-  signal_ = perception::msg::MissionSignal();
-  signal_ready_ = false;
-  signal_streak_ = 0;
-  signal_error_.clear();
-  read_started_ = now();
+  // 신호는 BARCODE 시작부터 받고 있음 (barcode_phase) — 이미 확정됐으면 바로 다음 · READ만 실행이면 여기서 창을 엶
+  if (!signal_window_) {
+    signal_ = perception::msg::MissionSignal();
+    signal_ready_ = false;
+    signal_streak_ = 0;
+    signal_error_.clear();
+    read_started_ = now();
+    signal_window_ = true;
+  }
+  read_phase_at_ = now();
+  note(signal_ready_ ? "신호 — 관측(바코드) 중에 이미 확정" : "신호 12회 관측 중 (바코드 뒤 팔 접고 계속)");
   timer_ = create_wall_timer(std::chrono::milliseconds(500), [this]() {
     if (phase_ != Phase::READ) { timer_->cancel(); return; }
     if (!signal_error_.empty()) {  // 오류 사이클이 이어짐 — 추정하지 않고 정지
@@ -291,7 +477,9 @@ void MissionManager::read_phase() {
       return;
     }
     if (!signal_ready_) {
-      if ((now() - read_started_).seconds() > signal_timeout_s_) { timer_->cancel(); finish(false, "signal_timeout"); }
+      // 신호 시간 = 관측 시작부터 signal_timeout_s — 바코드에 시간을 다 써도 READ에서 최소 signal_read_min_s는 봄
+      const double waited = (now() - read_started_).seconds(), in_read = (now() - read_phase_at_).seconds();
+      if (waited > signal_timeout_s_ && in_read > signal_read_min_s_) { timer_->cancel(); finish(false, "signal_timeout"); }
       return;
     }
     timer_->cancel();
@@ -305,6 +493,11 @@ void MissionManager::read_phase() {
       ", \"sequence\": [" + seq + "], \"raw\": " + q(signal_.raw) + ", \"cycles\": " + str(signal_.cycles) + ", \"counts\": {\"R\": " + str(counts_.r) +
       ", \"Y\": " + str(counts_.y) + ", \"G\": " + str(counts_.g) + "}, \"order\": " + q(order_) + "}\n");
     if (!valid_counts(counts_, why)) { finish(false, why); return; }
+    if (only_ == Phase::READ && barcode_.empty()) {  // READ만 실행 — 바코드 없이 신호만 확인
+      RCLCPP_INFO(get_logger(), "신호 R%d Y%d G%d (READ만 — 바코드 없어 장소 배정은 안 함)", counts_.r, counts_.y, counts_.g);
+      finish(true);
+      return;
+    }
     if (!code_ok) { finish(false, "unknown_barcode:" + barcode_); return; }
     RCLCPP_INFO(get_logger(), "신호 R%d Y%d G%d · %s → L1 %c · L2 %c · L3 %c", counts_.r, counts_.y, counts_.g,
                 barcode_.c_str(), order_[0], order_[1], order_[2]);
@@ -313,12 +506,14 @@ void MissionManager::read_phase() {
 }
 
 // ---------- SURVEY — 시작 박스 6곳 전부 조사하면서 적재함에 싣기
-void MissionManager::survey(size_t b) {
-  if (b >= start_boxes_.size()) { solve_allocation(); return; }
+void MissionManager::survey(size_t k) {  // k = 방문 순서 인덱스 (survey_order_) · b = 박스 번호(0부터)
+  if (k >= survey_order_.size()) { solve_allocation(); return; }
+  survey_k_ = k;
+  const size_t b = survey_order_[k];
   const Box box = start_boxes_[b];
   note("시작 박스 " + str(static_cast<int>(b) + 1) + " 조사");
   go_near(box, box.x, box.y, [this, b, box](bool ok, const std::string & why) {
-    if (!ok) { result("box " + str(static_cast<int>(b) + 1) + ": approach_failed " + why); survey(b + 1); return; }
+    if (!ok) { result("box " + str(static_cast<int>(b) + 1) + ": approach_failed " + why); survey(survey_k_ + 1); return; }
     // 상자 한 번 보기 (look 자세 → 퍽이 모자라거나 태그를 못 읽으면 본 퍽을 담는 자세로 다시) — 퍽 자리마다 따로 보던 것 (11/07)
     const std::vector<SubGoal> goals = {
       SubGoal().set__skill("inspect").set__target(point(box.x, box.y, box_top_z_ + puck_h_)).set__relation("box")};
@@ -351,7 +546,7 @@ void MissionManager::survey(size_t b) {
 }
 
 void MissionManager::load(size_t b, std::vector<int> found, size_t k) {
-  if (k >= found.size()) { survey(b + 1); return; }
+  if (k >= found.size()) { survey(survey_k_ + 1); return; }
   if (!basket_has_room()) { load(b, found, found.size()); return; }  // 꽉 참 — 나머지는 BUILD 때 시작 박스에서 직접
   const int tag = found[k];
   note("퍽 " + str(tag) + " → 적재함 (load next)");
@@ -383,7 +578,7 @@ void MissionManager::solve_allocation() {
   const bool ok = allocate(pucks_, counts_, alloc_, why);
   std::string groups;
   if (ok) {
-    for (size_t li = 0; li < 3; ++li) {
+    for (const size_t li : build_loc_order_) {  // 장소 방문 순서 (build_location_order) — 장소 번호 li는 그대로
       const char g = order_[li];
       const auto cells = dice_cells(group_count(counts_, g));
       std::vector<int> tags;
@@ -671,8 +866,19 @@ void MissionManager::stop(const std::string & why) {
   phase_ = Phase::ERROR;
   error_ = why;
   if (timer_) timer_->cancel();
+  // 관측 중 팔을 뻗은 채 멈추면 다음 시작·주행 때 부딪힘 → 접기(stow)만 새 goal로 보냄 (결과는 안 기다림)
+  const bool fold = gaze_sent_ && !interrupted(why.rfind("interrupted: ", 0) == 0 ? why.substr(13) : why);
   if (goal) execute_client_->async_cancel_goal(goal);
-  else if (execute_client_) execute_client_->async_cancel_all_goals();
+  else if (execute_client_ && !fold) execute_client_->async_cancel_all_goals();  // fold면 새 goal이 진행 중 계획을 preempt
+  if (fold) {
+    ExecutePlan::Goal stow_goal;
+    stow_goal.plan_id = PLAN_ID_BASE + ++plan_seq_;
+    stow_goal.goals.push_back(stow());
+    stow_goal.goals.back().step = 1;
+    execute_client_->async_send_goal(stow_goal);
+    gaze_sent_ = false;
+    RCLCPP_WARN(get_logger(), "정지 — 뻗은 팔 접기(stow)만 보냄");
+  }
   write_log("error.json", "{\"why\": " + q(why) + ", \"results\": [" + [&] {
     std::vector<std::string> v;
     for (const auto & r : results_) v.push_back(q(r));

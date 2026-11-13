@@ -85,9 +85,12 @@ if SOURCE != 'real':
 
     DEBUG_PATH = Path(DEBUG_DIR).resolve() if DEBUG_DIR else default_debug_dir()
     install(SOURCE, DEBUG_PATH)
-    # 테스트 지도 폴더 = ros/fake/map (도커는 compose가 /ws/map으로 바인드) — 실기 지도(ros2_ws/map)와 섞이지 않게.
+    # 지도 폴더: fake = ros/fake/map · docker = ros/docker/map (compose가 /ws/map으로 바인드 — 실기 ros2_ws/map과 따로)
     #   지도 목록·보기·이름 바꾸기·삭제·저장 경로 변환이 이 폴더를 쓴다 (BEEBOT_MAP_DIR을 직접 주면 그게 우선)
-    os.environ.setdefault('BEEBOT_MAP_DIR', str(Path(__file__).resolve().parent / 'ros' / 'fake' / 'map'))
+    if SOURCE == 'fake':
+        os.environ.setdefault('BEEBOT_MAP_DIR', str(Path(__file__).resolve().parent / 'ros' / 'fake' / 'map'))
+    elif SOURCE == 'docker':
+        os.environ.setdefault('BEEBOT_MAP_DIR', str(Path(__file__).resolve().parent / 'ros' / 'docker' / 'map'))
     if SOURCE == 'docker' and not NO_FAKER:
         from ros.docker.FakerStack import FakerStack
         if not FakerStack(DEBUG_PATH).ensure():

@@ -7,6 +7,8 @@
 //            gripper_left_joint의 effort(있으면) = 쥐는 힘 한계 [A] → 그리퍼 액션 goal effort (없으면 controllers.yaml max_effort)
 //         ✉️ /cmd/manual/reboot_motors (std_msgs/Empty) — Hardware Error(과부하·과열 등) 난 DYNAMIXEL 재부팅
 //            → 📞 /beebotsystem/reboot_motors (std_srvs/Trigger, BeebotSystemHardware — 에러 난 모터만 펌웨어 R)
+//         ✉️ /state/collision (std_msgs/String "on:auto" | "off:auto" | "on:direct" | "off:direct", transient_local)
+//            → state_manager가 상태의 주인. 여기서는 그 값대로 /collision_monitor/toggle 서비스를 호출만 한다
 //         ✉️ /joint_states — 지금 관절각 (목표에 없는 팔 관절은 지금 각으로 채워 5축 전체 궤적을 보낸다 — JTC는 일부 관절 궤적을 거부)
 //   출력: ✉️ /cmd_vel_manual (TwistStamped) → twist_mux (자동 /cmd_vel_nav보다 우선) → velocity_smoother → collision_monitor
 //         📞 /collision_monitor/toggle (nav2_msgs/srv/Toggle) — MANUAL이면 끔(통과) · 나가면 켬. 조작자가 보고 모니까 자기 몸 점·근접 정지에
@@ -34,6 +36,7 @@
 #include "rclcpp_action/rclcpp_action.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "std_msgs/msg/empty.hpp"
+#include "std_msgs/msg/bool.hpp"
 #include "std_msgs/msg/string.hpp"
 #include "std_srvs/srv/trigger.hpp"
 #include "trajectory_msgs/msg/joint_trajectory.hpp"
@@ -82,12 +85,14 @@ private:
   rclcpp::Subscription<TwistStamped>::SharedPtr vel_sub_;
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr arm_sub_, js_sub_;
   rclcpp::Subscription<std_msgs::msg::Empty>::SharedPtr reboot_sub_;
-  rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr reboot_cli_;
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr cm_state_sub_;  rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr reboot_cli_;
   rclcpp::Client<nav2_msgs::srv::Toggle>::SharedPtr cm_toggle_;
   int cm_applied_ = -1;     // collision_monitor에 마지막으로 반영된 상태 (1 켬 · 0 끔 · −1 모름 — 서비스가 안 보이면 −1로)
   bool cm_pending_ = false; // 응답 기다리는 중 (3초 넘으면 다시 보냄 — 응답이 버려지는 DDS 설정 대비)
   std::chrono::steady_clock::time_point cm_sent_{};
   std::string cm_result_ = "-";
+  int cm_override_ = -1;            // /state/collision 의 켬(1)/끔(0) — −1이면 아직 모름
+  std::string cm_source_ = "auto";  // "auto" | "direct" (표시 문구용)
   std::map<std::string, double> current_;
   rclcpp::TimerBase::SharedPtr timer_;
   diagnostic_updater::Updater diag_{this};

@@ -120,12 +120,35 @@ done
 
 # Nav2 서버가 다 active인지 — 관리자 둘의 마지막 서버: collision_monitor(lifecycle_manager_base) · bt_navigator(lifecycle_manager_navigation)
 NAV2=
-# 차가운 첫 기동은 60초를 넘길 수 있다 (실측 63초) — 여유 있게 90초
-for _ in $(seq 90); do
+# 차가운 첫 기동은 60초를 넘길 수 있다 (실측 63초) — 여유 있게 벽시계 150초
+#   (예전 90회 반복은 ros2 lifecycle get 시간 초과 5 s×2가 쌓여 9.5분까지 감 — CI #193 11-13, lifecycle_manager_base가 멈춘 채)
+NAV2_END=$((SECONDS + 150))
+while [ "$SECONDS" -lt "$NAV2_END" ]; do
   NAV2="$(timeout 5 ros2 lifecycle get /collision_monitor 2>/dev/null) / $(timeout 5 ros2 lifecycle get /bt_navigator 2>/dev/null)"
   [ "$(echo "$NAV2" | grep -o 'active \[3\]' | wc -l)" = 2 ] && break
   sleep 1
 done
+# 안 되면 끄기 전에 상태를 남김 (끈 뒤엔 종료 로그만 남아 원인이 안 보였음)
+NAV2_DIAG=
+if [ "$(echo "$NAV2" | grep -o 'active \[3\]' | wc -l)" != 2 ]; then
+  NAV2_DIAG="velocity_smoother: $(timeout 5 ros2 lifecycle get /velocity_smoother 2>/dev/null || echo '응답 없음')
+노드: $(timeout 10 ros2 node list 2>/dev/null | grep -E 'velocity_smoother|collision_monitor|lifecycle_manager|bt_navigator' | tr '\n' ' ')"
+fi
+
+# 테스트베드 기본 주행: RL 정책 대신 inner DWB (2026-11-13 실측 — MPPI는 좁은 미로에서 105 반복).
+#   BEEBOT_TESTBED_CONTROLLER=policy 면 정책을 그대로 켜 둔다. 실기 설정(nav2_params.yaml)은 건드리지 않는다.
+TESTBED_CONTROLLER=${BEEBOT_TESTBED_CONTROLLER:-dwb}
+if [ "$TESTBED_CONTROLLER" != "policy" ]; then
+  (
+    for _ in $(seq 60); do
+      timeout 3 ros2 service type /controller_server/FollowPath/set_fallback >/dev/null 2>&1 && break
+      sleep 1
+    done
+    timeout 5 ros2 param set /controller_server FollowPath.enable false >/dev/null 2>&1 || true
+    timeout 10 ros2 service call /controller_server/FollowPath/set_fallback ml/srv/SetFallback \
+      "{controller: $TESTBED_CONTROLLER}" >/dev/null 2>&1 || true
+  ) &
+fi
 
 stop_all() {
   kill -INT "$LAUNCH_PID" 2>/dev/null
@@ -161,7 +184,7 @@ stop_all
 echo "--- 흐름 (faker.log) ---"
 grep -E '\] \[(coordinator|grasp_scorer|controller_server|move_group|arm_safety_monitor|spawner_[a-z_]+)\]' /tmp/faker.log \
   | sed -E 's/^\[[^]]+\] //' | head -60
-[ "$(echo "$NAV2" | grep -o 'active \[3\]' | wc -l)" = 2 ] || { echo "FAIL: Nav2 서버가 active 아님 (collision_monitor / bt_navigator: ${NAV2:-응답 없음})"; grep -E "lifecycle_manager|ERROR" /tmp/faker.log | tail -20; exit 1; }
+[ "$(echo "$NAV2" | grep -o 'active \[3\]' | wc -l)" = 2 ] || { echo "FAIL: Nav2 서버가 active 아님 (collision_monitor / bt_navigator: ${NAV2:-응답 없음})"; echo "$NAV2_DIAG"; grep -E "\[(lifecycle_manager_base|lifecycle_manager_navigation|velocity_smoother|collision_monitor|bt_navigator)\]|\[(velocity_smoother|collision_monitor)-[0-9]+\]: process" /tmp/faker.log | grep -v -E "preshutdown|Terminating bond|Destroying" | head -40; exit 1; }
 echo "$JS" | grep -q gripper_left_joint || { echo "FAIL: /joint_states에 gripper_left_joint 없음 (controller_manager·BeebotSystemHardware)"; grep -E "controller_manager|spawner|ros2_control" /tmp/faker.log | tail -20; exit 1; }
 [ -n "$ODOM" ] || { echo "FAIL: /odometry/filtered 없음 (EKF ← /odom·/imu)"; exit 1; }
 if [ "$MONITOR" = 1 ]; then

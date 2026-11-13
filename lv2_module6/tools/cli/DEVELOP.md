@@ -278,6 +278,7 @@ cd tools
 python3 cli/tests/scenarios.py            # 전체 시나리오
 python3 cli/tests/scenarios.py teleop-hud
 python3 cli/tests/test_mission_state.py  # 미션 상태(실패 이력 · SLAM 점프) 단위 시험
+python3 cli/tests/test_field_test.py     # field-test.py bag 토픽 프리셋 (ROS 없이)
 ```
 
 - `scenarios.py`는 `pty.fork`로 진짜 터미널을 만들어 `python -m cli --source fake menu`를 띄우고, 키 바이트(`\x1b[B`, `\r`…)를 써 넣은 뒤 화면 출력에서 기대 문자열을 찾습니다. `expect`/`absent`는 **마지막 키를 보낸 뒤의 출력만** 봅니다 (앞 화면에 남은 글자로 통과하지 않게).

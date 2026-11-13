@@ -28,13 +28,8 @@ ARGS = {
     'map': 'slam',               # 매핑 — 새 폴더 ~/.ros/beebot_maps/<날짜_시각>/ (저장 지도로: map:=saved)
 }
 
-# beebot.usda 기본 자세 [deg] 0 · -109 · 77 · 51.7 · 0 → [rad] (joint1~5)
-SCAN_POSE = 'scan_pose:=[0.0, -1.9024, 1.344, 0.9023, 0.0]'
 NODE_PARAMS = {  # 노드 이름: 명령줄 끝에 덧붙일 -p 값 (--after: 그 노드들을 먼저 고친 뒤에)
-    'state_manager': ['--after', 'coordinator,pole_depth_gate,gripper_depth_gate'],  # MAPPING은 스캔 자세를 고친 뒤에 냄
-    'coordinator': [SCAN_POSE],
-    'pole_depth_gate': [SCAN_POSE],
-    'gripper_depth_gate': [SCAN_POSE],
+    'state_manager': [],  # -p를 params 파일 뒤로만 (스캔 자세 덮어쓰기는 없앰 — 11-09 스캔 자세 삭제)
 }
 
 NS = '/pole_front_cam'
@@ -57,7 +52,6 @@ def generate_launch_description():
                             '--ros-args', '-p', 'use_sim_time:=true'], output='screen'),
         # bringup 노드 몇 개를 고친 파라미터로 다시 띄움 — 설명: node_params.py
         #   state_manager: use_sim_time -p가 params 파일 앞에 붙어 manager.yaml의 LOCALIZATION을 읽음(map:=slam인데 EXPLORE 거절) → -p를 뒤로
-        #   coordinator · pole/gripper_depth_gate: 스캔 자세 = beebot.usda 기본 자세 (scan_pose.yaml 자세는 팔이 처져 2초마다 다시 감)
         *[ExecuteProcess(cmd=['python3', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'node_params.py'), name, *extra],
                          output='screen')
           for name, extra in NODE_PARAMS.items()],
