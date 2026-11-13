@@ -234,17 +234,12 @@ MissionManager::MissionManager()
 // ---------- 단계
 void MissionManager::on_command(const std::string & cmd) {
   if (cmd == "abort") { if (active_) stop("aborted"); return; }
-  // "start:DIAG" = 처음부터 끝까지 + 실패해도 계속 (현장 진단 — plan.yaml continue_on_fail을 이 회차만 켬)
-  const bool diag = cmd == "start:DIAG";
-  // "start" = 처음부터 끝까지 · "start:<단계>" = 그 단계 하나만 (TUI 미션 메뉴 — 실기에서 단계별 시험)
-  //   혼자 돌릴 수 있는 단계만: BARCODE · READ · SURVEY · RETURN (BUILD·VERIFY는 SURVEY 결과가 있어야 함)
-  Phase only = Phase::IDLE;
-  if (cmd.rfind("start:", 0) == 0) {
-    const std::string name = cmd.substr(6);
-    for (const Phase p : {Phase::BARCODE, Phase::READ, Phase::SURVEY, Phase::RETURN})
-      if (name == phase_name(p)) only = p;
-    if (only == Phase::IDLE && !diag) { note("단계만 실행 거부: " + name + " (BARCODE · READ · SURVEY · RETURN만)"); return; }
-  } else if (cmd != "start") {
+  // 시작 명령 문법은 mission_solver parse_start — "start" · "start:<단계>"(BARCODE·READ·SURVEY·RETURN만, TUI 단계별 시험)
+  //   · "start:DIAG[:<바코드>:<신호>]" (실패해도 계속) · "start:[DIAG_]FROM_SURVEY:<바코드>:<신호>" (관측 없이 준 값으로 SURVEY부터)
+  StartCmd sc;
+  std::string bad;
+  if (!parse_start(cmd, sc, bad)) {
+    if (bad != "not_start") note("시작 거부: " + cmd + " (" + bad + ")");
     return;
   }
   if (active_) return;
@@ -281,15 +276,24 @@ void MissionManager::on_command(const std::string & cmd) {
   std::strftime(stamp, sizeof(stamp), "%Y%m%d_%H%M%S", std::localtime(&t));
   run_dir_ = log_dir_ + "/" + stamp;
   std::filesystem::create_directories(run_dir_ + "/photos");
-  only_ = only;
+  only_ = sc.only;
   signal_window_ = false;
   mission_t0_ = wall_s();
-  diag_run_ = diag || continue_on_fail_;
+  diag_run_ = sc.diag || continue_on_fail_;
   stuck_ = 0;
   counts_ = {};
+  given_ = sc.given;
+  given_barcode_ = sc.barcode;
+  given_counts_ = sc.counts;
   if (diag_run_) note("현장 진단 실행 — 실패해도 기록하고 계속 (치명 이유만 정지)");
-  if (only != Phase::IDLE) note(std::string("단계만 실행: ") + phase_name(only));
-  enter(only != Phase::IDLE ? only : next_phase(Phase::IDLE, true));
+  if (sc.only != Phase::IDLE) note(std::string("단계만 실행: ") + phase_name(sc.only));
+  if (sc.from_survey) {  // 관측 건너뜀 — 준 바코드·신호를 본 것처럼 (SURVEY → BUILD → VERIFY → RETURN)
+    note("관측 건너뜀 — 바코드 " + sc.barcode + " · 신호 " + cmd.substr(cmd.rfind(':') + 1) + "로 SURVEY부터");
+    use_given(false);
+    enter(Phase::SURVEY);
+    return;
+  }
+  enter(sc.only != Phase::IDLE ? sc.only : next_phase(Phase::IDLE, true));
 }
 
 void MissionManager::finish(bool ok, const std::string & why) {
@@ -311,7 +315,7 @@ void MissionManager::enter(Phase p, const std::string & why) {
     case Phase::GO_OBSERVE: go_observe(); break;
     case Phase::BARCODE: barcode_phase(); break;
     case Phase::READ: read_phase(); break;
-    case Phase::SURVEY: survey(0); break;
+    case Phase::SURVEY: use_given(true); survey(0); break;
     case Phase::BUILD: build(0); break;
     case Phase::VERIFY: verify(0); break;
     case Phase::RETURN: go_home(); break;
@@ -528,6 +532,28 @@ void MissionManager::read_phase() {
                 barcode_.c_str(), order_[0], order_[1], order_[2]);
     finish(true);
   });
+}
+
+// 시작 명령으로 받은 바코드·신호 — from_survey면 처음부터 쓰고, diag면 관측이 실패한 것만 바꿔 씀 (fallback)
+void MissionManager::use_given(bool fallback) {
+  if (!given_) return;
+  bool asc = false;
+  std::string why;
+  const bool code_ok = parse_barcode(barcode_, asc), count_ok = valid_counts(counts_, why);
+  if (code_ok && count_ok) return;  // 관측이 다 됨
+  std::string used;
+  if (!code_ok) { barcode_ = given_barcode_; used += "바코드 " + barcode_; }
+  if (!count_ok) {
+    counts_ = given_counts_;
+    used += std::string(used.empty() ? "" : " · ") + "신호 R" + str(counts_.r) + "Y" + str(counts_.y) + "G" + str(counts_.g);
+  }
+  parse_barcode(barcode_, asc);
+  order_ = assign_locations(counts_, asc);
+  if (fallback) result("diag: 관측 실패 → 시작 명령 값 " + used);
+  write_log(fallback ? "signal_given.json" : "signal.json", "{\"given\": true, \"barcode\": " + q(barcode_) +
+    ", \"ascending\": " + (asc ? "true" : "false") + ", \"counts\": {\"R\": " + str(counts_.r) + ", \"Y\": " +
+    str(counts_.y) + ", \"G\": " + str(counts_.g) + "}, \"order\": " + q(order_) + "}\n");
+  publish_state();
 }
 
 // ---------- SURVEY — 시작 박스 6곳 전부 조사하면서 적재함에 싣기

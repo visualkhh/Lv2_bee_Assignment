@@ -84,6 +84,25 @@ Phase next_phase(Phase p, bool ok, bool diag = false);
 //   ok = 계획 성공 (stuck 셈을 0으로) · 이유는 앞부분이 아니라 어디에 있어도 봄 ("retreat:arm_contact")
 bool diag_fatal(bool ok, const std::string & why, int & stuck_streak, int stuck_limit);
 
+// "R4Y2G6" → 신호 횟수 (R·Y·G 한 번씩, 순서 상관없음, 대소문자 상관없음) + valid_counts. why = bad_counts | count_out_of_range | sum_not_12
+bool parse_counts(const std::string & text, Counts & c, std::string & why);
+
+// /cmd/mission 시작 명령 (TUI 미션 메뉴 · ros2 topic pub)
+//   start                                   처음부터 끝까지
+//   start:<BARCODE|READ|SURVEY|RETURN>      그 단계만
+//   start:DIAG[:<바코드>:<신호>]            처음부터 + 실패해도 계속 (diag). 바코드·신호를 주면 관측이 실패했을 때 대신 씀
+//   start:FROM_SURVEY:<바코드>:<신호>       관측(GO_OBSERVE·BARCODE·READ) 없이 준 값으로 SURVEY부터 끝까지
+//   start:DIAG_FROM_SURVEY:<바코드>:<신호>  위 둘을 같이
+//   예: start:DIAG_FROM_SURVEY:P2-04:R4Y2G6 — 바코드는 parse_barcode 표(P2-01~04), 신호는 parse_counts
+//   why = not_start | unknown_command | need_barcode_signal | unknown_barcode | bad_counts | count_out_of_range | sum_not_12
+struct StartCmd {
+  Phase only = Phase::IDLE;  // 단계만 (IDLE = 전체)
+  bool diag = false, from_survey = false, given = false;  // given = 바코드·신호를 받음
+  std::string barcode;
+  Counts counts;
+};
+bool parse_start(const std::string & cmd, StartCmd & out, std::string & why);
+
 // ---------- 놓기 기준 보정 — 장소 태그를 예상 자리(ex, ey)가 아닌 (ox, oy)에서 봤으면 그만큼 칸을 옮긴다 (arena).
 //   max_m 넘게 어긋나면 잘못 본 것으로 보고 보정 안 함 (0, 0)
 std::pair<double, double> tag_correction(double ex, double ey, double ox, double oy, double max_m);

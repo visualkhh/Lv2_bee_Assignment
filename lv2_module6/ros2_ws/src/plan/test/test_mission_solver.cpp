@@ -233,3 +233,48 @@ TEST(MissionSolver, WallDistanceDropsBlockedSide) {  // 시작 박스 1 서쪽 �
   EXPECT_NEAR(plan::wall_distance(1.101, 0.200, walls), 0.450, 1e-9);      // 선분 끝점까지
   EXPECT_TRUE(std::isinf(plan::wall_distance(0, 0, {})));
 }
+
+TEST(MissionFlow, ParseCounts) {  // "R4Y2G6" — 순서·대소문자 상관없음, 1~6 · 합 12
+  Counts c;
+  std::string why;
+  ASSERT_TRUE(parse_counts("R4Y2G6", c, why));
+  EXPECT_EQ(c.r, 4); EXPECT_EQ(c.y, 2); EXPECT_EQ(c.g, 6);
+  ASSERT_TRUE(parse_counts("g6r4y2", c, why));
+  EXPECT_EQ(c.r, 4); EXPECT_EQ(c.y, 2); EXPECT_EQ(c.g, 6);
+  EXPECT_FALSE(parse_counts("R4Y2G7", c, why)); EXPECT_EQ(why, "count_out_of_range");
+  EXPECT_FALSE(parse_counts("R4Y3G4", c, why)); EXPECT_EQ(why, "sum_not_12");
+  EXPECT_FALSE(parse_counts("R0Y6G6", c, why)); EXPECT_EQ(why, "count_out_of_range");
+  for (const char * bad : {"", "R4Y2", "R4Y2G6R1", "R4 Y2 G6", "R4Y2G", "X4Y2G6", "R4Y2G006"}) {
+    EXPECT_FALSE(parse_counts(bad, c, why)) << bad;
+    EXPECT_EQ(why, "bad_counts") << bad;
+  }
+}
+
+TEST(MissionFlow, ParseStart) {
+  StartCmd s;
+  std::string why;
+  ASSERT_TRUE(parse_start("start", s, why));
+  EXPECT_EQ(s.only, Phase::IDLE); EXPECT_FALSE(s.diag); EXPECT_FALSE(s.from_survey); EXPECT_FALSE(s.given);
+  ASSERT_TRUE(parse_start("start:SURVEY", s, why));
+  EXPECT_EQ(s.only, Phase::SURVEY); EXPECT_FALSE(s.diag);
+  ASSERT_TRUE(parse_start("start:DIAG", s, why));
+  EXPECT_TRUE(s.diag); EXPECT_FALSE(s.from_survey); EXPECT_FALSE(s.given); EXPECT_EQ(s.only, Phase::IDLE);
+  ASSERT_TRUE(parse_start("start:DIAG:P2-01:R2Y4G6", s, why));
+  EXPECT_TRUE(s.diag); EXPECT_FALSE(s.from_survey); EXPECT_TRUE(s.given);
+  EXPECT_EQ(s.barcode, "P2-01"); EXPECT_EQ(s.counts.y, 4);
+  ASSERT_TRUE(parse_start("start:FROM_SURVEY:P2-04:R4Y2G6", s, why));
+  EXPECT_FALSE(s.diag); EXPECT_TRUE(s.from_survey); EXPECT_TRUE(s.given); EXPECT_EQ(s.barcode, "P2-04");
+  ASSERT_TRUE(parse_start("start:DIAG_FROM_SURVEY:P2-04:R4Y2G6", s, why));
+  EXPECT_TRUE(s.diag); EXPECT_TRUE(s.from_survey); EXPECT_EQ(s.counts.r, 4); EXPECT_EQ(s.counts.g, 6);
+  const std::vector<std::pair<const char *, const char *>> bad = {
+    {"abort", "not_start"}, {"starts", "not_start"}, {"start:BUILD", "unknown_command"}, {"start:VERIFY", "unknown_command"},
+    {"start:", "unknown_command"}, {"start:SURVEY:P2-04:R4Y2G6", "unknown_command"},
+    {"start:FROM_SURVEY", "need_barcode_signal"}, {"start:DIAG_FROM_SURVEY:P2-04", "need_barcode_signal"},
+    {"start:DIAG:P2-04", "need_barcode_signal"}, {"start:FROM_SURVEY:P2-05:R4Y2G6", "unknown_barcode"},
+    {"start:FROM_SURVEY:p2-04:R4Y2G6", "unknown_barcode"}, {"start:FROM_SURVEY:P2-04:R4Y2G5", "sum_not_12"},
+    {"start:FROM_SURVEY:P2-04:R4Y2G6:x", "need_barcode_signal"}, {"start:DIAG:P2-04:RYG", "bad_counts"}};
+  for (const auto & [cmd, w] : bad) {
+    EXPECT_FALSE(parse_start(cmd, s, why)) << cmd;
+    EXPECT_EQ(why, w) << cmd;
+  }
+}

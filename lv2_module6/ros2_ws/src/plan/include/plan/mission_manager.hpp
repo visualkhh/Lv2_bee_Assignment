@@ -2,7 +2,7 @@
 
 // mission_manager (🛠 직접 작성) — 주사위 기억 미션 (documents/mission/README.md) 순서를 진행한다
 //   흐름·skill: documents/project/ros/05-arm.md · 인지 인터페이스: documents/API.md
-//   입력: ✉️ /cmd/mission (std_msgs/String "start" | "abort")
+//   입력: ✉️ /cmd/mission (std_msgs/String "start" | "abort" — 시작 명령 전체는 mission_solver.hpp parse_start)
 //         ✉️ /mission/signal (확정 답) · /mission/signal_status (사이클마다 — ok · error) · /mission/qr (바코드 원문) — perception
 //         ✉️ /tracked_objects (퍽 tag·color·shape(box|cyl) · 장소 상자 location_box(tag · 윗면 가운데) · barcode · last_seen)
 //         🎬 /task/execute_plan (ExecutePlan action — coordinator 계획 실행 결과)
@@ -161,7 +161,11 @@ private:
   Phase only_ = Phase::IDLE;      // 단계 하나만 실행 ("start:<단계>") — IDLE = 전체
   bool continue_on_fail_ = false; // plan.yaml — 모든 회차를 현장 진단 실행으로
   bool diag_run_ = false;            // 이번 회차 현장 진단 실행 (실패해도 계속 · 치명 이유만 정지 — mission_solver diag_fatal)
-  int stuck_ = 0, stuck_limit_ = 3;  // 이어진 주행 갇힘 (nav_no_progress · nav_failed) 수 · 치명으로 볼 수
+  int stuck_ = 0, stuck_limit_ = 3;
+  bool given_ = false;            // 시작 명령으로 바코드·신호를 받음 ("start:…FROM_SURVEY:…" · "start:DIAG:…")
+  std::string given_barcode_;
+  Counts given_counts_;
+  void use_given(bool fallback);  // from_survey: 처음부터 그 값 · diag(fallback): 관측이 실패한 것만 그 값으로 (results에 남김)  // 이어진 주행 갇힘 (nav_no_progress · nav_failed) 수 · 치명으로 볼 수
   bool signal_window_ = false;    // 이번 실행에서 신호 관측 창을 열었는지 (BARCODE부터 · READ만이면 READ에서)
   bool gaze_sent_ = false;        // 이번 BARCODE에서 팔을 뻗었는지 (끝날 때 접을지)
   double barcode_gaze_wait_s_ = 3.0, barcode_advance_step_m_ = 0.06, barcode_advance_max_m_ = 0.30, barcode_min_gap_m_ = 0.13;

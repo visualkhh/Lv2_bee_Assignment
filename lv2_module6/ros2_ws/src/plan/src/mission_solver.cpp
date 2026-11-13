@@ -2,6 +2,7 @@
 #include "plan/mission_solver.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <limits>
 #include <cmath>
 #include <set>
@@ -168,6 +169,51 @@ bool diag_fatal(bool ok, const std::string & why, int & stuck_streak, int stuck_
   if (why.find("nav_no_progress") != std::string::npos || why.find("nav_failed") != std::string::npos)
     return ++stuck_streak >= stuck_limit;
   return false;
+}
+
+bool parse_counts(const std::string & text, Counts & c, std::string & why) {
+  int v[3] = {-1, -1, -1};
+  size_t i = 0;
+  while (i < text.size()) {
+    const char k = static_cast<char>(std::toupper(static_cast<unsigned char>(text[i++])));
+    const int g = k == 'R' ? 0 : k == 'Y' ? 1 : k == 'G' ? 2 : -1;
+    size_t j = i;
+    while (j < text.size() && std::isdigit(static_cast<unsigned char>(text[j]))) ++j;
+    if (g < 0 || v[g] >= 0 || j == i || j - i > 2) { why = "bad_counts"; return false; }
+    v[g] = std::stoi(text.substr(i, j - i));
+    i = j;
+  }
+  if (v[0] < 0 || v[1] < 0 || v[2] < 0) { why = "bad_counts"; return false; }
+  c = {v[0], v[1], v[2]};
+  return valid_counts(c, why);
+}
+
+bool parse_start(const std::string & cmd, StartCmd & out, std::string & why) {
+  out = StartCmd{};
+  std::vector<std::string> t;
+  for (size_t a = 0;;) {
+    const size_t b = cmd.find(':', a);
+    t.push_back(cmd.substr(a, b == std::string::npos ? std::string::npos : b - a));
+    if (b == std::string::npos) break;
+    a = b + 1;
+  }
+  if (t[0] != "start") { why = "not_start"; return false; }
+  if (t.size() == 1) return true;
+  const std::string & name = t[1];
+  if (t.size() == 2)
+    for (const Phase p : {Phase::BARCODE, Phase::READ, Phase::SURVEY, Phase::RETURN})
+      if (name == phase_name(p)) { out.only = p; return true; }
+  if (name != "DIAG" && name != "FROM_SURVEY" && name != "DIAG_FROM_SURVEY") { why = "unknown_command"; return false; }
+  out.diag = name.rfind("DIAG", 0) == 0;
+  out.from_survey = name != "DIAG";
+  if (t.size() == 2 && !out.from_survey) return true;
+  if (t.size() != 4) { why = "need_barcode_signal"; return false; }
+  bool asc = false;
+  if (!parse_barcode(t[2], asc)) { why = "unknown_barcode"; return false; }
+  if (!parse_counts(t[3], out.counts, why)) return false;
+  out.barcode = t[2];
+  out.given = true;
+  return true;
 }
 
 std::pair<double, double> tag_correction(double ex, double ey, double ox, double oy, double max_m) {
