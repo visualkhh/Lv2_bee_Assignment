@@ -109,6 +109,11 @@ over "beebot"
             prepend apiSchemas = ["PhysxMaterialAPI"]
         )
         {
+            # Carpet floor (11-13): rubber on carpet is lower than the converter's 1.0 / 0.9 (estimate 0.6-0.8, unmeasured).
+            # Set only a step down so the sim does not slip more than the robot would; "max" = never below the floor
+            # material (scenes: 0.85 / 0.70), so the contact uses these values.
+            float physics:dynamicFriction = 0.8
+            float physics:staticFriction = 0.9
             uniform token physxMaterial:frictionCombineMode = "max"
         }
 
@@ -123,6 +128,11 @@ over "beebot"
             prepend apiSchemas = ["PhysxMaterialAPI"]
         )
         {
+            # Carpet floor (11-12): the small steel caster ball sinks into the pile and drags. PhysX has no rolling
+            # resistance on this sphere collider, so model it as a small sliding friction (estimate, tune against the robot).
+            # combine "min" keeps the ball value whatever the floor is (floor 0.85 / 0.70).
+            float physics:dynamicFriction = 0.08
+            float physics:staticFriction = 0.1
             uniform token physxMaterial:frictionCombineMode = "min"
         }
     }

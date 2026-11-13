@@ -5,6 +5,8 @@
 #   isaac/standalone/isaac_sim.sh lab             # usda/scene_<이름>.usda (sim · lab …) — 전체 이름이나 파일 경로도 됨
 #   ISAACSIM_VENV=<venv 경로> isaac/standalone/isaac_sim.sh   # venv 위치가 다를 때 (기본 ~/pa-course/.venv-isaacsim)
 #   ISAAC_ROS_LAUNCH=isaac_manipulator_demo.launch.py ISAAC_AUTOPLAY=1 isaac/standalone/isaac_sim.sh  # SLAM·Nav2 없는 팔 시연
+#   ISAAC_HEADLESS=1 ISAAC_AUTOPLAY=1 isaac/standalone/isaac_sim.sh approach   # 창 없이 (자동 시험 · approach_batch.sh), Play 자동
+#   BEE_SIM_NOISE=0 isaac/standalone/isaac_sim.sh   # 센서 노이즈 끔 (기본 1 = 컬러 모션블러 · 깊이 노이즈 · IMU 노이즈, 실물보다 약하게 · 2 = 두 배)
 #   필요: ros2_ws 빌드(install/), sudo apt install ros-lyrical-depth-image-proc
 #
 # 1. Isaac (isaac_startup.py): scene_sim.usda 열기(Physics variant physx, 파일엔 저장 안 됨)
@@ -73,7 +75,7 @@ rm -f "$PORT"                         # 지난 실행의 링크가 남아 있으
 # ROS's own pinocchio (ros-lyrical-pinocchio, built for numpy 1.x) sits on the sourced PYTHONPATH ahead of the copy Isaac
 # bundles for its pink extension, and Isaac (numpy 2.x) then fails to start (2026-11-02). Put Isaac's copy first.
 PINK_PY="${ISAACSIM_VENV:-$HOME/pa-course/.venv-isaacsim}/lib/python3.12/site-packages/isaacsim/exts/isaacsim.robot_motion.pink/pip_prebundle/cmeel.prefix/lib/python3.12/site-packages"
-(export PYTHONPATH="$PINK_PY:$PYTHONPATH" && source "${ISAACSIM_VENV:-$HOME/pa-course/.venv-isaacsim}/bin/activate" && if [ -n "$ISAAC_STANDALONE" ]; then exec python3 "$ISAAC_STANDALONE" $ISAAC_STANDALONE_ARGS; else exec isaacsim --exec "$HERE/runtime/isaac_startup.py"; fi) &
+(export PYTHONPATH="$PINK_PY:$PYTHONPATH" && source "${ISAACSIM_VENV:-$HOME/pa-course/.venv-isaacsim}/bin/activate" && if [ -n "$ISAAC_STANDALONE" ]; then exec python3 "$ISAAC_STANDALONE" $ISAAC_STANDALONE_ARGS; else exec isaacsim --exec "$HERE/runtime/isaac_startup.py" ${ISAAC_HEADLESS:+--no-window}; fi) &
 ISAAC_PID=$!
 until [ -e "$PORT" ]; do
   kill -0 $ISAAC_PID 2>/dev/null || exit 1

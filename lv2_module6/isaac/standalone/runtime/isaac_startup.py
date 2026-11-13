@@ -3,6 +3,9 @@ opencr_bridge.py (virtual OpenCR on /tmp/opencr) so the ROS side can connect rig
 Viewport starts with colliders hidden.
 While playing, puck ground truth goes to /tmp/beebot_sim_pucks.json (loops/pick_loop.py use_sim=true logs it).
 Same result on every machine, no personal layout file.
+Sensor realism, BEE_SIM_NOISE (default 1, 0 = all off, shared with camera_adapter.py on the ROS side): RTX motion
+blur on the colour images, mild on purpose (exposure 0.3 frame) - unmeasured values stay weaker than the real camera
+so the sim never fails for reasons the robot would not. Depth is not blurred (checked 11-13).
 
     isaacsim --exec isaac_startup.py        (isaac_sim.sh does this)
 """
@@ -65,6 +68,13 @@ async def _setup():
     settings = carb.settings.get_settings()
     settings.set_int("/persistent/physics/visualizationDisplayColliders", 0)
     settings.set_bool("/persistent/app/hydra/displayPurpose/guide", False)
+    noise = float(os.environ.get("BEE_SIM_NOISE", "1"))
+    settings.set_bool("/rtx/post/motionblur/enabled", noise > 0)  # global: viewport + both ROS colour cameras
+    if noise > 0:
+        settings.set_float("/rtx/post/motionblur/exposureFraction", 0.3 * noise)  # of one rendered frame (estimate)
+        settings.set_float("/rtx/post/motionblur/maxBlurDiameterFraction", 0.05)
+        settings.set_int("/rtx/post/motionblur/numSamples", 8)
+    print(f"[isaac_startup] sensor noise BEE_SIM_NOISE={noise:g} (motion blur {'on' if noise > 0 else 'off'})", flush=True)
     stage = omni.usd.get_context().get_stage()
     # scene_sim.usda selects no Physics variant ("none" = no articulation, opencr_bridge finds nothing).
     # Pick physx in the session layer: never saved into the file.

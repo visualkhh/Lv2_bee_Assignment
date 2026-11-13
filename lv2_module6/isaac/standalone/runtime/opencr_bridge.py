@@ -23,11 +23,19 @@ as measured on the real arm (0 = off). The hand then sits below the TF until rl_
 Real-board behaviour copied from firmware/beebot_opencr and the Isaac Lab training env (BEE_SIM_REAL=0 turns all of it off):
   - servo zero offsets from the URDF (above), arm goals rounded to servo ticks with the firmware 0.8 tick hysteresis,
     arm positions reported in whole encoder ticks (4096 / rev)
+  - wheels (XM430-W350-T, firmware send_state): position in whole encoder ticks, velocity in whole
+    Present Velocity units (0.229 rpm = 0.024 rad/s) - the real board never reports finer
   - command latency per joint = training LATENCY_S (isaac/rl/bee_isaac/common.py, measured, report 4)
   - gripper force limit from the C 9th field (Goal Current, default 600 mA), 72.5 N/A per finger like training
     (GRIP_FORCE 29 N at 0.4 A); gripper current reported from the finger force
   - S lines every 10 ms (STATE_PERIOD_MS), not every physics step
   - with twist on: joint2/3 drive stiffness = measured servo stiffness (SERVO_K), like training twist=1
+  - stiff finger drive (GRIP_K) so the grip force is the current limit, like the servo's current-based position mode
+
+IMU noise, BEE_SIM_NOISE (default 1, 0 = off, same switch as isaac_startup.py / camera_adapter.py): white noise on
+the gyro and accelerometer like the OpenCR 1.0 ICM-20648 (datasheet noise density gyro 0.015 deg/s/sqrt(Hz), accel
+230 ug/sqrt(Hz)) over an assumed 100 Hz bandwidth (cIMU filter setting unknown): 0.15 deg/s and 2.3 mg per S line,
+times BEE_SIM_NOISE. Orientation stays the sim value (the firmware's cIMU fusion is not modelled), no bias drift.
 
 Not emulated: T (torque on/off) and R (motor reboot) lines are ignored; temperatures are a constant.
 Comments/strings stay English: the Script Editor breaks Korean text.
@@ -71,6 +79,10 @@ def _urdf_offsets():
 
 
 REAL = os.environ.get("BEE_SIM_REAL", "1") != "0"
+NOISE = float(os.environ.get("BEE_SIM_NOISE", "1"))
+GYRO_SIGMA = math.radians(0.015) * math.sqrt(100.0) * NOISE  # [rad/s] ICM-20648 density x sqrt(assumed 100 Hz)
+ACCEL_SIGMA = 230e-6 * 9.80665 * math.sqrt(100.0) * NOISE  # [m/s^2]
+RNG = np.random.default_rng()
 OFFSET = {name: 0.0 for name in ARM}
 if REAL:
     OFFSET.update({k: v for k, v in _urdf_offsets().items() if k in OFFSET})
@@ -81,6 +93,15 @@ LATENCY = dict(zip(ARM, (0.045, 0.062, 0.052, 0.045, 0.045, 0.020) if REAL else 
 GRIP_N_PER_A = 29.0 / 0.4  # per finger, = common.py GRIP_FORCE at the team current 0.4 A
 GRIP_A_DEFAULT, GRIP_A_MIN, GRIP_A_MAX = 0.6, 0.00269, 1.2  # firmware GRIPPER_GOAL_CURRENT_MA, _CURRENT_MIN_MA, _MAX_MA
 STATE_PERIOD = 0.010 if REAL else 0.0  # [s] firmware STATE_PERIOD_MS
+GRIP_K = 2.0e4  # [N/m] finger drive: the 0.1 A limit (7.3 N) is reached 0.4 mm short of the goal
+
+
+RAD_S_PER_VEL_UNIT = 0.229 * 2 * math.pi / 60  # firmware VELOCITY_RPM_PER_UNIT
+
+
+def vel_units(rad_s):
+    """Velocity rounded to whole Present Velocity units (firmware rpm_to_rad_s(raw * VELOCITY_RPM_PER_UNIT))."""
+    return round(rad_s / RAD_S_PER_VEL_UNIT) * RAD_S_PER_VEL_UNIT if REAL else rad_s
 
 
 def ticks(servo_rad):
@@ -169,13 +190,20 @@ class Board:
             os.symlink(os.ttyname(self.slave), LINK)
             print(f"[opencr_bridge] virtual OpenCR on {LINK} -> {os.ttyname(self.slave)}")
         print(f"[opencr_bridge] attached {root.GetPath()} ({len(names)} dofs), IMU {imu.GetPath()}")
-        if REAL and TWIST_SCALE:
+        if REAL:
             k = self.view.get_dof_stiffnesses()
-            for name, v in SERVO_K.items():
-                k[0, self.idx[name]] = v
+            if TWIST_SCALE:
+                for name, v in SERVO_K.items():
+                    k[0, self.idx[name]] = v
+            # Current-based position mode: the servo pushes at the current limit once the fingers stop on the puck, a few
+            # ticks short of the goal. The USD finger drive (1000 N/m) gave 1000 x (goal - stop) instead: 0.8-3.6 N at
+            # grip_current_a 0.1 A (7.3 N) on 11-12, so pucks turned in the hand. Stiff drive -> force = the current limit.
+            for dof in FINGERS:
+                if k[0, self.idx[dof]] > 0.0:  # the right finger has no drive in the USD (it follows the left)
+                    k[0, self.idx[dof]] = GRIP_K
             self.view.set_dof_stiffnesses(k, np.array([0], dtype=np.int32))
-            print("[opencr_bridge] arm drive stiffness (Nm/rad):",
-                  {n: round(float(k[0, self.idx[n]]), 1) for n in ARM[:5]})
+            print("[opencr_bridge] drive stiffness (arm Nm/rad, finger N/m):",
+                  {n: round(float(k[0, self.idx[n]]), 1) for n in ARM + FINGERS[1:]})
 
     def step(self, dt):
         if self.view is None or not self.sim.is_valid:
@@ -280,7 +308,7 @@ class Board:
         self.wheel_prev = w
         v = []
         for k, name in enumerate(WHEELS):
-            v += [self.wheel_acc[k], vel[self.idx[name]], 0.0]  # wheel current A: no load model
+            v += [ticks(self.wheel_acc[k]), vel_units(vel[self.idx[name]]), 0.0]  # wheel current A: no load model
         for name in ARM:
             i = self.idx[name]
             if name == "gripper_left_joint":  # closing force -> + current (servo current while squeezing)
@@ -288,9 +316,9 @@ class Board:
                 continue
             v += [ticks(pos[i] + OFFSET[name] - self.twist.get(name, 0.0)), vel[i], eff[i] / NM_PER_A]
         r = self.imu.get_sensor_reading(read_gravity=True)
-        v += [r.orientation_x, r.orientation_y, r.orientation_z, r.orientation_w,
-              r.angular_velocity_x, r.angular_velocity_y, r.angular_velocity_z,
-              r.linear_acceleration_x, r.linear_acceleration_y, r.linear_acceleration_z]
+        gyro = np.array([r.angular_velocity_x, r.angular_velocity_y, r.angular_velocity_z]) + RNG.normal(0.0, GYRO_SIGMA, 3)
+        acc = np.array([r.linear_acceleration_x, r.linear_acceleration_y, r.linear_acceleration_z]) + RNG.normal(0.0, ACCEL_SIGMA, 3)
+        v += [r.orientation_x, r.orientation_y, r.orientation_z, r.orientation_w, *gyro, *acc]
         return "S," + ",".join(f"{float(x):.4f}" for x in v) + "," + ",".join([str(TEMP_C)] * 8) + f",{BATTERY_V:.2f}"
 
     def send(self, line):
