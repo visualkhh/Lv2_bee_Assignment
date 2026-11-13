@@ -105,6 +105,8 @@ private:
   bool twist_state_ = true;                     // 위 "비틀림 상태"
   double twist_c2_ = 0.0817, twist_c3_ = 0.0532;  // [rad/Nm] joint2·3 = controllers.yaml gravity_compliance_j2·j3
   std::array<double, 6> twist_{};               // ARM 순서, 마지막으로 상태에 더한 d — on_activate 명령을 엔코더 각으로
+  std::array<double, 2> wheel_zero_{};   // 첫 S의 바퀴 누적 rad (apply_state 설명) — 바퀴 위치 상태는 여기서부터
+  bool wheel_zeroed_ = false;
   std::map<std::string, double> offset_;  // 팔·그리퍼 영점 오프셋 (URDF <joint><param name="offset">) — 서보 값 = 관절값 + offset
   int fd_ = -1;
   std::string rx_;

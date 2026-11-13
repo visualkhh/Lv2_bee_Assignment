@@ -91,13 +91,19 @@ class MapGate:
     표준(Isaac ROS VIO)은 IMU 융합으로 버티고 map→odom은 루프 클로저 때만 바뀜 — 여기선 대신:
       ① 보정이 한 번에 jump_m · jump_deg 넘게 바뀌면 받지 않고 잠금(locked) — 그 뒤 이동은 EKF(바퀴+IMU)만. /initialpose로 풀림
       ② 그 밖의 보정은 초당 rate_m · rate_deg까지만 따라감 (튀는 프레임이 지도에 바로 안 들어감)
+      ③ 첫 보정 뒤 settle_s 동안(출발 자리에 서서 bringup이 뜨는 중)은 거르지 않고 그대로 받음 — 그 사이 odom이 튀어도
+         (11-14 실기: 바퀴 누적 엔코더로 EKF odom이 0.75 m 튐 → 바로 잠금) map은 cuVSLAM(= 출발 자리 기준)에 맞음.
+         그 사이 ① 크기로 다시 맞춘 일이 있으면 resettled에 (거리 m, 각 °)를 남김 (노드가 로그)
     11-10 시뮬 기록 재생(정답을 odom으로 봄): 4.8 m 점프 → 최대 3.5 cm · 정상 실행은 그대로. 점진적 밀림(13→56 cm)은 못 고침 → VIO 필요"""
 
-    def __init__(self, jump_m=0.30, jump_deg=15.0, rate_m=0.02, rate_deg=2.0):
+    def __init__(self, jump_m=0.30, jump_deg=15.0, rate_m=0.02, rate_deg=2.0, settle_s=0.0):
         self.jump_m, self.jump_rad = jump_m, math.radians(jump_deg)
         self.rate_m, self.rate_rad = rate_m, math.radians(rate_deg)
+        self.settle_s = settle_s
         self.held = None   # 지금 내는 map→odom (x, y, yaw)
         self.t = None
+        self.t0 = None     # 첫 보정 시각 — reset(/initialpose)으로 지우지 않음 (정착은 bringup 때 한 번)
+        self.resettled = None
         self.locked = False
         self.rejected = 0
 
@@ -106,6 +112,8 @@ class MapGate:
 
     def update(self, cand, t):
         """후보 map→odom, 시각 t [s] → (낼 map→odom, 후보를 그대로 받았는지)"""
+        if self.t0 is None:
+            self.t0 = t
         if self.held is None:
             self.held, self.t = tuple(cand), t
             return self.held, True
@@ -113,6 +121,11 @@ class MapGate:
         self.t = t
         d = math.hypot(cand[0] - self.held[0], cand[1] - self.held[1])
         r = abs(math.remainder(cand[2] - self.held[2], 2 * math.pi))
+        if t - self.t0 < self.settle_s:  # ③ 출발 정착 중 — 그대로 받음
+            if d > self.jump_m or r > self.jump_rad:
+                self.resettled = (d, math.degrees(r))
+            self.held = tuple(cand)
+            return self.held, True
         if self.locked or d > self.jump_m or r > self.jump_rad:
             self.locked = True
             self.rejected += 1
@@ -153,7 +166,9 @@ class CuvslamSlam(Node):
         self.gate = MapGate(float(self.declare_parameter('gate_jump_m', 0.30).value),
                             float(self.declare_parameter('gate_jump_deg', 15.0).value),
                             float(self.declare_parameter('gate_rate_m', 0.02).value),
-                            float(self.declare_parameter('gate_rate_deg', 2.0).value)) \
+                            float(self.declare_parameter('gate_rate_deg', 2.0).value),
+                            # [s] 첫 프레임 뒤 이만큼은 거르지 않음 — 출발 자리에 서서 bringup 중 (odom 시작 튐 흡수). 이 안에 주행 시작하지 말 것
+                            float(self.declare_parameter('gate_settle_s', 15.0).value)) \
             if bool(self.declare_parameter('map_gate', True).value) else None
         # BEE_MAP_FREEZE=1 (시험용, 11-13): 첫 map→odom(출발 자세 ≈ 항등)에 고정 — 보정 끔, TF map = EKF odom 그대로
         if os.environ.get('BEE_MAP_FREEZE') == '1':
@@ -301,6 +316,11 @@ class CuvslamSlam(Node):
         x, y, yaw = map_to_odom(base, odom_from_base)
         if self.gate is not None:
             (x, y, yaw), ok = self.gate.update((x, y, yaw), Time.from_msg(stamp).nanoseconds * 1e-9)
+            if self.gate.resettled:
+                self.get_logger().warning(
+                    'map→odom 출발 정착 중 다시 맞춤 — 보정이 %.2f m · %.1f° 바뀜 (gate_settle_s 안이라 잠그지 않고 받음 · map = cuVSLAM 출발 자리 기준)'
+                    % self.gate.resettled)
+                self.gate.resettled = None
             if not ok:
                 if self.gate.locked:
                     self.get_logger().error('map→odom 보정 잠금 — cuVSLAM 위치가 크게 튐, 바퀴+IMU로만 이어 감 '
