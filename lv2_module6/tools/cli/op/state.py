@@ -86,7 +86,7 @@ class StateStore:
         self.slam_last_jump: tuple | None = None  # (크기 m, 각 deg, HH:MM:SS)
         # 현장 디버그 (op/fielddebug.py)
         self.signal_track = SignalTracker.from_config()      # /tracked_objects 신호등 → 지금 몇 번째 점멸
-        self.signal_answer = os.environ.get('BEE_SIGNAL_ANSWER', '')   # 정답 신호 (예 "R G R R G R G G Y G Y G") — 미션 메뉴 a로도
+        self.signal_answer = os.environ.get('BEE_SIGNAL_ANSWER', 'R G R R G R G G Y G Y G')   # 정답 신호 — 기본 = 현장 고정 문제 (신호등 보드 고정 세트) · 미션 메뉴 a로 바꿈
         self.nav2_life: dict[str, str | None] = {}           # Nav2 노드 → 수명주기 상태 (None = 서비스 없음) · operator_tool이 5 s마다
         self.barcode_cam: tuple[str, str] | None = None      # 바코드를 마지막으로 본 (카메라, 내용) — /tracked_objects class barcode
         self.mission_cmd: tuple[str, float] | None = None    # 마지막 /cmd/mission (값, 받은 시각) — 바코드 찾기 창 계산
