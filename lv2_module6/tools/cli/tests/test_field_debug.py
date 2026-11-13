@@ -99,7 +99,8 @@ with tempfile.TemporaryDirectory() as d:
 
 # 7) 부하 · 빌드 — 이 머신에서 돌아가기만 (Mac은 /proc 없어 상위 목록 빈 것)
 assert fd.load_ratio() is not None
-fd.top_procs(); fd._procs['t'] -= 10; assert isinstance(fd.top_procs(), list)
+fd.top_procs(); fd._procs["t"] -= 10; assert isinstance(fd.top_procs(), list)
+fd._procs["t"] -= 10; assert all(len(r) == 3 and isinstance(r[1], int) for r in fd.proc_usage())
 b = fd.build_info()   # repo 밖으로 복사한 cli면 None
 assert b is None or b['commit'], b
 
