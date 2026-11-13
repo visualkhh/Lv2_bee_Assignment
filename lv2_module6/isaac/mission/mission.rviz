@@ -7,8 +7,9 @@ Panels:
         - /Global Options1
         - /Status1
         - /RobotModel1
+        - /Gripper Camera (검출 그림)1
       Splitter Ratio: 0.5
-    Tree Height: 382
+    Tree Height: 240
   - Class: rviz_common/Selection
     Name: Selection
   - Class: rviz_common/Tool Properties
@@ -323,19 +324,6 @@ Visualization Manager:
         Value: /local_costmap/costmap_updates
       Use Timestamp: false
       Value: true
-    - Class: rviz_default_plugins/MarkerArray
-      Enabled: true
-      Name: Mission (L1~L3 · 칸 · 출발 구역)
-      Namespaces:
-        Value: true
-        mission: true
-      Topic:
-        Depth: 1
-        Durability Policy: Transient Local
-        History Policy: Keep Last
-        Reliability Policy: Reliable
-        Value: /mission/markers
-      Value: true
     - Alpha: 1
       Buffer Length: 1
       Class: rviz_default_plugins/Path
@@ -380,8 +368,8 @@ Visualization Manager:
     - Alpha: 1
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
-        Max Value: 0.3907107412815094
-        Min Value: 0.0005526244640350342
+        Max Value: 0.39190199971199036
+        Min Value: -0.0345740020275116
         Value: true
       Axis: Z
       Channel Name: intensity
@@ -487,25 +475,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 13.178553581237793
+      Distance: 9.563286781311035
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: -0.6009857058525085
-        Y: -1.8893831968307495
-        Z: -1.430005431175232
+        X: -0.3288615345954895
+        Y: -0.08276326954364777
+        Z: -0.6030442118644714
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.8897968530654907
+      Pitch: 1.0947967767715454
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz)
-      Yaw: 1.9035078287124634
+      Yaw: 1.7635083198547363
     Saved: ~
 Window Geometry:
   Displays:
@@ -514,16 +502,16 @@ Window Geometry:
     collapsed: false
   Gripper Camera (검출 그림):
     collapsed: false
-  Height: 1531
+  Height: 1139
   Hide Left Dock: false
   Hide Right Dock: false
-  QMainWindow State: 000000ff00000000fd0000000200000000000001c20000059ffc0200000004fb000000100044006900730070006c006100790073010000003e00000202000000ca00fffffffb0000001200530065006c0065006300740069006f006e0100000246000000830000005c00fffffffb0000001e0054006f006f006c002000500072006f007000650072007400690065007301000002cf0000015d0000005c00fffffffb0000000a005600690065007700730100000432000001ab000000a600ffffff00000001000002550000059ffc0200000002fb0000002800460072006f006e0074002000430061006d00650072006100200028ac80cd9c0020adf8b9bc0029010000003e000001f50000001a00fffffffb0000002c0047007200690070007000650072002000430061006d00650072006100200028ac80cd9c0020adf8b9bc00290100000239000003a40000001a00ffffff000005dd0000059f00000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
+  QMainWindow State: 000000ff00000000fd0000000200000000000001c200000417fc0200000004fb000000100044006900730070006c006100790073010000003e00000174000000ca00fffffffb0000001200530065006c0065006300740069006f006e01000001b80000005f0000005c00fffffffb0000001e0054006f006f006c002000500072006f0070006500720074006900650073010000021d000000fd0000005c00fffffffb0000000a00560069006500770073010000032000000135000000a600ffffff000000010000025500000417fc0200000002fb0000002800460072006f006e0074002000430061006d00650072006100200028ac80cd9c0020adf8b9bc0029010000003e0000016c0000001a00fffffffb0000002c0047007200690070007000650072002000430061006d00650072006100200028ac80cd9c0020adf8b9bc002901000001b0000002a50000001a00ffffff0000035d0000041700000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
   Selection:
     collapsed: false
   Tool Properties:
     collapsed: false
   Views:
     collapsed: false
-  Width: 2560
-  X: 0
-  Y: 32
+  Width: 1920
+  X: 158
+  Y: 136

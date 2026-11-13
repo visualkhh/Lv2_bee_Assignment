@@ -171,8 +171,8 @@ def main():
     ap.add_argument('--gap', type=float, default=0.085, help='[m] approach to this gap base_footprint-side (plan.yaml approach_gap)')
     ap.add_argument('--wall-clearance', type=float, default=0.22, help='[m] skip sides closer to a wall (plan.yaml)')
     ap.add_argument('--timeout', type=float, default=240.0, help='[s] whole plan')
-    ap.add_argument('--wait-ready', type=float, default=0.0, metavar='SEC',
-                    help='first wait up to SEC for Nav2 + base lifecycle nodes active, skill servers and TF (after reset.sh); '
+    ap.add_argument('--wait-ready', type=float, default=90.0, metavar='SEC',
+                    help='(default 90, 0 = no check) first wait up to SEC for Nav2 + base lifecycle nodes active, skill servers and TF (after reset.sh); '
                          'exit 3 if not (approach_batch.sh then resets again)')
     ap.add_argument('--bag', choices=['on', 'full', 'off'], default='on')
     ap.add_argument('--plan-error', type=float, nargs=2, default=[0.0, 0.0], metavar=('DX', 'DY'),

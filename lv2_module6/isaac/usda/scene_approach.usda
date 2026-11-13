@@ -7,8 +7,8 @@
                 double radius = 5
             }
             dictionary Perspective = {
-                double3 position = (2.6254342570147533, -4.512323182548543, 3.375612205647666)
-                double3 target = (-0.09113925927453348, -1.1465866234978535, 0.22967552963725923)
+                double3 position = (0.6186085669108486, -2.4718943217834743, 5.883690503372824)
+                double3 target = (-0.767167319461633, -0.2936791068225788, 1.1996884224741038)
             }
             dictionary Right = {
                 double3 position = (0, -5, 0)
@@ -580,7 +580,7 @@ def Xform "World"
             prepend payload = @./shelf/shelf.usda@
         )
         {
-            float3 xformOp:rotateXYZ = (0, 0, 1)
+            float3 xformOp:rotateXYZ = (0, 0, -8.803066)
             float3 xformOp:scale = (1, 1, 1)
             double3 xformOp:translate = (-1.253, -2.471, 0)
             float3 xformOp:translate:pivot = (0, 0, 0)
@@ -602,7 +602,7 @@ def Xform "World"
             prepend payload = @./shelf/shelf.usda@
         )
         {
-            float3 xformOp:rotateXYZ = (0, 0, 0)
+            float3 xformOp:rotateXYZ = (0, 0, 11.715777)
             float3 xformOp:scale = (1, 1, 1)
             double3 xformOp:translate = (0.215, 1.933, 0)
             float3 xformOp:translate:pivot = (0, 0, 0)
@@ -613,7 +613,7 @@ def Xform "World"
             prepend payload = @./shelf/shelf.usda@
         )
         {
-            float3 xformOp:rotateXYZ = (0, 0, -5.6)
+            float3 xformOp:rotateXYZ = (0, 0, -29.014545)
             float3 xformOp:scale = (1, 1, 1)
             double3 xformOp:translate = (-1.987, 1.933, 0)
             float3 xformOp:translate:pivot = (0, 0, 0)
@@ -992,7 +992,7 @@ def "Render" (
                 bool omni:rtx:scene:useViewLightingMode
                 rel orderedVars = </Render/Vars/LdrColor>
                 custom bool overrideClipRange = 0
-                uniform int2 resolution = (1733, 1018)
+                uniform int2 resolution = (1732, 1018)
             }
 
             def RenderProduct "Replicator" (
@@ -1097,9 +1097,9 @@ over "OmniverseKit_Persp" (
     float focalLength = 18.147562
     float focusDistance = 400
     custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -5.348352253152565)
-    float3 xformOp:rotateXYZ = (53.970146, -9.859719e-13, 38.9079)
+    float3 xformOp:rotateXYZ = (28.862085, -9.843816e-13, 32.46443)
     float3 xformOp:scale = (1, 1, 1)
-    double3 xformOp:translate = (2.6254342570147533, -4.512323182548543, 3.375612205647666)
+    double3 xformOp:translate = (0.6186085669108486, -2.4718943217834743, 5.883690503372824)
     uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
 }
 

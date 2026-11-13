@@ -1,0 +1,8 @@
+# copy of scene_approach (same geometry, matte walls only) — isaac/mission/make_map.py
+image: map.pgm
+mode: trinary
+resolution: 0.05
+origin: [-4.683, -2.556, 0.0]
+negate: 0
+occupied_thresh: 0.65
+free_thresh: 0.25
