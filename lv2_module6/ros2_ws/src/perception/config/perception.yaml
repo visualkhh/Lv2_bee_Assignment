@@ -21,6 +21,11 @@ perception:
     track_frame: "odom"      # 추적·융합 좌표계 (끊김 없음) — /tracked_objects는 발행 순간의 map ← odom으로 바꿔 map 기준
     # 컬러·depth 동기화 · 두 카메라 융합 (scripts/perception_node.py 맨 위 설명)
     sync_slop: 0.05         # 컬러·정렬 depth를 한 쌍으로 묶는 시각 차 한도 [s]
+    max_frame_age_s: 2.0    # 기존 트랙 만료와 같은 상한. 오래된 영상·같은 stamp는 재추론하지 않음
+    max_tf_fallback_age_s: 0.3   # 영상 시각 TF가 없을 때 최신 TF와 허용하는 최대 시각 차 [s] (0 = 한도 없음) — 멈춘 TF만 거름.
+                                 #   실기 부하에서 정상 지연이 얼마인지 진단 "시각 차 초과 TF"로 본 뒤 줄일 것
+    map_tf_cache_s: 0.0     # map TF가 끊기면 마지막 변환을 이만큼 유지 [s] (0 = 계속 — cuVSLAM이 잠깐 놓쳐도 좌표 유지)
+    map_tf_required: false  # true = map TF가 한 번도 없으면 좌표 발행 보류 · false = odom 그대로 (map:=none · map 원점 = 출발 자리)
     match_dist: 0.4         # 같은 클래스 검출을 기존 트랙에 붙이는 거리 한도 [m] — 그 안에서 마할라노비스 거리 작은 쌍부터 1:1
     det_merge_iou: 0.5      # 한 프레임에서 겹친(IoU ≥) 같은 퍽 박스를 하나로 (0 = 끔) — fuse가 1:1이라 두 번째 박스가 중복 트랙이 됐음 (11/07)
     track_merge_m: 0.03     # 이 안의 같은 퍽 트랙 둘을 오래된 id 하나로 [m] (0 = 끔) — 퍽 폭 3 cm보다 작게 (붙은 다른 퍽은 안 합침)

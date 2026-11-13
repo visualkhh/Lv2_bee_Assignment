@@ -196,7 +196,9 @@ std::vector<BoxTop> find_box_tops(const cv::Mat1f & depth_m, const cv::Matx33d &
                                   double min_side, double max_side, double cell, int step = 4, double max_range = 3.0,
                                   const std::optional<std::pair<cv::Vec2d, double>> & avoid = std::nullopt,
                                   const std::optional<std::vector<std::array<double, 4>>> & rois = std::nullopt,
-                                  const std::vector<cv::Vec3d> & mask_px = {});
+                                  const std::vector<cv::Vec3d> & mask_px = {},
+                                  const std::optional<Body> & avoid_body = std::nullopt,
+                                  const std::vector<double> & body_box = {});
 bool tag_on_box(const cv::Vec2d & tag_xy, const BoxTop & box, double margin);
 // 로봇 앞면 → 상자의 로봇 쪽 면 거리 [m] — 윗면 깊이 점 중 로봇 앞 띠(|옆| < half_band) 안에서 가장 가까운 쪽(하위 q 분위)
 //   잘려서 가운데·크기를 못 믿어도, 로봇 쪽 모서리가 보이는 동안은 잼. robot_xy·robot_yaw = base_footprint (추적 좌표)

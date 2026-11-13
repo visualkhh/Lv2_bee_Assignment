@@ -459,8 +459,9 @@ def test_tags_and_markers():
 
     dic = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_APRILTAG_36h11)
     img = np.full((240, 320, 3), 255, np.uint8)
-    img[40:100, 40:100] = cv2.cvtColor(cv2.aruco.generateImageMarker(dic, 2, 60), cv2.COLOR_GRAY2BGR)     # R3
-    img[40:120, 180:260] = cv2.cvtColor(cv2.aruco.generateImageMarker(dic, 13, 80), cv2.COLOR_GRAY2BGR)  # L2
+    marker = getattr(cv2.aruco, "generateImageMarker", None) or cv2.aruco.drawMarker  # OpenCV 4.7+ · 4.6
+    img[40:100, 40:100] = cv2.cvtColor(marker(dic, 2, 60), cv2.COLOR_GRAY2BGR)     # R3
+    img[40:120, 180:260] = cv2.cvtColor(marker(dic, 13, 80), cv2.COLOR_GRAY2BGR)  # L2
     tags = detect_tags(tag_detector(), img)
     assert sorted(t[0] for t in tags) == [2, 13]
     assert tag_in_box(tags, (30, 30, 110, 110), set(range(12)))[0] == 2

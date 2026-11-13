@@ -59,7 +59,7 @@ cv::Matx33d cam_rot(double yaw_deg, double pitch_deg) {
   const cv::Vec3d down = fwd.cross(right);
   return {right[0], down[0], fwd[0], right[1], down[1], fwd[1], right[2], down[2], fwd[2]};
 }
-struct BoxSpec { double x, y, side, h, yaw; };
+struct BoxSpec { double x, y, side, h, yaw; double side_y{0.0}; };
 struct Cyl { double x, y, r, h; };
 // 파이썬 _box_depth: 위에서 비스듬히(50°) 내려다보는 카메라로 찍은 가짜 depth (바닥 z=0)
 struct Scene { cv::Mat1f d; cv::Matx33d rot; cv::Vec3d trans; double fx, fy, cx, cy; };
@@ -74,7 +74,8 @@ Scene box_depth(const std::vector<BoxSpec> & boxes, const std::vector<Cyl> & ext
         const double t = (b.h - cam_h) / rz;
         const double px = t * ray[0] - b.x, py = t * ray[1] - b.y;
         const double lx = px * std::cos(-b.yaw) - py * std::sin(-b.yaw), ly = px * std::sin(-b.yaw) + py * std::cos(-b.yaw);
-        if (ray[2] < 0 && std::abs(lx) < b.side / 2 && std::abs(ly) < b.side / 2 && t < depth) depth = t;
+        const double side_y = b.side_y > 0 ? b.side_y : b.side;
+        if (ray[2] < 0 && std::abs(lx) < b.side / 2 && std::abs(ly) < side_y / 2 && t < depth) depth = t;
       }
       for (const auto & o : extra)
         for (int k = 0; k < 40; ++k) {
@@ -92,6 +93,21 @@ std::vector<BoxTop> tops_of(const Scene & s, const std::vector<cv::Vec3d> & mask
                        std::nullopt, mask);
 }
 }  // namespace
+
+TEST(Core, RectangleHeightUsesWholeConnectedSurface) {
+  cv::Mat1f depth(480, 480, 0.8f);
+  for (int v = 0; v < depth.rows; ++v)
+    for (int u = 0; u < depth.cols; ++u) {
+      const double x = (u - 240) * 0.745 / 400, y = (v - 240) * 0.745 / 400;
+      if (std::abs(x) < 0.1 && std::abs(y) < 0.2) depth(v, u) = 0.745f;  // 표면 대부분은 5.5 cm
+      const double hx = (u - 240) * 0.715 / 400, hy = (v - 240) * 0.715 / 400;
+      if (std::abs(hx) < 0.1 && std::abs(hy) < 0.075) depth(v, u) = 0.715f;  // 가운데 일부만 8.5 cm
+    }
+  const auto boxes = find_box_tops(depth, cv::Matx33d(1,0,0, 0,-1,0, 0,0,-1), {0.9, 0, 0.8},
+    400, 400, 240, 240, 0, {0.05, 0.09}, 0.17, 1.0, 0.02, 2);
+  ASSERT_EQ(boxes.size(), 1u);
+  EXPECT_NEAR(boxes[0].top_z, 0.055, 0.005);
+}
 
 TEST(Core, ClassifyColor) {  // 퍽 색 · 신호등 상태 — 조명 0.55~1.45배
   const std::vector<std::pair<std::string, cv::Vec3b>> puck = {
