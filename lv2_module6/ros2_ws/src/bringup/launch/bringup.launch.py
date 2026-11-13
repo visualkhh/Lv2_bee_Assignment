@@ -35,7 +35,8 @@ from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDesc
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
-from launch_ros.actions import Node
+from launch_ros.actions import LoadComposableNodes, Node
+from launch_ros.descriptions import ComposableNode
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
@@ -72,6 +73,7 @@ ROS_SYSTEM_ARGS = {
     'use_ekf': ('true', 'robot_localization EKF'),
     'ekf_imu': ('true', 'EKF yaw 회전속도 = IMU 자이로 · false면 바퀴'),
     'use_nav2': ('true', '진짜 Nav2 서버'),
+    'nav2_composition': ('true', 'Nav2 서버·관리자(+ map_saver)를 한 프로세스(nav2_container)로 — 메모리 절약 · false면 서버마다 프로세스 (예전)'),
     'use_moveit': ('true', '진짜 move_group — coordinator의 pick/place가 씀 (ros_system 기본은 false라 실기에서 팔 작업이 안 됐음)'),
 }
 
@@ -169,6 +171,31 @@ def setup_map(context):
             SetLaunchConfiguration('use_gripper_cam', ug),
             SetLaunchConfiguration('use_hand_relative', 'true' if use_perception == 'true' and ug == 'true' else 'false')]
 
+
+def map_saver():
+    """SLAM(slam·saved)일 때: 지도 저장 서버 (사람이 보는 미리보기 — 위치추정은 nvblox.nvblx) — /map_saver/save_map → <map_dir>/<map_name>/map.pgm·yaml (시뮬레이터 [지도 저장])
+    nav2_composition:=true(기본)면 ros_system의 nav2_container에 컴포넌트로 (프로세스 둘 덜 띄움), false면 예전처럼 따로.
+    따로 띄울 땐 끌 때 빨리 포기 (SIGINT → 3초 → SIGTERM → 3초 → SIGKILL) — ros_system QUICK_STOP과 같은 이유
+    관리자는 4 s 늦게 — 막 뜬 map_saver에 바로 보낸 change_state 응답이 사라져 멈춘 적 있음 (ros_system LIFECYCLE_DELAY_S)"""
+    def cond(composed):
+        return IfCondition(PythonExpression(["'", LaunchConfiguration('use_ros_system'), "'.lower() == 'true' and '",
+                                             LaunchConfiguration('use_slam'), "' == 'true' and '",
+                                             LaunchConfiguration('nav2_composition'), "'.lower() " + ('==' if composed else '!=') + " 'true'"]))
+    manager = {'autostart': True, 'node_names': ['map_saver'], 'bond_timeout': 60.0}
+    return [
+        Node(package='nav2_map_server', executable='map_saver_server', name='map_saver', output='screen',
+             sigterm_timeout='3', sigkill_timeout='3', condition=cond(False)),
+        LoadComposableNodes(target_container='/nav2_container', condition=cond(True), composable_node_descriptions=[
+            ComposableNode(package='nav2_map_server', plugin='nav2_map_server::MapSaver', name='map_saver')]),
+        TimerAction(period=4.0, actions=[
+            Node(package='nav2_lifecycle_manager', executable='lifecycle_manager', name='lifecycle_manager_map_saver',
+                 output='screen', parameters=[manager], sigterm_timeout='3', sigkill_timeout='3', condition=cond(False)),
+            LoadComposableNodes(target_container='/nav2_container', condition=cond(True), composable_node_descriptions=[
+                ComposableNode(package='nav2_lifecycle_manager', plugin='nav2_lifecycle_manager::LifecycleManager',
+                               name='lifecycle_manager_map_saver', parameters=[manager])])]),
+    ]
+
+
 def foxglove(context):
     """Foxglove(맥·아이패드 앱)용 WebSocket 브리지 — 기본 끔 (use_foxglove:=true로 켬) · auto: foxglove_bridge가 설치돼 있을 때만 · 접속 ws://<로봇 IP 또는 bee.local>:<foxglove_port>
     부하: 보는 쪽이 구독한 토픽만 보냄 (아무도 안 붙으면 discovery뿐) — 영상은 볼 때만 열 것"""
@@ -248,19 +275,7 @@ def generate_launch_description():
                               'localization': LaunchConfiguration('localization'),
                               'nvblox_map': LaunchConfiguration('nvblox_map')}.items())],
             condition=IfCondition(LaunchConfiguration('use_ros_system'))),
-        # SLAM(slam·saved)일 때: 지도 저장 서버 (사람이 보는 미리보기 — 위치추정은 nvblox.nvblx) — /map_saver/save_map → <map_dir>/<map_name>/map.pgm·yaml (시뮬레이터 [지도 저장])
-        # 끌 때 빨리 포기 (SIGINT → 3초 → SIGTERM → 3초 → SIGKILL) — ros_system QUICK_STOP과 같은 이유
-        Node(package='nav2_map_server', executable='map_saver_server', name='map_saver', output='screen',
-             sigterm_timeout='3', sigkill_timeout='3',
-             condition=IfCondition(PythonExpression(["'", LaunchConfiguration('use_ros_system'), "'.lower() == 'true' and '",
-                                                     LaunchConfiguration('use_slam'), "' == 'true'"]))),
-        # 관리자는 4 s 늦게 — 막 뜬 map_saver에 바로 보낸 change_state 응답이 사라져 멈춘 적 있음 (ros_system LIFECYCLE_DELAY_S)
-        TimerAction(period=4.0, actions=[Node(
-            package='nav2_lifecycle_manager', executable='lifecycle_manager', name='lifecycle_manager_map_saver',
-            output='screen', parameters=[{'autostart': True, 'node_names': ['map_saver'], 'bond_timeout': 60.0}],
-            sigterm_timeout='3', sigkill_timeout='3',
-            condition=IfCondition(PythonExpression(["'", LaunchConfiguration('use_ros_system'), "'.lower() == 'true' and '",
-                                                    LaunchConfiguration('use_slam'), "' == 'true'"])))]),
+        *map_saver(),  # SLAM일 때 지도 저장 서버 (map_saver() 설명)
 
         node('perception', 'perception_node', condition=IfCondition(LaunchConfiguration('use_perception'))),
         # coordinator: 계획 단계를 skill 노드에 맡기는 순서 담당 (적재함 장부 · 모드·비상정지 취소)
