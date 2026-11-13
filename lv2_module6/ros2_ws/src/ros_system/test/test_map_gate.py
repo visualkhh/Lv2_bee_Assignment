@@ -36,4 +36,26 @@ assert not ok and g.locked and out == (-0.75, 0.0, 0.0)
 g.reset()                                                     # /initialpose 뒤엔 정착 다시 안 함 (t0 유지)
 g.update((0.0, 0.0, 0.0), 121.0)
 assert not g.update((1.0, 0.0, 0.0), 121.1)[1] and g.locked
+
+# 영상 → numpy (복사 없이) · 가까운 depth 마스크가 예전 식과 같은지
+import array  # noqa: E402
+import numpy as np  # noqa: E402
+
+ns = {'np': np}
+exec(SRC[SRC.index('def image('):SRC.index('class CuvslamSlam')], ns)  # noqa: S102
+
+
+class Img:
+    pass
+
+
+d = np.array([[0, 1, 498, 499, 500, 501, 65535, 0]], np.uint16)
+m = Img()
+m.height, m.width, m.step, m.data = 1, 7, 16, array.array('B', d.tobytes())  # 마지막 칸 = step 패딩
+assert (ns['image'](m, np.uint16, 1) == d[:, :7]).all()
+for min_depth, scale in ((0.5, 1000.0), (0.4999, 1000.0), (0.0, 1000.0), (0.3, 1000.0)):
+    lim = max(math.ceil(min_depth * scale) - 1, 0)
+    old = ((d > 0) & (d < min_depth * scale)).astype(np.uint8)
+    new = ns['near_mask'](d, lim)
+    assert new.dtype == np.uint8 and (new == old).all(), (min_depth, new, old)
 print('test_map_gate OK')
