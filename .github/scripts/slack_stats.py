@@ -322,6 +322,7 @@ def build(channel: dict, users: dict, msgs: list[dict], path: Path, since: datet
         top_excluded = sorted(excluded_by_uid.items(), key=lambda kv: (-kv[1], display_name(kv[0], users)))[:6]
         detail = ' · '.join(f'{md(display_name(uid, users))} {n}' for uid, n in top_excluded if n)
         add(f'> 업무 필터로 제외: **{excluded}개** — {detail}')
+    add(f'> 표본: 단독 업무 글 **{total_standalone}개** — 글 1개 ≈ {100 / max(total_standalone, 1):.1f}%p.')
     add('> 이 블록은 **GitHub Actions `slack-stats.yml`**이 매일 09:30 KST 갱신합니다 (수동 실행도 가능).')
     add('')
     add('### 🧮 기여도 (데이터 기반)')
