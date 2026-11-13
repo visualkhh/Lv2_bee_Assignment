@@ -80,7 +80,8 @@ signal_decoder:              # 신호등 12회 점멸 (발제 v5 §02) — /trac
     blinks: 12               # 한 사이클 점멸 수 — 아니면 error count
     min_count: 1             # 색별 횟수 범위 (발제: 각 1~6회) — 벗어나면 error range
     max_count: 6
-    confirm: 2               # 같은 답이 이만큼 연달아 나와야 ok (반복 신호 — 한 사이클 약 27초라 처음 확정까지 약 1분)
+    tail_gap_max_s: 4.5      # [s] 끊긴 뒷부분 끝 ~ 다음 사이클 첫 켜짐이 이보다 길면 안 합침 (사이클 사이 3초 · 끝이나 처음 한 칸을 놓치면 5초)
+    confirm: 1               # 같은 답이 이만큼 연달아 나와야 ok — 1 = 12개를 한 번 다 보면 확정 (끊긴 뒷부분 + 다음 사이클 앞부분 합쳐도 됨 · 실기 11-12)
 # 자기 몸 점구름 필터 (C++ body_filter, 담당: 전승혜) — Nav2 costmap·collision_monitor 입력에서 팔·차체 점을 뺀다
 body_filter:
   ros__parameters:

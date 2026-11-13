@@ -13,6 +13,8 @@
 // [파이썬과 다른 점]
 //   - 모델은 .onnx만 (ultralytics .pt는 못 읽음 — 경고 후 빈 목록). OBB 모델의 회전 박스(누운 퍽 축)는 안 씀
 //   - 바코드는 zxing-cpp C++ 라이브러리가 빌드에 있을 때만 (libzxing-dev). 없으면 진단에 "없음"
+#include <atomic>
+#include <regex>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -110,6 +112,14 @@ private:
   std::vector<CamSync> syncs_;
   std::vector<rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr> info_subs_;
   rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr dice_sub_;
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr mission_cmd_sub_;  // /cmd/mission start… → 바코드 기억(barcode_once) 지움
+  std::atomic<bool> barcode_reset_{false};
+  std::regex barcode_once_re_;
+  std::atomic<double> barcode_until_{0.0};  // 이 시각(wall_s)까지 바코드 찾음 — 미션 start로 엶
+  double barcode_window_s_ = 180.0;
+  double barcode_pole_s_ = 3.0;
+  std::atomic<double> barcode_from_{0.0};  // 바코드 찾기 창을 연 시각 (wall_s)
+  bool barcode_always_ = false;
   rclcpp::Publisher<TrackedObjectArray>::SharedPtr pub_;
   std::map<std::string, rclcpp::Publisher<TrackedObjectArray>::SharedPtr> det_pubs_;
   std::map<std::string, rclcpp::Publisher<Image>::SharedPtr> debug_pubs_;

@@ -303,6 +303,25 @@ TEST(Core, PostureFromHeight) {
   }
 }
 
+TEST(Core, MergeSingleTrafficLight) {
+  // 11/13 젯슨: 신호등 하나가 트랙 둘(꺼짐·초록)로 갈림 → 가장 오래된 번호 하나로, 위치·색은 최근에 본 쪽
+  std::map<int, Track> tracks;
+  Track a, b, p;
+  a.class_name = b.class_name = "traffic_light";
+  a.t = 1.0; a.color = "off"; a.p = cv::Vec3d(1.0, 0.0, 0.3);
+  b.t = 2.0; b.color = "green"; b.p = cv::Vec3d(1.6, 0.0, 0.3);
+  p.class_name = "puck"; p.t = 2.0;
+  tracks[1] = a; tracks[5] = b; tracks[3] = p;
+  const auto gone = merge_single(tracks, "traffic_light");
+  ASSERT_EQ(gone.size(), 1u);
+  EXPECT_EQ(gone.at(5), 1);
+  EXPECT_EQ(tracks.count(5), 0u);
+  EXPECT_EQ(tracks.at(1).color, "green");
+  EXPECT_NEAR(tracks.at(1).p[0], 1.6, 1e-9);
+  EXPECT_EQ(tracks.count(3), 1u);  // 다른 종류는 그대로
+  EXPECT_TRUE(merge_single(tracks, "traffic_light").empty());  // 하나면 그대로
+}
+
 TEST(Core, BoxCutAndArmMask) {
   auto s = box_depth({{1.0, 0.0, 0.205, 0.07, rad(20)}});
   auto tops = tops_of(s);

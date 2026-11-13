@@ -124,6 +124,11 @@ if(BUILD_TESTING)
   ament_add_gtest(test_perception_core test/test_perception_core.cpp TIMEOUT 60
     ENV PERCEPTION_TEST_DATA=${CMAKE_CURRENT_SOURCE_DIR}/test/data)
   target_link_libraries(test_perception_core ${PROJECT_NAME}_cpp)
+  if(ZXing_FOUND)
+    ament_add_gtest(test_barcode_fallback test/test_barcode_fallback.cpp TIMEOUT 60
+      ENV PERCEPTION_TEST_DATA=${CMAKE_CURRENT_SOURCE_DIR}/test/data)
+    target_link_libraries(test_barcode_fallback ${PROJECT_NAME}_cpp)
+  endif()
   ament_add_test(test_launch GENERATE_RESULT_FOR_RETURN_CODE_ZERO
     COMMAND ros2 launch "${CMAKE_CURRENT_SOURCE_DIR}/launch/perception.launch.py" --show-args
     TIMEOUT 60)

@@ -40,7 +40,9 @@ struct Sim {
 }  // namespace
 
 TEST(Signal, Q1TwoCycles) {
-  Sim s;
+  SignalParams p;
+  p.confirm = 2;  // 두 사이클 같아야 확정 (옛 기본값) 경로
+  Sim s(p);
   s.play(std::string("_ ") + kQ1 + " _ " + kQ1 + " _");  // 시작 전 꺼짐 → 두 사이클
   ASSERT_EQ(s.got.size(), 2u);
   // 첫 사이클: 정상이지만 한 번만 봄
@@ -72,25 +74,69 @@ TEST(Signal, SameColorInARowCountsEach) {
   EXPECT_EQ(s.got[1].green, 3);
 }
 
-TEST(Signal, StartMidwayDropsFragment) {
-  Sim s;
-  s.play(std::string("GGYGYG _ ") + kQ1 + " _ " + kQ1 + " _");  // 사이클 중간부터 봄 — 첫 조각은 버림
-  ASSERT_EQ(s.got.size(), 2u);
-  EXPECT_EQ(s.got[0].error, "unconfirmed");
-  EXPECT_TRUE(s.got[1].ok);
-  EXPECT_EQ(s.got[1].raw, "R G R R G R G G Y G Y G");
+TEST(Signal, OneCycleConfirms) {
+  Sim s;  // 기본 confirm 1 — 12개를 한 번 다 보면 확정 (실기 11-12)
+  s.play(std::string("_ ") + kQ1 + " _");
+  ASSERT_EQ(s.got.size(), 1u);
+  EXPECT_TRUE(s.got[0].ok);
+  EXPECT_EQ(s.got[0].cycles, 1);
+  EXPECT_EQ(s.got[0].raw, "R G R R G R G G Y G Y G");
 }
 
-TEST(Signal, MissedBlinkIsCountError) {
+TEST(Signal, StartMidwayJoinsNextCycle) {
   Sim s;
-  s.play(std::string("_ RGRRGRGGYGY _ ") + kQ1 + " _ " + kQ1 + " _");  // 첫 사이클 하나 놓침(11개) — 추정하지 않음
-  ASSERT_EQ(s.got.size(), 3u);
-  EXPECT_FALSE(s.got[0].ok);
-  EXPECT_EQ(s.got[0].error, "count");
-  EXPECT_EQ(s.got[0].sequence.size(), 11u);
-  EXPECT_EQ(s.got[0].cycles, 0);
-  EXPECT_EQ(s.got[1].error, "unconfirmed");  // 오류 뒤에는 처음부터 다시 셈
-  EXPECT_TRUE(s.got[2].ok);
+  s.play("GGYGYG _ RGRRGR");  // 7번째부터 봄 → 뒷부분 7~12 보관 → 다음 사이클 1~6을 보는 순간 확정 (끝까지 안 기다림)
+  ASSERT_EQ(s.got.size(), 1u);
+  EXPECT_TRUE(s.got[0].ok);
+  EXPECT_EQ(s.got[0].raw, "R G R R G R G G Y G Y G");
+}
+
+TEST(Signal, MissedThirdJoinsNextCycle) {
+  Sim s;
+  // 3번째 점멸을 놓침 (그 2초도 꺼짐) → [1 2] 뒤 3초 꺼짐이 사이클 끝처럼 보임 → [4..12] 진짜 끝에서 보관 교체 → 다음 [1 2 3]으로 채움
+  s.play("_ RG");
+  s.hold("off", 2.0);
+  s.play("RGRGGYGYG _");
+  ASSERT_EQ(s.got.size(), 0u);  // 1+2와 4..12는 합쳐도 11개 — 아직 확정 안 함
+  s.play("RGR");
+  ASSERT_EQ(s.got.size(), 1u);
+  EXPECT_TRUE(s.got[0].ok);
+  EXPECT_EQ(s.got[0].raw, "R G R R G R G G Y G Y G");
+}
+
+TEST(Signal, MissedLastNotGuessed) {
+  Sim s;
+  // 12번째를 놓침 → 1..11 뒤 꺼짐이 5초 (3초 아님) → 2..12로 오인해 합치지 않고, 다음 사이클을 다 봐서 확정
+  s.play("_ RGRRGRGGYGY");
+  s.hold("off", 2.0);
+  s.play(std::string("_ ") + kQ1);
+  EXPECT_EQ(s.got.size(), 0u);
+  s.play("_");
+  ASSERT_EQ(s.got.size(), 1u);
+  EXPECT_TRUE(s.got[0].ok);
+  EXPECT_EQ(s.got[0].raw, "R G R R G R G G Y G Y G");
+}
+
+TEST(Signal, MissedFirstJoinsNextCycle) {
+  Sim s;
+  // 1번째를 놓침 → 2..12가 사이클 끝 앞 조각 → 다음 사이클과의 꺼짐은 3초라 합쳐짐 (자리가 맞음)
+  s.play("_");
+  s.hold("off", 2.0);
+  s.play("GRRGRGGYGYG _ R");
+  ASSERT_EQ(s.got.size(), 1u);
+  EXPECT_TRUE(s.got[0].ok);
+  EXPECT_EQ(s.got[0].raw, "R G R R G R G G Y G Y G");
+}
+
+TEST(Signal, OccludedFragmentNotJoinedLater) {
+  Sim s;
+  // 1~5번째만 보고 가려짐(안 보임) — 뒷부분으로 보관되지만 다시 보일 때까지 3초보다 길어 버림 → 다음 사이클을 다 봐서 확정
+  s.play("_ RGRRG");
+  s.hold("", 20.0);
+  s.play(std::string("_ ") + kQ1 + " _");
+  ASSERT_EQ(s.got.size(), 1u);
+  EXPECT_TRUE(s.got[0].ok);
+  EXPECT_EQ(s.got[0].raw, "R G R R G R G G Y G Y G");
 }
 
 TEST(Signal, BothColorsIsUnknown) {
@@ -120,7 +166,9 @@ TEST(Signal, NoiseIgnored) {
 }
 
 TEST(Signal, DifferentCyclesNotConfirmed) {
-  Sim s;
+  SignalParams p;
+  p.confirm = 2;  // 두 사이클 같아야 확정 (옛 기본값) 경로
+  Sim s(p);
   s.play(std::string("_ ") + kQ1 + " _ RRRRYYGGGGGG _");  // 두 사이클이 다르게 읽힘 — 둘 다 정상이어도 확정 안 함
   ASSERT_EQ(s.got.size(), 2u);
   EXPECT_FALSE(s.got[1].ok);
@@ -171,7 +219,9 @@ TEST(Signal, DroppedFrameInsideBlinkNotSplit) {
 }
 
 TEST(Signal, NoiseInsideGapKeepsBoundary) {
-  Sim s;
+  SignalParams p;
+  p.confirm = 2;  // 두 사이클 같아야 확정 (옛 기본값) 경로
+  Sim s(p);
   // 사이클 사이 3초 꺼짐 가운데 0.2초 잡음 켜짐 → 버리고 꺼짐 시간은 이어서 셈 (두 사이클이 합쳐지지 않음)
   s.hold("off", 3.0);
   s.play(kQ1);
@@ -221,4 +271,15 @@ TEST(Signal, NoiseInsideBlinkGapDoesNotMerge) {
   ASSERT_EQ(s.got.size(), 2u);
   EXPECT_EQ(s.got[0].raw, "R G R R G R G G Y G Y G");
   EXPECT_TRUE(s.got[1].ok);
+}
+
+TEST(Signal, LightStatePrefersLit) {
+  // 11/13 젯슨: 신호등이 트랙 둘로 잡혀 꺼진 쪽(off)이 더 최근이어도 켜진 쪽 색을 씀
+  using L = std::vector<std::pair<double, std::string>>;
+  EXPECT_EQ(perception::light_state(L{{9.9, "off"}, {9.8, "green"}}, 10.0, 0.6), "green");
+  EXPECT_EQ(perception::light_state(L{{9.9, "off"}, {9.0, "green"}}, 10.0, 0.6), "off");   // 켜진 쪽이 오래됨 → 최근 것
+  EXPECT_EQ(perception::light_state(L{{9.9, "all"}, {9.8, "off"}}, 10.0, 0.6), "all");     // 두 색 동시도 켜짐
+  EXPECT_EQ(perception::light_state(L{{9.95, "red"}, {9.9, "yellow"}}, 10.0, 0.6), "red");  // 켜진 것 둘이면 최근
+  EXPECT_EQ(perception::light_state(L{{8.0, "red"}}, 10.0, 0.6), "");                      // 못 본 지 오래 = 안 보임
+  EXPECT_EQ(perception::light_state(L{}, 10.0, 0.6), "");
 }

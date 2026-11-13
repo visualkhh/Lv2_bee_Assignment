@@ -11,7 +11,8 @@
 //         ✉️ /mission/state (plan/MissionState, latched) · /mission/markers (RViz)
 //         ✉️ 기록 log_dir/<시작 시각>/ signal · allocation · build · verify · return · error .json + photos/ · /diagnostics
 //   단계 (순서와 실패 시 갈 곳은 mission_solver next_phase):
-//     GO_OBSERVE 바코드 보는 자세로 (팔은 stow 그대로 — scan 자세는 없앰, 11-09) → BARCODE 이번에 본 바코드 → 관측 자세(−X)로
+//     GO_OBSERVE 바코드 보는 자세로 (팔은 stow 그대로 — scan 자세는 없앰, 11-09) → BARCODE 관측: 손 카메라(gaze) 바코드 +
+//              pole_front_cam 신호를 같은 자리에서 동시에 (11-12 — 신호 오류는 팔·바퀴가 멈췄을 때만 셈 · abort면 팔 접음) → 관측 자세(−X)로
 //     → READ 12회 점멸 — signal_status가 ok(두 사이클 같은 답)면 확정 · unconfirmed면 기다림 ·
 //              count·unknown·range가 signal_error_cycles번 이어지면 ERROR (발제: 추정 금지 → 안전 정지) · signal_timeout_s 넘어도 ERROR
 //     → SURVEY 시작 박스 6곳 전부: 퍽 두 자리 inspect(tag·색·모양) → pick → load next (적재함 12칸)
@@ -87,7 +88,6 @@ private:
 
   void go_observe();
   void barcode_phase();
-  void barcode_read();                                // 바코드 기다림 (팔을 barcode 자세로 둔 뒤)
   void barcode_done(bool ok, const std::string & why);  // 팔 stow로 → 다음 단계
   void read_phase();
   void survey(size_t box);
@@ -134,7 +134,26 @@ private:
   double box_top_z_, puck_h_, grid_step_, standoff_, approach_gap_, verify_radius_, match_radius_;
   double place_tol_, place_search_, corr_max_;
   Pose2 barcode_pose_;
-  std::string barcode_arm_pose_;  // 바코드 읽을 때 팔 자세 ("" = 안 움직임)
+  std::string barcode_arm_pose_;
+  double barcode_pole_s_ = 3.0;   // 팔을 뻗기 전에 pole_front_cam으로 보는 시간
+  Phase only_ = Phase::IDLE;      // 단계 하나만 실행 ("start:<단계>") — IDLE = 전체
+  bool signal_window_ = false;    // 이번 실행에서 신호 관측 창을 열었는지 (BARCODE부터 · READ만이면 READ에서)
+  bool gaze_sent_ = false;        // 이번 BARCODE에서 팔을 뻗었는지 (끝날 때 접을지)
+  double barcode_gaze_wait_s_ = 3.0, barcode_advance_step_m_ = 0.06, barcode_advance_max_m_ = 0.30, barcode_min_gap_m_ = 0.13;
+  double grip_front_m_ = -1.0;    // 손 카메라 정면(화면 가운데) depth 하위 10 % [m] (-1 = 모름) — 바코드 다가갈 때 멈춤 기준
+  rclcpp::Time grip_front_at_{0, 0, RCL_ROS_TIME};  // grip_front_m_을 마지막으로 잰 시각
+  rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr grip_depth_sub_;
+  rclcpp::Time gaze_at_{0, 0, RCL_ROS_TIME};  // gaze 도착(또는 다가간 뒤) 시각
+  double advanced_m_ = 0.0;       // 바코드 쪽으로 다가간 거리
+  bool moving_ = false;           // 다가가는 중
+  bool returning_ = false;        // 바코드 뒤 팔 접고 제자리로 돌아오는 중
+  bool light_warned_ = false;     // 이번 관측에서 신호등 안 보임 경고를 했음
+  bool hold_noted_ = false;       // 신호 확정까지 다가가기 보류 안내를 했음
+  double light_check_s_ = 8.0;    // 관측 시작 뒤 이만큼 신호등이 안 보이면 경고 [s]
+  double signal_read_min_s_ = 60.0;  // READ에 들어온 뒤 최소 이만큼은 신호를 봄 (관측 시간을 바코드에 다 써도) [s]
+  rclcpp::Time read_phase_at_{0, 0, RCL_ROS_TIME};
+  bool observe_still() const;     // 관측 중 팔·바퀴가 멈춰 있음 (신호 오류 사이클을 셀 때)
+  Pose2 barcode_origin_;          // 다가갔다가 돌아올 자리 (arena)  // 바코드 읽을 때 팔 자세 ("" = 안 움직임)
   bool observe_move_ = false;  // barcode_pose_arena가 있으면 그 자리로 갔다가 관측 자리로 돌아옴
   double signal_timeout_s_, barcode_timeout_s_, home_hold_s_;
   int signal_error_cycles_ = 2;
@@ -152,6 +171,7 @@ private:
   int signal_streak_ = 0;               // 이어진 오류 사이클 수 (mission_solver signal_action)
   std::string signal_error_;            // ERROR로 갈 신호 오류 (count | unknown | range)
   std::string barcode_, barcode_msg_;
+  std::string bad_barcode_;              // 이번 BARCODE에서 본 미등록 바코드 (버리고 계속 찾음 · 끝까지 이것뿐이면 unknown_barcode)
   rclcpp::Time barcode_rx_{0, 0, RCL_ROS_TIME}, phase_started_{0, 0, RCL_ROS_TIME};
   rclcpp::Time read_started_{0, 0, RCL_ROS_TIME};
   Counts counts_;
