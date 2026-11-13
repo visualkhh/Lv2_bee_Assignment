@@ -5,6 +5,7 @@
 //     팔 동작은 도착을 기다리지 않음 — 주행이 끝나도 계속 올라가고, approach가 같은 자세를 다시 보냄
 //   goal.target "near" (상자 앞 다가설 자리, 11-13): 멈추거나(진척 없음) Nav2가 실패해도 목표에서 nav_near_m 안이면 성공 —
 //     벽 옆 자리에서 옆으로 10 cm 남기고 MPPI가 못 줄여 실패하던 것. 마지막 몇 cm·방향은 approach가 상자를 보며 맞춤
+//     방향이 nav_near_yaw보다 틀리면 성공 처리 안 함 (11-14: 상자에 붙어 못 돌고 등진 채 성공 → approach가 크게 돌다 실패)
 //   target은 공백으로 여러 개 ("near look")
 #include <sstream>
 #include "skills/arm_io.hpp"
@@ -30,6 +31,7 @@ public:
     stall_gain_m_ = declare_parameter<double>("nav_stall_gain_m", 0.10);
     look_m_ = declare_parameter<double>("nav_look_m", 0.6);
     near_m_ = declare_parameter<double>("nav_near_m", 0.15);
+    near_yaw_ = declare_parameter<double>("nav_near_yaw", 0.8);  // [rad]
     look_q_ = declare_parameter<std::vector<double>>("pose_look", {0.0, -1.682497, 0.324631, 1.926843, 0.0});  // arm.yaml이 덮음
     serve("navigate", [this](const SkillGoal & g, Done done) {
       when_ready([this]() { return nav_->action_server_is_ready(); }, "nav_unavailable", done, [this, g, done]() {
@@ -48,20 +50,24 @@ public:
         auto look = std::make_shared<bool>(flags.count("look") > 0);  // true = 아직 팔을 안 올림
         const bool near = flags.count("near") > 0;
         auto left = std::make_shared<double>(1e9);  // 목표까지 직선 거리 (마지막 피드백)
+        auto yaw_err = std::make_shared<double>(M_PI);  // 목표 방향과 차 [rad] (마지막 피드백)
         const auto gp = goal.pose.pose.position;
+        const double gyaw = yaw_of(goal.pose.pose.orientation);
         // near: 끝날 때 목표 근처면 성공으로 바꿈
-        auto finish = [this, near, left, done](bool ok, const std::string & why) {
-          if (!ok && near && *left <= near_m_) {
-            RCLCPP_WARN(get_logger(), "%s — 목표 %.2f m 앞이라 성공 처리 (near, 나머지는 approach)", why.c_str(), *left);
+        auto finish = [this, near, left, yaw_err, done](bool ok, const std::string & why) {
+          if (!ok && near && *left <= near_m_ && *yaw_err <= near_yaw_) {
+            RCLCPP_WARN(get_logger(), "%s — 목표 %.2f m · %.0f° 앞이라 성공 처리 (near, 나머지는 approach)", why.c_str(), *left,
+                        *yaw_err * 180.0 / M_PI);
             ok = true;
           }
           done(ok, ok ? "" : why);
         };
         if (stall_s_ > 0.0 || *look || near) {
-          opt.feedback_callback = [this, finished, watch, look, left, gp, finish](
+          opt.feedback_callback = [this, finished, watch, look, left, yaw_err, gp, gyaw, finish](
               rclcpp_action::ClientGoalHandle<NavigateToPose>::SharedPtr h, const std::shared_ptr<const NavigateToPose::Feedback> fb) {
             if (*finished) return;
             *left = std::hypot(fb->current_pose.pose.position.x - gp.x, fb->current_pose.pose.position.y - gp.y);
+            *yaw_err = std::abs(std::remainder(yaw_of(fb->current_pose.pose.orientation) - gyaw, 2 * M_PI));
             // 첫 피드백은 경로 전이라 0일 수 있음 → 0.01 m 넘을 때만
             if (*look && fb->distance_remaining > 0.01 && fb->distance_remaining < look_m_) {
               *look = false;
@@ -96,7 +102,10 @@ protected:
 
 private:
   rclcpp_action::Client<NavigateToPose>::SharedPtr nav_;
-  double stall_s_ = 25.0, stall_gain_m_ = 0.10, look_m_ = 0.6, near_m_ = 0.15;
+  static double yaw_of(const geometry_msgs::msg::Quaternion & q) {
+    return std::atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z));
+  }
+  double stall_s_ = 25.0, stall_gain_m_ = 0.10, look_m_ = 0.6, near_m_ = 0.15, near_yaw_ = 0.8;
   ArmIO arm_;
   std::vector<double> look_q_;
 };

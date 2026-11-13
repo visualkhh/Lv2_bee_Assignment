@@ -382,12 +382,18 @@ private:
     double v = 0.0, w = 0.0;
     if (pos_done_) {
       w = std::clamp(3.0 * gyaw, -w_max_, w_max_);
+      // 방향을 맞추다 tol_m 밖(release 안)으로 밀리면 갇힘 (11-14: 남은 11 mm · v 0 · approach_blocked)
+      //   → 방향이 거의 맞으면 목표 방향 직선으로만 앞뒤 (당근 조향 없음 — 1~2 cm에서 돌던 문제 안 생김)
+      if (dist > tol_m_ && std::abs(along) > latch && std::abs(gyaw) < 0.1)  // 옆 어긋남만이면 안 움직임 (앞으로 밀기만 됨)
+        v = along > 0.0 ? std::clamp(1.5 * along, min_speed_, 0.05) : std::clamp(1.5 * along, -0.05, -min_speed_);
     } else if (along < -0.003) {
       v = std::max(-0.05, 1.5 * along);
       if (v > -min_speed_) v = -min_speed_;  // 실기 바퀴 데드밴드 (develop 11-12 approach_min_speed)
       w = std::clamp(1.5 * gyaw, -0.3, 0.3);
     } else if (std::abs(head_c) > 45.0 * M_PI / 180.0 && dist > release) {
-      w = std::clamp(3.0 * head_c, -w_max_, w_max_);
+      // 당근이 거의 뒤(150° 넘게)면 좌우가 몇 mm 차로 갈림 → 마지막 방향 쪽으로 돎 (11-14: 등진 채 시작해 245° 먼 쪽으로 돎)
+      const double turn = std::abs(head_c) > 150.0 * M_PI / 180.0 ? std::copysign(std::abs(head_c), gyaw) : head_c;
+      w = std::clamp(3.0 * turn, -w_max_, w_max_);
     } else {
       v = std::clamp(1.5 * along, 0.0, v_max_) * std::max(0.0, std::cos(head_c));
       // 실기 바퀴는 약 2~3 cm/s 아래 명령엔 안 움직임 (데드밴드) — 도착 전이면 min_speed 아래로 안 내림 (develop 11-12)
