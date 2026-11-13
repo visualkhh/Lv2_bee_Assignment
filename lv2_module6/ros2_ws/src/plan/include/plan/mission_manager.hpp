@@ -48,6 +48,8 @@
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
 #include "sensor_msgs/msg/image.hpp"
+#include "sensor_msgs/msg/joint_state.hpp"
+#include "diagnostic_msgs/msg/diagnostic_array.hpp"
 #include "std_msgs/msg/string.hpp"
 #include "tf2_ros/buffer.h"
 #include "tf2_ros/transform_listener.h"
@@ -175,6 +177,16 @@ private:
   double grip_front_m_ = -1.0;    // 손 카메라 정면(화면 가운데) depth 하위 10 % [m] (-1 = 모름) — 바코드 다가갈 때 멈춤 기준
   rclcpp::Time grip_front_at_{0, 0, RCL_ROS_TIME};  // grip_front_m_을 마지막으로 잰 시각
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr grip_depth_sub_;
+  // 팔 과부하 대비 (11-14 실기: 신호를 기다리며 gaze로 2분 넘게 뻗고 있다가 joint2 과부하 → 팔이 처져 손 카메라가 바닥만 봄)
+  bool barcode_gaze_after_signal_ = true;   // 신호를 팔 접은 채 먼저 확정한 뒤 gaze로 뻗음
+  rclcpp::Time gaze_free_{0, 0, RCL_ROS_TIME};  // 신호 대기가 끝나 gaze를 보내도 되는 때
+  bool gaze_wait_noted_ = false;
+  double arm_sag_rad_ = 0.25;               // gaze 유지 중 관절이 도착 값에서 이만큼 넘게 벗어나면 정지 (0 = 끔)
+  std::map<std::string, double> joints_now_, gaze_joints_;
+  rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_sub_;
+  bool motor_error_stop_ = true;            // OpenCR 모터 에러(과부하 등) 진단이 뜨면 미션 바로 정지
+  std::string motor_error_;
+  rclcpp::Subscription<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diag_sub_;
   rclcpp::Time gaze_at_{0, 0, RCL_ROS_TIME};  // gaze 도착(또는 다가간 뒤) 시각
   double advanced_m_ = 0.0;       // 바코드 쪽으로 다가간 거리
   bool moving_ = false;           // 다가가는 중

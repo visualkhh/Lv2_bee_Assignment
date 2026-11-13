@@ -139,7 +139,8 @@ TEST(MissionFlow, DiagFatal) {  // 치명(정지) vs 계속
   int stuck = 0;
   for (const char * why : {"estop", "estop_blocked", "manual_override", "manual_teach_override", "explore_override",
                            "cancelled", "preempted", "aborted", "arm_contact", "retreat:arm_contact", "collision_monitor_stop",
-                           "overcurrent", "coordinator_unavailable"})
+                           "overcurrent", "coordinator_unavailable",
+                           "motor_error: 모터 에러: joint2 과부하", "arm_sag:joint2", "barcode:arm_sag:joint2"})
     EXPECT_TRUE(diag_fatal(false, why, stuck, 3)) << why;
   for (const char * why : {"barcode_missing", "unknown_barcode:X", "signal_timeout", "signal_count", "approach_blocked",
                            "approach_failed", "grasp_empty", "grasp_failed_all", "place_failed", "pick_timeout", "puck_lost",
