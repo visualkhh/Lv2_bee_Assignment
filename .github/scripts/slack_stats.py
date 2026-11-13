@@ -64,6 +64,9 @@ SOCIAL_PATTERNS = [
                re.IGNORECASE),
     re.compile(r'집\s*(가|갑|도착)|가는\s*중|먼저\s*(가|갑)|생일|축하|축하해|피곤|졸려|힘들|'
                r'조금\s*늦|늦어서|늦을|금방\s*가', re.IGNORECASE),
+    # 생활 잡담 — 업무 키워드가 없을 때만 적용된다 (키워드가 있으면 업무 글로 남긴다).
+    re.compile(r'배고|배불|졸리|주말|쉬고|쉬는|놀러|게임|영화|드라마|맛집|카페|소주|맥주|'
+               r'오늘\s*(뭐|점심|저녁|야식)|뭐\s*먹|ㅠㅠ|ㅜㅜ|죄송|미안|다행', re.IGNORECASE),
 ]
 
 # 명백한 개인사는 업무 키워드보다 먼저 제외한다.
@@ -76,7 +79,7 @@ PERSONAL_OVERRIDES = re.compile(
 
 
 def is_work_message(m: dict) -> bool:
-    """업무 메시지인가 — 개인사/생활 잡담은 제외, 첨부/업무 키워드/긴 글은 유지."""
+    """업무 메시지인가 — 개인사/생활 잡담은 제외. 첨부·링크·업무 키워드가 있어야 업무 글로 본다."""
     text = ' '.join(str(m.get('text') or '').split())
     low = text.lower()
     if PERSONAL_OVERRIDES.search(low):
@@ -87,8 +90,9 @@ def is_work_message(m: dict) -> bool:
         return True
     if any(p.search(low) for p in SOCIAL_PATTERNS):
         return False
-    clean = re.sub(r'[^0-9a-z가-힣]', '', low)
-    return len(clean) >= 10
+    # 예전에는 10자 이상이면 업무 글로 포함했다. 그 구멍으로 일상 잡담이 길다는
+    # 이유만으로 새어 들어갔으므로, 이제는 명시적 업무 신호가 없으면 제외한다.
+    return False
 
 
 def kst(ts: float) -> datetime:
@@ -171,6 +175,7 @@ def build(channel: dict, users: dict, msgs: list[dict], path: Path, since: datet
     content = []  # (message, is_reply, uid, is_bot)
     system = 0
     excluded = 0  # 업무 필터에서 제외된 사람 메시지 수
+    excluded_by_uid: collections.Counter[str] = collections.Counter()
 
     for m in msgs:
         if m.get('type') not in (None, 'message'):
@@ -192,6 +197,7 @@ def build(channel: dict, users: dict, msgs: list[dict], path: Path, since: datet
             continue
         if not is_work_message(m):
             excluded += 1
+            excluded_by_uid[uid] += 1
             continue
         s = people.setdefault(uid, {
             'posts': 0, 'comments': 0,
@@ -310,8 +316,12 @@ def build(channel: dict, users: dict, msgs: list[dict], path: Path, since: datet
         '생활 잡담/인사/짧은 글은 제외. 시스템/봇 제외. **이모지 반응은 집계하지 않는다.**')
     add('> 같은 스레드에서 같은 사람이 연속으로 단 답글은 1개 댓글로 집계. '
         '**단독 글이 기준**, 스레드 시작·댓글은 참고.')
-    add('> 업무 필터: 인사·도착/출근·감사/확인·식사/날씨·짧은 잡담 제외. '
-        '첨부/링크/업무 키워드/긴 글은 유지 (`WORK_KEYWORDS` / `SOCIAL_PATTERNS`).')
+    add('> 업무 필터: 인사·도착/출근·감사/확인·식사/날씨·생활 잡담 제외. '
+        '**첨부/링크/업무 키워드가 있어야 포함** (`WORK_KEYWORDS` / `SOCIAL_PATTERNS`).')
+    if excluded:
+        top_excluded = sorted(excluded_by_uid.items(), key=lambda kv: (-kv[1], display_name(kv[0], users)))[:6]
+        detail = ' · '.join(f'{md(display_name(uid, users))} {n}' for uid, n in top_excluded if n)
+        add(f'> 업무 필터로 제외: **{excluded}개** — {detail}')
     add('> 이 블록은 **GitHub Actions `slack-stats.yml`**이 매일 09:30 KST 갱신합니다 (수동 실행도 가능).')
     add('')
     add('### 🧮 기여도 (데이터 기반)')
@@ -343,7 +353,8 @@ def build(channel: dict, users: dict, msgs: list[dict], path: Path, since: datet
         '막대 = 단독 글, 사람별 최대값 기준. (`█` 채움 · `·` 빈칸)')
     add('> 같은 스레드에서 같은 사람이 연속으로 단 답글은 1개 댓글로 집계.')
     add('')
-    add('### 📆 날짜별 타임라인 (y=사람, x=날짜, 최근→과거)')
+    add('<details>')
+    add('<summary>📆 날짜별 타임라인 (y=사람, x=날짜, 최근→과거)</summary>')
     add('')
     max_standalone = max((du['standalone'] for du in daily_user.values()), default=1)
     max_comments = max((du['comments'] for du in daily_user.values()), default=1)
@@ -368,6 +379,8 @@ def build(channel: dict, users: dict, msgs: list[dict], path: Path, since: datet
             n = daily_user.get((k, uid), {'standalone': 0, 'comments': 0})['comments']
             cells.append(f'`{bar(n, max_comments, 5)}` {n}')
         add(f'| {md(display_name(uid, users))} | ' + ' | '.join(cells) + ' |')
+    add('')
+    add('</details>')
     add('')
     add(END)
     return '\n'.join(lines)
