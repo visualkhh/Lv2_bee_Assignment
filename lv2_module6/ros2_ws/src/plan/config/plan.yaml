@@ -43,8 +43,10 @@ mission_manager:             # 주사위 기억 미션 (documents/mission/README
     footprint: [0.069, -0.233, 0.153]        # 로봇 외곽 [앞, 뒤, 옆 반폭] (base_footprint, URDF) — 복귀 때 차체 전체가 구역 안인지
     # 방문 순서 (1부터) — lv2_module6/tools/plan/route_order.py가 도면 벽 위 A*(로봇 반경 0.16 + 0.05)로 출발 → 박스 6 → 장소 3 → 복귀 총 길이를 비교해 정함
     #   1·2·6·4·5·3 + L3·L2·L1 = 26.6 m (기존 1→6 + L1→L3 = 33.6 m · −21 %). 비우면 번호 순서
-    survey_order: [1, 2, 6, 4, 5, 3]
-    build_location_order: [3, 2, 1]
+    #   11-14: 진입 면(start_box_sides 첫 면)까지 넣어 재계산 — 출발 → 적재 6 → 놓기 L1·L2·L3 → 재확인 L3·L2·L1 → 복귀
+    #     4·5·3·6·2·1 + L1·L2·L3 = 29.7 m (위 1·2·6·4·5·3 + L3·L2·L1은 같은 계산으로 32.1 m · 상자 3을 +y 좁은 틈으로 붙음)
+    survey_order: [4, 5, 3, 6, 2, 1]
+    build_location_order: [1, 2, 3]
     # 경기장 벽 선분 [x0, y0, x1, y1, …] (arena, m) — documents/mission/dice-map.png (tools/cli/ros/docker/assets/course/dice_maze/walls.json 벽판 20개)
     #   ① 벽에 막힌 다가설 자리(벽에서 wall_clearance 안)는 고르지 않음 ② /arena/walls → nvblox_map이 /map에 겹쳐 Nav2가 처음부터 벽을 앎
     #   (발제: 기존 벽·기둥·박스 위치 유지 — 경기장 고정). 비우면 둘 다 안 함
@@ -54,10 +56,10 @@ mission_manager:             # 주사위 기억 미션 (documents/mission/README
                   1.101, 4.985, 1.101, 5.719, 2.571, 4.985, 2.571, 5.719, 3.304, 4.985, 3.304, 5.719, 1.101, 3.517, 1.101, 4.251,
                   3.304, 2.049, 3.304, 3.517, 1.101, 2.049, 1.101, 2.783, 1.838, 1.315, 1.838, 2.049, 1.101, 0.650, 1.101, 1.315]
     # 박스마다 다가갈 변 (arena 축, 박스 가운데에서 그 변 쪽 · 11-13 사용자 지정 — 빈 변은 일부러 뺌). 개수가 박스 수와 다르면 무시
-    #   벽 거르기(wall_clearance)는 그대로 같이 걸림. 시도 순서는 지금처럼 (목표점 → 로봇에서 가까운 변 먼저)
+    #   벽 거르기(wall_clearance)는 그대로 같이 걸림. 시도 순서 = 적은 순서 (11-14: 첫 면 = 진입 면 · 뒤는 실패할 때 대신)
     #   "+x@0.41" = 그 변은 박스 가운데에서 0.41 m(법선)에 서서 approach 시작 (지도 그림의 빨간 점에서 읽음 · 없으면 변 + standoff)
-    start_box_sides: ["+x@0.41 -y@0.45", "-y@0.48", "+y@0.35", "+y@0.57 -y@0.59 -x@0.49", "+y@0.52 -x@0.50", "-x@0.48"]
-    location_box_sides: ["-x@0.42", "+x -x +y -y", "+x@0.32 +y@0.37 -y@0.34"]
+    start_box_sides: ["+x@0.41 -y@0.45", "-y@0.48", "-y@0.45 +y@0.35", "-y@0.70 +y@0.57 -x@0.49", "-x@0.50 +y@0.52", "-x@0.48"]
+    location_box_sides: ["-x@0.42", "+x -x +y -y", "-y@0.34 +x@0.32 +y@0.37"]
     wall_clearance: 0.22                     # [m] 다가설 자리가 벽에서 이보다 가까우면 그 변은 안 감 (Nav2 robot_radius 0.16 + 여유)
     start_boxes: [1.468, 0.950, 3.670, 3.152, 2.936, 5.354, 0.734, 5.354, 2.202, 5.354, 3.670, 3.886]   # 시작 박스 1~6 중심
     box_half: 0.1025                         # 205 박스 반 변
@@ -87,6 +89,7 @@ mission_manager:             # 주사위 기억 미션 (documents/mission/README
     puck_height: 0.060
     grid_step: 0.060                         # 주사위 칸 간격
     standoff: 0.25                           # [m] Nav2로 박스 변 바깥 이만큼까지 (로봇을 원 0.18로 보므로 더는 못 붙음)
+    nav_turn_m: 0.55                         # [m] Nav2 목표는 박스 가운데에서 이만큼까지 법선으로 물림 (몸 외접 0.30 m가 박스에 안 걸리고 제자리 회전 · 벽 쪽으로는 덜) — 나머지는 approach가 직선으로 (11-14)
     approach_gap: 0.085                      # [m] 그다음 approach로 base_footprint ~ 박스 변을 이만큼까지 (로봇 앞면 0.069 → 1.6 cm)
                                              #   Isaac 도달 지도(dice_reach.py): 0.08이면 3×3 칸 9개 다 닿음 · 0.10이면 먼 줄 양끝 못 닿음
     approach_tries: 3                        # 접근 자리 실패 시 다른 변으로 몇 번까지

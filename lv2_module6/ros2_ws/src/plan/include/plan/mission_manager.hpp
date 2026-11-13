@@ -107,7 +107,7 @@ private:
   void build(size_t i);
   void bring(size_t i);                          // 그 퍽을 장소 앞에서 손에 쥘 때까지 (적재함 · 시작 박스)
   void place_check(size_t i, int tries);         // 놓기 → 내려다보고 확인 → 벗어났으면 다시
-  void verify(size_t loc);
+  void verify(size_t k);   // k = 재확인 순서 (build_location_order 거꾸로)
   void go_home(bool corrected = false);
 
   // 장소 상자로 장소 li 칸 보정 — 지금 /tracked_objects에 그 태그의 location_box가 있으면 corr_[li]를 갱신
@@ -156,6 +156,7 @@ private:
   std::vector<size_t> survey_order_, build_loc_order_;  // 시작 박스 · 장소 방문 순서 (0부터, plan.yaml survey_order · build_location_order)
   size_t survey_k_ = 0;                                  // 지금 몇 번째 박스를 도는지 (survey_order_ 인덱스)
   std::vector<double> walls_;    // 경기장 벽 선분 [x0, y0, x1, y1, …] (arena, m) — 다가설 자리 거르기 · /arena/walls
+  double nav_turn_m_ = 0.55;     // [m] Nav2 목표를 박스 가운데에서 이만큼까지 물림 (제자리 회전 공간)
   double wall_clearance_ = 0.22; // [m] 다가설 자리가 벽에서 이보다 가까우면 그 변은 안 감 (로봇 반경 0.16 + 여유)
   std::vector<std::pair<double, double>> locations_;
   std::vector<int> loc_tags_;
@@ -240,10 +241,10 @@ private:
   double acorr_gate_ = 0.6, acorr_max_shift_ = 0.8, acorr_max_rot_ = 0.35, acorr_min_sep_ = 1.0;
   double acorr_alpha_ = 0.3, acorr_range_ = 2.5, acorr_outlier_ = 0.15;
   int acorr_min_hits_ = 3;
-  ArenaCorr acorr_, acorr_walls_;
+  ArenaCorr acorr_, acorr_walls_;     // 지금 보정 · /arena/walls를 마지막으로 보낸 보정
   // 11-14 실기: 보정이 2~3 cm씩 흔들려 3 cm 문턱을 계속 넘김 → /arena/walls 40 s에 10번 다시 → Nav2 costmap 정적 층이 매번 다시 잡혀 벽에 부딪힘
   double acorr_step_m_ = 0.03, acorr_step_rad_ = 0.017;     // 보정을 바꾸는 최소 변화 (그 안은 버림 — 목표·기록 흔들림 막음)
-  double acorr_walls_m_ = 0.15, acorr_walls_rad_ = 0.087;   // /arena/walls를 다시 보내는 최소 변화 (0이면 안 보냄)     // 지금 보정 · /arena/walls를 마지막으로 보낸 보정
+  double acorr_walls_m_ = 0.15, acorr_walls_rad_ = 0.087;   // /arena/walls를 다시 보내는 최소 변화 (0이면 안 보냄)
   std::vector<Mark> marks_;           // 시작 박스 0..5 · 장소 상자 6..8
   void update_corr(const perception::msg::TrackedObjectArray & m);
   std::vector<std::string> results_;

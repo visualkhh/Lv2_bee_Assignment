@@ -147,7 +147,7 @@ controller_server:
       #   (CLI: ./run-cli controller fallback mppi). 각 inner 의 파라미터는 FollowPath.inner_<이름>.* — 아래 블록 하나씩:
       #   inner_dwb(아래) · inner_mppi · inner_rpp · inner_rotation_shim. 안 쓰는 블록은 읽지 않는다.
       #   기본 MPPI (2026-11-11 dwb → mppi). DWB로 돌아가려면 "dwb".
-      fallback_controller: "mppi"
+      fallback_controller: "dwb"
       inner_dwb:               # ← DWB 설정 (예전 이름 inner — 바꿔 줌)
 
         # ── 속도 한계 [m/s · rad/s] — ml.yaml max_vel_x · max_vel_theta와 같은 값
@@ -544,7 +544,7 @@ collision_monitor:
     state_topic: collision_monitor_state
     transform_tolerance: 0.2
     source_timeout: 1.0
-    base_shift_correction: true
+    base_shift_correction: false  # 11-14: true면 명령마다 점구름 다음 TF를 기다려 /cmd_vel이 0.15~0.54 s 늦음 (Nav2 문서: 평균 1/센서 주기) → diff_drive가 0.5 s 넘은 명령을 버려 멈추고 approach가 흔들림. 끄면 점 위치가 점구름 나이(≈0.1 s)만큼 덜 정확 (0.26 m/s에서 약 3 cm)
     stop_pub_timeout: 2.0
     enable_stamped_cmd_vel: true
     polygons: ["Approach", "SlowZone"]

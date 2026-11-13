@@ -5,6 +5,7 @@ skill_navigate:
   ros__parameters:
     server_wait_s: 30.0
     nav_near_m: 0.20         # [m] goal.target "near": 멈추거나 실패해도 목표에서 이 안이면 성공 (상자 앞 자리 — approach가 마저 맞춤)
+    nav_near_yaw: 0.8        # [rad] "near" 성공은 방향 차도 이 안일 때만 (11-14: 등진 채 성공 처리 → approach가 크게 돌다 실패)
     nav_look_m: 0.6          # [m] goal.target "look": 남은 경로가 이만큼 안이면 팔을 pose_look으로 (상자 도킹 앞, 11-13)
 skill_approach:
   ros__parameters:

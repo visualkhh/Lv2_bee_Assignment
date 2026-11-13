@@ -124,6 +124,7 @@ MissionManager::MissionManager()
   grid_step_ = declare_parameter<double>("grid_step", 0.060);
   standoff_ = declare_parameter<double>("standoff", 0.25);
   approach_gap_ = declare_parameter<double>("approach_gap", 0.085);
+  nav_turn_m_ = declare_parameter<double>("nav_turn_m", 0.55);
   approach_tries_ = static_cast<int>(declare_parameter<int64_t>("approach_tries", 3));
   retries_ = static_cast<int>(declare_parameter<int64_t>("retries", 2));
   match_radius_ = declare_parameter<double>("match_radius", 0.04);
@@ -929,8 +930,8 @@ void MissionManager::place_check(size_t i, int tries) {
 }
 
 // ---------- VERIFY — 장소마다 새로 본 퍽만 (발제 p7: 목표 상태 복사 금지) → 칸별 판정 + 12개 중복·누락
-void MissionManager::verify(size_t li) {
-  if (li >= locations_.size()) {
+void MissionManager::verify(size_t k) {  // k = 재확인 순서 인덱스 — 놓은 순서(build_location_order)의 거꾸로 (11-14: 마지막에 놓은 곳부터, 되돌아가지 않음)
+  if (k >= build_loc_order_.size()) {
     std::vector<int> all, dup, missing;
     for (const auto & j : jobs_) all.push_back(j.tag);
     global_check(seen_tags_, all, dup, missing);
@@ -944,16 +945,17 @@ void MissionManager::verify(size_t li) {
     finish(true);
     return;
   }
+  const size_t li = build_loc_order_[build_loc_order_.size() - 1 - k];
   const std::string name = "L" + str(static_cast<int>(li) + 1);
   ctx_ = "\"loc\": " + q(name);
   note(name + " 재검증");
   const double lx = locations_[li].first, ly = locations_[li].second;
-  go_near(loc_boxes_[li], lx, ly, [this, li, name](bool ok, const std::string & why) {
+  go_near(loc_boxes_[li], lx, ly, [this, k, li, name](bool ok, const std::string & why) {
     if (!ok) {
       result(name + ": verify_approach_failed " + why);
       seen_tags_.push_back({});
       verify_json_ += std::string(verify_json_.empty() ? "" : ", ") + "{\"location\": " + q(name) + ", \"ok\": false, \"why\": " + q(why) + "}";
-      verify(li + 1);
+      verify(k + 1);
       return;
     }
     correct(li);
@@ -961,7 +963,7 @@ void MissionManager::verify(size_t li) {
     const double cx = center.first, cy = center.second;
     const rclcpp::Time t0 = now();
     run_retry({SubGoal().set__skill("inspect").set__target(point(cx, cy, box_top_z_ + puck_h_))},
-      [this, li, name, cx, cy, t0](bool ok2, const std::string & why2) {
+      [this, k, li, name, cx, cy, t0](bool ok2, const std::string & why2) {
         if (!ok2) RCLCPP_WARN(get_logger(), "%s inspect 실패 (%s) — 본 것만 기록", name.c_str(), why2.c_str());
         snap("verify_" + name);
         const auto c = to_map(cx, cy);
@@ -996,7 +998,7 @@ void MissionManager::verify(size_t li) {
         result(name + ": " + (r.ok ? "ok" : "mismatch"));
         RCLCPP_INFO(get_logger(), "재검증 %s: 칸 %zu개 · 새로 본 퍽 %zu개 · 빈 칸 퍽 %zu개 → %s", name.c_str(), r.cells.size(),
                     seen.size(), r.extra.size(), r.ok ? "일치" : "불일치");
-        verify(li + 1);
+        verify(k + 1);
       });
   });
 }
@@ -1188,11 +1190,12 @@ void MissionManager::go_near(const Box & box, double px, double py, Done done, s
     }
     if (!box.sides.empty()) {  // 지정한 변만 — 다가설 자리 yaw로 변을 앎 (서쪽 변에 서면 +x를 봄 → "-x")
       //   "+x@0.41": 그 변은 박스 가운데에서 0.41 m (변 법선 방향)에 섬 — approach를 시작할 자리 (11-13 사용자 지정, 지도 그림의 빨간 점)
+      //   시도 순서 = 적은 순서 (11-14: 앞에 적은 면이 진입 면, 뒤는 실패할 때 대신 — tools/plan 경로 계산과 맞춤)
       std::vector<Pose2> kept;
-      for (auto p : poses) {
-        const double c = std::cos(p.yaw), s = std::sin(p.yaw);
-        const std::string side = std::abs(c) > std::abs(s) ? (c > 0 ? "-x" : "+x") : (s > 0 ? "-y" : "+y");
-        for (const auto & t : box.sides) {
+      for (const auto & t : box.sides) {
+        for (auto p : poses) {
+          const double c = std::cos(p.yaw), s = std::sin(p.yaw);
+          const std::string side = std::abs(c) > std::abs(s) ? (c > 0 ? "-x" : "+x") : (s > 0 ? "-y" : "+y");
           if (t.compare(0, 2, side) != 0) continue;
           if (t.size() > 3 && t[2] == '@') {  // 법선 거리만 바꿈 (옆 위치는 approach_poses 그대로)
             const double d = std::stod(t.substr(3));
@@ -1214,7 +1217,19 @@ void MissionManager::go_near(const Box & box, double px, double py, Done done, s
   }
   if (k >= poses.size() || static_cast<int>(k) >= approach_tries_) { done(false, "approach_failed"); return; }
   // Nav2로 변 앞 standoff까지 → approach로 approach_gap까지 직선으로 붙음 (Nav2 원형 footprint로는 못 붙는 거리)
-  const auto m = to_map(poses[k].x, poses[k].y, poses[k].yaw);
+  // Nav2 목표는 박스 가운데에서 nav_turn_m까지 법선으로 물림 — 붙은 자리(0.39 m)에선 몸(외접 0.30 m)이 박스에 걸려 못 돌고
+  //   등진 채 멈춤 (11-14). 벽 쪽으로는 min(0.32, 원래 자리 벽 거리)보다 안 다가섬. 나머지는 approach가 직선으로 메움
+  Pose2 n = poses[k];
+  {
+    const double c = std::cos(n.yaw), s = std::sin(n.yaw);
+    const double clear = std::min(0.32, wall_distance(n.x, n.y, walls_));
+    for (double d = (box.x - n.x) * c + (box.y - n.y) * s + 0.02; d <= nav_turn_m_ + 1e-6; d += 0.02) {
+      const double x = box.x - d * c, y = box.y - d * s;
+      if (wall_distance(x, y, walls_) < clear) break;
+      n.x = x; n.y = y;
+    }
+  }
+  const auto m = to_map(n.x, n.y, n.yaw);
   // 다가설 자리 → 도킹 자리 거리 (변마다 다름 — "@d") · 붙은 뒤 exit도 이만큼 물러나 이 자리로
   const double push = (box.x - poses[k].x) * std::cos(poses[k].yaw) + (box.y - poses[k].y) * std::sin(poses[k].yaw)
                       - box.half - approach_gap_;
@@ -1224,8 +1239,9 @@ void MissionManager::go_near(const Box & box, double px, double py, Done done, s
        // 상자 도킹: 도면 자리(f)는 힌트 — skill_approach가 인지 상자 + gap으로 목표를 정함 (도면은 안 믿음, 11-12)
        SubGoal().set__skill("approach").set__target(fmt("%.4f,%.4f,%.4f", f.x, f.y, f.yaw) + fmt(",%.4f,%.4f", approach_gap_, box.half))
          .set__relation("dock_box")},
-    [this, box, px, py, done, k, poses, push](bool ok, const std::string & why) {
-      if (ok) { back_ = fmt("%.3f", push); done(true, ""); return; }
+    [this, box, px, py, done, k, poses, push, n](bool ok, const std::string & why) {
+      // 붙은 뒤 exit은 Nav2 목표 자리(n)까지 물러남 — approach 시작 자리(@d)는 돌 공간이 없을 수 있음
+      if (ok) { back_ = fmt("%.3f", std::hypot(box.x - n.x, box.y - n.y) - box.half - approach_gap_); done(true, ""); return; }
       RCLCPP_WARN(get_logger(), "접근 자리 %zu 실패 (%s) — 다음 변", k + 1, why.c_str());
       // 상자 앞에서 끝남(붙다 멈춤 · 상자를 못 봐 다가설 자리에 섬) — 그대로 Nav2를 보내면 제자리에서 돌다 상자를 밀거나(11-13),
       //   후진 금지라 몸 뒤가 벽에 걸려 못 빠져나옴 (11-13 headless) → 먼저 똑바로 물러남
@@ -1466,8 +1482,24 @@ void MissionManager::publish_walls() {
         g.data[static_cast<size_t>(cy) * g.info.width + cx] = 100;
     }
   }
+  // 시작 박스 · 장소 상자도 칸 100 (11-14) — 7 cm 낮은 상자는 다가가면 카메라 광선이 로컬 코스트맵에서 가까운 면을 지워
+  //   DWB가 몸으로 긁고 돌다 밀었다 (시뮬 상자 3을 0.5 m). 붙는 건 approach(코스트맵 안 씀)라 지도에 있어도 붙음
+  size_t nb = 0;
+  for (const auto * set : {&start_boxes_, &loc_boxes_}) {
+    for (const auto & b : *set) {
+      ++nb;
+      for (double ax = b.x - b.half; ax <= b.x + b.half + 1e-9; ax += res / 2) {
+        for (double ay = b.y - b.half; ay <= b.y + b.half + 1e-9; ay += res / 2) {
+          const auto m = to_map(ax, ay, 0.0);
+          const int cx = static_cast<int>(std::floor((m.x - x0) / res)), cy = static_cast<int>(std::floor((m.y - y0) / res));
+          if (cx >= 0 && cy >= 0 && cx < static_cast<int>(g.info.width) && cy < static_cast<int>(g.info.height))
+            g.data[static_cast<size_t>(cy) * g.info.width + cx] = 100;
+        }
+      }
+    }
+  }
   walls_pub_->publish(g);
-  RCLCPP_INFO(get_logger(), "경기장 벽 %zu개 → /arena/walls (%ux%u)", walls_.size() / 4, g.info.width, g.info.height);
+  RCLCPP_INFO(get_logger(), "경기장 벽 %zu개 · 상자 %zu개 → /arena/walls (%ux%u)", walls_.size() / 4, nb, g.info.width, g.info.height);
 }
 
 void MissionManager::write_log(const std::string & name, const std::string & json) const {
