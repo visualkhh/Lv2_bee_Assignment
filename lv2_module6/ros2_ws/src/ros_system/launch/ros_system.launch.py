@@ -412,6 +412,10 @@ def slam_nodes():
              arguments=['pole_depth_gate', 'nvblox_map', 'rewind'], parameters=[gate_params('pole_front_cam'), nvblox_map_params]),
         Node(package='nav2_map_server', executable='map_server', name='map_server', output='screen', condition=static_on,
              **QUICK_STOP, parameters=[{'yaml_filename': LaunchConfiguration('static_map_yaml'), 'frame_id': 'map', 'topic_name': 'map'}]),
+        # static_2d엔 nvblox가 없어 RL 주행 controller 입력(/nvblox_node/combined_esdf_pointcloud)이 끊김 → 바이패스.
+        #   /map + body_filter 점구름으로 같은 형식의 ESDF slice를 낸다 (perception/include/perception/static_esdf_slice.hpp)
+        Node(package='perception', executable='static_esdf_slice', name='static_esdf_slice', output='screen',
+             condition=static_on, **QUICK_STOP),
         TimerAction(period=LIFECYCLE_DELAY_S, actions=[Node(package='nav2_lifecycle_manager', executable='lifecycle_manager',
             name='lifecycle_manager_map', output='screen', condition=static_on, **QUICK_STOP,
             parameters=[{'autostart': True, 'node_names': ['map_server']}])]),
