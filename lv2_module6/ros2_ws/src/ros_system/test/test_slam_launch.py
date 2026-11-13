@@ -49,7 +49,7 @@ def params(node_name, **args):
             ctx.launch_configurations.setdefault(e.name, perform_substitutions(ctx, e.default_value))
             continue
         ctx.launch_configurations.update(args)
-        if isinstance(e, Node) and e._Node__node_name == node_name:
+        if isinstance(e, Node) and (e._Node__node_name or e.node_executable) == node_name:  # 이름 없으면 실행 파일 이름 (py_helpers)
             out = {}
             for p in evaluate_parameters(ctx, e._Node__parameters):
                 if isinstance(p, dict):
@@ -74,7 +74,8 @@ def stop_timeouts(node_name):
 
 
 def main():
-    base = {'use_cameras': 'false', 'use_ros2_control': 'false', 'use_nav2': 'false', 'use_twist_mux': 'false'}
+    base = {'use_cameras': 'false', 'use_ros2_control': 'false', 'use_nav2': 'false', 'use_twist_mux': 'false',
+            'py_helpers_one_process': 'false'}  # 노드 하나하나 보려고 따로 — 한 프로세스(기본)는 아래 py_helpers 검사
     on = nodes(**base)
     off = nodes(**base, use_slam='false')
     slam = {'cuvslam_slam', 'nvblox_node', 'nvblox_map', 'pole_depth_gate'}
@@ -86,6 +87,9 @@ def main():
     load_map = params('nvblox_map', **m, localization='false').get('load_path')
     load_loc = params('nvblox_map', **m, localization='true').get('load_path')
     nav = {**base, 'use_nav2': 'true'}
+    one = {**base, 'py_helpers_one_process': 'true'}
+    helpers, helpers_off = nodes(**one), nodes(**one, use_slam='false')
+    helpers_loc = params('py_helpers', **one, nvblox_map='/maps/a/nvblox.nvblx', localization='true')
     composed, separate = nodes(**nav), nodes(**nav, nav2_composition='false')
     checks = [
         ('SLAM 노드 전부 (cuVSLAM · depth gate · nvblox · nvblox_map)', slam <= on),
@@ -96,6 +100,11 @@ def main():
         ('매핑: 불러오기 없음', load_map == ''),
         ('위치추정: 시작할 때 불러옴', load_loc == '/maps/a/nvblox.nvblx'),
         ('위치추정: 저장 안 함', save_loc == ''),
+        ('python 보조 노드 한 프로세스(py_helpers)', 'py_helpers' in helpers and not ({'pole_depth_gate', 'nvblox_map', 'rewind'} & helpers)),
+        ('py_helpers에 depth gate·지도 불러오기 파라미터', helpers_loc.get('load_path') == '/maps/a/nvblox.nvblx'
+                                                          and helpers_loc.get('depth_min_range') == 0.5),
+        ('SLAM 없으면 rewind만 따로', 'rewind' in helpers_off and 'py_helpers' not in helpers_off),
+        ('py_helpers_one_process:=false = 따로', {'pole_depth_gate', 'nvblox_map', 'rewind'} <= on and 'py_helpers' not in on),
         ('cuVSLAM이 map→odom', params('cuvslam_slam', **base).get('publish_map_tf') is True),
         ('Nav2·lifecycle_manager는 끌 때 3+3초', all(stop_timeouts(n) == ('3', '3') for n in
                                                   ('nav2_container', 'planner_server', 'controller_server',
