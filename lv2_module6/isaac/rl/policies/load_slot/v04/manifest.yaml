@@ -1,0 +1,15 @@
+# 학습 기록 (사람이 읽는 표지). 한 줄 "키: 값"
+skill: load_slot
+version: v04
+date: 2026-11-11T11:13
+run_name: load_rtA2 (v02 + Δ 크기 벌점 10배)
+from: v02 조건 그대로, w_act=0.02 추가 (새 네트워크)
+env: bee_isaac/tasks/slot_env.py LoadEnvCfg (--task load)
+cfg: twist=1,sag_scale_range=0.7:1.5,corr_gain_range=0.5:1.5,arrive_err_m=0.003,hidden_offset_m=0.003:0.001,w_act=0.02
+command: python scripts/train.py --task load --cfg twist=1,sag_scale_range=0.7:1.5,corr_gain_range=0.5:1.5,arrive_err_m=0.003,hidden_offset_m=0.003:0.001,w_act=0.02 --mode train --num_envs 4096 --iters 1500 --run load_rtA2 --out load_rtA2.pt
+script: logs/rt1111_LA2.sh
+logs: logs/load_rtA2/2026-11-11_09-39-05 (같은 폴더의 08-00-49는 앞선 시도)
+code: a0834d5
+eval: 1024판 seed 7 성공 99.9 %, 중심 오차 median 1.7 · p90 2.5 · max 2.8 mm, Δ 상한 도달 5.3 % (logs/rt1111_load_rtA2.log)
+files: .onnx = train.py 참고 사본 (로봇용은 export_onnx.py)
+status: 최신 채택 후보, 실기 미배포. 이어서 돌린 load_rtA5 (logs/rt1111_LAw.sh, w_act 값 기록 없음)는 내보낸 정책 없음

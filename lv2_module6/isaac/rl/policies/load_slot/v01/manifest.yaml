@@ -1,0 +1,9 @@
+# 학습 기록 (사람이 읽는 표지). 한 줄 "키: 값"
+skill: load_slot
+version: v01
+date: 2026-11-03
+env: isaac/lab slot_env LoadEnv (재학습 w_fail 20)
+code: feature/skill-envs 700a86f
+files: load_slot.policy · load_slot.onnx = 원본 (실기 배포본 models/skills/load_slot 과 같은 정책) · load_slot_from_policy.pt = .policy에서 11-10 되살린 TorchScript (원본 .pt 없음)
+eval_11-10: 방식 A 조건 성공 92.3 % (Δ = 0 94.0 %), Δ 상한 도달 63.7 % · 방식 B 조건 74.8 % (Δ = 0 82.0 %) (logs/rt1110_lbase.log)
+note: 11-10 실측 조건에서 Δ = 0보다 나빠짐 → v02~v04 재학습

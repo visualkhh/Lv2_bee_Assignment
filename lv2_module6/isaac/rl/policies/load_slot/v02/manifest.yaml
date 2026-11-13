@@ -1,0 +1,13 @@
+# 학습 기록 (사람이 읽는 표지). 한 줄 "키: 값"
+skill: load_slot
+version: v02
+date: 2026-11-11T01:39
+run_name: load_rtA (방식 A — 도착 오차 · 숨은 오프셋 DR, 새 네트워크)
+env: bee_isaac/tasks/slot_env.py LoadEnvCfg (--task load)
+cfg: twist=1,sag_scale_range=0.7:1.5,corr_gain_range=0.5:1.5,arrive_err_m=0.003,hidden_offset_m=0.003:0.001
+command: python scripts/train.py --task load --cfg twist=1,sag_scale_range=0.7:1.5,corr_gain_range=0.5:1.5,arrive_err_m=0.003,hidden_offset_m=0.003:0.001 --mode train --num_envs 4096 --iters 1500 --run load_rtA --out load_rtA.pt
+script: logs/rt1110.sh trainLA
+logs: logs/load_rtA/2026-11-10_23-44-20
+code: a0834d5 (slot_env.py는 f1c68d1까지 변경 없음)
+eval: 1024판 seed 7 성공 99.9 %, 중심 오차 median 1.2 · p90 2.1 · max 2.8 mm, 단 Δ 상한(50 mrad) 도달 99.9 % (logs/rt1110_trainLA.log)
+status: 폐기 — Δ가 상한에 붙음 → v04에서 w_act 키워 재학습

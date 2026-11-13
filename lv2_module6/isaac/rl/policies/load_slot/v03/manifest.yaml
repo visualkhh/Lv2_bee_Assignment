@@ -1,0 +1,13 @@
+# 학습 기록 (사람이 읽는 표지). 한 줄 "키: 값"
+skill: load_slot
+version: v03
+date: 2026-11-11T03:39
+run_name: load_rtB (방식 B — curriculum_stage=4)
+env: bee_isaac/tasks/slot_env.py LoadEnvCfg (--task load)
+cfg: curriculum_stage=4,twist=1,sag_scale_range=0.7:1.5,corr_gain_range=0.5:1.5
+command: python scripts/train.py --task load --cfg curriculum_stage=4,twist=1,sag_scale_range=0.7:1.5,corr_gain_range=0.5:1.5 --mode train --num_envs 4096 --iters 1500 --run load_rtB --out load_rtB.pt
+script: logs/rt1110.sh trainLB
+logs: logs/load_rtB/2026-11-11_01-41-09
+code: a0834d5
+eval: 1024판 seed 7 성공 94.5 % (Δ = 0 82.0 %), 중심 오차 median 1.8 · p90 2.6 · max 23.8 mm, Δ 상한 도달 100.0 % (logs/rt1110_trainLB.log)
+status: 비교용, 폐기

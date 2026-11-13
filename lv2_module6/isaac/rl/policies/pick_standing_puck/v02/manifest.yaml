@@ -1,0 +1,17 @@
+# 학습 기록 (사람이 읽는 표지). 한 줄 "키: 값"
+skill: pick_standing_puck
+version: v02
+date: 2026-11-10T22:30
+run_name: pick_rtA (방식 A — 기존 pick 환경 + 실측 기반 DR, 새 네트워크)
+env: bee_isaac/tasks/pick_env.py PickDesignEnvCfg (--task pick), design=0
+cfg: design=0,twist=1,sag_scale_range=0.5:1.5,corr_gain_range=0.5:1.5,pos_noise_m=0.008,cam_bias_h_m=0.003,cam_pitch_err_rad=0.035
+command: python scripts/train.py --task pick --cfg design=0,twist=1,sag_scale_range=0.5:1.5,corr_gain_range=0.5:1.5,pos_noise_m=0.008,cam_bias_h_m=0.003,cam_pitch_err_rad=0.035 --mode train --num_envs 4096 --iters 600 --run pick_rtA --out pick_rtA.pt
+command_resume: 같은 명령 + --resume logs/pick_rtA/2026-11-10_21-17-40/model_599.pt (총 1200 iter)
+script: logs/rt1110.sh trainA → trainAmore (logs/rt1110_chain.sh)
+logs: logs/pick_rtA/2026-11-10_21-17-40 (0-599) · logs/pick_rtA/2026-11-10_21-57-21 (600-1199)
+code: a0834d5 + 미커밋 수정 (cam_bias_h_m · cam_pitch_err_rad 추가) → 다음 날 f1c68d1에 커밋. 현재 pick_env.py + 위 cfg = 같은 환경으로 봄 (tag_lost_dz_range 기본 None)
+obs_dim: 41
+eval: 1024판 seed 7 성공 100.0 %, 중심 오차 median 1.8 · p90 3.3 · max 5.9 mm, Δ 상한 도달 0.0 % (logs/rt1110_trainAmore.log)
+baseline: 같은 조건 Δ = 0 성공 100.0 %, 중심 오차 median 6.4 · p90 9.3 mm · v01 median 2.2 · p90 3.8 mm (logs/rt1110_base.log)
+files: pick_standing_puck.pt = 1200 iter 최종 · checkpoint_600.pt = resume 전 600 iter (median 1.8 · p90 3.5 · max 6.3 mm) · .onnx = train.py 참고 사본 (가중치는 logs/.../exported/*.onnx.data, 로봇용은 export_onnx.py로 다시 만듦)
+status: 최신 채택 후보, 실기 미배포

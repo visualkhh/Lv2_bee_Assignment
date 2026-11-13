@@ -1,0 +1,10 @@
+# 학습 기록 (사람이 읽는 표지). 한 줄 "키: 값"
+skill: pick_standing_puck
+version: v01
+date: 2026-11-07
+env: bee_isaac/tasks/pick_env.py
+command: 기록 없음
+logs: 기록 없음 (logs/pick_standing_puck_s* 중 하나로 추정)
+code: 기록 없음
+eval_11-10: 방식 A 조건(v02와 같은 --cfg)에서 1024판 성공 100.0 %, 중심 오차 median 2.2 · p90 3.8 · max 10.4 mm (logs/rt1110_base.log)
+note: 11-10 재학습(v02 · v03)의 비교 기준. 실기 배포본(models/skills/pick_standing_puck)은 이것이 아니라 팀원 pick_residual_sag (11-04)
