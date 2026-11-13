@@ -10,6 +10,8 @@
 //   출력: 🎬 /task/execute_plan (SubGoal[] + plan_id = PLAN_ID_BASE + n) → coordinator
 //         ✉️ /mission/state (plan/MissionState, latched) · /mission/markers (RViz)
 //         ✉️ 기록 log_dir/<시작 시각>/ signal · allocation · build · verify · return · error .json + photos/ · /diagnostics
+//            + steps.jsonl (계획 단계마다 한 줄: 시각·걸린 시간·skill·결과·이유·다시 시도 번호·퍽/박스/장소)
+//            + phases.jsonl (단계마다 한 줄 + 끝에 MISSION 한 줄) — 모아 보기: tools/plan/step_stats.py
 //   단계 (순서와 실패 시 갈 곳은 mission_solver next_phase):
 //     GO_OBSERVE 바코드 보는 자세로 (팔은 stow 그대로 — scan 자세는 없앰, 11-09) → BARCODE 관측: 손 카메라(gaze) 바코드 +
 //              pole_front_cam 신호를 같은 자리에서 동시에 (11-12 — 신호 오류는 팔·바퀴가 멈췄을 때만 셈 · abort면 팔 접음) → 관측 자세(−X)로
@@ -120,6 +122,24 @@ private:
   void publish_state();
   void publish_markers();
   void write_log(const std::string & name, const std::string & json) const;
+  void append_log(const std::string & name, const std::string & line) const;  // 한 줄 덧붙임 (쓸 때마다 닫아서 바로 디스크에)
+  // 시간 기록 — steps.jsonl: 계획(run)의 단계마다 (feedback current_step으로 단계 경계를 잼) · phases.jsonl: 단계·미션 끝마다
+  struct StepLog {
+    uint32_t plan = 0;               // 0 = 기록 중인 계획 없음
+    std::vector<SubGoal> goals;
+    size_t cur = 0;                  // 지금 단계 (0부터)
+    double t0 = 0;                   // 지금 단계 시작 (wall, s)
+    int retry = 0;
+    std::string phase, ctx;
+  };
+  StepLog step_log_;
+  int attempt_ = 0;                  // 다음 run()의 다시 시도 번호 (run_retry · grab · place_check · stand_up이 정함)
+  std::string ctx_;                  // 지금 다루는 퍽·박스·장소 (JSON 필드 조각, 예 "\"tag\": 7, \"loc\": \"L1\"")
+  double phase_t0_ = 0, mission_t0_ = 0;
+  void step_line(size_t k, double t0, double t1, bool ok, const std::string & why, bool timed = true);
+  void close_steps(bool ok, const std::string & why, size_t last);  // 기록 중인 계획을 last 단계까지 닫음
+  void phase_line(bool ok, const std::string & why, Phase next);
+  void mission_line(bool ok, const std::string & why);
   void snap(const std::string & name);           // photo_topic 한 장 → photos/<번호>_<name>.jpg
 
   // 설정 (arena, m)
