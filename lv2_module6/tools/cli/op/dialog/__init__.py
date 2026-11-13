@@ -4,6 +4,7 @@
   InputDialog       input_dialog.py       한 줄 입력 · validate
   KeyDialog         key_dialog.py         키 하나 (확인창 y/n)
   PagerDialog       pager_dialog.py       결과창 스크롤
+  FollowDialog      follow_dialog.py      명령 출력 따라 보기 (새 창을 못 열 때 — 로그·퍽 배정)
   BusyDialog        busy_dialog.py        처리 중 창 (키 루프 없음)
   TeleopDialog      teleop_dialog.py      텔레오퍼
 
@@ -11,11 +12,12 @@
 """
 from .busy_dialog import BusyDialog
 from .dialog import CONTINUE, Dialog
+from .follow_dialog import FollowDialog
 from .input_dialog import InputDialog
 from .key_dialog import KeyDialog
 from .pager_dialog import PagerDialog
 from .fmt_pose import fmt_pose
 from .teleop_dialog import TeleopDialog
 
-__all__ = ['BusyDialog', 'CONTINUE', 'Dialog', 'InputDialog', 'KeyDialog', 'PagerDialog',
+__all__ = ['BusyDialog', 'CONTINUE', 'Dialog', 'FollowDialog', 'InputDialog', 'KeyDialog', 'PagerDialog',
            'TeleopDialog', 'fmt_pose']

@@ -15,21 +15,27 @@ BATTERY_CURVE = ((12.6, 100), (12.3, 90), (12.0, 75), (11.8, 60),
 
 
 class Rate:
-    """토픽 수신 빈도 — 최근 2초 안의 수신 시각으로 Hz, 마지막 수신 뒤 경과."""
+    """토픽 수신 빈도 — 최근 2초 안의 수신 시각으로 Hz, 마지막 수신 뒤 경과.
+    seq(발행 순번, rclpy MessageInfo)가 오면 순번 차이로 센다 — 구독 depth 1로 건너뛴 메시지도 Hz에 들어간다."""
 
     def __init__(self):
-        self.times: deque[float] = deque(maxlen=200)
+        self.times: deque[tuple[float, int | None]] = deque(maxlen=200)
 
-    def tick(self):
-        self.times.append(time.monotonic())
+    def tick(self, seq: int | None = None):
+        self.times.append((time.monotonic(), seq or None))
 
     def age(self) -> float | None:
-        return time.monotonic() - self.times[-1] if self.times else None
+        return time.monotonic() - self.times[-1][0] if self.times else None
 
     def hz(self) -> float:
         now = time.monotonic()
-        recent = [t for t in self.times if now - t <= 2.0]
-        return (len(recent) - 1) / (recent[-1] - recent[0]) if len(recent) > 1 and recent[-1] > recent[0] else 0.0
+        recent = [ts for ts in self.times if now - ts[0] <= 2.0]
+        if len(recent) < 2 or recent[-1][0] <= recent[0][0]:
+            return 0.0
+        (t0, s0), (t1, s1) = recent[0], recent[-1]
+        # 발행자가 다시 떠 순번이 줄면 받은 개수로 (ponytail: 발행자 둘 이상이 섞인 토픽은 순번이 섞임 — 여기 토픽은 발행자 하나)
+        n = s1 - s0 if s0 is not None and s1 is not None and s1 > s0 else len(recent) - 1
+        return n / (t1 - t0)
 
 
 # map→odom이 TF 한 번 조회(0.5 s) 사이에 이만큼 넘게 바뀌면 'SLAM 점프'로 센다 — 실기에서 보며 조정
@@ -91,8 +97,8 @@ class StateStore:
         self.barcode_cam: tuple[str, str] | None = None      # 바코드를 마지막으로 본 (카메라, 내용) — /tracked_objects class barcode
         self.mission_cmd: tuple[str, float] | None = None    # 마지막 /cmd/mission (값, 받은 시각) — 바코드 찾기 창 계산
 
-    def tick(self, key: str):
-        self.rates.setdefault(key, Rate()).tick()
+    def tick(self, key: str, seq: int | None = None):
+        self.rates.setdefault(key, Rate()).tick(seq)
 
     @property
     def operation(self) -> str:
@@ -132,9 +138,9 @@ class StateStore:
         self.device_details[name] = text
         self._touch_state()
 
-    def on_joints(self, names, positions, velocities=None, efforts=None):
+    def on_joints(self, names, positions, velocities=None, efforts=None, seq=None):
         self._touch()
-        self.tick('joint_states')
+        self.tick('joint_states', seq)
         vels = [] if velocities is None else list(velocities)
         effs = [] if efforts is None else list(efforts)
         for i, name in enumerate(names):

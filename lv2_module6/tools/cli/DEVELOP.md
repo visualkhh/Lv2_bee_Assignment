@@ -110,6 +110,7 @@ Dialog (op/dialog/dialog.py — 하위 클래스는 op/dialog/<이름>_dialog.py
  ├─ InputDialog      한 줄 입력 · validate        ← ui.modal_input
  ├─ KeyDialog        키 하나 (confirm의 y/n)      ← ui.modal_key · ui.confirm
  ├─ PagerDialog      결과창 스크롤                ← ui.pager
+ │   └─ FollowDialog 명령 출력 따라 보기          ← 미션 l·p (새 창을 못 열 때 — tmux 밖 · 화면 없음)
  ├─ BusyDialog       처리 중 창 (키 루프 없음)    ← ui.busy · step · progress
  ├─ TeleopDialog     텔레오퍼                     ← bus.cmd_teleop
 ```

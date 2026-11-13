@@ -17,6 +17,7 @@ import time
 from pathlib import Path
 
 from ...defs import STAY
+from ...dialog import FollowDialog
 from ...menus import ActionItem, GoMenu, Menu, MenuItem
 from ...terminal import BOLD, GREEN, RED, YELLOW, Terminal
 from ...bars.state.nav_state import collision_text, controller_text
@@ -318,18 +319,24 @@ PLAN_VIEW = Path(__file__).resolve().parents[4] / 'plan' / 'mission_plan.py'   #
 
 
 def open_window(ui, name: str, cmd: list[str], title: str, note: str) -> str:
-    """cmd를 새 창에 — tmux면 새 tmux 창, 화면(DISPLAY)이 있으면 새 터미널, 둘 다 없으면 명령 안내 (note = 안내 끝 설명)."""
-    if os.environ.get('TMUX'):
-        subprocess.Popen(['tmux', 'new-window', '-n', name, shlex.join(cmd)])
+    """cmd를 새 창에 — tmux면 새 tmux 창, 화면(DISPLAY)이 있으면 새 터미널. 둘 다 안 되면(로봇 headless · ssh로 띄운 TUI)
+    TUI 안 큰 창(FollowDialog)에서 따라 봄 — q/Esc로 돌아옴. note = 창 위 설명."""
+    if os.environ.get('TMUX') and subprocess.run(['tmux', 'new-window', '-n', name, shlex.join(cmd)],
+                                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
         return STAY
     if os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY'):
         for term, flag in (('gnome-terminal', '--'), ('x-terminal-emulator', '-e')):   # -e = Debian 공통 규약
-            if shutil.which(term):
-                subprocess.Popen([term, flag, *cmd], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                 start_new_session=True)
-                return STAY
-    ui.pager(title, '새 창을 열 수 없음 (tmux 밖 · 화면 없음) — 다른 터미널(ssh)에서:\n\n  '
-             + shlex.join(cmd) + f'\n\n({note})')
+            if not shutil.which(term):
+                continue
+            proc = subprocess.Popen([term, flag, *cmd], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                    start_new_session=True)
+            try:
+                if proc.wait(1.0) != 0:   # 바로 실패 (ssh X 전달 끊김 · 화면 없음) → 다음 방법
+                    continue
+            except subprocess.TimeoutExpired:   # 아직 떠 있음 = 창이 열림
+                pass
+            return STAY
+    FollowDialog(ui, title, cmd, f'새 창을 못 열어 여기서 보여 줌 (tmux 밖 · 화면 없음) · {note}').run()
     return STAY
 
 
@@ -339,7 +346,7 @@ class PlanViewItem(MenuItem):
     shows_busy = False
 
     def label(self):
-        return '퍽 배정 보기 — 새 창 (미션 시작 뒤 · 장소별 그룹·개수·퍽)'
+        return '퍽 배정 보기 — 새 창 · 못 열면 이 화면 안 (미션 시작 뒤 · 장소별 그룹·개수·퍽)'
 
     def run(self):
         return open_window(self.ui, 'plan', [sys.executable, str(PLAN_VIEW)], '퍽 배정 보기',
@@ -352,7 +359,7 @@ class LogViewItem(MenuItem):
     shows_busy = False
 
     def label(self):
-        return '최근 로그 WARN/ERROR — 새 창 (mission_manager · coordinator · perception · signal_decoder)'
+        return '최근 로그 WARN/ERROR — 새 창 · 못 열면 이 화면 안 (mission_manager · coordinator · perception · signal_decoder)'
 
     def run(self):
         return open_window(self.ui, 'logs', [sys.executable, fd.__file__, 'logs'], '최근 로그',
@@ -542,7 +549,8 @@ class DiagRunItem(MenuItem):
         cmd = cmd.strip()
         if not self.ui.confirm(f'"{cmd}" 미션을 시작하고 녹화할까요?', default=False,
                                body=['로봇이 움직입니다 (주행·팔).', f'현재 단계: {self.state.mission.phase if self.state.mission else "-"}',
-                                     f'녹화: {bagrec.BAG_DIR}/<시각>_diag_mission (미션이 끝나면 자동으로 끔)']):
+                                     f'녹화: {bagrec.BAG_DIR}/<시각>_diag_mission (미션이 끝나면 · TUI를 닫으면 끔 · '
+                                     f'최대 {bagrec.MAX_S / 60:g}분 BEE_BAG_MAX_S)']):
             return STAY
         try:
             regex = subprocess.run([str(RECORD_RUN), '--regex'], capture_output=True, text=True, check=True).stdout.strip()
