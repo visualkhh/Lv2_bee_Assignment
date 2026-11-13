@@ -78,6 +78,17 @@ PERSONAL_OVERRIDES = re.compile(
 )
 
 
+URL_RE = re.compile(r'<(https?://[^>|]+)(?:\|[^>]*)?>|https?://\S+', re.IGNORECASE)
+
+
+def is_link_only(text: str) -> bool:
+    """URL만 있고 설명·첨부가 없는 글인가."""
+    if not URL_RE.search(text):
+        return False
+    stripped = URL_RE.sub(' ', text)
+    return not re.sub(r'[^0-9A-Za-z가-힣]', '', stripped)
+
+
 def is_work_message(m: dict) -> bool:
     """업무 메시지인가 — 개인사/생활 잡담은 제외. 첨부·링크·업무 키워드가 있어야 업무 글로 본다."""
     text = ' '.join(str(m.get('text') or '').split())
@@ -86,6 +97,9 @@ def is_work_message(m: dict) -> bool:
         return False
     if m.get('files') or m.get('attachments'):
         return True
+    # 설명 없이 URL만 던진 글은 단독 업무 글로 세지 않는다.
+    if is_link_only(text):
+        return False
     if any(k in low for k in WORK_KEYWORDS):
         return True
     if any(p.search(low) for p in SOCIAL_PATTERNS):
@@ -318,6 +332,7 @@ def build(channel: dict, users: dict, msgs: list[dict], path: Path, since: datet
         '**단독 글이 기준**, 스레드 시작·댓글은 참고.')
     add('> 업무 필터: 인사·도착/출근·감사/확인·식사/날씨·생활 잡담 제외. '
         '**첨부/링크/업무 키워드가 있어야 포함** (`WORK_KEYWORDS` / `SOCIAL_PATTERNS`).')
+    add('> **설명 없이 URL만 있는 글은 단독 글로 세지 않는다** — 링크에 설명·첨부가 붙으면 포함.')
     if excluded:
         top_excluded = sorted(excluded_by_uid.items(), key=lambda kv: (-kv[1], display_name(kv[0], users)))[:6]
         detail = ' · '.join(f'{md(display_name(uid, users))} {n}' for uid, n in top_excluded if n)
@@ -327,7 +342,7 @@ def build(channel: dict, users: dict, msgs: list[dict], path: Path, since: datet
     add('')
     add('### 🧮 기여도 (데이터 기반)')
     add('')
-    add('> 단독 글 기준 **기계적 비율**입니다. 막대는 **1위=100%** 기준.')
+    add('> 단독 글 기준(링크만 있는 글 제외) **기계적 비율**입니다. 막대는 **1위=100%** 기준.')
     add('')
     add('| 이름 | 기여도 | 그래프 |')
     add('|:---|---:|:---:|')
@@ -350,7 +365,7 @@ def build(channel: dict, users: dict, msgs: list[dict], path: Path, since: datet
             f'`{bar(s["standalone"], top_standalone, 16)}` | {s["thread_starts"]} | '
             f'{s["posts"]} | {s["comments"]} | {s["active_days"]} |')
     add('')
-    add('> **단독 글이 기준**. `스레드 시작`·`글 합계`·`댓글`은 참고용. '
+    add('> **단독 글이 기준**(링크만 있는 글 제외). `스레드 시작`·`글 합계`·`댓글`은 참고용. '
         '막대 = 단독 글, 사람별 최대값 기준. (`█` 채움 · `·` 빈칸)')
     add('> 같은 스레드에서 같은 사람이 연속으로 단 답글은 1개 댓글로 집계.')
     add('')
