@@ -6,14 +6,26 @@ skill_navigate:
     server_wait_s: 30.0
 skill_approach:
   ros__parameters:
-    approach_mode: "sim"     # sim: 시뮬 drive_env 기준 제어 (돌기 → 직진 ≤ 0.12 m/s → 마지막 방향) + 주행 정책 보정 · legacy: 예전
+    approach_mode: "sim"     # sim: 목표 방향 직선 따라가기 (carrot 조향 ≤ 0.12 m/s → 마지막 방향) + 주행 정책 보정 · legacy: 예전
     approach_speed: 0.05     # [m/s] legacy 직선 속도 (앞 자리로 갈 때는 2배)
     approach_pre_m: 0.10     # [m] legacy: 목표 뒤 이만큼에서 목표 방향으로 돌고 직선 (박스 바로 앞 제자리 회전 금지)
     approach_pos_tol: 0.005  # [m] legacy 도착
     approach_yaw_tol: 0.03   # [rad] legacy 방향 맞춤
     approach_timeout_s: 30.0 # [s] 전체 · 4초 동안 3 mm도 못 줄이면 approach_blocked
-    residual_v: 0.02         # [m/s] 정책 행동 1 = 이만큼 (시뮬 res_v)
-    residual_w: 0.1          # [rad/s] (시뮬 res_w)
+    residual_v: 0.0          # [m/s] 정책 행동 1 = 이만큼 (시뮬 res_v)
+    residual_w: 0.0          # [rad/s] (시뮬 res_w)
+    approach_release_m: 0.03 # [m] sim: tol_m×0.6 안에 한 번 들면 이만큼 벗어날 때까지 마지막 방향만
+    approach_carrot_m: 0.05  # [m] sim: 목표 방향 직선 위 이만큼 앞 점을 향해 조향 (옆 어긋남을 도착 전에 없앰)
+    # 상자 도킹 (goal.values = [gap, half]): 도면 자리는 힌트 — 인지 상자로 목표를 정함 (11-12). 팔은 pose_look으로 천천히 (launch arm_velocity_scale 0.15)
+    box_match_m: 0.35        # [m] 힌트 상자 가운데에서 이만큼 안의 start_box · location_box만
+    box_wait_s: 8.0          # [s] 첫 측정까지 정지해서 기다림 — 넘으면 approach_box_unseen
+    box_stale_s: 1.0         # [s] last_seen이 이보다 오래된 측정은 버림
+    box_jump_m: 0.08         # [m] 추정에서 이만큼 넘게 튄 측정은 버림
+    box_alpha: 0.3           # 새 측정을 섞는 비율
+    box_rate_mps: 0.02       # [m/s] 목표를 옮기는 최대 속도 (11-12: 측정마다 1 cm → 8 cm/s로 목표가 움직여 상자 앞에서 크게 돎)
+    box_rate_dps: 3.0        # [deg/s] 목표 방향을 돌리는 최대 속도
+    box_min_side_m: 0.17     # [m] 윗면 짧은 변이 이보다 작으면 잘린 측정 — 버림 (가운데가 보이는 쪽으로 쏠림)
+    box_freeze_m: 0.10       # [m] 목표까지 이보다 가까우면 목표 고정 (가까울수록 잘려 보임 — 마지막은 odom)
 skill_pose:
   ros__parameters:
     initial_pose_enabled: true
@@ -40,6 +52,7 @@ skill_load:
     server_wait_s: 30.0
     load_lift_m: 0.03        # [m] 박스 앞에서 시작하면 손을 곧게 이만큼 올린 뒤 carry로 · 0 = 안 올림
                              #   pick 끝 손 안 퍽 바닥 = 박스 위 5 cm (pick_above_m) → +3 cm = 8 cm, 옆 퍽 윗면(6 cm)보다 2 cm 위 (11/08 5 cm는 너무 높음)
+    load_over_lift_m: 0.04   # [m] 옆 칸 위는 칸 위(q_over)보다 이만큼 높게 지나고 곧게 내려옴 — 손 안 퍽 바닥이 적재된 옆 퍽 윗면 위 약 4 cm (11/12 시뮬 옆 퍽 침) · 0 = 예전
 skill_unload:
   ros__parameters:
     server_wait_s: 30.0

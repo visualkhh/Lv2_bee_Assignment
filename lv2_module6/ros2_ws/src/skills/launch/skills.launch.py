@@ -59,7 +59,8 @@ def launch_setup(context):
             name='base_skills', namespace='', package='rclcpp_components', executable='component_container', output='screen',
             composable_node_descriptions=[
                 skill('NavigateSkill', 'skill_navigate'),
-                skill('ApproachSkill', 'skill_approach'),
+                # arm: pose_look (상자 도킹 중 look 자세) · 주행 중이라 팔은 천천히 (arm.yaml 1.0을 덮음)
+                skill('ApproachSkill', 'skill_approach', arm, {'arm_velocity_scale': 0.15}),
             ]),
     ]
 
