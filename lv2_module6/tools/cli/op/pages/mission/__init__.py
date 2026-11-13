@@ -479,7 +479,7 @@ class DiagRunItem(MenuItem):
     key = 'x'
 
     def label(self):
-        return '현장 진단 미션 + 녹화 — start:DIAG (실패해도 계속 · 치명만 정지 · 끝나면 녹화 끔)'
+        return f'현장 진단 미션 + 녹화 — {os.environ.get("BEE_DIAG_START", "start:DIAG")} (실패해도 계속 · 치명만 정지 · 끝나면 녹화 끔)'
 
     def run(self):
         import threading
@@ -492,7 +492,7 @@ class DiagRunItem(MenuItem):
             '바코드 P2-01~04 · 신호 R·Y·G 각 1~6 합 12 — 틀리면 mission_manager가 거부(하는 일 줄에 이유)',
             '치명(바로 정지): estop · 수동 전환 · arm_contact · collision · overcurrent · abort · 주행 갇힘 3번',
             '기록: ~/.ros/mission/<시각>/steps.jsonl · phases.jsonl → python3 tools/plan/step_stats.py'],
-            '명령>', 'start:DIAG',
+            '명령>', os.environ.get('BEE_DIAG_START', 'start:DIAG'),  # 현장 고정값 (예 start:DIAG:P2-04:R4Y2G6) — 비면 start:DIAG
             validate=lambda t: None if t.strip().startswith(('start:DIAG', 'start:FROM_SURVEY')) else 'start:DIAG… 또는 start:FROM_SURVEY…')
         if cmd is None:
             return STAY
