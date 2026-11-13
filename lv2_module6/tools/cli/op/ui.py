@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import atexit
 import math
-import os
 import signal
 import sys
 import time
@@ -56,14 +55,14 @@ class Ui:
         self._term_fd, self._term_attrs = fd, old
 
     def _install_cursor_signals(self) -> None:
-        """SIGTERM/SIGHUP(CLI stop 등)에서도 커서를 되살린다 — atexit은 실행되지 않는다."""
+        """SIGTERM/SIGHUP(CLI stop · ssh 끊김)에서도 커서를 되살리고 SystemExit로 끝낸다 —
+        main()의 finally(TUI가 켠 녹화 끄기 등)·atexit이 돌게 (신호로 바로 죽으면 둘 다 안 돈다)."""
         def _restore(signum, _frame):
-            self.close()
             try:
-                signal.signal(signum, signal.SIG_DFL)
-                os.kill(os.getpid(), signum)
-            except Exception:
-                raise SystemExit(128 + signum)
+                self.close()
+            except Exception:   # ssh가 끊겨 터미널에 못 씀
+                pass
+            raise SystemExit(128 + signum)
         for name in ('SIGTERM', 'SIGHUP'):
             sig = getattr(signal, name, None)
             if sig is None:
