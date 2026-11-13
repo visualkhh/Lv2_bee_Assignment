@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <ctime>
 #include <filesystem>
+#include <sstream>
 #include <fstream>
 #include <set>
 
@@ -91,6 +92,21 @@ MissionManager::MissionManager()
   loc_boxes_ = boxes(declare_parameter<std::vector<double>>("location_boxes",
     {3.670, 0.950, 0.1025, 2.202, 3.700, 0.1025, 3.670, 5.354, 0.1025}), -1.0);
   for (const auto v : declare_parameter<std::vector<int64_t>>("location_tags", {12, 13, 14})) loc_tags_.push_back(static_cast<int>(v));
+  // 박스마다 다가갈 변 (11-13 사용자 지정) — 한 줄에 "+x -y"처럼, 비거나 개수가 안 맞으면 네 변 다 (벽 거르기만)
+  const auto set_sides = [this](std::vector<Box> & bs, const char * name) {
+    const auto v = declare_parameter<std::vector<std::string>>(name, std::vector<std::string>{});
+    if (v.empty()) return;
+    if (v.size() != bs.size()) {
+      RCLCPP_WARN(get_logger(), "%s %zu개 ≠ 박스 %zu개 — 무시 (네 변 다)", name, v.size(), bs.size());
+      return;
+    }
+    for (size_t i = 0; i < bs.size(); ++i) {
+      std::istringstream in(v[i]);
+      for (std::string t; in >> t;) bs[i].sides.push_back(t);
+    }
+  };
+  set_sides(start_boxes_, "start_box_sides");
+  set_sides(loc_boxes_, "location_box_sides");
   puck_dx_ = declare_parameter<std::vector<double>>("puck_offsets_x", {-0.040, 0.040});
   box_top_z_ = declare_parameter<double>("box_top_z", 0.070);
   puck_h_ = declare_parameter<double>("puck_height", 0.060);
@@ -800,6 +816,13 @@ void MissionManager::go_near(const Box & box, double px, double py, Done done, s
       if (blocked) RCLCPP_INFO(get_logger(), "다가설 자리 (%.2f, %.2f) — 벽에서 %.2f m 안이라 뺌", p.x, p.y, wall_clearance_);
       return blocked;
     }), poses.end());
+    if (!box.sides.empty()) {  // 지정한 변만 — 다가설 자리 yaw로 변을 앎 (서쪽 변에 서면 +x를 봄 → "-x")
+      poses.erase(std::remove_if(poses.begin(), poses.end(), [&box](const Pose2 & p) {
+        const double c = std::cos(p.yaw), s = std::sin(p.yaw);
+        const std::string side = std::abs(c) > std::abs(s) ? (c > 0 ? "-x" : "+x") : (s > 0 ? "-y" : "+y");
+        return std::find(box.sides.begin(), box.sides.end(), side) == box.sides.end();
+      }), poses.end());
+    }
   }
   if (k >= poses.size() || static_cast<int>(k) >= approach_tries_) { done(false, "approach_failed"); return; }
   // Nav2로 변 앞 standoff까지 → approach로 approach_gap까지 직선으로 붙음 (Nav2 원형 footprint로는 못 붙는 거리)

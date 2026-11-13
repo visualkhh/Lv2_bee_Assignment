@@ -55,7 +55,10 @@ using plan::msg::SubGoal;
 using plan::msg::SubGoalArray;
 using plan::msg::TaskStatus;
 
-struct Box { double x, y, half; };  // arena [m] — 정사각 박스 (윗면 = box_top_z)
+struct Box {  // arena [m] — 정사각 박스 (윗면 = box_top_z)
+  double x, y, half;
+  std::vector<std::string> sides = {};  // 다가갈 변 "+x" "-x" "+y" "-y" (arena, 박스 가운데에서 그 변 쪽) — 비면 네 변 다
+};
 
 // 집을 퍽 트랙 고르기 — 인지는 안 보이는 물체를 2초 뒤 지우므로(long_memory: false) 퍽은 tag로 기억하고 집기 직전에 다시 찾는다.
 //   ① tag를 읽은 퍽 중 가장 최근에 본 것 ② (spot이 있으면) 그 map 점에서 radius 안 가장 가까운 퍽 — tag를 못 읽었거나 같은 tag인 것만

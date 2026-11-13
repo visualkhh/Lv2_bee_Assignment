@@ -30,6 +30,7 @@ Robot ends at the box: run isaac/standalone/runtime/reset.sh before the next try
 Real robot (--real): run in a shell that already talks to the robot's stack (its ROS env is used as is, wall clock).
     python3 approach_loop.py 3 --real --exit 0.165            # start box 3 of plan.yaml
     python3 approach_loop.py 3 --real --start-pose 0.734 0.950 3.1416   # robot was not switched on at start_pose_arena
+    python3 approach_loop.py L2 --real                        # location box L1..L3 (plan.yaml location_boxes)
 Box centre: plan.yaml start_boxes (arena) -> map with start_pose_arena (map = where the robot was switched on, as
 mission_manager). Sides are checked against plan.yaml arena_walls. Ground truth instead of Isaac: the two pucks on the box
 as /tracked_objects sees them (class puck, puck_offsets_x apart), turned into the robot frame with the TF of the same
@@ -231,7 +232,7 @@ def wall_distance(scene_name):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('box', type=int, help='start box number (start_<n>)')
+    ap.add_argument('box', help='start box number (start_<n>) · --real also L1..L3 (plan.yaml location_boxes)')
     ap.add_argument('--side', choices=SIDES, help='box side to dock at (default: nearest side clear of walls)')
     ap.add_argument('--scene', help='scene usda (default: ISAAC_SCENE of the running Isaac)')
     ap.add_argument('--policy', default='dock_box', help='approach policy (goal.target)')
@@ -256,17 +257,26 @@ def main():
     if a.real:  # this shell's ROS env, plan.yaml arena
         cfg = plan_cfg()
         start_arena = a.start_pose or cfg['start_pose_arena']
-        boxes = cfg['start_boxes']
-        if not 1 <= a.box <= len(boxes) // 2:
-            sys.exit(f'plan.yaml has start boxes 1..{len(boxes) // 2}')
-        bx, by, axis_map = arena_to_map(boxes[2 * a.box - 2], boxes[2 * a.box - 1], 0.0, start_arena)
+        loc = a.box.upper().startswith('L')
+        boxes = [cfg['location_boxes'][i:i + 3] for i in range(0, len(cfg['location_boxes']) - 2, 3)] if loc else \
+            [cfg['start_boxes'][i:i + 2] + [cfg['box_half']] for i in range(0, len(cfg['start_boxes']) - 1, 2)]
+        k = int(a.box[1:] if loc else a.box)
+        if not 1 <= k <= len(boxes):
+            sys.exit(f'plan.yaml has {"location boxes L" if loc else "start boxes "}1..{len(boxes)}')
+        label = f'L{k}' if loc else f'start_{k}'
+        a.half = boxes[k - 1][2]
+        bx, by, axis_map = arena_to_map(boxes[k - 1][0], boxes[k - 1][1], 0.0, start_arena)
         walls = []
         for i in range(0, len(cfg['arena_walls']) - 3, 4):
             w = cfg['arena_walls'][i:i + 4]
             walls += [*arena_to_map(w[0], w[1], 0.0, start_arena)[:2], *arena_to_map(w[2], w[3], 0.0, start_arena)[:2]]
         near_wall = segment_distance(walls)
-        sep = abs(cfg['puck_offsets_x'][1] - cfg['puck_offsets_x'][0])
+        # puck pair spacing on a start box. Location boxes hold pucks on a 6 cm grid (a pair there is not the box axis) -> no truth
+        sep = None if loc else abs(cfg['puck_offsets_x'][1] - cfg['puck_offsets_x'][0])
         scene_name, pucks_map = 'real', {}
+        # allowed sides, arena axes ("+x -y") - as mission_manager. A location box may hold no pucks -> no ground truth
+        sides_cfg = cfg.get('location_box_sides' if loc else 'start_box_sides') or []
+        allowed = sides_cfg[k - 1].split() if len(sides_cfg) == len(boxes) else None
         print(f'real robot · start pose (arena) {[round(v, 3) for v in start_arena]} · plan.yaml {PLAN_YAML}')
     else:
         # ROS env of the running stack — must be set before rclpy starts
@@ -279,11 +289,16 @@ def main():
         scene = a.scene or ros_env.get('ISAAC_SCENE') or proc_env('isaac_startup.py').get('ISAAC_SCENE') \
             or os.path.join(ISAAC, 'usda', 'scene_sim.usda')
         scene_name = os.path.splitext(os.path.basename(scene))[0]
+        if not a.box.isdigit():
+            sys.exit('the Isaac scenes only have start boxes - give a number (L1..L3 need --real)')
+        a.box = int(a.box)
+        label = f'start_{a.box}'
 
         bx, by, pucks_map = box_in_map(scene, a.box)
         if len(pucks_map) < 2:
-            print(f'  only {len(pucks_map)} puck on start_{a.box} — no ground truth, errors use the TF map frame')
+            print(f'  only {len(pucks_map)} puck on {label} — no ground truth, errors use the TF map frame')
         near_wall = wall_distance(scene_name)
+        allowed = None
     sides = []
     for name, (sx, sy, yaw) in SIDES.items():
         d = a.half + a.standoff
@@ -297,8 +312,16 @@ def main():
         side = next(s for s in sides if s[0] == a.side)
     else:
         free = [s for s in sides if s[2] >= a.wall_clearance]
+        if allowed is not None:  # map side -> arena side: the arena axis the box-to-robot direction points along
+            def arena_side(n):
+                sx, sy = SIDES[n][:2]
+                c, s_ = math.cos(start_arena[2]), math.sin(start_arena[2])
+                ax, ay = c * sx - s_ * sy, s_ * sx + c * sy
+                return ('+x' if ax > 0 else '-x') if abs(ax) > abs(ay) else ('+y' if ay > 0 else '-y')
+            free = [s for s in free if arena_side(s[0]) in allowed]
+            print(f'  plan.yaml sides: {" ".join(allowed)} -> map sides {[s[0] for s in free]}')
         if not free:
-            sys.exit(f'start_{a.box}: every side is within {a.wall_clearance} m of a wall')
+            sys.exit(f'{label}: no allowed side clear of walls ({a.wall_clearance} m)')
         side = free[0]
     name, nav, wall = side
     push = a.standoff - a.gap
@@ -308,7 +331,7 @@ def main():
     app_hint = (app[0] + ex, app[1] + ey, app[2])
     if ex or ey:
         print(f'  hint sent to the robot is off by ({ex * 100:+.1f}, {ey * 100:+.1f}) cm')
-    print(f'scene {scene_name} · start_{a.box} map ({bx:.3f}, {by:.3f}) · side {name} (wall {wall:.2f} m)')
+    print(f'scene {scene_name} · {label} map ({bx:.3f}, {by:.3f}) · side {name} (wall {wall:.2f} m)')
     print(f'  navigate ({nav[0]:.3f}, {nav[1]:.3f}, {math.degrees(nav[2]):.0f}°) -> approach {a.policy} '
           f'({app[0]:.3f}, {app[1]:.3f}) gap {a.gap * 1000:.0f} mm')
 
@@ -379,6 +402,8 @@ def main():
 
     def true_pose():  # sim: Isaac pucks · real: pucks seen by perception, with the TF of now
         if a.real:
+            if sep is None:
+                return None
             return real_truth(seen.get('m'), pose(), (bx, by), axis_map, sep, node.get_clock().now().nanoseconds * 1e-9)
         return truth(pucks_map, (bx, by))
 
