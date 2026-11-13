@@ -87,10 +87,10 @@ st.mission = Mission('DONE')
 th.join(2)
 assert out['why'] == 'DONE' and rec.stopped == 0
 
-# 메뉴 키 — 한 번만 · develop 키와 안 겹침 (#199 l·d·a도 피함)
+# 메뉴 키 — x 한 번 · 다른 키와 안 겹침 (#199 l·d·a 포함)
 app = type('App', (), {'state': type('S', (), {'failures': []})(), 'bus': None, 'ui': None, 'term': None})()
 menu = MissionMenu.__new__(MissionMenu)
 menu.app, menu.state = app, app.state
 keys = [i.key for i in MissionMenu.items(menu)]
-assert keys.count('x') == 1 and not {'l', 'd', 'a'} & set(keys), keys
+assert keys.count('x') == 1 and len(keys) == len(set(keys)) and {'l', 'd', 'a'} <= set(keys), keys
 print('ok test_diag_run')
