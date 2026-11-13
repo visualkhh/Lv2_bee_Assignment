@@ -197,6 +197,7 @@ def generate_launch_description():
         flag('use_cmd_chain', 'true', '바퀴 명령 체인 (velocity_smoother · collision_monitor · lifecycle_manager_base) — use_nav2와 별개: 지도 없이(map:=none)도 수동 조작이 되려면 늘 필요'),
         flag('use_nav2', 'true', '진짜 Nav2 서버 (planner · controller · behavior · bt_navigator) — 바퀴 명령 체인(velocity_smoother · collision_monitor)은 use_cmd_chain'),
         flag('nav2_composition', 'true', 'Nav2 서버·관리자를 한 프로세스(nav2_container, 컴포넌트)로 — 메모리 절약 · false면 서버마다 프로세스 (예전)'),
+        flag('py_helpers_one_process', 'true', 'python 보조 노드(pole_depth_gate · nvblox_map · rewind)를 한 프로세스(py_helpers)로 — 메모리 절약 · false면 따로 (예전)'),
         flag('nav2_params_file', share('config', 'nav2_params.yaml'), 'Nav2 파라미터 파일'),
         flag('use_moveit', 'false', 'true면 진짜 move_group (config/moveit) — spawner 완료 후 기동 (동시 기동 레이스 회피)'),
 
@@ -334,11 +335,14 @@ def slam_nodes():
     save_path = PythonExpression(["'' if ", *loc, " else ", *nvblox_file])  # 매핑일 때만 저장 (위치추정이면 불러온 지도를 안 덮어씀)
     load_path = PythonExpression([*nvblox_file, " if ", *loc, " else ''"])
 
-    def gate(name, cam):
-        return Node(package='ros_system', executable='scan_cam_gate', name=name, output='screen', condition=on,
-                    parameters=[{'gate_by_pose': False, 'depth_min_range': 0.5, 'cloud_in': '',
-                                 'depth_in': f'/{cam}/aligned_depth_to_color/image_raw',
-                                 'depth_out': f'/{cam}/aligned_depth_to_color/image_nvblox'}])
+    def gate_params(cam):
+        return {'gate_by_pose': False, 'depth_min_range': 0.5, 'cloud_in': '',
+                'depth_in': f'/{cam}/aligned_depth_to_color/image_raw',
+                'depth_out': f'/{cam}/aligned_depth_to_color/image_nvblox'}
+    nvblox_map_params = {'load_path': ParameterValue(load_path, value_type=str)}
+    # py_helpers_one_process:=true(기본) — 아래 python 노드 셋(depth gate · nvblox_map · rewind)을 한 프로세스(py_helpers)로.
+    #   python 노드마다 ~120 MB PSS(인터프리터·rclpy·DDS)를 한 번만 냄 (젯슨 8 GB 바닥 → 재부팅, 11-14). false = 예전처럼 따로
+    separate = when('use_slam', '!py_helpers_one_process')
 
     def camera_remaps(i, cam):
         return [(f'camera_{i}/depth/image', f'/{cam}/aligned_depth_to_color/image_nvblox'),
@@ -349,13 +353,19 @@ def slam_nodes():
         OpaqueFunction(function=check_slam),
         Node(package='ros_system', executable='cuvslam_slam', name='cuvslam_slam', output='screen', condition=on,
              parameters=[{'publish_map_tf': True}]),
-        gate('pole_depth_gate', 'pole_front_cam'),
+        Node(package='ros_system', executable='scan_cam_gate', name='pole_depth_gate', output='screen', condition=separate,
+             parameters=[gate_params('pole_front_cam')]),
         Node(package='nvblox_ros', executable='nvblox_node', name='nvblox_node', output='screen', condition=on,
              parameters=[share('config', 'nvblox.yaml'),
                          {'after_shutdown_map_save_path': ParameterValue(save_path, value_type=str)}],
              remappings=camera_remaps(0, 'pole_front_cam')),
-        Node(package='ros_system', executable='nvblox_map', name='nvblox_map', output='screen', condition=on,
-             parameters=[{'load_path': ParameterValue(load_path, value_type=str)}]),
-        # 주행 리와인드 — 실패(ABORTED) 뒤 실제 주행 궤적을 0.4 m 후진. 실기·테스트베드 공통.
-        Node(package='ros_system', executable='rewind', name='rewind', output='screen'),
+        Node(package='ros_system', executable='nvblox_map', name='nvblox_map', output='screen', condition=separate,
+             parameters=[nvblox_map_params]),
+        # 주행 리와인드 — 실패(ABORTED) 뒤 실제 주행 궤적을 0.4 m 후진. 실기·테스트베드 공통 (SLAM 없어도 뜸)
+        Node(package='ros_system', executable='rewind', name='rewind', output='screen',
+             condition=IfCondition(PythonExpression(["not ('", LaunchConfiguration('use_slam'), "'.lower() == 'true' and '",
+                                                     LaunchConfiguration('py_helpers_one_process'), "'.lower() == 'true')"]))),
+        # 셋을 한 프로세스로 — 이름 없이 띄움 (name을 주면 __node 리매핑이 세 노드 모두에 걸림). 노드 이름은 인자로
+        Node(package='ros_system', executable='py_helpers', output='screen', condition=when('use_slam', 'py_helpers_one_process'),
+             arguments=['pole_depth_gate', 'nvblox_map', 'rewind'], parameters=[gate_params('pole_front_cam'), nvblox_map_params]),
     ]

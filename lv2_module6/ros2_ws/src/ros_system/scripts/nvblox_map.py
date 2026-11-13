@@ -63,14 +63,22 @@ class NvbloxMap(Node):
         self.n_out += 1
 
     def load(self):
+        """nvblox_node가 뜰 때까지 1 s마다 봄 (최대 60 s) — 생성자에서 기다리면 같은 프로세스의 다른 노드(py_helpers)까지 멈춤"""
         from nvblox_msgs.srv import FilePath  # nvblox 설치된 곳에서만 (launch check_slam이 확인)
-        cli = self.create_client(FilePath, '/nvblox_node/load_map')
-        if not cli.wait_for_service(timeout_sec=60.0):
-            self.get_logger().error(f'nvblox load_map 서비스 없음 — {self.load_path} 못 불러옴 (빈 지도로 시작)')
+        self.load_cli = self.create_client(FilePath, '/nvblox_node/load_map')
+        self.load_req = FilePath.Request(file_path=self.load_path)
+        self.load_wait = 0
+        self.load_timer = self.create_timer(1.0, self.try_load)
+
+    def try_load(self):
+        if not self.load_cli.service_is_ready():
+            self.load_wait += 1
+            if self.load_wait >= 60:
+                self.load_timer.cancel()
+                self.get_logger().error(f'nvblox load_map 서비스 없음 — {self.load_path} 못 불러옴 (빈 지도로 시작)')
             return
-        req = FilePath.Request()
-        req.file_path = self.load_path
-        cli.call_async(req).add_done_callback(lambda f: self.get_logger().info(
+        self.load_timer.cancel()
+        self.load_cli.call_async(self.load_req).add_done_callback(lambda f: self.get_logger().info(
             f'지도 불러오기 {self.load_path}: {"성공" if f.result() and f.result().success else "실패 — 빈 지도로 시작"}'))
 
 

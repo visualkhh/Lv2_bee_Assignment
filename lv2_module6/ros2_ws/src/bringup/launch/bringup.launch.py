@@ -74,6 +74,7 @@ ROS_SYSTEM_ARGS = {
     'ekf_imu': ('true', 'EKF yaw 회전속도 = IMU 자이로 · false면 바퀴'),
     'use_nav2': ('true', '진짜 Nav2 서버'),
     'nav2_composition': ('true', 'Nav2 서버·관리자(+ map_saver)를 한 프로세스(nav2_container)로 — 메모리 절약 · false면 서버마다 프로세스 (예전)'),
+    'py_helpers_one_process': ('true', 'python 보조 노드(pole_depth_gate · nvblox_map · rewind)를 한 프로세스로 — 메모리 절약 · false면 따로 (예전)'),
     'use_moveit': ('true', '진짜 move_group — coordinator의 pick/place가 씀 (ros_system 기본은 false라 실기에서 팔 작업이 안 됐음)'),
 }
 
