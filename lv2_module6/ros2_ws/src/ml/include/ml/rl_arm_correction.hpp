@@ -17,7 +17,7 @@
 //   - 정책: policy_hz(50)로 arm_obs(…) → Policy(.onnx 또는 .policy) → a ∈ [−1, 1] → residual_live면 Δ = residual_rad·a (아니면 마지막 Δ 유지)
 //   - run_id가 바뀌면 corr·Δ·이전 행동을 0부터 (시뮬 에피소드 시작)
 //   - 손 카메라 값(/hand_relative)이 max_cam_age_s보다 오래되거나 valid가 아니면 정책을 안 돌림: Δ·행동 기록 그대로
-//   - 입력 모양 place 39 · pick 41 · pick_box 67 · unload_slot 58 (arm_obs.hpp). pick_box·unload_slot은 관절·그리퍼 effort도 읽음
+//   - 입력 모양 place 39 · pick 41 · pick_box 67 · pick_far 68 · unload_slot 58 (arm_obs.hpp). pick_box·pick_far·unload_slot은 관절·그리퍼 effort도 읽음
 // 중력 앞먹임 (gravity_enabled, 기본 켜짐 · 실행 중 ros2 param set 가능): 서보 엔코더가 못 보는 관절 비틀림 d = c·τ 를 미리 뺀다
 //   command = q_ref + corr + Δ − d. c = 1/강성 (실측 feature/isaac-setup isaac/sim/R2S/sag_fit.py: j2 12.2 · j3 18.8 Nm/rad).
 //   τ는 현재 엔코더 각의 팔 평면 점질량 모델(gravity::torques, URDF 값). 처짐 적분 오차에도 넣어 적분이 지우지 않는다.

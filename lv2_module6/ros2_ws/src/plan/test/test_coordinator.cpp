@@ -8,6 +8,7 @@
 
 #include "plan/coordinator.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
+#include "tf2_ros/static_transform_broadcaster.h"
 
 using namespace plan;  // 노드 클래스·메시지 별칭 (include/plan/*.hpp)
 
@@ -244,6 +245,122 @@ TEST_F(RosTest, HandsStepToSkillNodeAndKeepsLedger) {
 }
 
 // 적재함 (MISSION ③): 칸 파라미터 해석 · 같은 곳 여러 개 비켜 놓기 · MOVE_TO_B 템플릿 = 싣고(place tray) → 이동 → 꺼내서(pick tray) 내려놓기
+// 먼 퍽: /skills/pick이 pick_unreachable(손을 수직으로 퍽 위에 못 둠)로 실패하면 같은 목표(id · tag)로 /skills/pick_far → 성공이면 계획 SUCCEEDED
+// pick 한 번 실패(reason) → coordinator가 pick_far로 넘기는지. puck_x: 퍽 map x [m] · with_tf: 로봇 map→base_footprint를 원점에 둠
+//   (로봇 위치를 모르면 거리를 못 재서 grasp_failed_all은 넘기지 않음)
+struct FarResult { int picks = 0; std::string far_target; uint8_t state = 0; std::string reason; };
+FarResult run_pick_fails(const std::string & reason, double puck_x, bool with_tf, int plan_id, double puck_z = 0.0,
+                         double reach_m = 0.30) {
+  auto node = std::make_shared<Coordinator>(
+    rclcpp::NodeOptions().parameter_overrides({{"basket_file", ""}, {"reach_m", reach_m}, {"server_wait_s", 2.0}}));
+  auto probe = std::make_shared<rclcpp::Node>("probe_pick_far_" + std::to_string(plan_id));
+  const auto latched = rclcpp::QoS(10).reliable().transient_local();
+  auto objects_pub = probe->create_publisher<TrackedObjectArray>("/tracked_objects", rclcpp::QoS(5).reliable());
+  auto goals_pub = probe->create_publisher<SubGoalArray>("/task/sub_goals", latched);
+  std::vector<TaskStatus> got;
+  auto sub = probe->create_subscription<TaskStatus>("/task/status", latched, [&](TaskStatus::SharedPtr m) { got.push_back(*m); });
+  std::shared_ptr<tf2_ros::StaticTransformBroadcaster> tf_pub;
+  if (with_tf) {
+    tf_pub = std::make_shared<tf2_ros::StaticTransformBroadcaster>(probe);
+    geometry_msgs::msg::TransformStamped t;
+    t.header.stamp = probe->now();
+    t.header.frame_id = "map";
+    t.child_frame_id = "base_footprint";
+    t.transform.rotation.w = 1.0;
+    tf_pub->sendTransform(t);
+  }
+  using GH = rclcpp_action::ServerGoalHandle<Skill>;
+  FarResult out;
+  const auto accept = [](const rclcpp_action::GoalUUID &, std::shared_ptr<const Skill::Goal>) {
+    return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
+  };
+  const auto cancel = [](const std::shared_ptr<GH>) { return rclcpp_action::CancelResponse::ACCEPT; };
+  auto pick = rclcpp_action::create_server<Skill>(probe, "/skills/pick", accept, cancel, [&](const std::shared_ptr<GH> h) {
+    ++out.picks;
+    auto r = std::make_shared<Skill::Result>();
+    r->success = false;
+    r->reason = reason;
+    h->abort(r);
+  });
+  auto far = rclcpp_action::create_server<Skill>(probe, "/skills/pick_far", accept, cancel, [&](const std::shared_ptr<GH> h) {
+    out.far_target = h->get_goal()->target;
+    auto r = std::make_shared<Skill::Result>();
+    r->success = true;
+    h->succeed(r);
+  });
+  rclcpp::executors::SingleThreadedExecutor exec;
+  exec.add_node(node);
+  exec.add_node(probe);
+  SubGoalArray plan;
+  plan.plan_id = plan_id;
+  SubGoal g;
+  g.step = 1;
+  g.skill = "pick";
+  g.target = "3";
+  plan.goals.push_back(g);
+  goals_pub->publish(plan);
+  const bool done = spin_until(exec,
+    [&]() {
+      TrackedObjectArray objects;
+      perception::msg::TrackedObject puck;
+      puck.id = 3;
+      puck.class_name = "puck";
+      puck.pose.pose.position.x = puck_x;
+      puck.pose.pose.position.z = puck_z;
+      objects.header.frame_id = "map";
+      objects.objects.push_back(puck);
+      objects_pub->publish(objects);
+    },
+    [&]() { for (auto & s : got) if (s.plan_id == plan_id && s.state != TaskStatus::RUNNING) return true; return false; }, 15.0);
+  EXPECT_TRUE(done);
+  for (auto & s : got)
+    if (s.plan_id == plan_id && s.state != TaskStatus::RUNNING) { out.state = s.state; out.reason = s.reason; break; }
+  return out;
+}
+
+TEST_F(RosTest, PickUnreachableFallsBackToPickFar) {
+  const auto r = run_pick_fails("pick_unreachable", 0.0, false, 41);  // 못 닿음이 분명하면 거리 몰라도 넘김
+  EXPECT_EQ(r.state, TaskStatus::SUCCEEDED) << r.reason;
+  EXPECT_EQ(r.picks, 1);           // pick은 한 번만
+  EXPECT_EQ(r.far_target, "3");    // 같은 퍽으로 pick_far
+}
+
+TEST_F(RosTest, GraspFailedAllFarPuckFallsBackToPickFar) {
+  // 11/13 실기: pick은 퍽 위 IK가 안 풀리면 "팔이 못 닿음" 로그 + grasp_failed_all로 끝남 → 먼 퍽(0.27 m)이면 pick_far
+  const auto r = run_pick_fails("grasp_failed_all", 0.27, true, 42);
+  EXPECT_EQ(r.state, TaskStatus::SUCCEEDED) << r.reason;
+  EXPECT_EQ(r.far_target, "3");
+}
+
+TEST_F(RosTest, GraspFailedAllNearPuckDoesNotFallBack) {
+  const auto r = run_pick_fails("grasp_failed_all", 0.20, true, 43);  // 가까운 퍽 — 다른 이유로 실패한 것
+  EXPECT_EQ(r.state, TaskStatus::FAILED);
+  EXPECT_EQ(r.reason, "grasp_failed_all");
+  EXPECT_TRUE(r.far_target.empty());
+}
+
+TEST_F(RosTest, BoxPuckInPickFarReachSkipsApproach) {
+  // 11-13 실기: reach_m 0.20 · 박스 위 먼 퍽 0.27 m → 예전엔 navigate부터 (박스에 막혀 계획 실패). 이제 바로 pick → pick_far
+  //   (이 시험엔 navigate 서버가 없음 — 다가가려 했으면 navigate_unavailable로 실패)
+  const auto r = run_pick_fails("grasp_failed_all", 0.27, true, 45, 0.12, 0.20);
+  EXPECT_EQ(r.state, TaskStatus::SUCCEEDED) << r.reason;
+  EXPECT_EQ(r.picks, 1);
+  EXPECT_EQ(r.far_target, "3");
+}
+
+TEST_F(RosTest, FloorPuckBeyondReachStillApproaches) {
+  // 바닥 퍽(z 0)은 지금처럼 다가감 — navigate 서버가 없어 그 단계에서 실패, pick은 안 감
+  const auto r = run_pick_fails("grasp_failed_all", 0.27, true, 46, 0.0, 0.20);
+  EXPECT_EQ(r.state, TaskStatus::FAILED);
+  EXPECT_EQ(r.picks, 0);
+}
+
+TEST_F(RosTest, GraspEmptyDoesNotFallBack) {
+  const auto r = run_pick_fails("grasp_empty", 0.27, true, 44);  // 쥐었다 놓침 — 닿긴 닿음
+  EXPECT_EQ(r.state, TaskStatus::FAILED);
+  EXPECT_TRUE(r.far_target.empty());
+}
+
 TEST(Tray, BasketSlot) {
   // 적재함 12칸 고르기 (load next · unload last · 칸 번호, 옛 "tray" = 같은 뜻)
   std::vector<std::string> filled(12, "");

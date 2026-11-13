@@ -94,6 +94,7 @@ private:
   void send(const std::string & action, const Skill::Goal & goal, Ok ok, Fail on_fail = nullptr);
   void cancel_all();
   bool robot_xy(double & x, double & y) const;
+  bool far_fallback(const std::string & why, const std::string & target) const;  // pick 실패 → pick_far로 다시 할지
   bool approach_if_far(const SubGoal & g);  // 대상이 reach_m 밖이면 다가가는 navigate를 맡기고 true (끝나면 같은 단계를 다시)
   void navigate(const SubGoal & g);
   void approach(const SubGoal & g);
@@ -115,7 +116,7 @@ private:
 
   void status(uint32_t step, uint8_t state, const std::string & reason);
 
-  double server_wait_s_, waited_s_ = 0, reach_m_, approach_m_, place_spacing_, box_margin_m_;
+  double server_wait_s_, waited_s_ = 0, reach_m_, approach_m_, place_spacing_, box_margin_m_, pick_far_min_m_, pick_far_max_m_;
   std::set<std::string> pose_names_;
   std::map<std::string, rclcpp_action::Client<Skill>::SharedPtr> skills_;  // action 이름 → 클라이언트
   std::map<std::string, double> step_timeout_s_;                            // action 이름 → 단계 시간 제한 [s] (0 = 없음)

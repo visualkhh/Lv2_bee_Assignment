@@ -30,6 +30,16 @@ skill_inspect:
 skill_pick:
   ros__parameters:
     max_grasp_tries: 2       # 파지 후보를 점수순으로 몇 개까지
+skill_pick_far:              # 박스 먼 쪽 퍽 — 시뮬 pick_env 먼 퍽 모드(train.py --task pick_far)와 같은 값
+  ros__parameters:
+    max_grasp_tries: 2
+    far_open_gap_m: 0.066    # [m] 닿는 구간 전 손가락 사이 (시뮬 far_open_gap_mm 66)
+    far_tilt_deg: 45.0       # 들어갈 때 손 기울기 — 아래 셋은 정책 학습 조건, 바꾸면 시뮬과 달라짐
+    far_back_m: 0.08         # [m] 뒤로 뺀 자세: 쥘 자리에서 손 방향으로 이만큼 뒤
+    far_lift_in_max_m: 0.08  # [m] 들어올릴 때 안 닿으면 로봇 쪽으로 당기는 최대
+    far_contact_vel_scale: 0.7      # 닿는 구간 속도 (팀 관절 한계 ×), 퍽 x ≤ far_slow_x_m — 정책 학습 범위 0.5~0.7 안에서만 (0.3 학습 안 함)
+    far_contact_vel_scale_far: 0.5  # 퍽 x > far_slow_x_m (박스 끝, 팔 거의 다 뻗음) — 70 %면 95.7 %라 천천히
+    far_slow_x_m: 0.27             # [m, base_footprint 퍽 바닥 가운데] 시뮬 11/13: 70 %는 ≤ 270 mm 99.0 % · 50 %는 전체 99.3 %
 skill_place:
   ros__parameters:
     held_bottom_m: 0.0606    # [m] 손끝 → 손 안 퍽 바닥

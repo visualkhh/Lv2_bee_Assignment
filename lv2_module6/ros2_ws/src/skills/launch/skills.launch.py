@@ -1,7 +1,7 @@
 """skill 노드 — 계획 단계마다 액션 서버 하나 (/skills/<skill>). coordinator가 단계를 맡김.
 
   팔 skill (컨테이너 arm_skills — 한 프로세스, skill마다 노드 하나):
-    skill_pose · skill_inspect · skill_pick · skill_place · skill_load · skill_unload · skill_stand (stand · stand_pick)
+    skill_pose · skill_inspect · skill_pick · skill_pick_far · skill_place · skill_load · skill_unload · skill_stand (stand · stand_pick)
   주행 skill (컨테이너 base_skills): skill_navigate · skill_approach
 
   파라미터: config/skills.yaml (노드별) + params/arm.yaml (팔 공통) + params/basket.yaml (자세·적재함 표)
@@ -47,6 +47,7 @@ def launch_setup(context):
                 skill('PoseSkill', 'skill_pose', arm, basket),
                 skill('InspectSkill', 'skill_inspect', arm),
                 skill('PickSkill', 'skill_pick', arm, basket),  # basket: pose_carry_* (적재함 쪽에서 퍽으로 갈 때 경유)
+                skill('PickFarSkill', 'skill_pick_far', arm, basket),  # 박스 먼 쪽 퍽 (pick이 pick_unreachable일 때) · basket: pick과 같음
                 skill('PlaceSkill', 'skill_place', arm, basket),  # basket: pose_carry_* (적재함 쪽에서 놓을 자리로 갈 때 경유)
                 skill('LoadSkill', 'skill_load', arm, basket),
                 skill('UnloadSkill', 'skill_unload', arm, basket),

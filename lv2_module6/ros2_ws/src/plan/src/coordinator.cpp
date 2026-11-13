@@ -68,6 +68,11 @@ Coordinator::Coordinator(const rclcpp::NodeOptions & options)
   reach_m_ = declare_parameter<double>("reach_m", 0.30);
   remember_s_ = declare_parameter<double>("remember_s", 120.0);  // [s] 안 보이게 된 퍽을 이만큼 기억 (0 = 안 함) — remembered_
   approach_m_ = declare_parameter<double>("approach_m", 0.24);
+  // 먼 퍽: pick이 실패하고 퍽이 로봇 중심에서 이보다 멀면 pick_far로 (수직 pick 한계 퍽 x 약 0.26 m · pick_far 0.25~0.285 m 학습)
+  pick_far_min_m_ = declare_parameter<double>("pick_far_min_m", 0.25);
+  // 박스 위 퍽이 이 안이면 pick 전에 다가가지 않음 — 박스에 붙은 로봇은 더 못 감 (Nav2가 막혀 계획 실패) · pick이 못 닿으면 pick_far
+  //   (pick_far 팔 한계: 퍽 x 약 0.285 m · 11-13 실기). 바닥 퍽은 reach_m 그대로
+  pick_far_max_m_ = declare_parameter<double>("pick_far_max_m", 0.29);
   place_spacing_ = declare_parameter<double>("place_spacing", 0.08);
   box_margin_m_ = declare_parameter<double>("box_margin_m", 0.03);
   for (const auto & p : declare_parameter<std::vector<std::string>>("pose_names", {"stow", "carry_left", "carry_right", "gaze", "look"}))
@@ -94,8 +99,9 @@ Coordinator::Coordinator(const rclcpp::NodeOptions & options)
   basket_load();
   basket_changed();
   // 단계 시간 제한 기본값 [s] — 실기 한 단계(팔 skill 약 13~20 s · 경기장 끝에서 끝 주행 약 40 s)의 몇 배. 시뮬 시계 기준
+  // pick_far: coordinator 안에서만 씀 — pick이 pick_unreachable이면 같은 목표로 (send 결과 처리). 계획 단계 이름은 아님. 시간 제한은 pick과 같게
   static const std::map<std::string, double> timeout_default = {
-    {"navigate", 120.0}, {"approach", 60.0}, {"pose", 30.0}, {"inspect", 60.0}, {"pick", 90.0},
+    {"navigate", 120.0}, {"approach", 60.0}, {"pose", 30.0}, {"inspect", 60.0}, {"pick", 90.0}, {"pick_far", 90.0},
     {"place", 90.0}, {"load", 90.0}, {"unload", 90.0}, {"stand", 90.0}, {"stand_pick", 90.0}};
   for (const auto & [a, t] : timeout_default) {
     skills_[a] = rclcpp_action::create_client<Skill>(this, "/skills/" + a);
@@ -327,13 +333,21 @@ void Coordinator::send(const std::string & action, const Skill::Goal & goal, Ok 
     if (!h) { fail(action + "_busy"); return; }  // skill 노드가 다른 goal 실행 중
     active_ = h;
   };
-  opt.result_callback = [this, gen, action, ok, on_fail](const rclcpp_action::ClientGoalHandle<Skill>::WrappedResult & r) {
+  opt.result_callback = [this, gen, action, goal, ok, on_fail](const rclcpp_action::ClientGoalHandle<Skill>::WrappedResult & r) {
     if (gen != gen_) return;  // 취소된 옛 goal의 늦은 결과
     active_.reset();
     if (step_timer_) step_timer_->cancel();
     if (r.code == rclcpp_action::ResultCode::SUCCEEDED && r.result->success) { ok(*r.result); return; }
     if (r.code == rclcpp_action::ResultCode::CANCELED) return;  // 취소한 쪽(모드·비상정지·새 계획)이 이미 처리
     const std::string why = r.result && !r.result->reason.empty() ? r.result->reason : action + "_failed";
+    // 먼 퍽 (skills pick_far_skill.cpp): pick이 손을 수직으로 퍽 위에 못 둬서 실패하면 손을 기울여 들어가는 pick_far로 같은 목표를 한 번 더.
+    //   성공·실패 처리(ok · on_fail)는 pick 것을 그대로 — 위(mission_manager)에서는 pick 한 번으로 보임.
+    //   pick_far 노드가 없으면(옛 launch) 예전처럼 pick 실패로 끝 (기다리면 run_step이 pick부터 다시 돌아 끝없이 반복됨)
+    if (action == "pick" && far_fallback(why, goal.target) && skills_.at("pick_far")->action_server_is_ready()) {
+      RCLCPP_INFO(get_logger(), "pick %s: 팔이 안 닿음 (%s) — pick_far로 다시", goal.target.c_str(), why.c_str());
+      send("pick_far", goal, ok, on_fail);
+      return;
+    }
     if (on_fail) on_fail(why);
     fail(why);
   };
@@ -375,6 +389,19 @@ void Coordinator::fail(const std::string & reason) {
 }
 
 
+bool Coordinator::far_fallback(const std::string & why, const std::string & target) const {
+  // pick 실패를 pick_far로 다시 할지 — 팔이 수직으로 못 닿은 실패만 (쥐다가 놓침 grasp_empty · 부딪힘 arm_contact · 후보 없음 no_grasp는 아님)
+  //   pick_unreachable: 못 닿음이 분명 → 다시
+  //   grasp_failed_all: pick은 퍽 위 IK가 안 풀려도 이 이유로 끝남 (pick_skill.cpp "팔이 못 닿음" 로그) — 다른 실패와 섞이므로
+  //     퍽이 로봇 중심에서 pick_far_min_m 넘게 멀 때만 (로봇 위치나 퍽을 모르면 안 함)
+  if (why == "pick_unreachable") return true;
+  if (why != "grasp_failed_all" || !is_id(target)) return false;
+  const auto * o = find(std::stoul(target));
+  double rx, ry;
+  if (!o || !robot_xy(rx, ry)) return false;
+  return std::hypot(o->pose.pose.position.x - rx, o->pose.pose.position.y - ry) > pick_far_min_m_;
+}
+
 bool Coordinator::robot_xy(double & x, double & y) const {
   try {
     const auto t = tf_buffer_->lookupTransform("map", "base_footprint", tf2::TimePointZero);
@@ -407,6 +434,13 @@ bool Coordinator::approach_if_far(const SubGoal & g) {
   const double ox = o->pose.pose.position.x, oy = o->pose.pose.position.y;
   const double d = std::hypot(ox - rx, oy - ry);
   if (d <= reach_m_) return false;
+  // 박스 위 퍽(인지 z > 0.09 m — skills stand::standing_grasp_z와 같은 기준)을 집을 때 pick_far가 닿는 거리면 다가가지 않음:
+  //   로봇이 박스에 붙어 있으면(도킹 1~1.5 cm) 앞이 막혀 navigate가 실패하고 계획 전체가 끝남 (11-13 실기: "다가감"만 뜨고 멈춤).
+  //   pick이 못 닿으면 send()가 pick_far로 넘김 (far_fallback)
+  if (g.skill == "pick" && o->pose.pose.position.z > 0.09 && d <= pick_far_max_m_ && skills_.at("pick_far")->action_server_is_ready()) {
+    RCLCPP_INFO(get_logger(), "pick %s: 박스 위 퍽 %.2fm — 다가가지 않고 바로 (못 닿으면 pick_far)", g.target.c_str(), d);
+    return false;
+  }
   if (skills_.at("navigate")->action_server_is_ready()) approached_ = idx_;  // 서버를 기다리는 동안은 다시 이 길로
   RCLCPP_INFO(get_logger(), "%s %s: 대상이 %.2fm — 팔이 닿게 %.2fm 앞까지 다가감", g.skill.c_str(), g.target.c_str(), d, approach_m_);
   Skill::Goal sg;
