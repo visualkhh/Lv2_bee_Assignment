@@ -16,6 +16,7 @@
     CUVSLAM_BUILD_DIR=~/cuvslam/build pip install --user --break-system-packages ~/cuvslam/src/python/
 """
 import math
+import os
 
 import numpy as np
 import rclpy
@@ -154,6 +155,10 @@ class CuvslamSlam(Node):
                             float(self.declare_parameter('gate_rate_m', 0.02).value),
                             float(self.declare_parameter('gate_rate_deg', 2.0).value)) \
             if bool(self.declare_parameter('map_gate', True).value) else None
+        # BEE_MAP_FREEZE=1 (시험용, 11-13): 첫 map→odom(출발 자세 ≈ 항등)에 고정 — 보정 끔, TF map = EKF odom 그대로
+        if os.environ.get('BEE_MAP_FREEZE') == '1':
+            self.gate = MapGate(math.inf, math.inf, 0.0, 0.0)
+            self.get_logger().warning('BEE_MAP_FREEZE=1 — map→odom 보정 끔 (출발 값에 고정)')
         self.tracker = self.base_from_cam = None
         self.last_ns = 0
         self.prev = None  # (ns, (x, y, yaw)) — 직전 오도메트리 자세. 추적을 잃으면 None (cuVSLAM 좌표가 새로 시작하므로 그 사이 속도는 안 냄)

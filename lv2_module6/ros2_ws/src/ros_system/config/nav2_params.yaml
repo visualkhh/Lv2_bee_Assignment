@@ -101,8 +101,10 @@ controller_server:
       # 목표 위치 허용 오차(m). 퍽 앞 접근 정확도 — 팔 도달 범위가 좁아 기본 0.25보다 작게 (00-overview "도달 범위 주의"). (실측)
       # 0.10은 좁은 미로에서 벽/inflation에 막혀 12 cm 앞에서 105가 났다 — 0.15로 넓힌다.
       xy_goal_tolerance: 0.15
-      # 목표 방향 허용 오차(rad). 0.25 ≈ 14.3°. (실측)
-      yaw_goal_tolerance: 0.25
+      # 목표 방향 허용 오차(rad). 0.5 ≈ 29° (11-13, develop 0.25 · 예전 0.15 실측).
+      #   상자 옆 목표에서 비스듬히 도착하면 MPPI가 제자리 회전을 못 해 nav_no_progress → approach가 안 불렸다.
+      #   최종 방향은 approach가 상자를 보며 맞춘다. 웨이포인트 방향이 중요한 주행이 생기면 다시 좁힌다.
+      yaw_goal_tolerance: 0.5
     # through-poses 기본 BT의 GoalCheckerSelector가 찾는 이름 — 값은 goal_checker와 같게.
     general_goal_checker:
       plugin: "nav2_controller::SimpleGoalChecker"
@@ -110,7 +112,7 @@ controller_server:
       # through-poses 웨이포인트는 정밀 접근이 아니라 통과 지점이다. 0.10은 너무 좁아
       # collision_monitor가 벽 앞에서 0.11 m 남기고 멈추면 영원히 도착 판정이 안 났다
       # (2026-11-12 테스트베드: 최종점 0.11 m 앞에서 스핀 복구만 7회 반복 → 105).
-      # 단일 goal(g)은 goal_checker(0.15/0.25), through(G)는 이 값(0.20/0.15)을 쓴다.
+      # 단일 goal(g)은 goal_checker(0.15/0.5), through(G)는 이 값(0.20/0.15)을 쓴다.
       xy_goal_tolerance: 0.20
       yaw_goal_tolerance: 0.15
 
@@ -419,7 +421,12 @@ local_costmap:
       footprint: "[[0.069, 0.151], [0.069, -0.151], [-0.245, -0.151], [-0.245, 0.151]]"
       footprint_padding: 0.06
       always_send_full_costmap: true
-      plugins: ["voxel_layer", "inflation_layer"]
+      # static_layer (벽 지도 /map): 카메라는 0.2 m 안·옆·뒤를 못 봐서 voxel만으로는 돌다가 옆 벽에 박음 (11-13 headless 여러 번).
+      #   처음엔 inflation 0.35로 넣었다가 벽 옆 다가설 자리에 못 들어감 → 로컬 inflation 반경을 0.32로 줄여 같이 씀 (경사 6)
+      plugins: ["static_layer", "voxel_layer", "inflation_layer"]
+      static_layer:
+        plugin: "nav2_costmap_2d::StaticLayer"
+        map_subscribe_transient_local: true
       voxel_layer:
         plugin: "nav2_costmap_2d::VoxelLayer"
         enabled: true
@@ -445,8 +452,8 @@ local_costmap:
         plugin: "nav2_costmap_2d::InflationLayer"
         # 직사각형 footprint의 외접 반경(≈0.30, 패딩 포함) 이상이어야 MPPI가 몸 모양으로 충돌을 본다 (작으면 경고 + 원으로 봄).
         # 6.0 = 벽에서 0.3 m면 비용 약 1/4 — 통로 가운데를 고르되 좁은 곳(절반 폭 0.25)도 지나가게
-        inflation_radius: 0.35
-        cost_scaling_factor: 6.0
+        inflation_radius: 0.32   # 11-13: 0.35 → 0.32 (static_layer 벽과 같이). 외접 반경(0.302, padding 포함) 이상이어야 함 — 0.30이면 computeCircumscribedCost 오류
+        cost_scaling_factor: 6.0 # 11-13: 10이면 벽 0.2 m에서 비용 75로 낮아 MPPI가 벽에 붙어 감 → 6 (같은 자리 122, 전역과 같음)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -472,9 +479,10 @@ global_costmap:
       resolution: 0.05
       track_unknown_space: true
       always_send_full_costmap: true
-      # 전역 계획: 정적 벽 + 작은 팽창만 — 동적 장애물은 local costmap/DWB·ONNX ESDF가 맡는다.
-      # (obstacle_layer까지 넣으면 전역 계획이 동적 장애물에 민감해져 좁은 통로에서 자주 실패)
-      plugins: ["static_layer", "inflation_layer"]
+      # 전역 계획: 정적 벽 + 카메라에 보인 장애물(상자 — map.pgm에는 벽만 있음) + 팽창.
+      # (11-13 obstacle_layer 추가: 없으면 Smac이 상자를 통과하는 경로를 내고 MPPI가 상자 앞에서 멈춤.
+      #  예전에 뺀 이유 — 좁은 통로에서 전역 계획이 자주 실패 — 가 다시 보이면 이 줄부터 의심)
+      plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
         map_subscribe_transient_local: true

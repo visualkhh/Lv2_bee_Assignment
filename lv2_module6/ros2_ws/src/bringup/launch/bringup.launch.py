@@ -31,7 +31,7 @@ import time
 
 from ament_index_python.packages import PackageNotFoundError, get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription, OpaqueFunction, SetLaunchConfiguration
+from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription, OpaqueFunction, SetLaunchConfiguration, TimerAction
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
@@ -254,11 +254,13 @@ def generate_launch_description():
              sigterm_timeout='3', sigkill_timeout='3',
              condition=IfCondition(PythonExpression(["'", LaunchConfiguration('use_ros_system'), "'.lower() == 'true' and '",
                                                      LaunchConfiguration('use_slam'), "' == 'true'"]))),
-        Node(package='nav2_lifecycle_manager', executable='lifecycle_manager', name='lifecycle_manager_map_saver',
-             output='screen', parameters=[{'autostart': True, 'node_names': ['map_saver'], 'bond_timeout': 60.0}],
-             sigterm_timeout='3', sigkill_timeout='3',
-             condition=IfCondition(PythonExpression(["'", LaunchConfiguration('use_ros_system'), "'.lower() == 'true' and '",
-                                                     LaunchConfiguration('use_slam'), "' == 'true'"]))),
+        # 관리자는 4 s 늦게 — 막 뜬 map_saver에 바로 보낸 change_state 응답이 사라져 멈춘 적 있음 (ros_system LIFECYCLE_DELAY_S)
+        TimerAction(period=4.0, actions=[Node(
+            package='nav2_lifecycle_manager', executable='lifecycle_manager', name='lifecycle_manager_map_saver',
+            output='screen', parameters=[{'autostart': True, 'node_names': ['map_saver'], 'bond_timeout': 60.0}],
+            sigterm_timeout='3', sigkill_timeout='3',
+            condition=IfCondition(PythonExpression(["'", LaunchConfiguration('use_ros_system'), "'.lower() == 'true' and '",
+                                                    LaunchConfiguration('use_slam'), "' == 'true'"])))]),
 
         node('perception', 'perception_node', condition=IfCondition(LaunchConfiguration('use_perception'))),
         # coordinator: 계획 단계를 skill 노드에 맡기는 순서 담당 (적재함 장부 · 모드·비상정지 취소)
