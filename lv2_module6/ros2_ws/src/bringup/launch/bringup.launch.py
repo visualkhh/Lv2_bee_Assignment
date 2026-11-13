@@ -53,6 +53,8 @@ def node(package, executable, overrides=None, condition=None):
 
 # ros_system에 그대로 넘기는 하드웨어·서버 인자 (기본값 = 실기). 테스트베드 faker가 대역에 맞게 덮어씀
 ROS_SYSTEM_ARGS = {
+    'map_backend': ('nvblox', 'nvblox | static_2d (saved 2D map + cuVSLAM, no nvblox)'),
+    'nvblox_params_file': ('', 'optional nvblox parameter YAML; empty uses ros_system default'),
     'urdf': ('default', '로봇 모델 = lv2_module6/urdf/<이 이름>/urdf.xacro (폴더 하나 = 모델 하나, 메시는 그 폴더 meshes/)'),
     'mock_hardware': ('false', 'true면 OpenCR 없이 BeebotSystemHardware가 명령을 상태로 되돌림'),
     'mock_effort': ('0.0', 'mock일 때 팔 관절 effort [A]'),
@@ -103,9 +105,18 @@ def setup_map(context):
     mode = LaunchConfiguration('map').perform(context)
     fake_slam = LaunchConfiguration('fake_slam').perform(context).lower() == 'true'
     use_ros_system = LaunchConfiguration('use_ros_system').perform(context).lower() == 'true'
+    backend = LaunchConfiguration('map_backend').perform(context)
+    if backend not in ('nvblox', 'static_2d'):
+        raise RuntimeError(f'map_backend:={backend} — nvblox | static_2d')
+    if backend == 'static_2d' and mode != 'none' and (mode != 'saved' or fake_slam):
+        raise RuntimeError('static_2d requires map:=saved and fake_slam:=false')
     map_file = MAP_FILE
+    if backend == 'static_2d':
+        map_file = 'map.yaml'
     d = os.path.expanduser(LaunchConfiguration('map_dir').perform(context) or '~/.ros/beebot_maps')
     name = LaunchConfiguration('map_name').perform(context)
+    if backend == 'static_2d' and mode == 'saved' and use_ros_system and not name:
+        raise RuntimeError('static_2d requires an explicit map_name')
     if mode not in ('none', 'slam', 'saved'):
         raise RuntimeError(f'map:={mode} — none | slam | saved')
     no_map = False
@@ -132,6 +143,8 @@ def setup_map(context):
                     no_map = True
     if mode == 'none':
         name = ''
+    if backend == 'static_2d' and mode == 'saved' and no_map:
+        raise RuntimeError('static_2d: requested saved 2D map was not found')
     effective = 'none' if mode == 'none' or no_map else mode
     use_slam = 'false' if effective == 'none' else 'true'
     # use_slam = 지도 의미(모드·map_saver가 켜져야 하나) · use_real_slam = ros_system의 cuVSLAM·nvblox를 띄울지
@@ -160,7 +173,7 @@ def setup_map(context):
     use_perception = 'false' if (pm == 'false' or (pm == 'auto' and effective == 'slam' and not fake_slam)) else 'true'
     # 지도/위치추정이 없으면 Nav2도 띄우지 않는다 — 지도 없는 costmap·BT가 헛도는 걸 막는다.
     use_nav2 = 'false' if effective == 'none' else 'true'
-    nvblox_map = os.path.join(d, name, map_file) if effective != 'none' else ''
+    nvblox_map = os.path.join(d, name, map_file) if effective != 'none' and backend == 'nvblox' else ''
     return [SetLaunchConfiguration('map_dir', d), SetLaunchConfiguration('map_name', name),
             SetLaunchConfiguration('map_mode', map_mode),
             SetLaunchConfiguration('use_slam', use_slam),
@@ -168,6 +181,9 @@ def setup_map(context):
             SetLaunchConfiguration('use_nav2', use_nav2),
             SetLaunchConfiguration('localization', 'false' if effective == 'slam' else 'true'),
             SetLaunchConfiguration('nvblox_map', nvblox_map),
+            SetLaunchConfiguration('static_map_yaml', os.path.join(d, name, 'map.yaml') if effective != 'none' and backend == 'static_2d' else ''),
+            SetLaunchConfiguration('nvblox_params_file', LaunchConfiguration('nvblox_params_file').perform(context)
+                or os.path.join(get_package_share_directory('ros_system'), 'config', 'nvblox.yaml')),
             SetLaunchConfiguration('use_perception', use_perception),
             SetLaunchConfiguration('use_gripper_cam', ug),
             SetLaunchConfiguration('use_hand_relative', 'true' if use_perception == 'true' and ug == 'true' else 'false')]
@@ -181,6 +197,7 @@ def map_saver():
     def cond(composed):
         return IfCondition(PythonExpression(["'", LaunchConfiguration('use_ros_system'), "'.lower() == 'true' and '",
                                              LaunchConfiguration('use_slam'), "' == 'true' and '",
+                                             LaunchConfiguration('map_backend'), "' == 'nvblox' and '",
                                              LaunchConfiguration('nav2_composition'), "'.lower() " + ('==' if composed else '!=') + " 'true'"]))
     manager = {'autostart': True, 'node_names': ['map_saver'], 'bond_timeout': 60.0}
     return [
@@ -254,6 +271,9 @@ def generate_launch_description():
                               description='지도 폴더들이 있는 곳 — <map_dir>/<map_name>/nvblox.nvblx (비면 ~/.ros/beebot_maps)'),
         DeclareLaunchArgument('map_name', default_value='',
                               description='지도 폴더 이름 — slam: 비우면 날짜_시각으로 새로 · saved: 비우면 가장 최근'),
+        DeclareLaunchArgument('navigation_throttle', default_value='false'),
+        DeclareLaunchArgument('navigation_infer_hz', default_value='1.0'),
+        DeclareLaunchArgument('cv_threads', default_value='0'),
         DeclareLaunchArgument('perception', default_value='auto',
                               description='인지 노드(perception_node · signal_decoder · hand_relative): auto = 매핑(map:=slam)이면 끔 · true = 항상 · false = 항상 끔. body_filter는 Nav2 충돌감시용이라 그대로'),
         DeclareLaunchArgument('fake_slam', default_value='false',
@@ -274,11 +294,16 @@ def generate_launch_description():
             launch_arguments={**{k: LaunchConfiguration(k) for k in ROS_SYSTEM_ARGS},
                               'use_slam': LaunchConfiguration('use_real_slam'),
                               'localization': LaunchConfiguration('localization'),
-                              'nvblox_map': LaunchConfiguration('nvblox_map')}.items())],
+                              'nvblox_map': LaunchConfiguration('nvblox_map'),
+                              'static_map_yaml': LaunchConfiguration('static_map_yaml')}.items())],
             condition=IfCondition(LaunchConfiguration('use_ros_system'))),
         *map_saver(),  # SLAM일 때 지도 저장 서버 (map_saver() 설명)
 
-        node('perception', 'perception_node', condition=IfCondition(LaunchConfiguration('use_perception'))),
+        node('perception', 'perception_node', overrides={
+            'navigation_throttle': ParameterValue(LaunchConfiguration('navigation_throttle'), value_type=bool),
+            'navigation_infer_hz': ParameterValue(LaunchConfiguration('navigation_infer_hz'), value_type=float),
+            'cv_threads': ParameterValue(LaunchConfiguration('cv_threads'), value_type=int)},
+            condition=IfCondition(LaunchConfiguration('use_perception'))),
         # coordinator: 계획 단계를 skill 노드에 맡기는 순서 담당 (적재함 장부 · 모드·비상정지 취소)
         node('plan', 'coordinator', condition=IfCondition(LaunchConfiguration('use_mission'))),
         # skill 노드 — 단계마다 액션 서버 /skills/<skill> (팔: arm_skills 컨테이너 · 주행: base_skills). 학습 정책은 skill마다 models/skills/<skill>/

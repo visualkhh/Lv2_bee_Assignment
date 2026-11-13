@@ -47,6 +47,12 @@ if(BUILD_TESTING)
   ament_add_test(test_slam_launch GENERATE_RESULT_FOR_RETURN_CODE_ZERO
     COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/test/test_slam_launch.py"
     TIMEOUT 60)
+  ament_add_test(test_static_map_launch GENERATE_RESULT_FOR_RETURN_CODE_ZERO
+    COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/test/test_static_map_launch.py"
+    TIMEOUT 60)
+  ament_add_test(test_resource_watch GENERATE_RESULT_FOR_RETURN_CODE_ZERO
+    COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/../../../tools/test_resource_watch.py"
+    TIMEOUT 60)
 endif()
 
 ament_package()

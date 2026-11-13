@@ -24,11 +24,13 @@ TODO(권형중) 아직 자리만 있는 것 — 설정 패키지가 필요:
 
 import importlib.util
 import os
+import math
+import yaml
 
 import yaml
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription, OpaqueFunction, RegisterEventHandler, TimerAction
+from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription, OpaqueFunction, RegisterEventHandler, SetLaunchConfiguration, TimerAction
 from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -193,6 +195,9 @@ def generate_launch_description():
         flag('ekf_imu', 'true', 'EKF yaw 회전속도 = IMU 자이로 · false면 바퀴 (자이로 영점이 틀어지면 서 있어도 yaw가 돎 — 11/08 실기 0.2~2.3°/s)'),
         flag('use_slam', 'true', 'SLAM(cuVSLAM + nvblox) — false면 map→odom·/map 없음 (테스트베드 faker map:=course는 map_server가 대신)'),
         flag('localization', 'true', 'true=위치추정 모드(운영, 저장 지도로), false=매핑 모드(지도를 새로 만듦)'),
+        flag('map_backend', 'nvblox', 'nvblox | static_2d (saved 2D map + cuVSLAM, no nvblox)'),
+        flag('static_map_yaml', '', 'static_2d map YAML in the cuVSLAM map frame'),
+        flag('nvblox_params_file', share('config', 'nvblox.yaml'), 'nvblox parameter file'),
         flag('nvblox_map', '~/.ros/nvblox.nvblx', 'nvblox 지도 파일 — 매핑이면 끌 때 여기에 저장, 위치추정이면 시작할 때 여기서 불러옴'),
         flag('use_cmd_chain', 'true', '바퀴 명령 체인 (velocity_smoother · collision_monitor · lifecycle_manager_base) — use_nav2와 별개: 지도 없이(map:=none)도 수동 조작이 되려면 늘 필요'),
         flag('use_nav2', 'true', '진짜 Nav2 서버 (planner · controller · behavior · bt_navigator) — 바퀴 명령 체인(velocity_smoother · collision_monitor)은 use_cmd_chain'),
@@ -200,6 +205,8 @@ def generate_launch_description():
         flag('py_helpers_one_process', 'true', 'python 보조 노드(pole_depth_gate · nvblox_map · rewind)를 한 프로세스(py_helpers)로 — 메모리 절약 · false면 따로 (예전)'),
         flag('nav2_params_file', share('config', 'nav2_params.yaml'), 'Nav2 파라미터 파일'),
         flag('use_moveit', 'false', 'true면 진짜 move_group (config/moveit) — spawner 완료 후 기동 (동시 기동 레이스 회피)'),
+        OpaqueFunction(function=check_slam),
+        OpaqueFunction(function=check_slam),
 
         Node(
             package='robot_state_publisher', executable='robot_state_publisher', output='screen',
@@ -306,19 +313,47 @@ def nav2_nodes():
         ]),
     ]
 
+def validate_static_map(filename):
+    filename = os.path.abspath(os.path.expanduser(filename)) if filename else ''
+    if not filename or not os.path.isfile(filename):
+        raise RuntimeError(f'static_2d needs an existing static_map_yaml: {filename!r}')
+    try:
+        with open(filename, encoding='utf-8') as f:
+            data = yaml.safe_load(f)
+        if not isinstance(data, dict) or not isinstance(data.get('image'), str) or not data['image']:
+            raise ValueError('image must be a nonempty path')
+        if not math.isfinite(float(data['resolution'])) or float(data['resolution']) <= 0:
+            raise ValueError('resolution must be positive')
+        if len(data['origin']) != 3 or not all(math.isfinite(float(x)) for x in data['origin']):
+            raise ValueError('origin must contain three finite coordinates')
+        image = os.path.expanduser(data['image'])
+        if not os.path.isabs(image): image = os.path.join(os.path.dirname(filename), image)
+        if not os.path.isfile(image): raise ValueError(f'map image does not exist: {image}')
+    except (OSError, ValueError, TypeError, KeyError, yaml.YAMLError) as e:
+        raise RuntimeError(f'invalid static map {filename}: {e}') from e
+    return filename
+
+
 def check_slam(context):
-    """cuVSLAM·nvblox 설치 확인 — 없는 걸 띄우다 노드가 하나씩 죽는 대신 시작할 때 한 번에 알림"""
+    """Validate the selected SLAM backend before camera/controller nodes launch."""
+    backend = LaunchConfiguration('map_backend').perform(context)
+    if backend not in ('nvblox', 'static_2d'):
+        raise RuntimeError(f'map_backend:={backend} — nvblox | static_2d')
     if LaunchConfiguration('use_slam').perform(context).lower() != 'true':
         return []
+    if backend == 'static_2d':
+        if LaunchConfiguration('localization').perform(context).lower() != 'true':
+            raise RuntimeError('static_2d is localization-only; use nvblox to create a map')
+        filename = validate_static_map(LaunchConfiguration('static_map_yaml').perform(context))
     missing = [] if importlib.util.find_spec('cuvslam') else ['cuvslam (PyCuVSLAM — documents/jetson-orin-nano/CUVSLAM.md)']
     try:
-        get_package_share_directory('nvblox_ros')
+        get_package_share_directory('nvblox_ros' if backend == 'nvblox' else 'nav2_map_server')
     except Exception:  # noqa: BLE001 — PackageNotFoundError
-        missing.append('nvblox_ros (isaac_ros_nvblox — documents/jetson-orin-nano/CUVSLAM.md "nvblox")')
+        missing.append('nvblox_ros' if backend == 'nvblox' else 'nav2_map_server')
     if missing:
         raise RuntimeError('SLAM(cuVSLAM + nvblox)에 필요한 것이 없음: ' + ', '.join(missing) +
                            ' — GPU 없는 곳(테스트베드)은 faker fake_slam:=true(기본) 또는 use_slam:=false로')
-    return []
+    return [SetLaunchConfiguration('static_map_yaml', filename)] if backend == 'static_2d' else []
 
 
 def slam_nodes():
@@ -330,6 +365,10 @@ def slam_nodes():
       nvblox_node    depth(pole_front_cam) + TF(map→카메라) → TSDF → 2D 점유 격자 (config/nvblox.yaml). 매핑이면 끌 때 nvblox_map 파일에 저장
       nvblox_map     ~/static_occupancy_grid → /map (latched, 1 Hz) · 위치추정이면 시작할 때 저장 지도를 load_map"""
     on = IfCondition(LaunchConfiguration('use_slam'))
+    nvblox_on = IfCondition(PythonExpression(["'", LaunchConfiguration('use_slam'), "'.lower() == 'true' and '",
+                                                 LaunchConfiguration('map_backend'), "' == 'nvblox'"]))
+    static_on = IfCondition(PythonExpression(["'", LaunchConfiguration('use_slam'), "'.lower() == 'true' and '",
+                                                 LaunchConfiguration('map_backend'), "' == 'static_2d'"]))
     loc = ["'", LaunchConfiguration('localization'), "'.lower() == 'true'"]
     nvblox_file = ["__import__('os').path.expanduser('", LaunchConfiguration('nvblox_map'), "')"]
     save_path = PythonExpression(["'' if ", *loc, " else ", *nvblox_file])  # 매핑일 때만 저장 (위치추정이면 불러온 지도를 안 덮어씀)
@@ -342,7 +381,8 @@ def slam_nodes():
     nvblox_map_params = {'load_path': ParameterValue(load_path, value_type=str)}
     # py_helpers_one_process:=true(기본) — 아래 python 노드 셋(depth gate · nvblox_map · rewind)을 한 프로세스(py_helpers)로.
     #   python 노드마다 ~120 MB PSS(인터프리터·rclpy·DDS)를 한 번만 냄 (젯슨 8 GB 바닥 → 재부팅, 11-14). false = 예전처럼 따로
-    separate = when('use_slam', '!py_helpers_one_process')
+    separate = IfCondition(PythonExpression(["'", LaunchConfiguration('use_slam'), "'.lower() == 'true' and '",
+        LaunchConfiguration('map_backend'), "' == 'nvblox' and '", LaunchConfiguration('py_helpers_one_process'), "'.lower() != 'true'"]))
 
     def camera_remaps(i, cam):
         return [(f'camera_{i}/depth/image', f'/{cam}/aligned_depth_to_color/image_nvblox'),
@@ -350,13 +390,12 @@ def slam_nodes():
                 (f'camera_{i}/color/image', f'/{cam}/color/image_raw'),
                 (f'camera_{i}/color/camera_info', f'/{cam}/color/camera_info')]
     return [
-        OpaqueFunction(function=check_slam),
         Node(package='ros_system', executable='cuvslam_slam', name='cuvslam_slam', output='screen', condition=on,
              parameters=[{'publish_map_tf': True}]),
         Node(package='ros_system', executable='scan_cam_gate', name='pole_depth_gate', output='screen', condition=separate,
              parameters=[gate_params('pole_front_cam')]),
-        Node(package='nvblox_ros', executable='nvblox_node', name='nvblox_node', output='screen', condition=on,
-             parameters=[share('config', 'nvblox.yaml'),
+        Node(package='nvblox_ros', executable='nvblox_node', name='nvblox_node', output='screen', condition=nvblox_on,
+             parameters=[LaunchConfiguration('nvblox_params_file'),
                          {'after_shutdown_map_save_path': ParameterValue(save_path, value_type=str)}],
              remappings=camera_remaps(0, 'pole_front_cam')),
         Node(package='ros_system', executable='nvblox_map', name='nvblox_map', output='screen', condition=separate,
@@ -364,8 +403,16 @@ def slam_nodes():
         # 주행 리와인드 — 실패(ABORTED) 뒤 실제 주행 궤적을 0.4 m 후진. 실기·테스트베드 공통 (SLAM 없어도 뜸)
         Node(package='ros_system', executable='rewind', name='rewind', output='screen',
              condition=IfCondition(PythonExpression(["not ('", LaunchConfiguration('use_slam'), "'.lower() == 'true' and '",
+                                                     LaunchConfiguration('map_backend'), "' == 'nvblox' and '",
                                                      LaunchConfiguration('py_helpers_one_process'), "'.lower() == 'true')"]))),
         # 셋을 한 프로세스로 — 이름 없이 띄움 (name을 주면 __node 리매핑이 세 노드 모두에 걸림). 노드 이름은 인자로
-        Node(package='ros_system', executable='py_helpers', output='screen', condition=when('use_slam', 'py_helpers_one_process'),
+        Node(package='ros_system', executable='py_helpers', output='screen',
+             condition=IfCondition(PythonExpression(["'", LaunchConfiguration('use_slam'), "'.lower() == 'true' and '",
+                 LaunchConfiguration('map_backend'), "' == 'nvblox' and '", LaunchConfiguration('py_helpers_one_process'), "'.lower() == 'true' "])),
              arguments=['pole_depth_gate', 'nvblox_map', 'rewind'], parameters=[gate_params('pole_front_cam'), nvblox_map_params]),
+        Node(package='nav2_map_server', executable='map_server', name='map_server', output='screen', condition=static_on,
+             **QUICK_STOP, parameters=[{'yaml_filename': LaunchConfiguration('static_map_yaml'), 'frame_id': 'map', 'topic_name': 'map'}]),
+        TimerAction(period=LIFECYCLE_DELAY_S, actions=[Node(package='nav2_lifecycle_manager', executable='lifecycle_manager',
+            name='lifecycle_manager_map', output='screen', condition=static_on, **QUICK_STOP,
+            parameters=[{'autostart': True, 'node_names': ['map_server']}])]),
     ]
