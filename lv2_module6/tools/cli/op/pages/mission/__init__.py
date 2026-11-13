@@ -466,7 +466,8 @@ class MissionMenu(Menu):
                 GoMenu(self.app, '3', '세부 명령 (navigate · pick · place … skill 직접)', SkillMenu(self.app)),
                 BasketClearItem(self.app),
                 ActionItem(self.app, '5', '실패 이력 지우기', self.state.failures.clear),
-                DiagRunItem(self.app)]
+                DiagRunItem(self.app),
+                GotoItem(self.app)]
 
     def center(self):
         return mission_lines(self.state, self.term)
@@ -493,6 +494,28 @@ def stop_bag_when_done(state, bag: str, bagrec, start_wait_s: float = 20.0, poll
     if cur and cur.get('bag') == bag:   # 그사이 사람이 끄고 다른 녹화를 켰으면 건드리지 않음
         bagrec.stop()
     return why
+
+
+class GotoItem(MenuItem):
+    """상자로 가기 — start:GOTO:<목록>: 적은 상자에 SURVEY처럼(Nav2 → 상자 도킹) 다가가고 끝나면 복귀 (관측·조사 없음)."""
+    key = 'g'
+
+    def label(self):
+        return '상자로 가기 (미션처럼 다가가기 · 끝나면 복귀) — 예 S1,S2,S6,S4,S5,S3,L1,L2,L3'
+
+    def run(self):
+        text = self.ui.modal_input('상자로 가기', [
+            'S1~S6 = 시작 박스 · L1~L3 = 장소 — 쉼표로 이어 적은 순서대로 감 (숫자만 쓰면 시작 박스)',
+            '박스마다: 붙어 있던 상자에서 물러남 → Nav2로 변 앞 → 카메라로 본 상자에 도킹 (SURVEY와 같은 동작)',
+            '실패하면 기록하고 다음 상자 · 다 돌면 출발 구역으로 복귀 · 중지는 미션 메뉴 2',
+            '운영 모드 AUTO 필요'], '목록>', 'S1,S2,S6,S4,S5,S3,L1,L2,L3')
+        if text is None or not text.strip():
+            return STAY
+        cmd = 'start:GOTO:' + text.strip().replace(' ', '')
+        if not self.ui.confirm(f'"{cmd}" — 로봇이 주행합니다. 시작할까요?', default=False):
+            return STAY
+        self.bus.cmd_mission(cmd)
+        return STAY
 
 
 class DiagRunItem(MenuItem):

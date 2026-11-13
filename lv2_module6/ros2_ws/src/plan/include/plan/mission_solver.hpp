@@ -110,6 +110,7 @@ bool parse_counts(const std::string & text, Counts & c, std::string & why);
 //   start:DIAG[:<바코드>:<신호>]            처음부터 + 실패해도 계속 (diag). 바코드·신호를 주면 관측이 실패했을 때 대신 씀
 //   start:FROM_SURVEY:<바코드>:<신호>       관측(GO_OBSERVE·BARCODE·READ) 없이 준 값으로 SURVEY부터 끝까지
 //   start:DIAG_FROM_SURVEY:<바코드>:<신호>  위 둘을 같이
+//   start:GOTO:<목록>                       S1~S6(시작 박스)·L1~L3(장소)을 적은 순서로 SURVEY처럼 다가감(Nav2 → 상자 도킹) 뒤 복귀 — 실기 이동 시험
 //   예: start:DIAG_FROM_SURVEY:P2-04:R4Y2G6 — 바코드는 parse_barcode 표(P2-01~04), 신호는 parse_counts
 //   why = not_start | unknown_command | need_barcode_signal | unknown_barcode | bad_counts | count_out_of_range | sum_not_12
 struct StartCmd {
@@ -117,6 +118,7 @@ struct StartCmd {
   bool diag = false, from_survey = false, given = false;  // given = 바코드·신호를 받음
   std::string barcode;
   Counts counts;
+  std::vector<std::string> go_to;  // start:GOTO:S1,S2,L1 — 그 상자들에 미션처럼 다가가기만 (S1~S6 시작 박스 · L1~L3 장소)
 };
 bool parse_start(const std::string & cmd, StartCmd & out, std::string & why);
 

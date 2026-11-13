@@ -337,6 +337,17 @@ void MissionManager::on_command(const std::string & cmd) {
   given_counts_ = sc.counts;
   if (diag_run_) note("현장 진단 실행 — 실패해도 기록하고 계속 (치명 이유만 정지)");
   if (sc.only != Phase::IDLE) note(std::string("단계만 실행: ") + phase_name(sc.only));
+  goto_ = sc.go_to;
+  if (!goto_.empty()) {  // 실기 이동 시험 — 관측·조사 없이 적은 상자들에 미션처럼 다가가기만
+    std::string list;
+    for (const auto & g : goto_) list += (list.empty() ? "" : ",") + g;
+    note("상자로 가기 " + list + " — SURVEY처럼 (Nav2 → 상자 도킹) · 끝나면 복귀");
+    phase_ = Phase::SURVEY;
+    phase_t0_ = wall_s();
+    ctx_.clear();
+    goto_seq(0);
+    return;
+  }
   if (sc.from_survey) {  // 관측 건너뜀 — 준 바코드·신호를 본 것처럼 (SURVEY → BUILD → VERIFY → RETURN)
     note("관측 건너뜀 — 바코드 " + sc.barcode + " · 신호 " + cmd.substr(cmd.rfind(':') + 1) + "로 SURVEY부터");
     use_given(false);
@@ -631,6 +642,22 @@ void MissionManager::use_given(bool fallback) {
 }
 
 // ---------- SURVEY — 시작 박스 6곳 전부 조사하면서 적재함에 싣기
+void MissionManager::goto_seq(size_t k) {
+  if (!active_) return;
+  if (k >= goto_.size()) { note("상자로 가기 끝 — 출발 구역으로 복귀"); only_ = Phase::RETURN; enter(Phase::RETURN); return; }
+  const std::string id = goto_[k];
+  const size_t i = static_cast<size_t>(id[1] - '1');
+  const Box box = id[0] == 'L' ? loc_boxes_.at(i) : start_boxes_.at(i);
+  ctx_ = "\"goto\": " + q(id);
+  note("상자로 가기 " + id + " (" + str(static_cast<int>(k) + 1) + "/" + str(static_cast<int>(goto_.size())) + ")");
+  go_near(box, box.x, box.y, [this, k, id](bool ok, const std::string & why) {
+    result("GOTO " + id + (ok ? ": ok" : ": " + why));
+    if (!ok) RCLCPP_WARN(get_logger(), "상자로 가기 %s 실패 (%s) — 다음", id.c_str(), why.c_str());
+    else snap("goto_" + id);
+    goto_seq(k + 1);
+  });
+}
+
 void MissionManager::survey(size_t k) {  // k = 방문 순서 인덱스 (survey_order_) · b = 박스 번호(0부터)
   if (k >= survey_order_.size()) { solve_allocation(); return; }
   survey_k_ = k;

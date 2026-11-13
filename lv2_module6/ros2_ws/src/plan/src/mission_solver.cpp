@@ -296,6 +296,21 @@ bool parse_start(const std::string & cmd, StartCmd & out, std::string & why) {
   if (t.size() == 2)
     for (const Phase p : {Phase::BARCODE, Phase::READ, Phase::SURVEY, Phase::RETURN})
       if (name == phase_name(p)) { out.only = p; return true; }
+  if (name == "GOTO") {  // start:GOTO:S1,L2,… (숫자만 쓰면 시작 박스)
+    if (t.size() != 3 || t[2].empty()) { why = "need_targets"; return false; }
+    for (size_t a = 0;;) {
+      const size_t b = t[2].find(',', a);
+      std::string id = t[2].substr(a, b == std::string::npos ? std::string::npos : b - a);
+      for (auto & ch : id) ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
+      if (!id.empty() && std::isdigit(static_cast<unsigned char>(id[0]))) id = "S" + id;
+      const bool ok = id.size() == 2 && ((id[0] == 'S' && id[1] >= '1' && id[1] <= '6') || (id[0] == 'L' && id[1] >= '1' && id[1] <= '3'));
+      if (!ok) { why = "bad_target:" + id; return false; }
+      out.go_to.push_back(id);
+      if (b == std::string::npos) break;
+      a = b + 1;
+    }
+    return true;
+  }
   if (name != "DIAG" && name != "FROM_SURVEY" && name != "DIAG_FROM_SURVEY") { why = "unknown_command"; return false; }
   out.diag = name.rfind("DIAG", 0) == 0;
   out.from_survey = name != "DIAG";
