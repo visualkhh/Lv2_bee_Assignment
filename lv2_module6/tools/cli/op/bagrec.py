@@ -24,9 +24,10 @@ DIAG_REGEX = ('^/(tf|tf_static|joint_states|imu|odom|odometry/filtered|cuvslam/o
               'global_costmap/costmap|local_costmap/costmap)$')
 
 
-def bag_command(bag: Path, topics: list[str] | None = None, regex: str | None = None) -> list[str]:
-    """ros2 bag record 명령줄. topics 가 있으면 그 토픽만, 아니면 regex(기본 DIAG_REGEX)."""
-    cmd = ['ros2', 'bag', 'record', '-s', 'mcap', '--disable-keyboard-controls', '-o', str(bag)]
+def bag_command(bag: Path, topics: list[str] | None = None, regex: str | None = None,
+                extra: list[str] | None = None) -> list[str]:
+    """ros2 bag record 명령줄. topics 가 있으면 그 토픽만, 아니면 regex(기본 DIAG_REGEX). extra = 덧붙일 옵션 (압축·나누기)."""
+    cmd = ['ros2', 'bag', 'record', '-s', 'mcap', '--disable-keyboard-controls', *(extra or []), '-o', str(bag)]
     if topics:
         return cmd + ['--topics', *topics]
     return cmd + ['--regex', regex or DIAG_REGEX, '--include-hidden-topics']
@@ -66,7 +67,7 @@ def current() -> dict | None:
 
 
 def start(label: str | None = None, topics: list[str] | None = None, regex: str | None = None,
-          sys_on: bool = True) -> dict:
+          sys_on: bool = True, extra: list[str] | None = None) -> dict:
     cur = current()
     if cur:
         raise RuntimeError(f'이미 녹화 중: {cur["bag"]}')
@@ -74,7 +75,7 @@ def start(label: str | None = None, topics: list[str] | None = None, regex: str 
     bag = BAG_DIR / f'{time.strftime("%Y%m%d_%H%M%S")}_{label}'
     BAG_DIR.mkdir(parents=True, exist_ok=True)
     log = BAG_DIR / f'{bag.name}.log'
-    cmd = bag_command(bag, topics, regex)
+    cmd = bag_command(bag, topics, regex, extra)
     with log.open('wb') as f:
         f.write((' '.join(cmd) + '\n').encode())
         f.flush()
