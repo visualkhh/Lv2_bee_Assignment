@@ -5,9 +5,9 @@
 
 행동 = skill 하나 + 대상 퍽. 시작 조건이 안 맞는 행동은 action_masks()로 막는다 (sb3-contrib MaskablePPO).
 보상 = 채점표: 장소별 주사위 눈 +10 (그 장소 퍽 전부 칸 안) · 복귀 +10 − 걸린 시간 조금.
-확률(PROBS)·시간(SKILL_S)은 임시값 — skill별 Isaac 평가 결과로 바꿔 넣는다.
+확률(PROBS)·시간(SKILL_S)은 지금 로봇 기준으로 맞춤 (11-13) — 값마다 출처 주석. "임시"는 잰 값이 없는 것.
+로봇에 없는 skill(밀어 맞추기 NUDGE · 놓인 퍽 세우기 STAND_PLACED)은 막음 (C++ plan_next.hpp mask와 같게).
 """
-import math
 
 import gymnasium as gym
 import numpy as np
@@ -33,23 +33,47 @@ N_PER_PUCK = 8
 N_PUCK = 12
 RETURN = N_PUCK * N_PER_PUCK  # 마지막 행동: 출발 구역으로 복귀하고 끝
 
-# 임시 확률 — skill 평가 결과로 바꿈
+# skill 성공 확률 — 출처: Isaac = models/skills/*/meta.yaml sim_policy (1024판) · 실기 = coordinator 로그 (11월, 단일 skill 시험)
+#   둘 다 있으면 낮은 쪽. 실기 미션은 아직 없어서 전부 단일 skill 기준 (연속 실행에서 더 떨어질 수 있음)
 PROBS = {
-    "lying_at_start": 0.15,
-    "pick": 0.95, "pick_fail_knock": 0.30, "pick_fail_lost": 0.05,
-    "stand": 0.80, "stand_lost": 0.02,
-    "load": 0.98, "unload": 0.97,
-    "place_ok": 0.93, "place_ok_center_after_neighbours": 0.82,
-    "place_off": 0.05, "place_lying": 0.015,  # 나머지 = 상자 밖으로 (LOST)
-    "nudge": 0.70, "nudge_knock": 0.10,
-    "repick": 0.95,
-    "stand_placed": 0.60,
+    "lying_at_start": 0.15,  # 임시 — 시작 때 누운 퍽 비율 (잰 값 없음)
+    # pick: Isaac pick_standing_puck 100 % · 실기 30/35 중 쥐기 실패(grasp_failed_all 2 · arm_contact 1)만 보면 30/33 ≈ 0.91
+    #   (nav_failed는 주행 몫 · pick_unavailable(팔 안 닿음)은 #192부터 pick_far로 다시 하므로 뺌) → 낮은 쪽 0.90
+    "pick": 0.90, "pick_fail_knock": 0.30, "pick_fail_lost": 0.05,  # 실패 중 넘어뜨림·잃음 비율은 임시
+    # stand: Isaac regrasp_after_stand 78.2 % (로봇은 아직 안 씀) · 실기 52/271 (튜닝 중 기록이라 대표값 아님) → 가운데 0.5
+    #   불확실해서 train_plan.py eval --stand 0.3 / 0.8로 민감도 봄
+    "stand": 0.5, "stand_lost": 0.016,  # stand_lost: Isaac regrasp_after_stand irreversible 1.6 %
+    "load": 0.99,    # Isaac load_slot 99.0 % (실기 없음)
+    "unload": 0.981,  # Isaac unload_slot 98.1 % (실기 없음)
+    "place_ok": 0.99,  # Isaac place_cell 99.0 % (실기 없음)
+    "place_ok_center_after_neighbours": 0.82,  # 이웃 칸 뒤 가운데 81~83 % (documents/project/ros/03-plan.md, isaac-pick)
+    "place_off": 0.007, "place_lying": 0.002,  # 임시 — 실패 1 %를 벗어남·누움·밖으로 나눔 (나머지 = 상자 밖으로, LOST)
+    "nudge": 0.70, "nudge_knock": 0.10,  # 로봇에 없음 (막힘) — 값은 쓰이지 않음
+    "repick": 0.90,  # 놓인 퍽 다시 집기 = pick과 같게
+    "stand_placed": 0.60,  # 로봇에 없음 (막힘)
 }
-# skill 한 번 걸리는 시간 [s] (임시)
+ROBOT_SKILLS_ONLY = True  # NUDGE · STAND_PLACED 막기 (plan_next.hpp mask와 같음)
+# skill 한 번 걸리는 시간 [s] — 임시 (실기 로그 시간은 시험 중 멈춤·재시도가 섞여 못 씀 · 실기 미션에서 재야 함)
 SKILL_S = {PICK: 15, STAND: 25, LOAD: 12, UNLOAD: 12, PLACE: 15, NUDGE: 10, REPICK: 15, STAND_PLACED: 25}
-SPEED = 0.2      # [m/s] 평균 주행 (도킹 포함 전)
-DETOUR = 1.3     # 직선 거리 대비 실제 경로
-DOCK_S = 10.0    # 다가가기·물러나기
+# 주행: 벽을 피한 경로 길이 [m] — tools/plan/route_order.py 격자 A* (벽·박스를 로봇 반경 0.16 + 여유 0.05로 넓힘,
+#   다가설 면 = 출발에서 가장 가까운 면). PLACES 번호 순 (0~5 박스 · 6~8 장소 · 9 출발). 다시 만들려면 route_order.py의 E를
+#   [1..6, 7..9, 0] 순으로 뽑음. 직선 × 1.3 대신 (벽 돌아가기 반영)
+PATH_M = [
+    [0, 3.61, 5.14, 5.30, 5.45, 4.18, 1.99, 3.47, 5.43, 1.16],
+    [3.61, 0, 5.51, 5.93, 6.07, 4.56, 3.57, 4.10, 5.80, 4.77],
+    [5.14, 5.51, 0, 2.41, 2.07, 1.24, 5.10, 2.31, 0.91, 5.20],
+    [5.30, 5.93, 2.41, 0, 1.45, 3.01, 5.52, 1.83, 3.11, 4.55],
+    [5.45, 6.07, 2.07, 1.45, 0, 2.67, 5.66, 1.97, 2.77, 4.86],
+    [4.18, 4.56, 1.24, 3.01, 2.67, 0, 4.15, 2.42, 1.45, 5.21],
+    [1.99, 3.57, 5.10, 5.52, 5.66, 4.15, 0, 3.68, 5.39, 3.15],
+    [3.47, 4.10, 2.31, 1.83, 1.97, 2.42, 3.68, 0, 3.01, 2.91],
+    [5.43, 5.80, 0.91, 3.11, 2.77, 1.45, 5.39, 3.01, 0, 5.90],
+    [1.16, 4.77, 5.20, 4.55, 4.86, 5.21, 3.15, 2.91, 5.90, 0],
+]
+# 평균 주행 속도 [m/s] — 추정: Nav2 상한 0.26 (nav2_params.yaml MPPI vx_max · DWB max_vel_x) · RPP desired_linear_vel 0.20,
+#   출발·도착 제자리 회전과 감속을 넣어 0.15 (실기 미션 주행 시간을 재면 바꿈)
+SPEED = 0.15
+DOCK_S = 10.0    # 다가가기·물러나기 — 임시 유지 (approach 0.165 m를 ≤ 0.06~0.12 m/s + 돌기 · 물러나기 → 대략 10 s)
 TIME_LIMIT = 3600.0  # 배터리 — 넘으면 복귀 점수 없음
 TIME_COST = 0.001    # 초당 벌점 (시간 제한은 없지만 짧을수록 조금 낫게)
 # 진척 보상 (potential-based shaping, Φ 차이) — 점수는 끝에만 나와서 학습이 "바로 복귀"에 갇히는 것을 막음.
@@ -58,10 +82,7 @@ PHI = {BOX_UP: 0.0, BOX_LYING: 0.0, HAND: 0.5, BASKET: 1.0, OK: 2.5, OFF: 1.5, P
 
 
 def travel_s(a, b):
-    if a == b:
-        return 0.0
-    (x0, y0), (x1, y1) = PLACES[a], PLACES[b]
-    return DETOUR * math.hypot(x1 - x0, y1 - y0) / SPEED + DOCK_S
+    return 0.0 if a == b else PATH_M[a][b] / SPEED + DOCK_S
 
 
 def random_problem(rng):
@@ -134,9 +155,9 @@ class MissionSim(gym.Env):
             m[b + LOAD] = s == HAND and in_basket < 12
             m[b + UNLOAD] = s == BASKET and hand_empty
             m[b + PLACE] = s == HAND
-            m[b + NUDGE] = s == OFF and hand_empty
+            m[b + NUDGE] = s == OFF and hand_empty and not ROBOT_SKILLS_ONLY
             m[b + REPICK] = s == OFF and hand_empty
-            m[b + STAND_PLACED] = s == PLACED_LYING and hand_empty
+            m[b + STAND_PLACED] = s == PLACED_LYING and hand_empty and not ROBOT_SKILLS_ONLY
         m[RETURN] = True
         return m
 
