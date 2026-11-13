@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import math
+import os
 import time
 from collections import deque
+
+from .fielddebug import SignalTracker, light_state
 
 # 3S LiPo (TurtleBot3 11.1V) 방전 곡선 — 대략값. 12.6V 만충 · 11.1V 공칭 · 10.5V 방전.
 #   아답터를 꽂으면 OpenCR 전원 입력값이라 배터리 잔량이 아니다 (표시에 '충전?'을 붙인다).
@@ -81,6 +84,12 @@ class StateStore:
         self.map_odom: tuple | None = None       # TF map → odom (x, y, yaw) 지난 값
         self.slam_jumps = 0                      # map→odom이 SLAM_JUMP_M·SLAM_JUMP_RAD 넘게 바뀐 횟수
         self.slam_last_jump: tuple | None = None  # (크기 m, 각 deg, HH:MM:SS)
+        # 현장 디버그 (op/fielddebug.py)
+        self.signal_track = SignalTracker.from_config()      # /tracked_objects 신호등 → 지금 몇 번째 점멸
+        self.signal_answer = os.environ.get('BEE_SIGNAL_ANSWER', '')   # 정답 신호 (예 "R G R R G R G G Y G Y G") — 미션 메뉴 a로도
+        self.nav2_life: dict[str, str | None] = {}           # Nav2 노드 → 수명주기 상태 (None = 서비스 없음) · operator_tool이 5 s마다
+        self.barcode_cam: tuple[str, str] | None = None      # 바코드를 마지막으로 본 (카메라, 내용) — /tracked_objects class barcode
+        self.mission_cmd: tuple[str, float] | None = None    # 마지막 /cmd/mission (값, 받은 시각) — 바코드 찾기 창 계산
 
     def tick(self, key: str):
         self.rates.setdefault(key, Rate()).tick()
@@ -202,7 +211,27 @@ class StateStore:
         for o in objects or ():
             name = getattr(o, 'class_name', '') or '?'
             counts[name] = counts.get(name, 0) + 1
+            if name == 'barcode' and getattr(o, 'cameras', None):
+                content = next((kv.value for kv in getattr(o, 'details', ()) if kv.key == 'content'), '')
+                self.barcode_cam = (o.cameras[-1], content)
         self.class_counts = counts
+        self._feed_signal(objects or ())
+
+    def _feed_signal(self, objects):
+        """신호등 색 → SignalTracker (signal_decoder on_objects와 같은 고르기). 시각은 로봇 벽시계 —
+        last_seen이 그와 크게 다르면(시뮬 시각) 메시지 안 가장 최근 last_seen을 기준으로."""
+        lights = []
+        for o in objects:
+            if getattr(o, 'class_name', '') == 'traffic_light':
+                ls = getattr(o, 'last_seen', None)
+                lights.append((ls.sec + ls.nanosec * 1e-9 if ls is not None else time.time(), o.color))
+        now = time.time()
+        if lights and abs(now - max(t for t, _ in lights)) > 60:
+            now = max(t for t, _ in lights)
+        self.signal_track.feed(time.monotonic(), light_state(lights, now))
+
+    def on_mission_cmd(self, data: str):
+        self.mission_cmd = (data, time.monotonic())
 
     def _fail(self, source: str, reason: str):
         self.failures.append((time.strftime('%H:%M:%S'), time.monotonic(), source, reason))
