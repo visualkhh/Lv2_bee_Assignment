@@ -252,6 +252,11 @@ class MissionMenu(Menu):
         return [MissionCmdItem(self.app, '1', 'start', '미션 시작', '미션을 시작할까요?'),
                 MissionCmdItem(self.app, '2', 'abort', '미션 중지 (abort)', '미션을 중지할까요? (coordinator도 정지)'),
                 PlanViewItem(self.app),
+                # 단계 하나만 — mission_manager "start:<단계>" (끝나면 DONE · BUILD·VERIFY는 SURVEY 결과가 있어야 해 없음)
+                MissionCmdItem(self.app, 'b', 'start:BARCODE', '단계만: 관측 — 바코드(손 카메라 gaze) + 신호(pole) 동시', '관측 단계(바코드 + 신호)만 실행할까요? (팔·바퀴가 움직임)'),
+                MissionCmdItem(self.app, 'r', 'start:READ', '단계만: 신호 읽기 (READ)', '신호 읽기 단계만 실행할까요?'),
+                MissionCmdItem(self.app, 's', 'start:SURVEY', '단계만: 시작 박스 조사 (SURVEY)', 'SURVEY 단계만 실행할까요? (주행·팔 동작)'),
+                MissionCmdItem(self.app, 'h', 'start:RETURN', '단계만: 출발 구역 복귀 (RETURN)', '복귀 단계만 실행할까요? (주행)'),
                 GoMenu(self.app, '3', '세부 명령 (navigate · pick · place … skill 직접)', SkillMenu(self.app)),
                 BasketClearItem(self.app),
                 ActionItem(self.app, '5', '실패 이력 지우기', self.state.failures.clear)]

@@ -1,7 +1,9 @@
 // perception_node 구현 — 설명·선언은 include/perception/perception_node.hpp, main은 perception_node_main.cpp
 //   함수 이름·순서·규칙은 파이썬 scripts/perception_node.py와 같게 맞춤 (같은 곳을 찾아 비교하기 쉽게)
 #include "perception/perception_node.hpp"
+#include "perception/barcode_fallback.hpp"
 
+#include <regex>
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -121,6 +123,19 @@ struct PerceptionNode::Barcode {
       out.push_back({r.text(), {cv::Point2d(p.topLeft().x, p.topLeft().y), cv::Point2d(p.topRight().x, p.topRight().y),
                                 cv::Point2d(p.bottomRight().x, p.bottomRight().y),
                                 cv::Point2d(p.bottomLeft().x, p.bottomLeft().y)}});
+    }
+    if (out.empty()) {  // 보조 읽기 — 라벨 여백이 좁거나 가장자리에 여분 막대가 붙은 바코드 (include/perception/barcode_fallback.hpp)
+      cv::Rect r;
+      const auto text = barcode_fallback(bgr, [](const cv::Mat & g, int bz) {
+        ZXing::ImageView giv(g.data, g.cols, g.rows, ZXing::ImageFormat::Lum, static_cast<int>(g.step));
+        const auto o = ZXing::ReaderOptions().setFormats(ZXing::BarcodeFormat::LinearCodes)
+          .setBinarizer(bz == 0 ? ZXing::Binarizer::FixedThreshold : ZXing::Binarizer::LocalAverage);
+        for (const auto & res : ZXing::ReadBarcodes(giv, o)) if (!res.text().empty()) return res.text();
+        return std::string();
+      }, 0.15, &r);
+      if (!text.empty())
+        out.push_back({text, {cv::Point2d(r.x, r.y), cv::Point2d(r.x + r.width, r.y), cv::Point2d(r.x + r.width, r.y + r.height),
+                              cv::Point2d(r.x, r.y + r.height)}});
     }
 #else
     (void)bgr;
@@ -260,6 +275,12 @@ PerceptionNode::PerceptionNode(const rclcpp::NodeOptions & options) : rclcpp::No
   box_roi_yolo_ = pb("box_roi_yolo", false);  // 기본 끔 — 로봇에서 상자가 같은지 확인한 뒤 켬 (11/12)
   robot_front_x_ = pd("robot_front_x", 0.069);  // base_footprint → 로봇 앞면 [m] (상자 face_dist_m 기준 · 시뮬 pick_env ROBOT_FRONT_X)
   barcode_once_ = pb("barcode_once", true);             // 바코드를 한 번 읽으면 더 안 찾고 읽은 내용만 0.5초마다 다시 냄
+  barcode_once_re_ = std::regex(declare_parameter<std::string>("barcode_once_pattern", "P2-0[1-4]"));  // 이 형식일 때만 고정 — 잘못 읽은 값에 묶이지 않게
+  // 바코드는 미션 시작(start · start:BARCODE) 뒤 barcode_window_s 동안만 찾음 — 찾는 데 한 장 4~180 ms(보조 읽기)라 늘 돌리면
+  //   YOLO와 같은 스레드를 막음 (젯슨 11/12 실측). 읽거나 abort면 그만 · barcode_always: true면 예전처럼 항상
+  barcode_window_s_ = pd("barcode_window_s", 180.0);
+  barcode_always_ = pb("barcode_always", false);
+  barcode_pole_s_ = pd("barcode_pole_s", 3.0);  // 창을 연 뒤 pole_front_cam은 이만큼만 (그 뒤는 손 카메라만 — pole은 신호등 YOLO에 양보)
 
   // ---- 모델
   std::string model_dir;
@@ -307,6 +328,17 @@ PerceptionNode::PerceptionNode(const rclcpp::NodeOptions & options) : rclcpp::No
   dice_sub_ = create_subscription<std_msgs::msg::Int32>("/mission/capture_dice", 10,
     [this](std_msgs::msg::Int32::ConstSharedPtr m) { on_capture_dice(*m); });
   qr_pub_ = create_publisher<std_msgs::msg::String>("/mission/qr", latched);
+  // 미션을 (다시) 시작하면 지난 회차에 읽은 바코드를 잊고 새로 읽음 — barcode_once가 옛 값을 계속 내면 바코드 단계가 바로 통과됨 (실기 11-12)
+  mission_cmd_sub_ = create_subscription<std_msgs::msg::String>("/cmd/mission", rclcpp::QoS(10).reliable(),
+    [this](std_msgs::msg::String::ConstSharedPtr m) {
+      if (m->data == "start" || m->data == "start:BARCODE") {
+        barcode_reset_ = true;
+        barcode_from_ = wall_s();
+        barcode_until_ = barcode_from_ + barcode_window_s_;
+      } else if (m->data == "abort") {
+        barcode_until_ = 0.0;
+      }
+    });
   for (const std::string cam : {"pole_front_cam", "gripper_cam"}) {
     // 컬러·정렬 depth는 시각 맞춘 쌍으로만 (다른 순간의 컬러·depth를 섞지 않게) · camera_info는 따로
     CamSync cs;
@@ -1137,20 +1169,30 @@ void PerceptionNode::on_publish() {
 // ---------- 바코드 (2Hz) — 작업 지시 문자열 (P2-01 …) → 물체 barcode + /mission/qr
 void PerceptionNode::read_barcodes() {
   if (!barcode_) return;
+  if (barcode_reset_.exchange(false)) {
+    barcode_text_.clear();
+    qr_text_.clear();
+    RCLCPP_INFO(get_logger(), "미션 시작 — 바코드 다시 읽음");
+  }
   if (barcode_once_ && !barcode_text_.empty()) {
+    barcode_until_ = 0.0;  // 읽었으면 찾기 창 닫음
     // 이미 읽음 → 바코드 찾기는 더 안 하고 읽은 내용만 다시 냄 (mission_manager는 바코드 단계 시작 뒤에 받은 것만 씀)
     std_msgs::msg::String m;
     m.data = barcode_text_;
     qr_pub_->publish(m);
     return;
   }
+  if (!barcode_always_ && wall_s() > barcode_until_) return;  // 미션 바코드 단계 밖 — 안 찾음
   std::vector<std::pair<std::string, Frame>> frames;
   {
     std::lock_guard<std::mutex> lk(mutex_);
     for (const auto & [c, s] : frames_)
       if (!s.bgr.empty() && !s.depth_mm.empty() && s.fx > 0) frames.emplace_back(c, s);
   }
+  const bool grip = std::any_of(frames.begin(), frames.end(), [](const auto & f) { return f.first == "gripper_cam"; });
+  const bool pole_too = barcode_always_ || !grip || wall_s() < barcode_from_ + barcode_pole_s_;  // 손 카메라가 없으면 pole이 계속
   for (const auto & [cam, s] : frames) {
+    if (cam == "pole_front_cam" && !pole_too) continue;  // 관측 중 pole은 신호등 — 바코드(한 장 최대 180 ms)가 같은 스레드의 YOLO를 막지 않게
     const auto hits = barcode_->read(s.bgr);
     if (hits.empty()) continue;
     const auto tf = lookup_tf(s.frame_id, s.stamp, true);
@@ -1176,7 +1218,7 @@ void PerceptionNode::read_barcodes() {
                     barcode_once_ ? " — 이제 바코드는 안 읽음 (barcode_once)" : "");
       }
       qr_seen_ = now_w;
-      barcode_text_ = hit.text;
+      if (std::regex_match(hit.text, barcode_once_re_)) barcode_text_ = hit.text;  // 미등록 형식이면 계속 읽음
     }
     if (!dets.empty()) {
       std::lock_guard<std::mutex> lk(mutex_);

@@ -82,9 +82,16 @@ mission_manager:             # 주사위 기억 미션 (documents/mission/README
     #   26 cm 뒤 자리라 Nav2가 돌아섰다 다시 돌아 한 바퀴를 돌았음 (시뮬 렌더에선 바코드가 화면 끝에 걸렸음)
     #   옮겨서 보려면 아래 줄을 살림 (빈 배열 []은 ROS YAML이 타입을 몰라 못 씀 — 줄을 빼면 코드 기본 = 이동 없음)
     # barcode_pose_arena: [0.950, 0.800, 3.3126]
-    barcode_timeout_s: 20.0                  # [s] 이번에 본 바코드가 없으면 오류 (팔이 barcode 자세에 간 뒤부터)
-    barcode_arm_pose: gaze                   # 바코드는 팔을 이 자세로 뻗어 gripper_cam으로 읽고 stow로 돌아옴 ("" = 팔 안 움직이고 pole_front_cam만)
-    signal_timeout_s: 150.0                  # [s] READ 시작부터 신호 확정까지 (한 사이클 약 27초 · 두 사이클 같아야 확정 — 중간부터 보면 3사이클)
+    barcode_timeout_s: 20.0                  # [s] 더 다가갈 수 없는 마지막 자리에서 이만큼 기다려도 안 읽히면 오류 (다가가는 동안은 안 셈)
+    barcode_gaze_wait_s: 3.0                 # [s] gaze 도착(또는 한 걸음 다가간 뒤) 이만큼 안 읽히면 한 걸음 더
+    barcode_advance_step_m: 0.06             # [m] 한 걸음 (팔은 gaze 그대로 · approach drive_straight) — 읽힐 때까지 계속
+    barcode_min_gap_m: 0.13                  # [m] 손 카메라 정면(depth)이 이보다 가까우면 더 안 다가감 — 손끝이 벽에 안 닿게 (depth 모르면 안 다가감)
+    barcode_advance_max_m: 0.30              # [m] 최대 다가가는 거리 (안전 상한 — 반투명 벽은 depth가 판 너머를 잴 수 있음) — 끝나면 팔 접고 그만큼 똑바로 후진
+    barcode_pole_s: 3.0                      # [s] 먼저 pole_front_cam으로 보는 시간 — 읽히면 팔 안 움직임, 아니면 barcode_arm_pose로 뻗으며 계속 봄 (가다 읽히면 바로 접음)
+    barcode_arm_pose: gaze                   # 바코드는 팔을 이 자세로 뻗어 gripper_cam으로 읽고 stow로 돌아옴 ("" = 팔 안 움직이고 pole_front_cam만 — 그때는 perception barcode_pole_s도 크게)
+    signal_timeout_s: 150.0                  # [s] 관측(BARCODE) 시작부터 신호 확정까지 — 바코드와 같이 봄 (한 사이클 약 27초 · 12개 한 번이면 확정)
+    signal_read_min_s: 60.0                  # [s] 바코드에 시간을 다 써도 READ에 들어온 뒤 최소 이만큼은 신호를 봄
+    light_check_s: 8.0                       # [s] 관측 시작 뒤 이만큼 pole_front_cam에 신호등이 안 보이면 경고 (방향·팔 가림)
     signal_error_cycles: 2                   # 오류 사이클(count·unknown·range)이 이만큼 이어지면 ERROR — 한 번은 잡음일 수 있어 다음 사이클을 봄
     home_hold_s: 3.0                         # [s] 출발 구역에서 정지 (발제: 3초)
     log_dir: "~/.ros/mission"                # 회차별 signal · allocation · build · verify · return (· error) .json + photos/

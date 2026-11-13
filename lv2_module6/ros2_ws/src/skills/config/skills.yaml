@@ -14,6 +14,7 @@ skill_approach:
     approach_timeout_s: 30.0 # [s] 전체 · 4초 동안 3 mm도 못 줄이면 approach_blocked
     residual_v: 0.02         # [m/s] 정책 행동 1 = 이만큼 (시뮬 res_v)
     residual_w: 0.1          # [rad/s] (시뮬 res_w)
+    approach_min_speed: 0.03 # [m/s] 도착 전 최소 속도 — 실기 바퀴가 약 2~3 cm/s 아래 명령엔 안 움직여 마지막 1~2 cm에서 멈췄음 (11-12)
 skill_pose:
   ros__parameters:
     initial_pose_enabled: true
