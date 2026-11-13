@@ -372,6 +372,23 @@ class SignalAnswerItem(MenuItem):
         return STAY
 
 
+class ReanchorItem(MenuItem):
+    """지금 자리를 출발 자리로 — /initialpose map (0, 0, 0°). map 원점 = 출발 자세라 로봇이 출발 자리에 서 있을 때만.
+    cuVSLAM map→odom 잠금(cuvslam_slam 로그 '보정 잠금')도 풀린다. 시뮬은 출발 자리로 텔레포트."""
+    key = 'o'
+
+    def label(self):
+        return '지금 자리를 출발 자리로 (initialpose map 0,0,0 · 보정 잠금 풀기)'
+
+    def run(self):
+        if self.ui.confirm('로봇이 출발 자리(출발 자세)에 서 있나요? 지금 위치를 map (0, 0, 0°)으로 맞춥니다.', default=False):
+            try:
+                self.bus.nav.set_robot_pose(0.0, 0.0, 0.0)
+            except RuntimeError as e:
+                print(e, file=sys.stderr)
+        return STAY
+
+
 DIAG_LEVELS = {0: 'OK', 1: 'WARN', 2: 'ERROR', 3: 'STALE'}
 SNAPSHOT_DIR = Path.home() / '.ros' / 'bee_snapshots'
 SNAPSHOT_IMAGES = (('pole_front_cam', '/pole_front_cam/color/image_raw'), ('gripper_cam', '/gripper_cam/color/image_raw'))
@@ -438,6 +455,7 @@ class MissionMenu(Menu):
                 LogViewItem(self.app),
                 SnapshotItem(self.app),
                 SignalAnswerItem(self.app),
+                ReanchorItem(self.app),
                 # 단계 하나만 — mission_manager "start:<단계>" (끝나면 DONE · BUILD·VERIFY는 SURVEY 결과가 있어야 해 없음)
                 MissionCmdItem(self.app, 'b', 'start:BARCODE', '단계만: 관측 — 바코드(손 카메라 gaze) + 신호(pole) 동시', '관측 단계(바코드 + 신호)만 실행할까요? (팔·바퀴가 움직임)'),
                 MissionCmdItem(self.app, 'r', 'start:READ', '단계만: 신호 읽기 (READ)', '신호 읽기 단계만 실행할까요?'),

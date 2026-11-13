@@ -22,4 +22,18 @@ for i in range(50):
 assert not ok and abs(out[0] - 0.003) < 1e-9
 g.reset()                                                     # /initialpose
 assert g.update((1.0, 2.0, 0.1), 6.0) == ((1.0, 2.0, 0.1), True) and not g.locked
+
+# 출발 정착 (11-14 실기): 서 있는데 bringup 2.4 s 뒤 EKF odom이 +0.75 m 튐 (바퀴 누적 엔코더) → 보정 후보 x −0.75
+g = G(settle_s=15.0)
+g.update((0.0, 0.0, 0.0), 100.0)
+out, ok = g.update((-0.75, 0.0, 0.0), 102.4)                  # 예전: 잠금 · 로봇이 map (0.75, 0)에 있다고 믿음
+assert ok and not g.locked and out == (-0.75, 0.0, 0.0) and g.resettled[0] == 0.75
+for i in range(100):                                          # 정착 끝난 뒤 정상 — 로봇 map 자세 = 보정∘odom = (0, 0)
+    out, ok = g.update((-0.75, 0.0, 0.0), 103.0 + 0.1 * i)
+assert ok and not g.locked
+out, ok = g.update((-4.1, -1.0, 0.5), 120.0)                  # 정착 뒤 점프는 여전히 잠금
+assert not ok and g.locked and out == (-0.75, 0.0, 0.0)
+g.reset()                                                     # /initialpose 뒤엔 정착 다시 안 함 (t0 유지)
+g.update((0.0, 0.0, 0.0), 121.0)
+assert not g.update((1.0, 0.0, 0.0), 121.1)[1] and g.locked
 print('test_map_gate OK')
