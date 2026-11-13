@@ -16,7 +16,7 @@ coordinator:
       unload: 90.0
       stand: 90.0
       stand_pick: 90.0
-    pose_names: [stow, carry_left, carry_right, gaze]   # pose 단계 검증 (값은 skill_pose — skills/params/basket.yaml · arm.yaml) · scan 자세는 없앰 (11-09)
+    pose_names: [stow, carry_left, carry_right, gaze, look]   # look = inspect 상자 보기 1차 자세 (TUI 팔 9) · pose 단계 검증 (값은 skill_pose — skills/params/basket.yaml · arm.yaml) · scan 자세는 없앰 (11-09)
     # 적재함 장부 (이 노드만 씀): 파일에 저장해 다시 떠도 이어 감 · load next가 쓰는 칸 (팔이 잘 못 닿는 칸은 실기에서 확인 후 뺌)
     basket_slots: 12
     #   사람이 적재함을 손으로 비웠으면: ros2 service call /coordinator/basket_clear std_srvs/srv/Trigger

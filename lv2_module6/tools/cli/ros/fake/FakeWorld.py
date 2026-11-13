@@ -218,8 +218,9 @@ class FakeWorld:
         yaw = pose.get('yaw_deg')
         self.goal_yaw = None if yaw is None else math.radians(float(yaw))   # 도착하면 이 방향으로 제자리 회전
 
-    def send_nav_waypoints(self, poses, frame_id='map'):
-        """웨이포인트를 순서대로 — 앞 goal의 nav_done에서 다음 goal을 보낸다 (가짜 Nav2)."""
+    def send_nav_waypoints(self, poses, frame_id='map', through=False):
+        """웨이포인트를 순서대로 — 앞 goal의 nav_done에서 다음 goal을 보낸다 (가짜 Nav2).
+        through는 실기/docker의 NavigateThroughPoses 대응 — 가짜 세계는 한 점씩과 결과가 같아 무시한다."""
         poses = [dict(p) for p in poses]
         if not poses:
             raise RuntimeError('웨이포인트 없음')

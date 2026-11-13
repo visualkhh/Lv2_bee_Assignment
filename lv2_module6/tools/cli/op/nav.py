@@ -27,7 +27,7 @@ class RobotNav:
         self._feedback_goal_id = None     # docker 파일 브리지 goal_id
         self._seq: list[dict] = []        # 보낼 웨이포인트 목록
         self._seq_i = 0                   # 지금 보낸 웨이포인트 index
-        self._seq_through = False         # 2개 이상이면 NavigateThroughPoses 한 번에
+        self._seq_through = False         # True면 NavigateThroughPoses 한 번에 (G) · False면 한 점씩 (g)
         self._seq_remaining = None        # feedback의 number_of_poses_remaining
         self._seq_state = 'idle'          # idle | running | done | failed | canceled
         self._seq_error = ''
@@ -250,19 +250,20 @@ class RobotNav:
 
     # ---------------------------------------------------------------- Nav2 goal · 웨이포인트 순차 주행
     def send_nav_goal(self, pose: dict, frame_id: str = 'map') -> None:
-        """Nav2 NavigateToPose 한 점 — send_nav_waypoints([pose])와 같다."""
-        self.send_nav_waypoints([pose], frame_id)
+        """Nav2 NavigateToPose 한 점 — send_nav_waypoints([pose], through=False)와 같다."""
+        self.send_nav_waypoints([pose], frame_id, through=False)
 
-    def send_nav_waypoints(self, poses: list[dict], frame_id: str = 'map') -> None:
-        """웨이포인트 여러 개 — 2개 이상이면 NavigateThroughPoses 한 번에 보낸다 (중간에 안 끊김).
-        1개면 예전처럼 NavigateToPose. 각 구간 경로는 Nav2 planner가 채운다."""
+    def send_nav_waypoints(self, poses: list[dict], frame_id: str = 'map', through: bool = False) -> None:
+        """웨이포인트 전송 — through=False(g)면 한 점씩 NavigateToPose, True(G)면
+        NavigateThroughPoses 한 번에 보낸다 (점이 1개여도 G면 through). 각 구간 경로는 Nav2 planner가 채운다.
+        도커/실기 모두 같은 규칙이다 — 도커도 through-poses를 실제로 쓴다."""
         poses = [dict(p) for p in poses]
         if not poses:
             raise RuntimeError('웨이포인트 없음')
         if self._seq_state == 'running':
             raise RuntimeError('이미 Nav2 주행 중 — 먼저 취소(x)하세요')
         self._seq, self._seq_frame = poses, frame_id
-        self._seq_through = len(poses) > 1
+        self._seq_through = bool(through)
         self._seq_i = 0 if not self._seq_through else len(poses) - 1
         self._seq_remaining = len(poses) if self._seq_through else None
         self._seq_state, self._seq_error = 'running', ''

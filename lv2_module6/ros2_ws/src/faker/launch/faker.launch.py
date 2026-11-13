@@ -156,5 +156,5 @@ def generate_launch_description():
              condition=IfCondition(PythonExpression(["'", LaunchConfiguration('use_monitor'), "' == 'true'"]))),
         fake('input_manager', 'input_manager', {'debug_dir': LaunchConfiguration('debug_dir')}),
         fake('service_action_monitor', 'service_action_monitor', {'debug_dir': LaunchConfiguration('debug_dir')}),
-        fake('service_action_bag_input', 'service_action_bag_input', {'debug_dir': LaunchConfiguration('debug_dir')}),
+        fake('service_action_bag_input', 'service_action_bag_input', {'debug_dir': LaunchConfiguration('debug_dir')}, respawn=True),
     ])

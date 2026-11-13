@@ -12,6 +12,7 @@ tools/
 ├── run-rviz         # start|stop|restart 실행기 (기본 start)
 ├── bag/             # rosbag 기록 (record.sh · snap_on_fail.py)
 ├── course/          # Isaac USD → faker/world 지도 (build_map_usd.py)
+├── foxglove/        # Foxglove 레이아웃 (맥·아이패드 — bringup의 foxglove_bridge에 붙음)
 ├── rviz/
 │   ├── start.sh     # RVIZ_CONFIG=operator(기본)·light·mapping
 │   ├── stop.sh

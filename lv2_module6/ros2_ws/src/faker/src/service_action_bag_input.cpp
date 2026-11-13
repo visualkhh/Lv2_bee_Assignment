@@ -15,7 +15,8 @@ namespace {
 
 const char * kServices[] = {"score_grasps", "clear_octomap", "apply_planning_scene",
   "diff_drive_controller/set_odometry", "reset", "fake_opencr/set_parameters",
-  "map_saver/save_map", "controller_server/FollowPath/toggle", "collision_monitor/toggle", "set_parameters",
+  "map_saver/save_map", "controller_server/FollowPath/toggle", "controller_server/FollowPath/set_fallback",
+  "collision_monitor/toggle", "set_parameters",
   "controller_server/set_parameters"};
 const char * kActions[] = {"navigate_to_pose", "navigate_through_poses", "execute_task_solution", "move_action"};
 
@@ -61,6 +62,7 @@ ServiceActionBagInput::ServiceActionBagInput()
   scene_cli_ = create_client<moveit_msgs::srv::ApplyPlanningScene>("/apply_planning_scene");
   odom_cli_ = create_client<control_msgs::srv::SetOdometry>("/diff_drive_controller/set_odometry");
   rl_toggle_cli_ = create_client<std_srvs::srv::SetBool>("/controller_server/FollowPath/toggle");
+  rl_fallback_cli_ = create_client<ml::srv::SetFallback>("/controller_server/FollowPath/set_fallback");
   opencr_params_cli_ = create_client<rcl_interfaces::srv::SetParameters>("/fake_opencr/set_parameters");
   save_map_cli_ = create_client<nav2_msgs::srv::SaveMap>("/map_saver/save_map");
   collision_toggle_cli_ = create_client<nav2_msgs::srv::Toggle>("/collision_monitor/toggle");
@@ -498,6 +500,14 @@ void ServiceActionBagInput::poll_service(const std::string & name) {
         return std::string("{\"success\": ") + (res.success ? "true" : "false") +
                ", \"message\": \"" + escape_json(res.message) + "\"}";
       });
+    } else if (name == "controller_server/FollowPath/set_fallback") {
+      // data: {"controller": "dwb"|"mppi"|...} → RL 컨트롤러의 inner fallback 교체
+      auto req = std::make_shared<ml::srv::SetFallback::Request>();
+      req->controller = get_str(data, "controller", "dwb");
+      sent = call<ml::srv::SetFallback>(st, rl_fallback_cli_, req, [](const auto & res) {
+        return std::string("{\"success\": ") + (res.success ? "true" : "false") +
+               ", \"message\": \"" + escape_json(res.message) + "\", \"active\": \"" + escape_json(res.active) + "\"}";
+      });
     } else if (name == "collision_monitor/toggle") {
       // data: {"enable": true|false} → collision_monitor 켜기/끄기 (충돌 감시)
       auto req = std::make_shared<nav2_msgs::srv::Toggle::Request>();
@@ -805,14 +815,23 @@ void ServiceActionBagInput::poll_cancel(const std::string & name) {
         "\", \"status\": \"unknown_goal\", \"ok\": false}");
     return;
   }
-  if (name == "navigate_to_pose" && nav_handle_) {
-    nav_cli_->async_cancel_goal(nav_handle_);
-  } else if (name == "navigate_through_poses" && through_handle_) {
-    through_cli_->async_cancel_goal(through_handle_);
-  } else if (name == "execute_task_solution" && mtc_handle_) {
-    mtc_cli_->async_cancel_goal(mtc_handle_);
-  } else if (name == "move_action" && move_handle_) {
-    move_cli_->async_cancel_goal(move_handle_);
+  // 이미 끝난 goal 핸들을 취소하면 rclcpp_action이 UnknownGoalHandleError를 던져
+  // 프로세스가 죽는다. 취소는 best-effort로 보내고 실패하면 결과만 알린다.
+  try {
+    if (name == "navigate_to_pose" && nav_handle_) {
+      nav_cli_->async_cancel_goal(nav_handle_);
+    } else if (name == "navigate_through_poses" && through_handle_) {
+      through_cli_->async_cancel_goal(through_handle_);
+    } else if (name == "execute_task_solution" && mtc_handle_) {
+      mtc_cli_->async_cancel_goal(mtc_handle_);
+    } else if (name == "move_action" && move_handle_) {
+      move_cli_->async_cancel_goal(move_handle_);
+    }
+  } catch (const std::exception & e) {
+    RCLCPP_WARN(get_logger(), "/%s cancel 실패(무시): %s", name.c_str(), e.what());
+    reply("action", name, "result", "{\"goal_id\": \"" + escape_json(id) +
+        "\", \"status\": \"cancel_failed\", \"ok\": false}");
+    return;
   }
   RCLCPP_INFO(get_logger(), "/%s cancel id=%s", name.c_str(), id.c_str());
 }

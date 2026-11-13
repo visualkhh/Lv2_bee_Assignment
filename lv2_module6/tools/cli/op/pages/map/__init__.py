@@ -3,7 +3,7 @@
   window.navigate('map', mode=…, source=…, …)  또는  MapPage(app, …)
     mode    'view'  지도 보기만 (기본)
             'goals' A/B 경로 goal 찍기 — start·goals(이미 있는 경로) · 저장하면 on_save(goals)
-            'goal'  이동 목표 (Nav2) — 여러 웨이포인트를 찍어 g로 순서대로 보낸다 (구간 경로는 Nav2 planner)
+            'goal'  이동 목표 (Nav2) — 여러 웨이포인트를 찍어 g(한 점씩 NavigateToPose)·G(NavigateThroughPoses)로 보낸다
             'pose'  로봇 위치 지정 — 십자선 위치(+방향)를 on_pose(x, y, yaw_deg)로 보냄
     source  None = 지금 /map(live · 로봇 점 표시) · 경로 = 저장된 지도 yaml(map_server 형식)
     title   화면 제목 (기본 = mode에 따라)
@@ -104,7 +104,7 @@ class MapPage(Menu):
                     return
             self.goals.append(goal)
             self._preview = None   # 웨이포인트가 바뀌었다 — 예상 경로는 다시 계산
-            self.msg = f'웨이포인트 {len(self.goals)}개 추가 {fmt_pose(self.goals[-1])}{note} — 전송: g'
+            self.msg = f'웨이포인트 {len(self.goals)}개 추가 {fmt_pose(self.goals[-1])}{note} — 전송: g(한 점씩) · G(한 번에)'
         else:
             self._send_pose(x, y)
 
@@ -164,8 +164,9 @@ class MapPage(Menu):
         self._show_goals = True
         self.msg = '웨이포인트 전체 지움'
 
-    def send_waypoints(self) -> None:
-        """찍어 둔 웨이포인트를 순서대로 Nav2에 보낸다 — 구간 경로는 planner가 채운다."""
+    def send_waypoints(self, through: bool = False) -> None:
+        """찍어 둔 웨이포인트를 Nav2에 보낸다 — through=False(g)=한 점씩 NavigateToPose,
+        True(G)=NavigateThroughPoses 한 번에. 구간 경로는 planner가 채운다."""
         if not self.goals:
             self.msg = '웨이포인트 없음 — Enter로 먼저 찍으세요'
             return
@@ -176,16 +177,17 @@ class MapPage(Menu):
         if bad:
             body.append('WARN: costmap 내접/치명 웨이포인트 — planner가 거부할 수 있습니다')
             body += bad
-        if not self.ui.confirm(f'웨이포인트 {len(self.goals)}개를 순서대로 보낼까요?',
+        how = 'NavigateThroughPoses 한 번에' if through else '한 점씩 NavigateToPose'
+        if not self.ui.confirm(f'웨이포인트 {len(self.goals)}개를 {how}로 보낼까요?',
                                default=not bad, body=body):
             self.msg = '취소' + (' (costmap 내접)' if bad else '')
             return
         try:
             with self.ui.capture() as (out, err):
-                self.bus.nav.send_nav_waypoints(self.goals, 'map')
+                self.bus.nav.send_nav_waypoints(self.goals, 'map', through=through)
             self._canceled = False
             self._show_goals = True
-            self.msg = f'웨이포인트 {len(self.goals)}개 전송 — Nav2가 구간 경로를 계획'
+            self.msg = f'웨이포인트 {len(self.goals)}개 전송 — {how}'
         except Exception as exc:
             self.msg = f'FAIL: {exc}'
 
@@ -333,8 +335,10 @@ class MapPage(Menu):
             self.pick()
         elif k == 'backspace' and self.mode in ('goals', 'goal'):
             self.undo_goal()
-        elif k in ('g', 'G') and self.mode == 'goal':
-            self.send_waypoints()
+        elif k == 'g' and self.mode == 'goal':
+            self.send_waypoints(through=False)   # 한 점씩 NavigateToPose
+        elif k == 'G' and self.mode == 'goal':
+            self.send_waypoints(through=True)    # NavigateThroughPoses 한 번에
         elif k in ('d', 'D') and self.mode == 'goal':
             self.clear_goals()
         elif k in ('s', 'S') and self.mode == 'goal':
@@ -445,7 +449,7 @@ class MapPage(Menu):
         return out, '경로: ' + ' · '.join(info)
 
     def preview_path(self) -> None:
-        """찍어 둔 웨이포인트로 planner에 경로만 계산 (v) — 로봇은 움직이지 않는다. 전송은 g."""
+        """찍어 둔 웨이포인트로 planner에 경로만 계산 (v) — 로봇은 움직이지 않는다. 전송은 g/G."""
         if not self.goals:
             self.msg = '웨이포인트 없음 — Enter로 먼저 찍으세요'
             return
@@ -487,7 +491,8 @@ class MapPage(Menu):
                 'pose': [('로봇 위치로 지정 — 십자선 위치 (Enter)', self.pick)],
                 'goal': [('웨이포인트 추가 — 십자선 위치 (Enter)', self.pick),
                          ('마지막 웨이포인트 취소 (Backspace)', self.undo_goal),
-                         ('웨이포인트 전송 — 순서대로 주행 (g)', self.send_waypoints),
+                         ('웨이포인트 한 점씩 주행 — NavigateToPose (g)', lambda: self.send_waypoints(through=False)),
+                         ('웨이포인트 한 번에 주행 — NavigateThroughPoses (G)', lambda: self.send_waypoints(through=True)),
                          ('웨이포인트 전체 지우기 (d)', self.clear_goals),
                          ('예상 경로 미리보기 — 계산만 (v)', self.preview_path),
                          ('예상 경로 지우기 (V)', self.clear_preview),
@@ -581,7 +586,7 @@ class MapPage(Menu):
                   f'한 칸 = {v.vp.scale * 100:.0f} cm · {"● 따라가기" if v.following else "○ 자유이동"}',
                   (f'방향 {self.yaw:+.0f}°' if self.mode == 'pose' else
                    f'방향 {self.yaw:+.0f}° · goal {len(self.goals)}개' if self.mode == 'goals' else
-                   f'방향 {self.yaw:+.0f}° · 웨이포인트 {len(self.goals)}개 (Enter 추가 · g 전송)' if self.mode == 'goal'
+                   f'방향 {self.yaw:+.0f}° · 웨이포인트 {len(self.goals)}개 (Enter 추가 · g 한 점씩 · G 한 번에)' if self.mode == 'goal'
                    else '보기 전용')]
         if plan_info:
             status.append(plan_info)

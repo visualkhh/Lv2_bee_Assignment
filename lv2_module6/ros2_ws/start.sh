@@ -7,7 +7,9 @@
 #   POLE_FRONT_CAM_SERIAL=... GRIPPER_CAM_SERIAL=... ./start.sh  # RealSense serial 고정 (권장)
 #   RCUTILS_DEFAULT_LOGGER_DEFAULT_LEVEL=WARN ./start.sh  # 로그 소음 줄이기 (기본 INFO — 전 노드 적용)
 #   ./start.sh learning_enabled:=false      # 학습 노드 끄고 (비교 기준)
-#   ./start.sh map:=slam                    # 지도 매핑 (새 폴더 map/<날짜_시각>/) — 기본 map:=saved = 저장 지도로 위치추정
+#   ./start.sh map:=saved map_name:=kk      # 저장 지도로 위치추정 (미션·Nav2는 이걸로) · map_name 비우면 가장 최근 지도
+#   ./start.sh map:=slam                    # 지도 매핑 (새 폴더 map/<날짜_시각>/)
+#   (map 인자 없으면 bringup 기본 map:=none — 지도·SLAM·Nav2 없이 뜸. 주행·미션 안 됨)
 #   ./start.sh --build [launch 인자]        # 저장소에서 실행할 때 colcon build 후 실행
 #   LAUNCH_FILE=stand_test.launch.py ./start.sh  # 팔 테스트용 가벼운 실행
 #
@@ -276,8 +278,38 @@ if ! ros2 pkg prefix moveit_ros_move_group >/dev/null 2>&1; then
   echo "WARN: moveit_ros_move_group 없음 → use_moveit:=false (팔 pick/place는 사용 불가)"
 fi
 
-# 지도 폴더 기본 = 이 워크스페이스의 map/ (테스트베드 /ws/map 과 같은 자리) — map:=slam(새 폴더 매핑) · saved(저장 지도, 기본)
+# 지도 인자 없이 켜면 bringup 기본 map:=none — Nav2·SLAM이 안 떠서 미션 첫 이동이 nav_unavailable로 멈춤 (실기 11-12) → 크게 알림
+case " $* " in *" map:="*) ;; *) echo "WARN: map 인자 없음 → 지도 없이(map:=none) 시작 — Nav2·SLAM 안 뜸 (미션·주행 불가). 저장 지도: ./start.sh map:=saved [map_name:=이름]" ;; esac
+# 지도 폴더 기본 = 이 워크스페이스의 map/ (테스트베드 /ws/map 과 같은 자리) — map:=slam(새 폴더 매핑) · saved(저장 지도)
 case " $* " in *" map_dir:="*) ;; *) set -- "$@" "map_dir:=$HERE/map" ;; esac
+# Foxglove 접속 안내 — 같은 와이파이의 아이패드(mDNS 이름)를 찾아 보여 주고, 아이패드에서 열 링크(qrencode가 있으면 QR)를 찍음
+#   아이패드 앱을 로봇이 대신 열 수는 없음 → 아이패드 카메라로 QR을 찍거나 링크를 열면 Foxglove가 로봇에 바로 붙음
+foxglove_hint() {
+  case " $* " in *" use_foxglove:=true "*|*" use_foxglove:=auto "*) ;; *) return ;; esac  # 기본 끔 — 켤 때만 안내
+  ros2 pkg prefix foxglove_bridge >/dev/null 2>&1 || { echo "Foxglove: foxglove_bridge 없음 (sudo apt install ros-lyrical-foxglove-bridge)"; return; }
+  local port=8765 tls=false a ip ipads url host scheme=ws d=$HOME/.ros/foxglove
+  for a in "$@"; do case "$a" in foxglove_port:=*) port="${a#*:=}" ;; foxglove_tls:=*) tls="${a#*:=}" ;; esac; done
+  ip=$(ip -4 -o addr show scope global 2>/dev/null | awk '$2 !~ /^(docker|l4tbr|usb)/ {sub(/\/.*/, "", $4); print $4; exit}' || true)
+  host=$ip
+  if [ "$tls" = true ]; then  # wss:// — 자체 서명 인증서(처음 한 번 만듦) · 아이패드에 한 번 설치·신뢰해야 함 · 주소는 IP가 바뀌어도 되게 <이름>.local
+    scheme=wss; host="$(hostname).local"
+    if [ ! -f "$d/cert.pem" ]; then
+      mkdir -p "$d"
+      openssl req -x509 -newkey rsa:2048 -nodes -days 825 -keyout "$d/key.pem" -out "$d/cert.pem" -subj "/CN=$host" \
+        -addext "subjectAltName=DNS:$host,IP:$ip" -addext "basicConstraints=critical,CA:TRUE" \
+        -addext "extendedKeyUsage=serverAuth" 2>/dev/null && cp "$d/cert.pem" "$d/bee-foxglove.crt"
+    fi
+  fi
+  ipads=$(timeout 3 avahi-browse -rtp _companion-link._tcp 2>/dev/null | awk -F';' '$1=="=" && $3=="IPv4" && ($4 ~ /iPad/ || $7 ~ /iPad/) {print $7" ("$8")"}' | sort -u || true)  # set -e·pipefail: avahi 없음·timeout도 계속
+  url="https://app.foxglove.dev/view?ds=foxglove-websocket&ds.url=${scheme}%3A%2F%2F${host}%3A${port}"
+  echo "=== Foxglove: ${scheme}://${host}:${port}$([ "$tls" = true ] || echo " (또는 ws://$(hostname).local:${port})")"
+  [ -n "$ipads" ] && echo "    같은 망의 아이패드: $(echo "$ipads" | awk 'NR>1{printf " · "}{printf "%s", $0}')" || echo "    같은 망에 아이패드 안 보임 (와이파이 확인)"
+  echo "    아이패드에서 열기: $url"
+  [ "$tls" = true ] && echo "    인증서(처음 한 번): $d/bee-foxglove.crt → Mac으로 받아 AirDrop → 아이패드 설치 → 설정 › 일반 › 정보 › 인증서 신뢰 설정에서 켬"
+  if command -v qrencode >/dev/null; then qrencode -t ANSIUTF8 -m 1 "$url"; else echo "    (QR로 찍으려면: sudo apt install qrencode)"; fi
+}
+case "${LAUNCH_FILE:-bringup.launch.py}" in bringup.launch.py) foxglove_hint "$@" ;; esac
+
 # 실행할 launch (기본 전체 bringup) — LAUNCH_FILE=stand_test.launch.py면 가벼운 팔 테스트용
 LAUNCH_FILE="${LAUNCH_FILE:-bringup.launch.py}"
 echo "=== ros2 launch bringup $LAUNCH_FILE $*"

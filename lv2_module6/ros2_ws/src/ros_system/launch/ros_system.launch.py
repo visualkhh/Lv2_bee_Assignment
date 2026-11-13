@@ -316,4 +316,6 @@ def slam_nodes():
              remappings=camera_remaps(0, 'pole_front_cam')),
         Node(package='ros_system', executable='nvblox_map', name='nvblox_map', output='screen', condition=on,
              parameters=[{'load_path': ParameterValue(load_path, value_type=str)}]),
+        # 주행 리와인드 — 실패(ABORTED) 뒤 실제 주행 궤적을 0.4 m 후진. 실기·테스트베드 공통.
+        Node(package='ros_system', executable='rewind', name='rewind', output='screen'),
     ]

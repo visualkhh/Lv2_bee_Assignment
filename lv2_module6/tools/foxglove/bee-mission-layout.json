@@ -1,0 +1,757 @@
+{
+  "configById": {
+    "Indicator!phase": {
+      "path": "/mission/state.phase",
+      "style": "background",
+      "rules": [
+        {
+          "operator": "=",
+          "rawValue": "IDLE",
+          "color": "#666666",
+          "label": "대기 IDLE"
+        },
+        {
+          "operator": "=",
+          "rawValue": "GO_OBSERVE",
+          "color": "#2f6fdf",
+          "label": "관찰 위치로"
+        },
+        {
+          "operator": "=",
+          "rawValue": "BARCODE",
+          "color": "#2f6fdf",
+          "label": "바코드"
+        },
+        {
+          "operator": "=",
+          "rawValue": "READ",
+          "color": "#2f6fdf",
+          "label": "신호 읽기"
+        },
+        {
+          "operator": "=",
+          "rawValue": "SURVEY",
+          "color": "#2f6fdf",
+          "label": "퍽 조사"
+        },
+        {
+          "operator": "=",
+          "rawValue": "BUILD",
+          "color": "#2f6fdf",
+          "label": "쌓기"
+        },
+        {
+          "operator": "=",
+          "rawValue": "VERIFY",
+          "color": "#2f6fdf",
+          "label": "확인"
+        },
+        {
+          "operator": "=",
+          "rawValue": "RETURN",
+          "color": "#2f6fdf",
+          "label": "복귀"
+        },
+        {
+          "operator": "=",
+          "rawValue": "DONE",
+          "color": "#1f9d55",
+          "label": "완료"
+        },
+        {
+          "operator": "=",
+          "rawValue": "ERROR",
+          "color": "#d64545",
+          "label": "오류"
+        }
+      ],
+      "fallbackColor": "#555555",
+      "fallbackLabel": "mission_manager 없음",
+      "foxglovePanelTitle": "단계"
+    },
+    "Indicator!sig_ok": {
+      "path": "/mission/signal_status.ok",
+      "style": "background",
+      "rules": [
+        {
+          "operator": "=",
+          "rawValue": "true",
+          "color": "#1f9d55",
+          "label": "신호 확정"
+        }
+      ],
+      "fallbackColor": "#e0a800",
+      "fallbackLabel": "확정 전",
+      "foxglovePanelTitle": "신호 확정"
+    },
+    "Indicator!sig_err": {
+      "path": "/mission/signal_status.error",
+      "style": "background",
+      "rules": [
+        {
+          "operator": "=",
+          "rawValue": "unconfirmed",
+          "color": "#e0a800",
+          "label": "확인 중"
+        },
+        {
+          "operator": "=",
+          "rawValue": "count",
+          "color": "#d64545",
+          "label": "개수 오류"
+        },
+        {
+          "operator": "=",
+          "rawValue": "unknown",
+          "color": "#d64545",
+          "label": "모르는 색"
+        },
+        {
+          "operator": "=",
+          "rawValue": "range",
+          "color": "#d64545",
+          "label": "1~6 벗어남"
+        }
+      ],
+      "fallbackColor": "#1f9d55",
+      "fallbackLabel": "정상/없음",
+      "foxglovePanelTitle": "신호 상태"
+    },
+    "RawMessages!state": {
+      "topicPath": "/mission/state",
+      "diffEnabled": false,
+      "diffMethod": "custom",
+      "diffTopicPath": "",
+      "showFullMessageForDiff": false,
+      "expansion": "all",
+      "foxglovePanelTitle": "미션 상태 /mission/state"
+    },
+    "Table!basket": {
+      "topicPath": "/coordinator/basket.slots",
+      "foxglovePanelTitle": "적재함 /coordinator/basket"
+    },
+    "Image!pole_dbg": {
+      "imageMode": {
+        "imageTopic": "/perception/pole_front_cam/debug_image"
+      },
+      "topics": {},
+      "layers": {},
+      "transforms": {},
+      "scene": {},
+      "foxglovePanelTitle": "앞 카메라 검출"
+    },
+    "StateTransitions!phase": {
+      "isSynced": true,
+      "paths": [
+        {
+          "value": "/mission/state.phase",
+          "timestampMethod": "receiveTime",
+          "label": "phase"
+        },
+        {
+          "value": "/mission/signal_status.error",
+          "timestampMethod": "receiveTime",
+          "label": "signal"
+        }
+      ],
+      "foxglovePanelTitle": "단계 흐름"
+    },
+    "Publish!start": {
+      "topicName": "/cmd/mission",
+      "datatype": "std_msgs/msg/String",
+      "value": "{\"data\": \"start\"}",
+      "buttonText": "▶ 미션 시작",
+      "buttonTooltip": "/cmd/mission ← {\"data\": \"start\"}",
+      "buttonColor": "#1f9d55",
+      "advancedView": false,
+      "foxglovePanelTitle": "시작"
+    },
+    "Publish!abort": {
+      "topicName": "/cmd/mission",
+      "datatype": "std_msgs/msg/String",
+      "value": "{\"data\": \"abort\"}",
+      "buttonText": "■ 미션 정지",
+      "buttonTooltip": "/cmd/mission ← {\"data\": \"abort\"}",
+      "buttonColor": "#d64545",
+      "advancedView": false,
+      "foxglovePanelTitle": "정지"
+    },
+    "3D!nav": {
+      "followTf": "base_footprint",
+      "followMode": "follow-position",
+      "cameraState": {
+        "distance": 4,
+        "perspective": false,
+        "phi": 0,
+        "thetaOffset": 0,
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "targetOffset": [
+          0,
+          0,
+          0
+        ],
+        "targetOrientation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "fovy": 45,
+        "near": 0.01,
+        "far": 200
+      },
+      "scene": {},
+      "transforms": {},
+      "publish": {
+        "type": "pose",
+        "poseTopic": "/goal_pose",
+        "pointTopic": "/clicked_point",
+        "poseEstimateTopic": "/initialpose"
+      },
+      "layers": {
+        "grid": {
+          "visible": true,
+          "layerId": "foxglove.Grid",
+          "size": 4,
+          "divisions": 8,
+          "frameLocked": true
+        }
+      },
+      "topics": {
+        "/map": {
+          "visible": true,
+          "colorMode": "map"
+        },
+        "/global_costmap/costmap": {
+          "visible": true,
+          "colorMode": "costmap",
+          "alpha": 0.5
+        },
+        "/local_costmap/costmap": {
+          "visible": false,
+          "colorMode": "costmap",
+          "alpha": 0.6
+        },
+        "/plan": {
+          "visible": true,
+          "type": "line",
+          "lineWidth": 0.03,
+          "gradient": [
+            "#00d0ff",
+            "#00d0ff"
+          ]
+        },
+        "/cuvslam/path": {
+          "visible": false,
+          "type": "line",
+          "lineWidth": 0.01
+        },
+        "/mission/markers": {
+          "visible": true
+        },
+        "/robot_description": {
+          "visible": true
+        },
+        "/foxglove_script/tracked_markers": {
+          "visible": true
+        },
+        "/pole_front_cam/depth/color/points_filtered": {
+          "visible": false
+        }
+      },
+      "foxglovePanelTitle": "지도·경로"
+    },
+    "Plot!vel": {
+      "isSynced": true,
+      "showLegend": true,
+      "legendDisplay": "top",
+      "timeWindowMode": "sliding",
+      "followingViewWidth": 30,
+      "xAxisVal": "timestamp",
+      "paths": [
+        {
+          "value": "/cmd_vel.twist.linear.x",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "cmd v"
+        },
+        {
+          "value": "/odometry/filtered.twist.twist.linear.x",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "odom v"
+        },
+        {
+          "value": "/cmd_vel.twist.angular.z",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "cmd w"
+        },
+        {
+          "value": "/odometry/filtered.twist.twist.angular.z",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "odom w"
+        }
+      ],
+      "foxglovePanelTitle": "속도 명령 vs 실제"
+    },
+    "RawMessages!collision": {
+      "topicPath": "/collision_monitor_state",
+      "diffEnabled": false,
+      "diffMethod": "custom",
+      "diffTopicPath": "",
+      "showFullMessageForDiff": false,
+      "expansion": "all",
+      "foxglovePanelTitle": "충돌 감시"
+    },
+    "Image!pole_dbg2": {
+      "imageMode": {
+        "imageTopic": "/perception/pole_front_cam/debug_image"
+      },
+      "topics": {},
+      "layers": {},
+      "transforms": {},
+      "scene": {},
+      "foxglovePanelTitle": "앞 카메라 검출"
+    },
+    "Image!grip_dbg": {
+      "imageMode": {
+        "imageTopic": "/perception/gripper_cam/debug_image"
+      },
+      "topics": {},
+      "layers": {},
+      "transforms": {},
+      "scene": {},
+      "foxglovePanelTitle": "손 카메라 검출"
+    },
+    "Table!tracked": {
+      "topicPath": "/tracked_objects.objects",
+      "foxglovePanelTitle": "융합 물체 /tracked_objects"
+    },
+    "RawMessages!signal": {
+      "topicPath": "/mission/signal_status",
+      "diffEnabled": false,
+      "diffMethod": "custom",
+      "diffTopicPath": "",
+      "showFullMessageForDiff": false,
+      "expansion": "all",
+      "foxglovePanelTitle": "신호 사이클 /mission/signal_status"
+    },
+    "Image!dice": {
+      "imageMode": {
+        "imageTopic": "/mission/dice_image"
+      },
+      "topics": {},
+      "layers": {},
+      "transforms": {},
+      "scene": {},
+      "foxglovePanelTitle": "주사위 사진 (latched)"
+    },
+    "DiagnosticSummary!agg": {
+      "topicToRender": "/diagnostics_agg",
+      "minLevel": 0,
+      "pinnedIds": [],
+      "hardwareIdFilter": "",
+      "sortByLevel": true,
+      "foxglovePanelTitle": "진단 요약"
+    },
+    "DiagnosticStatusPanel!agg": {
+      "topicToRender": "/diagnostics_agg",
+      "collapsedSections": [],
+      "foxglovePanelTitle": "진단 상세"
+    },
+    "RosOut!log": {
+      "topicToRender": "/rosout",
+      "minLogLevel": 3,
+      "searchTerms": [],
+      "foxglovePanelTitle": "로그 (WARN 이상)"
+    },
+    "Gauge!batt": {
+      "path": "/motor_status.battery_voltage",
+      "style": "dial",
+      "minValue": 10.0,
+      "maxValue": 12.6,
+      "colorMode": "colormap",
+      "colorMap": "red-yellow-green",
+      "foxglovePanelTitle": "배터리 V"
+    },
+    "RawMessages!motor": {
+      "topicPath": "/motor_status",
+      "diffEnabled": false,
+      "diffMethod": "custom",
+      "diffTopicPath": "",
+      "showFullMessageForDiff": false,
+      "expansion": "all",
+      "foxglovePanelTitle": "모터 /motor_status"
+    },
+    "Indicator!estop": {
+      "path": "/state/emergency.data",
+      "style": "background",
+      "rules": [
+        {
+          "operator": "=",
+          "rawValue": "true",
+          "color": "#d64545",
+          "label": "비상정지 걸림"
+        }
+      ],
+      "fallbackColor": "#1f9d55",
+      "fallbackLabel": "풀림",
+      "foxglovePanelTitle": "비상정지"
+    },
+    "Indicator!opmode": {
+      "path": "/state/operation_mode.data",
+      "style": "background",
+      "rules": [
+        {
+          "operator": "=",
+          "rawValue": "AUTO",
+          "color": "#1f9d55",
+          "label": "AUTO"
+        },
+        {
+          "operator": "=",
+          "rawValue": "MANUAL",
+          "color": "#e0a800",
+          "label": "MANUAL"
+        },
+        {
+          "operator": "=",
+          "rawValue": "TEACH",
+          "color": "#2f6fdf",
+          "label": "TEACH"
+        }
+      ],
+      "fallbackColor": "#555555",
+      "fallbackLabel": "-",
+      "foxglovePanelTitle": "조작 모드"
+    },
+    "Indicator!phase2": {
+      "path": "/mission/state.phase",
+      "style": "background",
+      "rules": [
+        {
+          "operator": "=",
+          "rawValue": "IDLE",
+          "color": "#666666",
+          "label": "대기 IDLE"
+        },
+        {
+          "operator": "=",
+          "rawValue": "GO_OBSERVE",
+          "color": "#2f6fdf",
+          "label": "관찰 위치로"
+        },
+        {
+          "operator": "=",
+          "rawValue": "BARCODE",
+          "color": "#2f6fdf",
+          "label": "바코드"
+        },
+        {
+          "operator": "=",
+          "rawValue": "READ",
+          "color": "#2f6fdf",
+          "label": "신호 읽기"
+        },
+        {
+          "operator": "=",
+          "rawValue": "SURVEY",
+          "color": "#2f6fdf",
+          "label": "퍽 조사"
+        },
+        {
+          "operator": "=",
+          "rawValue": "BUILD",
+          "color": "#2f6fdf",
+          "label": "쌓기"
+        },
+        {
+          "operator": "=",
+          "rawValue": "VERIFY",
+          "color": "#2f6fdf",
+          "label": "확인"
+        },
+        {
+          "operator": "=",
+          "rawValue": "RETURN",
+          "color": "#2f6fdf",
+          "label": "복귀"
+        },
+        {
+          "operator": "=",
+          "rawValue": "DONE",
+          "color": "#1f9d55",
+          "label": "완료"
+        },
+        {
+          "operator": "=",
+          "rawValue": "ERROR",
+          "color": "#d64545",
+          "label": "오류"
+        }
+      ],
+      "fallbackColor": "#555555",
+      "fallbackLabel": "mission_manager 없음",
+      "foxglovePanelTitle": "단계"
+    },
+    "Publish!start2": {
+      "topicName": "/cmd/mission",
+      "datatype": "std_msgs/msg/String",
+      "value": "{\"data\": \"start\"}",
+      "buttonText": "▶ 미션 시작",
+      "buttonTooltip": "/cmd/mission ← {\"data\": \"start\"}",
+      "buttonColor": "#1f9d55",
+      "advancedView": false,
+      "foxglovePanelTitle": "시작"
+    },
+    "Publish!abort2": {
+      "topicName": "/cmd/mission",
+      "datatype": "std_msgs/msg/String",
+      "value": "{\"data\": \"abort\"}",
+      "buttonText": "■ 미션 정지",
+      "buttonTooltip": "/cmd/mission ← {\"data\": \"abort\"}",
+      "buttonColor": "#d64545",
+      "advancedView": false,
+      "foxglovePanelTitle": "정지"
+    },
+    "Publish!estop_on": {
+      "topicName": "/cmd/e_stop",
+      "datatype": "std_msgs/msg/Bool",
+      "value": "{\"data\": true}",
+      "buttonText": "⛔ 비상정지",
+      "buttonTooltip": "/cmd/e_stop ← {\"data\": true}",
+      "buttonColor": "#d64545",
+      "advancedView": false,
+      "foxglovePanelTitle": "비상정지"
+    },
+    "Publish!estop_off": {
+      "topicName": "/cmd/e_stop",
+      "datatype": "std_msgs/msg/Bool",
+      "value": "{\"data\": false}",
+      "buttonText": "비상정지 풀기",
+      "buttonTooltip": "/cmd/e_stop ← {\"data\": false}",
+      "buttonColor": "#666666",
+      "advancedView": false,
+      "foxglovePanelTitle": "비상정지 풀기"
+    },
+    "Publish!auto": {
+      "topicName": "/cmd/operation_mode",
+      "datatype": "std_msgs/msg/String",
+      "value": "{\"data\": \"AUTO\"}",
+      "buttonText": "AUTO 모드",
+      "buttonTooltip": "/cmd/operation_mode ← {\"data\": \"AUTO\"}",
+      "buttonColor": "#2f6fdf",
+      "advancedView": false,
+      "foxglovePanelTitle": "AUTO"
+    },
+    "Publish!manual": {
+      "topicName": "/cmd/operation_mode",
+      "datatype": "std_msgs/msg/String",
+      "value": "{\"data\": \"MANUAL\"}",
+      "buttonText": "MANUAL 모드",
+      "buttonTooltip": "/cmd/operation_mode ← {\"data\": \"MANUAL\"}",
+      "buttonColor": "#e0a800",
+      "advancedView": false,
+      "foxglovePanelTitle": "MANUAL"
+    },
+    "CallService!basket_clear": {
+      "serviceName": "/coordinator/basket_clear",
+      "requestPayload": "{}",
+      "layout": "vertical",
+      "buttonText": "적재함 장부 비우기 (손으로 비운 뒤)",
+      "buttonColor": "#666666",
+      "foxglovePanelTitle": "적재함 장부 비우기"
+    },
+    "RawMessages!note": {
+      "topicPath": "/mission/state.note",
+      "diffEnabled": false,
+      "diffMethod": "custom",
+      "diffTopicPath": "",
+      "showFullMessageForDiff": false,
+      "expansion": "all",
+      "foxglovePanelTitle": "지금 하는 일 · 시작 거부 이유"
+    },
+    "Tab!main": {
+      "activeTabIdx": 0,
+      "tabs": [
+        {
+          "title": "미션",
+          "layout": {
+            "first": {
+              "first": {
+                "first": "Indicator!phase",
+                "second": {
+                  "first": "Indicator!sig_ok",
+                  "second": "Indicator!sig_err",
+                  "direction": "row",
+                  "splitPercentage": 50.0
+                },
+                "direction": "row",
+                "splitPercentage": 33.33
+              },
+              "second": {
+                "first": "RawMessages!state",
+                "second": "Table!basket",
+                "direction": "column",
+                "splitPercentage": 50.0
+              },
+              "direction": "column",
+              "splitPercentage": 14
+            },
+            "second": {
+              "first": "Image!pole_dbg",
+              "second": {
+                "first": "StateTransitions!phase",
+                "second": {
+                  "first": "Publish!start",
+                  "second": "Publish!abort",
+                  "direction": "row",
+                  "splitPercentage": 50.0
+                },
+                "direction": "column",
+                "splitPercentage": 50.0
+              },
+              "direction": "column",
+              "splitPercentage": 50
+            },
+            "direction": "row",
+            "splitPercentage": 50
+          }
+        },
+        {
+          "title": "주행",
+          "layout": {
+            "first": "3D!nav",
+            "second": {
+              "first": "Plot!vel",
+              "second": "RawMessages!collision",
+              "direction": "column",
+              "splitPercentage": 50.0
+            },
+            "direction": "row",
+            "splitPercentage": 70
+          }
+        },
+        {
+          "title": "인지",
+          "layout": {
+            "first": {
+              "first": "Image!pole_dbg2",
+              "second": "Image!grip_dbg",
+              "direction": "column",
+              "splitPercentage": 50.0
+            },
+            "second": {
+              "first": "Table!tracked",
+              "second": {
+                "first": "RawMessages!signal",
+                "second": "Image!dice",
+                "direction": "column",
+                "splitPercentage": 50.0
+              },
+              "direction": "column",
+              "splitPercentage": 33.33
+            },
+            "direction": "row",
+            "splitPercentage": 50.0
+          }
+        },
+        {
+          "title": "진단",
+          "layout": {
+            "first": {
+              "first": "DiagnosticSummary!agg",
+              "second": "DiagnosticStatusPanel!agg",
+              "direction": "column",
+              "splitPercentage": 50.0
+            },
+            "second": {
+              "first": "RosOut!log",
+              "second": {
+                "first": "Gauge!batt",
+                "second": "RawMessages!motor",
+                "direction": "row",
+                "splitPercentage": 35
+              },
+              "direction": "column",
+              "splitPercentage": 55
+            },
+            "direction": "row",
+            "splitPercentage": 50.0
+          }
+        },
+        {
+          "title": "조작",
+          "layout": {
+            "first": {
+              "first": "Indicator!estop",
+              "second": {
+                "first": "Indicator!opmode",
+                "second": "Indicator!phase2",
+                "direction": "row",
+                "splitPercentage": 50.0
+              },
+              "direction": "row",
+              "splitPercentage": 33.33
+            },
+            "second": {
+              "first": {
+                "first": "Publish!start2",
+                "second": {
+                  "first": "Publish!abort2",
+                  "second": {
+                    "first": "Publish!estop_on",
+                    "second": "Publish!estop_off",
+                    "direction": "row",
+                    "splitPercentage": 50.0
+                  },
+                  "direction": "row",
+                  "splitPercentage": 33.33
+                },
+                "direction": "row",
+                "splitPercentage": 25.0
+              },
+              "second": {
+                "first": {
+                  "first": "Publish!auto",
+                  "second": {
+                    "first": "Publish!manual",
+                    "second": "CallService!basket_clear",
+                    "direction": "row",
+                    "splitPercentage": 50.0
+                  },
+                  "direction": "row",
+                  "splitPercentage": 33.33
+                },
+                "second": "RawMessages!note",
+                "direction": "column",
+                "splitPercentage": 50.0
+              },
+              "direction": "column",
+              "splitPercentage": 33.33
+            },
+            "direction": "column",
+            "splitPercentage": 18
+          }
+        }
+      ]
+    }
+  },
+  "globalVariables": {},
+  "userNodes": {
+    "tracked_markers": {
+      "name": "tracked_objects → 3D",
+      "sourceCode": "// Foxglove User Script — /tracked_objects (perception/msg/TrackedObjectArray) → 3D 패널용 MarkerArray\n//   3D 패널은 우리 msg를 못 그림 → 물체마다 상자(퍽 cyl이면 원기둥) + 글자(class · #tag · 바코드 내용)\n//   bee-mission-layout.json 안에 같은 코드가 들어 있음 (이 파일은 리뷰·수정용 원본 — 고치면 레이아웃에 다시 붙여 넣기)\n//   size.x·y는 영상 박스 폭을 m로 바꾼 값(map 축 아님) — 크기·방향은 대략으로만 볼 것\nimport { Input, Message } from \"./types.ts\";\n\nexport const inputs = [\"/tracked_objects\"];\nexport const output = \"/foxglove_script/tracked_markers\";\n\n// ROS 2 소스에서 스키마 이름이 \"visualization_msgs/msg/MarkerArray\" — 타입 오류가 나면 \"visualization_msgs/MarkerArray\"로\ntype Markers = Message<\"visualization_msgs/msg/MarkerArray\">;\n\nconst RGB: Record<string, [number, number, number]> = {\n  red: [1, 0.15, 0.15], orange: [1, 0.55, 0], yellow: [1, 0.9, 0], green: [0.1, 0.8, 0.2],\n  blue: [0.2, 0.4, 1], purple: [0.6, 0.2, 0.9], white: [0.95, 0.95, 0.95], black: [0.2, 0.2, 0.2],\n};\n\nexport default function script(event: Input<\"/tracked_objects\">): Markers {\n  const { header, objects } = event.message;\n  const markers: unknown[] = [{ header, ns: \"\", id: 0, action: 3 }]; // DELETEALL — 사라진 물체 지우기\n  for (const o of objects) {\n    const kv: Record<string, string> = {};\n    for (const d of o.details) kv[d.key] = d.value;\n    const [r, g, b] = RGB[o.color] ?? [0.7, 0.7, 0.7];\n    const { position, orientation } = o.pose.pose;\n    const z = Math.max(o.size.z, 0.02);\n    markers.push({\n      header, ns: \"body\", id: o.id, action: 0, type: kv.shape === \"cyl\" ? 3 : 1, // CYLINDER | CUBE\n      pose: o.pose.pose, color: { r, g, b, a: 0.8 },\n      scale: { x: Math.max(o.size.x, 0.02), y: Math.max(o.size.y, 0.02), z },\n    });\n    const text = [o.class_name, kv.tag !== undefined ? `#${kv.tag}` : \"\", kv.content ?? \"\"].filter((s) => s).join(\" \");\n    markers.push({\n      header, ns: \"label\", id: o.id, action: 0, type: 9, // TEXT_VIEW_FACING\n      pose: { position: { ...position, z: position.z + z + 0.04 }, orientation },\n      scale: { x: 0, y: 0, z: 0.04 }, color: { r: 1, g: 1, b: 1, a: 1 }, text,\n    });\n  }\n  return { markers } as unknown as Markers; // 빈 필드(lifetime·points …)는 3D 패널이 기본값으로 채움 — 실기에서 확인\n}\n"
+    }
+  },
+  "playbackConfig": {
+    "speed": 1
+  },
+  "layout": "Tab!main"
+}

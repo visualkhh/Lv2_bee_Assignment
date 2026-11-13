@@ -127,6 +127,21 @@ for _ in $(seq 90); do
   sleep 1
 done
 
+# 테스트베드 기본 주행: RL 정책 대신 inner DWB (2026-11-13 실측 — MPPI는 좁은 미로에서 105 반복).
+#   BEEBOT_TESTBED_CONTROLLER=policy 면 정책을 그대로 켜 둔다. 실기 설정(nav2_params.yaml)은 건드리지 않는다.
+TESTBED_CONTROLLER=${BEEBOT_TESTBED_CONTROLLER:-dwb}
+if [ "$TESTBED_CONTROLLER" != "policy" ]; then
+  (
+    for _ in $(seq 60); do
+      timeout 3 ros2 service type /controller_server/FollowPath/set_fallback >/dev/null 2>&1 && break
+      sleep 1
+    done
+    timeout 5 ros2 param set /controller_server FollowPath.enable false >/dev/null 2>&1 || true
+    timeout 10 ros2 service call /controller_server/FollowPath/set_fallback ml/srv/SetFallback \
+      "{controller: $TESTBED_CONTROLLER}" >/dev/null 2>&1 || true
+  ) &
+fi
+
 stop_all() {
   kill -INT "$LAUNCH_PID" 2>/dev/null
   timeout 15 tail --pid="$LAUNCH_PID" -f /dev/null

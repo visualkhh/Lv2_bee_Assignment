@@ -10,6 +10,8 @@ install(PROGRAMS scripts/scan_cam_gate.py DESTINATION lib/${PROJECT_NAME} RENAME
 install(PROGRAMS scripts/cuvslam_slam.py DESTINATION lib/${PROJECT_NAME} RENAME cuvslam_slam)
 # nvblox 격자 → /map(latched) + 저장 지도 불러오기 (scripts/nvblox_map.py 머리말)
 install(PROGRAMS scripts/nvblox_map.py DESTINATION lib/${PROJECT_NAME} RENAME nvblox_map)
+# 경로 리와인드 — 실패한 주행의 odom 궤적을 0.4 m 후진 (ros_system.launch.py가 띄운다)
+install(PROGRAMS scripts/rewind.py DESTINATION lib/${PROJECT_NAME} RENAME rewind)
 
 # 로봇 모델은 워크스페이스 루트의 urdf/ 에 둔다 (Isaac Sim 등 ROS 밖에서도 같은 파일을 쓰므로).
 # 모델 하나 = 폴더 하나: urdf/<이름>/urdf.xacro (+ meshes/) — launch 인자 urdf:=<이름>으로 고름 (기본 default)

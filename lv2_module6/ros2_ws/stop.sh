@@ -7,7 +7,7 @@
 # 패키지 이름으로 고르지 않는다 (새 패키지가 빠져 고아로 남음 — docker/lv2_module6/test-*.sh와 같은 기준).
 # 같은 머신의 다른 ROS 작업도 같이 꺼진다.
 # 끝에 /dev/shm의 Fast DDS 공유 메모리 잔재도 지운다 (노드당 35 MB — 강제 종료된 노드가 남기면 RAM을 먹고 SHM 포트 오류가 남).
-#   ROS가 하나라도 안 죽었으면 지우지 않는다 (살아 있는 노드의 공유 메모리를 지우면 통신이 끊김).
+#   아무 프로세스도 쓰지 않는 파일만 지운다 (살아 있는 TUI·노드의 공유 메모리를 지우면 통신이 끊김).
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # nvblox/cuVSLAM은 별도 workspace(~ /isaac_ros_ws)에 있어서 여기도 포함해야 한다.
 SLAM_WS="${SLAM_WS:-$HOME/isaac_ros_ws}"
@@ -39,9 +39,17 @@ else
   pkill -f "ros2cli.daemon.daemoniz[e]" 2>/dev/null || true
 fi
 # 강제 종료된 참가자의 Fast DDS SHM 통로가 남으면 다음 state_manager가 포트 lock에 걸려
-# publisher가 하나도 안 보일 수 있다 (/state/* publisher count 0). ROS가 모두 꺼진 뒤에만 지운다.
-if [ "$(count)" = 0 ]; then
-  rm -rf /dev/shm/fastdds_* /dev/shm/sem.fastdds_* 2>/dev/null || true
-  echo "Fast DDS SHM 잔재 정리"
-fi
+# publisher가 하나도 안 보일 수 있다 (/state/* publisher count 0).
+# 지우는 건 어느 프로세스도 열고(fd) 있거나 매핑(maps)하지 않은 파일만 — ROS 경로 밖에서 도는 TUI(python)·다른 사람 노드가
+#   쓰는 통로를 지우면 그쪽 통신이 끊김 (실기 11-12: stop.sh 뒤 살아 있던 TUI가 먹통)
+in_use=$( { cat /proc/[0-9]*/maps 2>/dev/null | grep -o '/dev/shm/[^ ]*'; ls -l /proc/[0-9]*/fd 2>/dev/null | grep -o '/dev/shm/[^ ]*'; } | sort -u)
+removed=0 kept=0
+for f in /dev/shm/fastdds_* /dev/shm/sem.fastdds_*; do
+  [ -e "$f" ] || continue
+  owner=$f
+  case "$f" in /dev/shm/sem.fastdds_port*_mutex) owner="/dev/shm/fastdds_port${f#/dev/shm/sem.fastdds_port}"; owner="${owner%_mutex}" ;; esac
+  # 포트 잠금(sem.fastdds_portN_mutex)은 쓸 때만 잠깐 열림 — 짝인 포트(fastdds_portN)가 쓰이는 중이면 둠
+  if grep -qxF "$f" <<<"$in_use" || grep -qxF "$owner" <<<"$in_use"; then kept=$((kept + 1)); else rm -f "$f" && removed=$((removed + 1)); fi
+done
+echo "Fast DDS SHM 잔재 정리: ${removed}개 지움 · 쓰는 중 ${kept}개 둠"
 echo "남은 ROS 프로세스: $(count)개"

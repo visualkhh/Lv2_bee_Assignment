@@ -1,17 +1,26 @@
 
 <!--
   bt_navigator through-poses 행동 트리 — Nav2 기본 navigate_through_poses_w_replanning_and_recovery.xml(Lyrical) 복사본.
-  바꾼 곳 둘:
+  바꾼 곳 넷:
   ① RemovePassedGoals radius 0.7 → 0.40 m. 기본 0.7은 출발점에서 0.7 m 안의 첫 웨이포인트를
      '이미 지나갔다'고 지워 버린다. 반대로 0.15는 컨트롤러 추종 오차(0.2~0.3 m)로 지나친 점을
      체크하지 못해 같은 웨이포인트로 되돌아가며 맴돈다 (테스트베드 실측) → 0.40으로 절충.
-  ② BackUp 후진 0.30 → 0.10 m. pole_front_cam이 뒤를 못 봐서 0.30 m 후진은 벽에 박힌다
-     (navigate_to_pose.xml과 같은 이유).
+  ② 복구 순서: [코스트맵 지우기 → 제자리 회전(1.57 rad, 5초) → 안 되면 0.10 m 후진] → 대기.
+     회전이 벽에 막혀 실패하면 RoundRobin이 다음 복구에서 바로 후진한다.
+     회전이 성공해도 경로추종이 다시 105로 막히면 다음 복구가 후진이다 (회전만으로 못 빠져나온 경우).
+     후진 뒤에는 트리가 바깥 묶음을 처음부터 다시 돌아 전역 지도 기준으로 경로를 새로 계획한다.
+     CheckStopStatus 게이트는 뺐다 — 105 직후에는 아직 굴러서(속도 > 0.02) 게이트가 후진을 건너뛰었다 (테스트베드 실측).
+  ③ BackUp 후진 0.10 m / 0.05 m/s. pole_front_cam이 뒤를 못 봐서 0.30 m 후진은 벽에 박힌다.
+  ④ 복구 Spin/BackUp은 disable_collision_checks=true — 로컬 코스트맵의 유령 점이 복구를 막아
+     전역 지도상 빈 공간에서도 못 움직이던 데드락을 끊는다 (2026-11-12 테스트베드: backup failed: Collision Ahead).
+  ⑤ 최상위 재시도 3회 — 복구(회전/후진/대기)를 각 1회씩. 3회 안에 현재 웨이포인트에 못 가면 그 목표는 ABORTED.
+     이때 ros_system의 rewind 노드가 실제 주행 궤적을 0.4 m 후진해 이전 자세로 되돌린다. 그 뒤 같은
+     웨이포인트로 다시 시도하는 것은 CLI/오퍼레이터 몫이다 (BT는 현재 웨이포인트만 재시도하고 이전 점으로 돌아가지 않는다).
   ros_system.launch.py가 bt_navigator의 default_nav_through_poses_bt_xml로 넘긴다.
 -->
 <root BTCPP_format="4" main_tree_to_execute="NavigateThroughPosesWReplanningAndRecovery">
   <BehaviorTree ID="NavigateThroughPosesWReplanningAndRecovery">
-    <RecoveryNode number_of_retries="6" name="NavigateRecovery">
+    <RecoveryNode number_of_retries="3" name="NavigateRecovery">
       <PipelineSequence name="NavigateWithReplanning">
         <ProgressCheckerSelector selected_progress_checker="{selected_progress_checker}" default_progress_checker="progress_checker" topic_name="progress_checker_selector"/>
         <GoalCheckerSelector selected_goal_checker="{selected_goal_checker}" default_goal_checker="general_goal_checker" topic_name="goal_checker_selector"/>
@@ -56,13 +65,17 @@
         <ReactiveFallback name="RecoveryFallback">
           <GoalUpdated/>
           <RoundRobin name="RecoveryActions">
-            <Sequence name="ClearingActions">
+            <Sequence name="ClearAndSpin">
               <ClearEntireCostmap name="ClearLocalCostmap-Subtree" service_name="local_costmap/clear_entirely_local_costmap"/>
               <ClearEntireCostmap name="ClearGlobalCostmap-Subtree" service_name="global_costmap/clear_entirely_global_costmap"/>
+              <Spin spin_dist="1.57" time_allowance="5.0" disable_collision_checks="true" error_code_id="{spin_error_code}" error_msg="{spin_error_msg}"/>
             </Sequence>
-            <Spin name="SpinRecovery" spin_dist="1.57" error_code_id="{spin_error_code}" error_msg="{spin_error_msg}"/>
-            <Wait name="WaitRecovery" wait_duration="5.0" error_code_id="{wait_error_code}" error_msg="{wait_error_msg}"/>
-            <BackUp name="BackUpRecovery" backup_dist="0.10" backup_speed="0.15" error_code_id="{backup_error_code}" error_msg="{backup_error_msg}"/>
+            <Sequence name="ClearAndBackUp">
+              <ClearEntireCostmap name="ClearLocalCostmap-Subtree" service_name="local_costmap/clear_entirely_local_costmap"/>
+              <ClearEntireCostmap name="ClearGlobalCostmap-Subtree" service_name="global_costmap/clear_entirely_global_costmap"/>
+              <BackUp backup_dist="0.10" backup_speed="0.05" disable_collision_checks="true" error_code_id="{backup_error_code}" error_msg="{backup_error_msg}"/>
+            </Sequence>
+            <Wait wait_duration="5.0" error_code_id="{wait_error_code}" error_msg="{wait_error_msg}"/>
           </RoundRobin>
         </ReactiveFallback>
       </Sequence>

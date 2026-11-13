@@ -204,6 +204,23 @@ ros2 topic info -v /pole_front_cam/color/image_raw
 ros2 topic info -v /pole_front_cam/depth/color/points
 ```
 
+### Foxglove로 볼 때 (Mac·아이패드)
+
+기본은 끔 — `./start.sh ... use_foxglove:=true`로 켭니다 (포트 8765).
+설치는 한 번만 합니다.
+
+```bash
+sudo apt install ros-lyrical-foxglove-bridge
+```
+
+Foxglove 앱에서 **Open connection → Foxglove WebSocket** → `ws://bee.local:8765`
+(이름이 안 풀리면 로봇 IP). DDS 설정과 상관없이 WebSocket 하나로 붙습니다.
+
+- 포트 바꾸기: `foxglove_port:=8766` · 아이패드 Safari가 ws://를 막으면 `foxglove_tls:=true`
+- 부하: 패널이 구독한 토픽만 보냅니다. 영상(`image_raw`)은 무거우니 필요할 때만 열고,
+  가능하면 `/perception/*/debug_image`처럼 이미 그린 영상 하나만 봅니다.
+- 3D 패널의 로봇 모델은 `/robot_description`, 지도는 `/map`, 인지는 `/tracked_objects`·`/mission/state`.
+
 ### 다른 PC의 RViz로 볼 때
 
 RViz Image Display에서 다음을 맞춥니다.
@@ -311,6 +328,7 @@ ros2 topic echo /state/topics --once \
 | `port:=/dev/ttyACM0` | OpenCR 포트 |
 | `use_cameras:=false` | RealSense 전체 끔 |
 | `use_pole_front_cam:=false` | front 카메라만 끔 |
+| `use_foxglove:=true` | Foxglove 브리지 켬 (기본 false · ws://<로봇>:8765) |
 | `use_gripper_cam:=false` | gripper 카메라만 끔 |
 | `pole_front_cam_serial:=...` | front serial_no |
 | `gripper_cam_serial:=...` | gripper serial_no |

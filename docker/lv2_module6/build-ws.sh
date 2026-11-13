@@ -16,6 +16,14 @@ if [ -z "$WS" ]; then
 fi
 WS=$(realpath -m "$WS")   # ../ 정리 — CMakeCache 절대경로와 문자열 비교하므로 정규화 필수
 cd "$WS" || { echo "FAIL: $WS 없음"; exit 2; }
+# ml 모델은 install에 /models를 가리키는 symlink로 깔린다. 이미지 빌드가 남긴 install에
+# 같은 symlink가 있으면 ament_cmake_symlink_install이 같은 경로를 다시 만들다 실패한다
+# (이미지 빌드 뒤 첫 build-ws 실측: "Could not create symlink ... meta.yaml").
+# 모델 디렉터리만 지우고 CMakeLists mtime을 갱신해 ml install 단계를 다시 타게 한다.
+if [ -e "$WS/install/ml/share/ml/model" ] && [ -f "$WS/src/ml/CMakeLists.txt" ]; then
+  rm -rf "$WS/install/ml/share/ml/model"
+  touch "$WS/src/ml/CMakeLists.txt"
+fi
 if ls build/*/CMakeCache.txt >/dev/null 2>&1 && \
    grep -rh 'CMAKE_HOME_DIRECTORY:INTERNAL=' build/*/CMakeCache.txt 2>/dev/null | grep -qv "^CMAKE_HOME_DIRECTORY:INTERNAL=$WS/src/"; then
   echo "외부 경로 빌드 캐시 감지 — 풀빌드로 리셋"

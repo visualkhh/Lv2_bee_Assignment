@@ -1,4 +1,4 @@
-// skill_pose — /skills/pose: 이름 있는 관절 자세로 (stow · carry_left · carry_right · look) — MoveIt 관절 목표. 학습 정책 없음 (move_pose 기준선 100 %)
+// skill_pose — /skills/pose: 이름 있는 관절 자세로 (stow · carry_left · carry_right · look · gaze) — MoveIt 관절 목표. 학습 정책 없음 (move_pose 기준선 100 %)
 //   팔을 맡는 기본 일도 이 노드 (예전 coordinator):
 //   - 시작 자세: bringup 직후 한 번 팔을 initial_pose로 — MoveIt 없이 /arm_controller/joint_trajectory 토픽.
 //     못 가면 initial_pose_retries번만 다시 보내고 지금 자세로 멈춤 (걸린 채 계속 밀면 과부하). initial_pose_enabled는 실행 중에도 바꿈
