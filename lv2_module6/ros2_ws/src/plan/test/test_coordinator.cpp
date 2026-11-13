@@ -365,6 +365,56 @@ TEST_F(RosTest, NewExecutePlanPreemptsActiveActionOnlyAfterChildCancel) {
   (void)second_goal;
 }
 
+// 실행 중 계획을 새 계획(/task/sub_goals)으로 바꿀 때 — skill 노드(skill_node.cpp)는 실행 중이면 새 goal을 거절하고
+// 취소 마무리에 시간이 걸린다. 옛 child 취소가 끝난 뒤에 새 계획의 첫 goal을 보내야 pose_busy 없이 성공한다.
+TEST_F(RosTest, ReplacedLegacyPlanWaitsForBusySkillCancel) {
+  auto node = std::make_shared<Coordinator>(rclcpp::NodeOptions().parameter_overrides({{"basket_file", ""}}));
+  auto probe = std::make_shared<rclcpp::Node>("probe_legacy_replace");
+  const auto latched = rclcpp::QoS(10).reliable().transient_local();
+  auto objects_pub = probe->create_publisher<TrackedObjectArray>("/tracked_objects", rclcpp::QoS(5).reliable());
+  auto goals_pub = probe->create_publisher<SubGoalArray>("/task/sub_goals", latched);
+  TaskStatus::SharedPtr second;
+  auto sub = probe->create_subscription<TaskStatus>("/task/status", latched,
+    [&](TaskStatus::SharedPtr m) { if (m->plan_id == 82 && m->state != TaskStatus::RUNNING) second = m; });
+  using SkillHandle = rclcpp_action::ServerGoalHandle<Skill>;
+  std::shared_ptr<SkillHandle> active;
+  std::shared_ptr<rclcpp::TimerBase> cancel_timer;
+  int accepted = 0;
+  auto skill_server = rclcpp_action::create_server<Skill>(probe, "/skills/pose",
+    [&](const rclcpp_action::GoalUUID &, std::shared_ptr<const Skill::Goal>) {
+      return active ? rclcpp_action::GoalResponse::REJECT : rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
+    },
+    [&](const std::shared_ptr<SkillHandle> h) {
+      cancel_timer = probe->create_wall_timer(std::chrono::milliseconds(300), [&, h]() {  // 팔이 멈추는 시간
+        cancel_timer->cancel();
+        if (h->is_canceling()) h->canceled(std::make_shared<Skill::Result>());
+        active.reset();
+      });
+      return rclcpp_action::CancelResponse::ACCEPT;
+    },
+    [&](const std::shared_ptr<SkillHandle> h) {
+      if (++accepted == 1) { active = h; return; }  // 첫 계획은 결과 없이 붙잡음
+      auto r = std::make_shared<Skill::Result>();
+      r->success = true;
+      h->succeed(r);
+    });
+  rclcpp::executors::SingleThreadedExecutor exec;
+  exec.add_node(node);
+  exec.add_node(probe);
+  auto plan = [](uint32_t id) {
+    SubGoalArray p;
+    p.plan_id = id;
+    p.goals.push_back(SubGoal().set__step(1).set__skill("pose").set__target("stow"));
+    return p;
+  };
+  ASSERT_TRUE(spin_until(exec, [&]() { objects_pub->publish(TrackedObjectArray()); goals_pub->publish(plan(81)); },
+    [&]() { return active != nullptr; }, 10.0));
+  goals_pub->publish(plan(82));
+  ASSERT_TRUE(spin_until(exec, [] {}, [&]() { return second != nullptr; }, 10.0));
+  EXPECT_EQ(second->state, TaskStatus::SUCCEEDED) << second->reason;
+  EXPECT_EQ(accepted, 2);
+}
+
 // skill이 goal을 받고 결과를 안 주면 step_timeout_s.<skill> 뒤 취소하고 <skill>_timeout으로 실패 (#131)
 TEST_F(RosTest, SilentSkillTimesOutAndIsCancelled) {
   auto node = std::make_shared<Coordinator>(rclcpp::NodeOptions().parameter_overrides(
