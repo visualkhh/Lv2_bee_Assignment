@@ -111,17 +111,24 @@ Coordinator::Coordinator(const rclcpp::NodeOptions & options)
   tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
   const auto latched = rclcpp::QoS(10).reliable().transient_local();
   status_pub_ = create_publisher<TaskStatus>("/task/status", latched);
+  current_plan_pub_ = create_publisher<SubGoalArray>("/task/current_plan", rclcpp::QoS(1).reliable().transient_local());
   goals_sub_ = create_subscription<SubGoalArray>("/task/sub_goals", latched,
     [this](SubGoalArray::ConstSharedPtr m) { on_plan(*m); });
+  execute_server_ = rclcpp_action::create_server<ExecutePlan>(
+    this, "/task/execute_plan",
+    [this](const rclcpp_action::GoalUUID & uuid, std::shared_ptr<const ExecutePlan::Goal> goal) {
+      return on_execute_goal(uuid, std::move(goal));
+    },
+    [this](const std::shared_ptr<ExecuteHandle> handle) { return on_execute_cancel(handle); },
+    [this](const std::shared_ptr<ExecuteHandle> handle) { on_execute_accepted(handle); });
   objects_sub_ = create_subscription<TrackedObjectArray>("/tracked_objects", rclcpp::QoS(5).reliable(),
     [this](TrackedObjectArray::ConstSharedPtr m) {
-      const bool first = !objects_;
       objects_ = m;
       remember(*m);
-      if (first && waiting_plan_) {  // 물체 목록보다 계획이 먼저 왔으면 지금 검증
-        auto plan = *waiting_plan_;
-        waiting_plan_.reset();
-        on_plan(plan);
+      if (objects_ && pending_plan_ && !stopping_ && !running_) {
+        auto request = std::move(*pending_plan_);
+        pending_plan_.reset();
+        submit_plan(request.plan, request.action);
       }
     });
   mode_sub_ = create_subscription<std_msgs::msg::String>("/state/operation_mode", rclcpp::QoS(1).reliable().transient_local(),
@@ -132,10 +139,10 @@ Coordinator::Coordinator(const rclcpp::NodeOptions & options)
       if (e == estop_) return;
       estop_ = e;
       RCLCPP_WARN(get_logger(), "비상정지 %s", e ? "ON — 진행 중 전부 취소" : "OFF");
-      if (e && running_) {
-        cancel_all();
-        running_ = false;
-        status(plan_.goals.empty() ? 0 : plan_.goals[idx_].step, TaskStatus::FAILED, "estop");
+      if (e && (running_ || active_plan_action_ || stopping_)) begin_stop("estop", StopDisposition::ABORT);
+      if (e && pending_plan_ && pending_plan_->action) {
+        finish_action(pending_plan_->action, false, false, 0, "estop_blocked");
+        pending_plan_.reset();
       }
     });
   diag_.setHardwareID("beebot");
@@ -163,11 +170,14 @@ void Coordinator::on_mode(const std::string & mode) {
   if (mode == mode_) return;
   mode_ = mode;
   RCLCPP_WARN(get_logger(), "운영 모드: %s", mode.c_str());
-  if (mode != "AUTO" && running_) {  // 수동 · TEACH — 작업 실행과 동시에 하면 안 됨
-    cancel_all();
-    running_ = false;
-    status(idx_ < plan_.goals.size() ? plan_.goals[idx_].step : 0, TaskStatus::FAILED,
-           mode == "MANUAL" ? "manual_override" : mode == "TEACH" ? "manual_teach_override" : "explore_override");
+  if (mode != "AUTO" && (running_ || active_plan_action_ || stopping_)) {  // 수동 · TEACH — 작업 실행과 동시에 하면 안 됨
+    begin_stop(mode == "MANUAL" ? "manual_override" : mode == "TEACH" ? "manual_teach_override" : "explore_override",
+               StopDisposition::ABORT);
+  }
+  if (mode != "AUTO" && pending_plan_ && pending_plan_->action) {
+    finish_action(pending_plan_->action, false, false, 0,
+      mode == "MANUAL" ? "manual_mode" : mode == "TEACH" ? "manual_teach_mode" : "explore_mode");
+    pending_plan_.reset();
   }
 }
 
@@ -190,30 +200,76 @@ bool same_goals(const SubGoalArray & a, const SubGoalArray & b) {
 }  // namespace
 
 void Coordinator::on_plan(const SubGoalArray & plan) {
-  // transient_local 재수신은 무시 — 단, 같은 id에 내용이 다르면 다른 계획 (mission_manager 카운터와 sim 직접 발행 충돌 대비)
-  if (estop_) {
-    RCLCPP_WARN(get_logger(), "계획 %u 거부: 비상정지 중", plan.plan_id);
-    status(0, TaskStatus::FAILED, "estop_blocked");
+  // /task/sub_goals는 외부 도구·Isaac·fake가 아직 사용하는 legacy ingress다.
+  submit_plan(plan);
+}
+
+rclcpp_action::GoalResponse Coordinator::on_execute_goal(
+  const rclcpp_action::GoalUUID &, std::shared_ptr<const ExecutePlan::Goal> goal) {
+  if (!goal || goal->plan_id == 0 || goal->goals.empty()) {
+    RCLCPP_WARN(get_logger(), "execute_plan goal 거부: plan_id와 goals가 필요합니다");
+    return rclcpp_action::GoalResponse::REJECT;
+  }
+  return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
+}
+
+rclcpp_action::CancelResponse Coordinator::on_execute_cancel(const std::shared_ptr<ExecuteHandle> & handle) {
+  if (active_plan_action_ == handle) {
+    begin_stop("cancelled", StopDisposition::CANCEL);
+    return rclcpp_action::CancelResponse::ACCEPT;
+  }
+  if (pending_plan_ && pending_plan_->action == handle) {
+    pending_plan_.reset();
+    // ServerGoalHandle은 cancel callback 안에서 바로 terminal transition할 수 없으므로 한 tick 뒤에 마무리한다.
+    action_terminal_timer_ = create_wall_timer(std::chrono::milliseconds(1), [this, handle]() {
+      action_terminal_timer_->cancel();
+      finish_action(handle, false, true, 0, "cancelled");
+    });
+    return rclcpp_action::CancelResponse::ACCEPT;
+  }
+  return rclcpp_action::CancelResponse::REJECT;
+}
+
+void Coordinator::on_execute_accepted(const std::shared_ptr<ExecuteHandle> & handle) {
+  const auto goal = handle->get_goal();
+  SubGoalArray plan;
+  plan.header.stamp = now();
+  plan.plan_id = goal->plan_id;
+  plan.goals = goal->goals;
+  submit_plan(plan, handle);
+}
+
+void Coordinator::submit_plan(const SubGoalArray & plan, std::shared_ptr<ExecuteHandle> action) {
+  // transient_local 재수신은 무시 — 같은 id에 내용이 다르면 새 계획으로 본다.
+  if (!action && plan.plan_id == plan_.plan_id && running_ && same_goals(plan, plan_)) return;
+  if (plan.plan_id == 0 && plan.goals.empty()) {  // legacy 명시적 정지
+    if (running_ || active_plan_action_ || stopping_) begin_stop("cancelled", StopDisposition::ABORT);
+    else {
+      plan_ = plan;
+      status(0, TaskStatus::FAILED, "cancelled");
+    }
     return;
   }
-  if (plan.plan_id == plan_.plan_id && running_ && same_goals(plan, plan_)) return;
-  if (plan.plan_id == 0 && plan.goals.empty()) {  // 명시적 정지 (sim 정지 버튼 · mission_manager abort)
-    if (running_) cancel_all();
-    running_ = false;
+  PlanRequest request{plan, std::move(action)};
+  if (estop_) {
+    RCLCPP_WARN(get_logger(), "계획 %u 거부: 비상정지 중", plan.plan_id);
     plan_ = plan;
-    RCLCPP_WARN(get_logger(), "정지 요청 — 진행 중 전부 취소");
-    status(0, TaskStatus::FAILED, "cancelled");
+    status(0, TaskStatus::FAILED, "estop_blocked");
+    if (request.action) finish_action(request.action, false, false, 0, "estop_blocked");
     return;
   }
   if (mode_ != "AUTO") {
     plan_ = plan;
     RCLCPP_WARN(get_logger(), "계획 %u 거부: %s 모드", plan.plan_id, mode_.c_str());
     status(0, TaskStatus::FAILED, mode_ == "MANUAL" ? "manual_mode" : mode_ == "TEACH" ? "manual_teach_mode" : "explore_mode");
+    if (request.action) finish_action(request.action, false, false, 0,
+      mode_ == "MANUAL" ? "manual_mode" : mode_ == "TEACH" ? "manual_teach_mode" : "explore_mode");
     return;
   }
   if (!objects_) {  // 대상 id를 검증할 수 없음 — 첫 /tracked_objects까지 미룬다
     RCLCPP_INFO(get_logger(), "계획 %u: /tracked_objects 대기 후 검증", plan.plan_id);
-    waiting_plan_ = std::make_shared<SubGoalArray>(plan);
+    if (running_ && !stopping_) begin_stop("preempted", StopDisposition::PREEMPT);
+    queue_plan(std::move(request));
     return;
   }
   std::string why;
@@ -221,15 +277,37 @@ void Coordinator::on_plan(const SubGoalArray & plan) {
     plan_ = plan;
     RCLCPP_ERROR(get_logger(), "계획 %u 거부: %s", plan.plan_id, why.c_str());
     status(0, TaskStatus::FAILED, "invalid_plan:" + why);
+    if (request.action) finish_action(request.action, false, false, 0, "invalid_plan:" + why);
     return;
   }
-  RCLCPP_INFO(get_logger(), "계획 %u 수락 (%zu steps)", plan.plan_id, plan.goals.size());
-  if (running_) cancel_all();  // 진행 중 goal 취소 — 옛 결과가 새 계획을 건드리지 않게
-  plan_ = plan;
+  if (stopping_ || running_) {
+    queue_plan(std::move(request));
+    if (!stopping_) begin_stop("preempted", StopDisposition::PREEMPT);
+    return;
+  }
+  start_plan(std::move(request));
+}
+
+void Coordinator::queue_plan(PlanRequest request) {
+  if (pending_plan_ && pending_plan_->action && pending_plan_->action != request.action) {
+    const bool cancelled = pending_plan_->action->is_canceling();
+    finish_action(pending_plan_->action, false, cancelled, 0, cancelled ? "cancelled" : "preempted");
+  }
+  pending_plan_ = std::make_shared<PlanRequest>(std::move(request));
+}
+
+void Coordinator::start_plan(PlanRequest request) {
+  plan_ = std::move(request.plan);
+  active_plan_action_ = std::move(request.action);
+  ++gen_;  // 이전 계획·취소 callback이 새 계획을 건드리지 않게
   idx_ = 0;
   approached_ = static_cast<size_t>(-1);
   placed_.clear();
   running_ = true;
+  current_plan_pub_->publish(plan_);
+  publish_feedback("accepted");
+  RCLCPP_INFO(get_logger(), "계획 %u 수락 (%zu steps)%s", plan_.plan_id, plan_.goals.size(),
+              active_plan_action_ ? " [action]" : " [legacy]");
   run_step();
 }
 
@@ -293,11 +371,15 @@ void Coordinator::run_step() {
   if (!running_ || mode_ != "AUTO" || estop_) return;
   if (idx_ >= plan_.goals.size()) {
     running_ = false;
-    status(plan_.goals.back().step, TaskStatus::SUCCEEDED, "");
+    const uint32_t final_step = plan_.goals.empty() ? 0 : plan_.goals.back().step;
+    status(final_step, TaskStatus::SUCCEEDED, "");
+    finish_action(active_plan_action_, true, false, final_step, "");
+    active_plan_action_.reset();
     return;
   }
   const auto & g = plan_.goals[idx_];
   status(g.step, TaskStatus::RUNNING, "");
+  publish_feedback("running");
   RCLCPP_INFO(get_logger(), "step %u: %s %s", g.step, g.skill.c_str(), g.target.c_str());
   if (g.skill == "navigate") navigate(g);
   else if (g.skill == "approach") approach(g);
@@ -327,14 +409,32 @@ void Coordinator::send(const std::string & action, const Skill::Goal & goal, Ok 
   }
   waited_s_ = 0;
   const uint64_t gen = gen_;
+  child_pending_ = true;
   rclcpp_action::Client<Skill>::SendGoalOptions opt;
   opt.goal_response_callback = [this, gen, action](const rclcpp_action::ClientGoalHandle<Skill>::SharedPtr & h) {
+    if (stopping_ && gen == stopping_gen_) {
+      child_pending_ = false;
+      if (!h) { finish_stop(); return; }
+      stopping_child_ = h;
+      stopping_child_action_ = action;
+      skills_.at(action)->async_cancel_goal(h);
+      return;
+    }
     if (gen != gen_) return;
+    child_pending_ = false;
     if (!h) { fail(action + "_busy"); return; }  // skill 노드가 다른 goal 실행 중
     active_ = h;
+    publish_feedback("skill_running");
   };
   opt.result_callback = [this, gen, action, goal, ok, on_fail](const rclcpp_action::ClientGoalHandle<Skill>::WrappedResult & r) {
+    if (stopping_ && gen == stopping_gen_) {
+      child_pending_ = false;
+      active_.reset();
+      finish_stop();
+      return;
+    }
     if (gen != gen_) return;  // 취소된 옛 goal의 늦은 결과
+    child_pending_ = false;
     active_.reset();
     if (step_timer_) step_timer_->cancel();
     if (r.code == rclcpp_action::ResultCode::SUCCEEDED && r.result->success) { ok(*r.result); return; }
@@ -359,23 +459,104 @@ void Coordinator::send(const std::string & action, const Skill::Goal & goal, Ok 
       step_timer_->cancel();
       if (gen != gen_) return;
       RCLCPP_ERROR(get_logger(), "/skills/%s %.0f s 안에 결과 없음 — 취소", action.c_str(), limit);
-      cancel_all();
+      begin_stop(action + "_timeout", StopDisposition::ABORT);
       skills_.at(action)->async_cancel_all_goals();  // goal 응답 전이라 active_가 없어도 그 skill의 goal을 멈춤
-      fail(action + "_timeout");
     });
 }
 
-void Coordinator::cancel_all() {
+void Coordinator::begin_stop(const std::string & reason, StopDisposition disposition) {
+  if (stopping_) {
+    // 안전 정지·모드 전환은 항상 우선하고, client cancel은 replacement보다 우선한다.
+    if (disposition == StopDisposition::ABORT ||
+        (disposition == StopDisposition::CANCEL && stop_disposition_ == StopDisposition::PREEMPT)) {
+      stop_reason_ = reason;
+      stop_disposition_ = disposition;
+    }
+    return;
+  }
+  stopping_ = true;
+  stopping_gen_ = gen_;
   ++gen_;
+  stop_reason_ = reason;
+  stop_disposition_ = disposition;
   if (retry_) retry_->cancel();
   if (step_timer_) step_timer_->cancel();
-  if (active_) skills_.at(active_action_)->async_cancel_goal(active_);
+  if (active_) {
+    stopping_child_ = active_;
+    stopping_child_action_ = active_action_;
+    skills_.at(active_action_)->async_cancel_goal(active_);
+  } else if (child_pending_) {
+    // goal response 전인 경우 해당 skill의 pending goal을 취소하고 응답을 기다린다.
+    skills_.at(active_action_)->async_cancel_all_goals();
+  } else {
+    // cancel callback 안에서 바로 canceled()를 호출하지 않도록 한 executor tick 뒤에 terminal 처리한다.
+    action_terminal_timer_ = create_wall_timer(std::chrono::milliseconds(1), [this]() {
+      action_terminal_timer_->cancel();
+      finish_stop();
+    });
+    return;
+  }
+  stop_timer_ = create_wall_timer(std::chrono::seconds(2), [this]() {
+    stop_timer_->cancel();
+    RCLCPP_WARN(get_logger(), "skill 취소 응답 대기 초과 — coordinator 상태를 정리합니다");
+    finish_stop();
+  });
+}
+
+void Coordinator::finish_stop() {
+  if (stop_timer_) stop_timer_->cancel();
+  if (retry_) retry_->cancel();
+  if (step_timer_) step_timer_->cancel();
+  stopping_child_.reset();
+  child_pending_ = false;
   active_.reset();
+  running_ = false;
+
+  const uint32_t step = idx_ < plan_.goals.size() ? plan_.goals[idx_].step : 0;
+  const std::string reason = stop_reason_;
+  const auto disposition = stop_disposition_;
+  const auto old_action = active_plan_action_;
+  active_plan_action_.reset();
+  stopping_ = false;
+  if (old_action) {
+    finish_action(old_action, false, disposition == StopDisposition::CANCEL, step, reason);
+  }
+  status(step, TaskStatus::FAILED, reason);
+
+  if (pending_plan_) {
+    auto request = std::move(*pending_plan_);
+    pending_plan_.reset();
+    if (objects_) submit_plan(request.plan, request.action);
+    else pending_plan_ = std::make_shared<PlanRequest>(std::move(request));
+  }
+}
+
+void Coordinator::finish_action(const std::shared_ptr<ExecuteHandle> & handle, bool success, bool cancelled,
+                                 uint32_t final_step, const std::string & reason) {
+  if (!handle || !handle->is_active()) return;
+  auto result = std::make_shared<ExecutePlan::Result>();
+  result->success = success;
+  result->final_step = final_step;
+  result->reason = reason;
+  if (cancelled) handle->canceled(result);
+  else if (success) handle->succeed(result);
+  else handle->abort(result);
+}
+
+void Coordinator::publish_feedback(const std::string & stage) {
+  if (!active_plan_action_ || !active_plan_action_->is_active() || idx_ >= plan_.goals.size()) return;
+  auto f = std::make_shared<ExecutePlan::Feedback>();
+  f->plan_id = plan_.plan_id;
+  f->current_step = plan_.goals[idx_].step;
+  f->skill = plan_.goals[idx_].skill;
+  f->stage = stage;
+  active_plan_action_->publish_feedback(f);
 }
 
 void Coordinator::next() {
   if (!running_) return;  // 수동 전환 등으로 이미 멈춘 뒤 도착한 결과
   ++idx_;
+  ++gen_;  // 단계가 바뀌면 늦게 도착한 이전 child result를 무시
   run_step();
 }
 
@@ -383,9 +564,12 @@ void Coordinator::next() {
 void Coordinator::fail(const std::string & reason) {
   if (!running_) return;  // 이미 멈춤 (수동 전환으로 취소된 goal의 결과 등)
   const auto & g = plan_.goals[idx_];
+  ++gen_;  // 실패 뒤 남은 goal/result callback은 이 계획을 다시 건드리지 않게
   running_ = false;
   RCLCPP_WARN(get_logger(), "step %u 실패 (%s)", g.step, reason.c_str());
   status(g.step, TaskStatus::FAILED, reason);
+  finish_action(active_plan_action_, false, false, g.step, reason);
+  active_plan_action_.reset();
 }
 
 
@@ -446,7 +630,7 @@ bool Coordinator::approach_if_far(const SubGoal & g) {
   Skill::Goal sg;
   sg.pose.header.frame_id = "map";
   sg.pose.pose = approach_pose(ox, oy, rx, ry, approach_m_);
-  send("navigate", sg, [this](const Skill::Result &) { run_step(); },  // 같은 단계를 다시 (이번엔 다가가기를 건너뜀)
+  send("navigate", sg, [this](const Skill::Result &) { ++gen_; run_step(); },  // 같은 단계를 다시 (이번엔 다가가기를 건너뜀)
        [this](const std::string &) {});
   return true;
 }

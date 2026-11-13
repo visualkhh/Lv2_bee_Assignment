@@ -1,0 +1,13 @@
+# MissionManager/외부 계획자가 coordinator에 전달하는 한 번의 계획 실행 요청.
+# SubGoal 계약은 PR1에서 유지한다. 다중 pose는 후속 PR에서 별도 확장한다.
+uint32 plan_id
+SubGoal[] goals
+---
+bool success
+uint32 final_step
+string reason
+---
+uint32 plan_id
+uint32 current_step
+string skill
+string stage

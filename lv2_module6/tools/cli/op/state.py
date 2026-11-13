@@ -71,7 +71,7 @@ class StateStore:
         self.mission_phase = ''
         self.task: tuple | None = None           # /task/status (plan_id, step, state, reason)
         self.task_since = 0.0                    # 지금 step이 시작된 시각
-        self.sub_goals: tuple[int, dict] = (0, {})  # /task/sub_goals (plan_id, {step: (skill, target)})
+        self.sub_goals: tuple[int, dict] = (0, {})  # /task/current_plan (legacy /task/sub_goals도 호환)
         self.failures: deque = deque(maxlen=10)  # 최근 실패 (HH:MM:SS, monotonic, 출처, 이유) — 오래된 것부터
         self.basket = None                       # /coordinator/basket (plan/BasketState)
         self.signal = None                       # /mission/signal_status (perception/MissionSignal), 시각
@@ -230,7 +230,7 @@ class StateStore:
         self.sub_goals = (msg.plan_id, {g.step: (g.skill, g.target) for g in msg.goals})
 
     def current_skill(self) -> tuple[str, str] | None:
-        """지금 step의 (skill, target) — /task/sub_goals에서 찾음. 모르면 None."""
+        """지금 step의 (skill, target) — accepted current_plan에서 찾음. 모르면 None."""
         if self.task is None or self.sub_goals[0] != self.task[0]:
             return None
         return self.sub_goals[1].get(self.task[1])
