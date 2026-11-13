@@ -139,10 +139,21 @@ class MapGate:
 
 
 def image(m, dtype, ch):
-    """sensor_msgs/Image → numpy (row step 패딩 제거, cv_bridge 없이) — m.data(array.array)를 복사 없이 그대로 봄"""
-    a = np.frombuffer(m.data, dtype).reshape(m.height, m.step // np.dtype(dtype).itemsize)
-    a = a[:, :m.width * ch]
-    return a.reshape(m.height, m.width, ch) if ch > 1 else a
+    """sensor_msgs/Image → numpy — 메시지 버퍼를 그대로 봄(복사 없음). 행 끝 여백(row padding)이 있거나 바이트 순서가 다를 때만
+    연속 배열로 복사해 cuVSLAM(네이티브)에 넘김. 잘린 버퍼·잘못된 크기는 예외. 돌려준 배열에 쓰지 말 것 (다른 구독자와 버퍼 공유).
+    (Codex 11-14 · #213 복사 제거와 합침 — #213식 슬라이스는 여백이 있으면 비연속 배열을 넘겼음)"""
+    dt = np.dtype(dtype)
+    row_bytes = m.width * ch * dt.itemsize
+    if m.height <= 0 or m.width <= 0 or ch <= 0 or m.step < row_bytes:
+        raise ValueError('invalid image dimensions or row step')
+    data = memoryview(m.data)
+    if data.nbytes < m.height * m.step:
+        raise ValueError('truncated image buffer')
+    wire_dt = dt.newbyteorder('>' if getattr(m, 'is_bigendian', False) else '<')
+    shape = (m.height, m.width, ch) if ch > 1 else (m.height, m.width)
+    strides = (m.step, ch * dt.itemsize, dt.itemsize) if ch > 1 else (m.step, dt.itemsize)
+    view = np.ndarray(shape, dtype=wire_dt, buffer=data, strides=strides)
+    return np.ascontiguousarray(view, dtype=dt)
 
 
 def near_mask(depth, lim):
