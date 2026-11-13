@@ -203,6 +203,10 @@ cd tools
 ./run-cli mission stop     # 진행 중 skill 전부 취소
 ```
 
+미션 화면(메인 9)의 현장 디버그 줄: `[신호등 지금]`(지금 사이클 몇 번째·색별 수·꺼짐 경과 + 정답 비교) · `[인지]`(카메라별 YOLO/전체 ms · 버린 관측 수)
+· `[Nav2]`(수명주기 6개) · `[부하]`(load/코어 + CPU 상위 3) · `[빌드]`(브랜치·커밋·수정 수·perception CMAKE_BUILD_TYPE) · 바코드 줄의 읽은 카메라·찾기 창 남은 초.
+키: `l` 최근 WARN/ERROR 로그 새 창 · `d` 디버그 스냅샷(`~/.ros/bee_snapshots/<시각>/`) · `a` 정답 신호 입력 (또는 `BEE_SIGNAL_ANSWER="R G R R G R G G Y G Y G"`).
+
 메뉴 **9) 미션** 한 화면에서 RViz·`ros2` 명령 없이 "왜 멈췄나"를 봅니다 (2초마다 갱신):
 
 | 줄 | 내용 | 출처 |

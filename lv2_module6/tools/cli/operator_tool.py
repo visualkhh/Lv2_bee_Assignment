@@ -245,10 +245,51 @@ class OperatorTool(Node):
             except Exception:
                 continue
             self.create_subscription(typ, topic, cb, qos)
+        # 미션 시작 명령 — 다른 터미널·자기가 보낸 것 모두 (바코드 찾기 창 남은 시간 계산)
+        self.create_subscription(String, '/cmd/mission', lambda m: self.state.on_mission_cmd(m.data), LIVE)
+        self._wire_nav2_life()
         try:  # Nav2 주행 진행 (navigate skill이 보낸 goal)
             from nav2_msgs.action import NavigateToPose  # type: ignore
             self.create_subscription(NavigateToPose.Impl.FeedbackMessage, '/navigate_to_pose/_action/feedback',
                                      lambda m: self.state.on_nav_feedback(m.feedback), LIVE)
+        except Exception:
+            pass
+
+    def _wire_nav2_life(self):
+        """Nav2 노드 수명주기 — NAV2_POLL_S마다 get_state를 비동기로 (화면을 안 막음 · 메뉴 루프의 spin이 응답을 받음).
+        서비스가 없으면 None, 10 s 넘게 응답이 없으면 '응답 없음'. lifecycle_msgs·타이머가 없는 대역(fake)이면 줄이 빠진다."""
+        from op.fielddebug import NAV2_NODES, NAV2_POLL_S
+        try:
+            from lifecycle_msgs.srv import GetState  # type: ignore
+            clients = {n: self.create_client(GetState, f'/{n}/get_state') for n, _ in NAV2_NODES}
+        except Exception:
+            return
+        pending: dict = {}
+        life = self.state.nav2_life
+
+        def done(fut, name):
+            try:
+                res = fut.result()
+            except Exception:
+                res = None
+            life[name] = Bus.LIFECYCLE_STATES.get(res.current_state.id, res.current_state.label) if res else '응답 없음'
+
+        def poll():
+            now = time.monotonic()
+            for name, cli in clients.items():
+                fut, at = pending.get(name, (None, 0.0))
+                if fut is not None and not fut.done():
+                    if now - at < 10.0:
+                        continue
+                    life[name] = '응답 없음'
+                if not cli.service_is_ready():
+                    life[name] = None
+                    continue
+                fut = cli.call_async(GetState.Request())
+                fut.add_done_callback(lambda f, n=name: done(f, n))
+                pending[name] = (fut, now)
+        try:
+            self.create_timer(NAV2_POLL_S, poll)
         except Exception:
             pass
 

@@ -3,6 +3,7 @@
 중앙(mission_lines — `run-cli mission status`와 공용)이 읽는 것 (operator_tool._wire_mission · StateStore):
   /mission/state · /task/status · /task/current_plan (legacy /task/sub_goals) · /coordinator/basket · /mission/signal_status · /skill_context
   · /controller_server/FollowPath/status · /collision_monitor_state · Nav2 feedback · TF map→odom · /diagnostics_agg
+  · /tracked_objects 신호등(신호등 지금) · /cmd/mission(바코드 찾기 창) · Nav2 get_state 5 s · /proc(부하) · git·CMakeCache(빌드) — op/fielddebug.py
 """
 from __future__ import annotations
 
@@ -17,8 +18,9 @@ from pathlib import Path
 
 from ...defs import STAY
 from ...menus import ActionItem, GoMenu, Menu, MenuItem
-from ...terminal import BOLD, GREEN, RED, YELLOW
+from ...terminal import BOLD, GREEN, RED, YELLOW, Terminal
 from ...bars.state.nav_state import collision_text, controller_text
+from ... import fielddebug as fd
 
 ARM_PHASES = {0: '정지(위)', 1: '내려가기', 2: '안정', 3: '쥐기/놓기', 4: '올리기', 5: '대기'}  # ml/SkillContext phase
 FRESH_S = 3.0   # 이보다 오래된 live 값은 '(N s 전)'을 붙임
@@ -40,7 +42,7 @@ def mission_lines(st, term) -> list[str]:
         color = RED + BOLD if m.phase == 'ERROR' else GREEN if m.phase == 'DONE' else YELLOW
         out.append(f'[미션] {p(m.phase, color)} {now - st.mission_since:.0f}s — {m.note or "-"}')
         sig = f'R{m.count_r} Y{m.count_y} G{m.count_g}' if (m.count_r or m.count_y or m.count_g) else '-'
-        out.append(f' 바코드 {m.barcode or "-"} · 신호 {sig} · 배정 {m.order or "-"} · 놓음 {m.placed}/{m.total}')
+        out.append(f' 바코드 {m.barcode or "-"}{_barcode_extra(st, m, now)} · 신호 {sig} · 배정 {m.order or "-"} · 놓음 {m.placed}/{m.total}')
         for r in list(m.results)[-6:]:
             out.append(f'  결과 {r}')
         if m.error:
@@ -80,6 +82,7 @@ def mission_lines(st, term) -> list[str]:
     nav.append(f'충돌감시 {on}' + (' · 지금 ' + p(action, RED + BOLD) if action else ''))
     out.append('[주행] ' + nav[0])
     out += [' ' + n for n in nav[1:]]
+    out += _nav2_lines(st, p)
     rate = st.rates.get('cuvslam')
     hz = f'{rate.hz():.0f}Hz' if rate and (rate.age() or 99) < 3 else p('끊김/없음', RED)
     if st.map_odom is None:
@@ -92,6 +95,7 @@ def mission_lines(st, term) -> list[str]:
     out.append(f'[SLAM] cuVSLAM {hz} · {jump}')
     seen = ' · '.join(f'{k} {v}' for k, v in sorted(st.class_counts.items())) or '없음'
     out.append(f'[보이는 물체] {seen}')
+    out += _perception_lines(st)
     if st.skill_ctx is not None:
         c, t = st.skill_ctx
         if c.skill:
@@ -104,13 +108,103 @@ def mission_lines(st, term) -> list[str]:
         s, t = st.signal
         res = p('확정', GREEN) if s.ok else p(s.error or '?', YELLOW)
         out.append(f'[신호 해독] {res} · R{s.red} Y{s.yellow} G{s.green} · 연속 {s.cycles} · {s.raw or "-"}{_age(t)}')
+    out += _signal_now_lines(st, p)
     pct = st.battery_percent()
     if pct is not None and pct < 20:
         out.append(p(f'[전원] 배터리 낮음 {st.battery_summary()}', RED + BOLD))
+    out += _system_lines(p)
     bad = sorted(((lv, n, msg) for n, (lv, msg) in st.diagnostics.items() if lv >= 1), reverse=True)
     out.append(f'[진단 WARN/ERROR {len(bad)}]' + ('' if bad else ' 없음'))
     for lv, n, msg in bad[:6]:
         out.append(' ' + p(f'{n.split(": ", 1)[-1]}: {msg}', RED if lv >= 2 else YELLOW))
+    return out
+
+
+def _barcode_extra(st, m, now) -> str:
+    """바코드 줄 덧붙임 — 인지가 읽은 값 · 본 카메라 · 찾기 창 남은 시간 (perception: /cmd/mission start 뒤 barcode_window_s 동안,
+    처음 barcode_pole_s는 pole_front_cam도). 모르는 것은 빼고 냄."""
+    parts = []
+    val = fd.perception_diag(st.diag_values).get('바코드 (장소 작업 지시)', '')
+    read = val.split('읽음: ', 1)[1] if '읽음: ' in val else ''
+    if read:
+        parts.append(f'인지 읽음 {read}')
+    if st.barcode_cam:
+        parts.append(f'{st.barcode_cam[0]}가 봄')
+    cmd = st.mission_cmd
+    if cmd and cmd[0] in ('start', 'start:BARCODE') and not (m.barcode or read):
+        el = now - cmd[1]
+        left = fd.perception_param('barcode_window_s', 180.0) - el
+        if left > 0:
+            cams = 'pole+손캠' if el < fd.perception_param('barcode_pole_s', 3.0) else '손캠만'
+            parts.append(f'찾기 창 {left:.0f}s 남음 ({cams})')
+    return f' ({" · ".join(parts)})' if parts else ''
+
+
+def _signal_now_lines(st, p) -> list[str]:
+    """[신호등 지금] — TUI가 /tracked_objects로 따라 센 지금 사이클 + 정답과 비교 (BEE_SIGNAL_ANSWER · 미션 메뉴 a)."""
+    tr = st.signal_track
+    if not tr.seen:
+        return []
+    out = [f'[신호등 지금] {tr.summary()}' + (f' · 지난 {" ".join(tr.last_cycle)}' if tr.last_cycle else '')]
+    answer = fd.parse_answer(st.signal_answer)
+    if answer:
+        got = fd.parse_answer(st.signal[0].raw) if st.signal is not None and st.signal[0].raw else tr.last_cycle
+        src = '해독' if st.signal is not None and st.signal[0].raw else 'TUI 셈'
+        if got:
+            res = fd.answer_match(answer, got)
+            ok = res.startswith('개수 맞음')
+            out.append(f' 정답 {" ".join(answer)} · {src} ' + p(res, GREEN if ok else RED))
+        else:
+            out.append(f' 정답 {" ".join(answer)} · 아직 읽은 사이클 없음')
+    return out
+
+
+def _perception_lines(st) -> list[str]:
+    """[인지] — perception 진단의 카메라별 처리 시간(지난 1초 평균/최대 ms)과 버린 관측 수 (진단 없으면 줄 없음)."""
+    kv = fd.perception_diag(st.diag_values)
+    if not kv:
+        return []
+    cams = []
+    for k, v in kv.items():
+        if k.startswith('처리 시간 ms 평균/최대 '):
+            parts = dict(x.split(' ', 1) for x in v.split(' · ') if ' ' in x)
+            cams.append(f'{k.rsplit(" ", 1)[1]} YOLO {parts.get("YOLO", "-")} 전체 {parts.get("전체", "-")}ms')
+    counts = ' · '.join(f'{k} {kv[k]}' for k in ('시각 차 초과 TF', '오래된 영상 제외', 'TF 최신 대체') if k in kv)
+    return ['[인지] ' + ' · '.join(cams + [counts]) if cams or counts else '[인지] -']
+
+
+def _nav2_lines(st, p) -> list[str]:
+    """[Nav2] 수명주기 — 지도 모드가 NONE이 아닌데 active가 아닌 노드가 있으면 빨강."""
+    life = st.nav2_life
+    if not life:
+        return []
+    need = st.map_mode not in ('', 'NONE')
+    cells = []
+    for node, short in fd.NAV2_NODES:
+        state = life.get(node)
+        if state == 'active':
+            cells.append(f'{short} ✓')
+        else:
+            cells.append(p(f'{short} {state or "없음"}', RED if need else YELLOW))
+    return ['[Nav2] ' + ' · '.join(cells)]
+
+
+def _system_lines(p) -> list[str]:
+    """[부하] load/코어 + CPU 상위 3 · [빌드] 브랜치·커밋·수정 수·perception CMAKE_BUILD_TYPE."""
+    out = []
+    lr = fd.load_ratio()
+    if lr:
+        load, cores = lr
+        top = ' · '.join(f'{name} {pct:.0f}%' for pct, name in fd.top_procs())
+        out.append('[부하] ' + p(f'{load:.1f}/{cores}코어', RED if load / cores > fd.LOAD_RED else GREEN)
+                   + (f' · {top}' if top else ''))
+    b = fd.build_info()
+    if b:
+        bt = b['build_type']
+        btxt = ('모름' if bt is None else p('-O0 (CMAKE_BUILD_TYPE 비어 있음)', RED + BOLD) if not bt
+                else p(bt, GREEN if bt == 'Release' else YELLOW))
+        dirty = '' if b['dirty'] is None else p(f' · 수정 {b["dirty"]}', YELLOW) if b['dirty'] else ' · 수정 0'
+        out.append(f'[빌드] {b["branch"] or "-"} @ {b["commit"] or "-"}{dirty} · perception {btxt}')
     return out
 
 
@@ -221,8 +315,24 @@ class BasketClearItem(MenuItem):
 PLAN_VIEW = Path(__file__).resolve().parents[4] / 'plan' / 'mission_plan.py'   # tools/plan/mission_plan.py
 
 
+def open_window(ui, name: str, cmd: list[str], title: str, note: str) -> str:
+    """cmd를 새 창에 — tmux면 새 tmux 창, 화면(DISPLAY)이 있으면 새 터미널, 둘 다 없으면 명령 안내 (note = 안내 끝 설명)."""
+    if os.environ.get('TMUX'):
+        subprocess.Popen(['tmux', 'new-window', '-n', name, shlex.join(cmd)])
+        return STAY
+    if os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY'):
+        for term, flag in (('gnome-terminal', '--'), ('x-terminal-emulator', '-e')):   # -e = Debian 공통 규약
+            if shutil.which(term):
+                subprocess.Popen([term, flag, *cmd], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                 start_new_session=True)
+                return STAY
+    ui.pager(title, '새 창을 열 수 없음 (tmux 밖 · 화면 없음) — 다른 터미널(ssh)에서:\n\n  '
+             + shlex.join(cmd) + f'\n\n({note})')
+    return STAY
+
+
 class PlanViewItem(MenuItem):
-    """퍽 배정(장소별 그룹·개수·퍽)을 새 창에 — tmux면 새 tmux 창, 화면(DISPLAY)이 있으면 새 터미널, 둘 다 없으면 명령 안내."""
+    """퍽 배정(장소별 그룹·개수·퍽)을 새 창에."""
     key = 'p'
     shows_busy = False
 
@@ -230,19 +340,92 @@ class PlanViewItem(MenuItem):
         return '퍽 배정 보기 — 새 창 (미션 시작 뒤 · 장소별 그룹·개수·퍽)'
 
     def run(self):
-        cmd = [sys.executable, str(PLAN_VIEW)]
-        if os.environ.get('TMUX'):
-            subprocess.Popen(['tmux', 'new-window', '-n', 'plan', shlex.join(cmd)])
-            return STAY
-        if os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY'):
-            for term, flag in (('gnome-terminal', '--'), ('x-terminal-emulator', '-e')):   # -e = Debian 공통 규약
-                if shutil.which(term):
-                    subprocess.Popen([term, flag, *cmd], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                     start_new_session=True)
-                    return STAY
-        self.ui.pager('퍽 배정 보기', '새 창을 열 수 없음 (tmux 밖 · 화면 없음) — 다른 터미널(ssh)에서:\n\n  '
-                      + shlex.join(cmd) + '\n\n(~/.ros/mission 최근 회차의 signal.json · allocation.json을 2초마다 읽음)')
+        return open_window(self.ui, 'plan', [sys.executable, str(PLAN_VIEW)], '퍽 배정 보기',
+                           '~/.ros/mission 최근 회차의 signal.json · allocation.json을 2초마다 읽음')
+
+
+class LogViewItem(MenuItem):
+    """최근 WARN/ERROR 로그를 새 창에 (fielddebug.py logs — 이어 붙는 줄도 따라 봄)."""
+    key = 'l'
+    shows_busy = False
+
+    def label(self):
+        return '최근 로그 WARN/ERROR — 새 창 (mission_manager · coordinator · perception · signal_decoder)'
+
+    def run(self):
+        return open_window(self.ui, 'logs', [sys.executable, fd.__file__, 'logs'], '최근 로그',
+                           f'{fd.LOG_DIR}의 노드별 최신 로그에서 WARN/ERROR 마지막 40줄 + 이어서 따라 봄')
+
+
+class SignalAnswerItem(MenuItem):
+    """정답 신호 입력 — [신호등 지금] 아래에 개수·순서 비교 (환경변수 BEE_SIGNAL_ANSWER로도)."""
+    key = 'a'
+
+    def label(self):
+        return f'정답 신호 입력 (비교용) — 지금 {" ".join(fd.parse_answer(self.state.signal_answer)) or "없음"}'
+
+    def run(self):
+        text = self.ui.modal_input('정답 신호', ['R·Y·G 12개 (띄어쓰기 상관없음) — 비우면 비교 끔',
+                                               '예: R G R R G R G G Y G Y G'], '정답>', self.state.signal_answer)
+        if text is not None:
+            self.state.signal_answer = text.strip()
         return STAY
+
+
+DIAG_LEVELS = {0: 'OK', 1: 'WARN', 2: 'ERROR', 3: 'STALE'}
+SNAPSHOT_DIR = Path.home() / '.ros' / 'bee_snapshots'
+SNAPSHOT_IMAGES = (('pole_front_cam', '/pole_front_cam/color/image_raw'), ('gripper_cam', '/gripper_cam/color/image_raw'))
+
+
+class SnapshotItem(MenuItem):
+    """지금 상태를 폴더 하나로 — 미션 화면 글 · 진단 전부 · 노드 로그 끝 200줄 · 노드 목록 · 카메라 영상 한 장씩."""
+    key = 'd'
+
+    def label(self):
+        return f'디버그 스냅샷 저장 ({SNAPSHOT_DIR}/<시각>/)'
+
+    def run(self):
+        d = SNAPSHOT_DIR / time.strftime('%Y%m%d_%H%M%S')
+        (d / 'logs').mkdir(parents=True, exist_ok=True)
+        st = self.state
+        (d / 'mission.txt').write_text('\n'.join(mission_lines(st, Terminal(color=False))) + '\n')
+        diag = []
+        for name, (lv, msg) in sorted(st.diagnostics.items()):
+            diag.append(f'[{DIAG_LEVELS.get(lv, lv)}] {name}: {msg}')
+            diag += [f'    {k} = {v}' for k, v in st.diag_values.get(name, [])]
+        (d / 'diagnostics.txt').write_text('\n'.join(diag) + '\n' if diag else '(/diagnostics_agg 못 받음)\n')
+        for log in fd.newest_logs():
+            (d / 'logs' / log.name).write_text('\n'.join(fd.tail_lines(log, 200)) + '\n')
+        try:
+            nodes = sorted(f'{ns.rstrip("/")}/{n}' for n, ns in self.app.get_node_names_and_namespaces())
+            (d / 'nodes.txt').write_text('\n'.join(nodes) + '\n')
+        except Exception:
+            pass
+        saved = self._images(d)
+        print(f'저장: {d}')
+        print(f'  mission.txt · diagnostics.txt ({len(st.diagnostics)}) · logs/ ({len(list((d / "logs").iterdir()))}) · nodes.txt')
+        print(f'  영상: {", ".join(saved) if saved else "없음 (토픽 없음 · cv2 없음)"}')
+        return STAY
+
+    def _images(self, d: Path) -> list[str]:
+        """카메라마다 color 영상 한 장 → JPEG (cv_bridge 없이 numpy·cv2로 — 없으면 건너뜀). 최대 3초 기다림."""
+        try:
+            import cv2  # noqa: F401 — 없으면 저장 못 하니 구독도 안 함
+            from rclpy.qos import qos_profile_sensor_data
+            from sensor_msgs.msg import Image
+        except Exception:
+            return []
+        got: dict = {}
+        subs = [self.app.create_subscription(Image, topic, lambda m, c=cam: got.setdefault(c, m), qos_profile_sensor_data)
+                for cam, topic in SNAPSHOT_IMAGES]
+        try:
+            end = time.monotonic() + 3.0
+            while len(got) < len(SNAPSHOT_IMAGES) and time.monotonic() < end:
+                self.bus._poll(0.1)
+        finally:
+            for s in subs:
+                self.app.destroy_subscription(s)
+        return [cam for cam, m in got.items() if fd.save_jpeg(m, d / f'{cam}.jpg')]
 
 
 class MissionMenu(Menu):
@@ -252,6 +435,9 @@ class MissionMenu(Menu):
         return [MissionCmdItem(self.app, '1', 'start', '미션 시작', '미션을 시작할까요?'),
                 MissionCmdItem(self.app, '2', 'abort', '미션 중지 (abort)', '미션을 중지할까요? (coordinator도 정지)'),
                 PlanViewItem(self.app),
+                LogViewItem(self.app),
+                SnapshotItem(self.app),
+                SignalAnswerItem(self.app),
                 # 단계 하나만 — mission_manager "start:<단계>" (끝나면 DONE · BUILD·VERIFY는 SURVEY 결과가 있어야 해 없음)
                 MissionCmdItem(self.app, 'b', 'start:BARCODE', '단계만: 관측 — 바코드(손 카메라 gaze) + 신호(pole) 동시', '관측 단계(바코드 + 신호)만 실행할까요? (팔·바퀴가 움직임)'),
                 MissionCmdItem(self.app, 'r', 'start:READ', '단계만: 신호 읽기 (READ)', '신호 읽기 단계만 실행할까요?'),
