@@ -342,7 +342,8 @@ PerceptionNode::PerceptionNode(const rclcpp::NodeOptions & options) : rclcpp::No
   // 미션을 (다시) 시작하면 지난 회차에 읽은 바코드를 잊고 새로 읽음 — barcode_once가 옛 값을 계속 내면 바코드 단계가 바로 통과됨 (실기 11-12)
   mission_cmd_sub_ = create_subscription<std_msgs::msg::String>("/cmd/mission", rclcpp::QoS(10).reliable(),
     [this](std_msgs::msg::String::ConstSharedPtr m) {
-      if (m->data == "start" || m->data == "start:BARCODE") {
+      const std::string & d = m->data;  // start:DIAG… = 현장 진단 전체 미션 (FROM_SURVEY는 바코드를 안 봄)
+      if (d == "start" || d == "start:BARCODE" || (d.rfind("start:DIAG", 0) == 0 && d.find("FROM_SURVEY") == std::string::npos)) {
         barcode_reset_ = true;
         barcode_from_ = wall_s();
         barcode_until_ = barcode_from_ + barcode_window_s_;

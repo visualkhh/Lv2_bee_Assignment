@@ -42,6 +42,10 @@ struct Puck {
 //   초록 = 초록 수 − g가 정해지므로, 그 수만큼 모양 s 퍽이 있는지만 보면 된다 (원기둥 먼저, 안 되면 직육면체).
 //   → tag → 'R'|'Y'|'G'. 실패 why = unknown_puck(색·모양 모름 — 추정 금지) | duplicate_tag | puck_count | no_allocation
 bool allocate(const std::vector<Puck> & pucks, const Counts & c, std::map<int, char> & out, std::string & why);
+// 현장 진단 전용 — allocate가 puck_count · no_allocation으로 실패할 때(퍽이 12개가 아님) 가진 퍽으로 최대한 채움.
+//   규칙은 같음: R = 빨강만 · G = 초록만 · Y = 한 모양(색 상관없음). 다 채운 그룹(장소) 수가 가장 많게, 같으면 채운 눈 합이 많게.
+//   색·모양 모르는 퍽 · 같은 tag는 뺌. 남는 퍽은 out에 없음. 그룹마다 채운 수 → filled ('R'·'Y'·'G'). 하나도 못 채우면 false
+bool allocate_partial(const std::vector<Puck> & pucks, const Counts & c, std::map<int, char> & out, std::map<char, int> & filled);
 
 // 주사위 눈 n → 3×3 칸 번호 (0 = 북서 · 8 = 남동, 행 우선). 2·3은 ↘ 대각선, 6은 좌우 두 열 (발제 p4 그림)
 std::vector<int> dice_cells(int n);
@@ -73,7 +77,35 @@ const char * phase_name(Phase p);
 //   관측(GO_OBSERVE · BARCODE · READ) 실패 = ERROR (발제: 신호·바코드 오류면 정지 · 추정 금지)
 //   SURVEY 실패(할당 불가) = 쌓을 게 없으니 RETURN · BUILD는 퍽 단위로 실패를 기록하고 VERIFY · VERIFY 실패도 RETURN
 //   RETURN 실패 = ERROR. DONE · ERROR는 그대로
-Phase next_phase(Phase p, bool ok);
+//   diag (현장 진단 실행 — "start:DIAG…" · plan.yaml continue_on_fail): 관측 실패도 기록만 하고 다음 단계로 (SURVEY로 자료를 더 모음)
+Phase next_phase(Phase p, bool ok, bool diag = false);
+
+// ---------- 현장 진단 실행 — 실패해도 다음 퍽·장소·단계로 가되, 아래 "치명" 이유면 지금처럼 바로 정지 (ERROR · coordinator 정지)
+//   사람·안전: estop(estop_blocked 포함) · manual(수동·티칭 전환) · explore · cancelled · preempted · aborted
+//   부딪힘·과전류: arm_contact · collision · overcurrent
+//   계속해도 소용없음: coordinator_unavailable
+//   주행 갇힘: nav_no_progress · nav_failed가 stuck_limit번 이어짐 (사이에 성공한 계획이 있으면 다시 0부터)
+//   ok = 계획 성공 (stuck 셈을 0으로) · 이유는 앞부분이 아니라 어디에 있어도 봄 ("retreat:arm_contact")
+bool diag_fatal(bool ok, const std::string & why, int & stuck_streak, int stuck_limit);
+
+// "R4Y2G6" → 신호 횟수 (R·Y·G 한 번씩, 순서 상관없음, 대소문자 상관없음) + valid_counts. why = bad_counts | count_out_of_range | sum_not_12
+bool parse_counts(const std::string & text, Counts & c, std::string & why);
+
+// /cmd/mission 시작 명령 (TUI 미션 메뉴 · ros2 topic pub)
+//   start                                   처음부터 끝까지
+//   start:<BARCODE|READ|SURVEY|RETURN>      그 단계만
+//   start:DIAG[:<바코드>:<신호>]            처음부터 + 실패해도 계속 (diag). 바코드·신호를 주면 관측이 실패했을 때 대신 씀
+//   start:FROM_SURVEY:<바코드>:<신호>       관측(GO_OBSERVE·BARCODE·READ) 없이 준 값으로 SURVEY부터 끝까지
+//   start:DIAG_FROM_SURVEY:<바코드>:<신호>  위 둘을 같이
+//   예: start:DIAG_FROM_SURVEY:P2-04:R4Y2G6 — 바코드는 parse_barcode 표(P2-01~04), 신호는 parse_counts
+//   why = not_start | unknown_command | need_barcode_signal | unknown_barcode | bad_counts | count_out_of_range | sum_not_12
+struct StartCmd {
+  Phase only = Phase::IDLE;  // 단계만 (IDLE = 전체)
+  bool diag = false, from_survey = false, given = false;  // given = 바코드·신호를 받음
+  std::string barcode;
+  Counts counts;
+};
+bool parse_start(const std::string & cmd, StartCmd & out, std::string & why);
 
 // ---------- 놓기 기준 보정 — 장소 태그를 예상 자리(ex, ey)가 아닌 (ox, oy)에서 봤으면 그만큼 칸을 옮긴다 (arena).
 //   max_m 넘게 어긋나면 잘못 본 것으로 보고 보정 안 함 (0, 0)
