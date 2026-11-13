@@ -67,7 +67,8 @@ class StatusMenu(Menu):
                 GoMenu(self.app, '3', '장치 상태 / 상세', self.app.screen('2')),
                 ShowJointsItem(self.app),
                 GoMenu(self.app, '5', '진단 (항목별 상세)', DiagnosticsMenu(self.app)),
-                ShowTopicsItem(self.app)]
+                ShowTopicsItem(self.app),
+                GoMenu(self.app, '7', '부하 (노드별 CPU·메모리)', LoadPage(self.app))]
 
     def center(self):
         st = self.state
@@ -135,6 +136,49 @@ class DiagDetailPage(Page):
                                     self.bus.diag_detail_lines(self._name))
             if choice in (BACK, MAIN, QUIT):
                 return choice
+
+
+class LoadPage(Page):
+    """노드(프로세스)별 CPU %·RSS — 3초마다 다시 잼. CPU %는 코어 하나 = 100 (코어 수 × 100이 전부)."""
+    title = '부하 · 노드별'
+
+    def show(self) -> str:
+        from ... import fielddebug as fd
+        fd.proc_usage()   # 첫 호출은 기준값만 잡는다
+        while True:
+            choice = self.ui.select(self.title, [('r', '새로고침 (자동 갱신)')], self.lines(fd))
+            if choice in (BACK, MAIN, QUIT):
+                return choice
+
+    def lines(self, fd) -> list[str]:
+        p = self.term.paint
+        lr = fd.load_ratio()
+        rows = fd.proc_usage()
+        out = []
+        if lr:
+            load, cores = lr
+            out.append('[부하] ' + p(f'{load:.1f}/{cores}코어', RED if load / cores > fd.LOAD_RED else GREEN)
+                       + f' · CPU 합 {sum(r[0] for r in rows):.0f}% / {cores * 100}%')
+        avail, swap = _mem_available_mb(), _swap_used_mb()
+        if avail is not None:
+            out.append('[메모리] ' + p(f'여유 {avail} MB', RED if avail < 500 else YELLOW if avail < 1000 else GREEN)
+                       + (f' · 스왑 {swap} MB' if swap is not None else ''))
+        out.append(' load = CPU를 쓰거나 기다리는 스레드 수(1분 평균) · 코어 수보다 크면 줄 서서 기다림')
+        if not rows:
+            return out + ['', ' (재는 중 — 3초 뒤 갱신)']
+        out += ['', f' {"CPU%":>6} {"MB":>6}  노드/프로세스']
+        for pct, rss, name in rows[:25]:
+            out.append(p(f' {pct:6.1f} {rss:6d}  {name}', RED if pct >= 80 else YELLOW if pct >= 40 else ''))
+        return out
+
+
+def _swap_used_mb() -> int | None:
+    """/proc/meminfo SwapTotal - SwapFree [MB] (없으면 None)."""
+    try:
+        m = {l.split(':')[0]: int(l.split()[1]) for l in Path('/proc/meminfo').read_text().splitlines()}
+        return (m['SwapTotal'] - m['SwapFree']) // 1024
+    except (OSError, ValueError, KeyError):
+        return None
 
 
 def _mem_available_mb() -> int | None:

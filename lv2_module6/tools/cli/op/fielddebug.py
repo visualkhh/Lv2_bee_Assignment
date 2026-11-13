@@ -166,8 +166,13 @@ def load_ratio() -> tuple[float, int] | None:
 
 
 def top_procs(n: int = 3, min_interval_s: float = 3.0) -> list[tuple[float, str]]:
-    """CPU 많이 쓰는 프로세스 [(%, 이름)] — /proc/<pid>/stat 지난 호출과의 차이 (3초보다 자주 부르면 지난 값).
-    첫 호출은 비교할 값이 없어 [] · /proc 없는 곳(Mac)도 []."""
+    """CPU 많이 쓰는 프로세스 [(%, 이름)] — proc_usage() 위 n개."""
+    return [(pct, name) for pct, _, name in proc_usage(min_interval_s)[:n]]
+
+
+def proc_usage(min_interval_s: float = 3.0) -> list[tuple[float, int, str]]:
+    """프로세스별 [(CPU %, RSS MB, 이름)] CPU 많은 순 — /proc/<pid>/stat 지난 호출과의 차이 (3초보다 자주 부르면 지난 값).
+    CPU %는 코어 하나 = 100 (top과 같음). 첫 호출은 비교할 값이 없어 [] · /proc 없는 곳(Mac)도 []."""
     now = time.monotonic()
     if now - _procs['t'] < min_interval_s:
         return _procs['top']
@@ -176,6 +181,7 @@ def top_procs(n: int = 3, min_interval_s: float = 3.0) -> list[tuple[float, str]
         pids = [d for d in os.listdir('/proc') if d.isdigit()]
     except OSError:
         return []
+    page_mb = os.sysconf('SC_PAGE_SIZE') / 1e6
     for pid in pids:
         try:
             with open(f'/proc/{pid}/stat') as f:
@@ -183,25 +189,33 @@ def top_procs(n: int = 3, min_interval_s: float = 3.0) -> list[tuple[float, str]
         except OSError:
             continue
         fields = s[s.rindex(')') + 2:].split()
-        ticks[pid] = (s[s.index('(') + 1:s.rindex(')')], int(fields[11]) + int(fields[12]))   # utime + stime
+        ticks[pid] = (s[s.index('(') + 1:s.rindex(')')], int(fields[11]) + int(fields[12]),   # utime + stime
+                      int(int(fields[21]) * page_mb))                                         # rss
     dt, prev = now - _procs['t'], _procs['prev']
     hz = os.sysconf('SC_CLK_TCK')
-    use = sorted(((t - prev[p][1]) / hz / dt * 100, p, name) for p, (name, t) in ticks.items()
+    use = sorted(((t - prev[p][1]) / hz / dt * 100, rss, p, name) for p, (name, t, rss) in ticks.items()
                  if p in prev and prev[p][0] == name and (t - prev[p][1]) / hz / dt >= 0.01) if prev else []
-    _procs.update(t=now, prev=ticks, top=[(pct, _proc_name(pid, name)) for pct, pid, name in reversed(use[-n:])])
+    _procs.update(t=now, prev=ticks, top=[(pct, rss, _proc_name(pid, name)) for pct, rss, pid, name in reversed(use)])
     return _procs['top']
 
 
 def _proc_name(pid: str, comm: str) -> str:
-    """python3이면 스크립트 이름 (ROS 파이썬 노드는 argv[1]이 lib/<pkg>/<노드>)."""
-    if not comm.startswith('python'):
-        return comm
+    """ROS 노드면 __node:= 이름 · python3이면 스크립트 이름 (+ py_helpers처럼 한 프로세스에 묶인 노드 이름들)."""
     try:
         with open(f'/proc/{pid}/cmdline', 'rb') as f:
-            args = [a for a in f.read().split(b'\0') if a and not a.startswith(b'-')]
-        return Path(args[1].decode(errors='replace')).name if len(args) > 1 else comm
+            argv = [a.decode(errors='replace') for a in f.read().split(b'\0') if a]
     except OSError:
         return comm
+    for a in argv:
+        if a.startswith('__node:='):
+            return a[8:]
+    if not comm.startswith('python'):
+        return comm
+    args = argv[1:argv.index('--ros-args')] if '--ros-args' in argv else argv[1:]
+    args = [a for a in args if not a.startswith('-')]
+    if not args:
+        return comm
+    return ' '.join([Path(args[0]).name] + args[1:])[:60]
 
 
 # ---------------------------------------------------------------- 빌드 정보
