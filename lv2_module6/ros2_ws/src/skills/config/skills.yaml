@@ -4,9 +4,10 @@
 skill_navigate:
   ros__parameters:
     server_wait_s: 30.0
+    nav_look_m: 0.6          # [m] goal.target "look": 남은 경로가 이만큼 안이면 팔을 pose_look으로 (상자 도킹 앞, 11-13)
 skill_approach:
   ros__parameters:
-    approach_mode: "sim"     # sim: 목표 방향 직선 따라가기 (carrot 조향 ≤ 0.12 m/s → 마지막 방향) + 주행 정책 보정 · legacy: 예전
+    approach_mode: "sim"     # sim: 목표 방향 직선 따라가기 (carrot 조향 ≤ approach_v_max → 마지막 방향) + 주행 정책 보정 · legacy: 예전
     approach_speed: 0.05     # [m/s] legacy 직선 속도 (앞 자리로 갈 때는 2배)
     approach_pre_m: 0.10     # [m] legacy: 목표 뒤 이만큼에서 목표 방향으로 돌고 직선 (박스 바로 앞 제자리 회전 금지)
     approach_pos_tol: 0.005  # [m] legacy 도착
@@ -16,6 +17,9 @@ skill_approach:
     residual_w: 0.1          # [rad/s] (시뮬 res_w)
     approach_release_m: 0.03 # [m] sim: tol_m×0.6 안에 한 번 들면 이만큼 벗어날 때까지 마지막 방향만
     approach_carrot_m: 0.05  # [m] sim: 목표 방향 직선 위 이만큼 앞 점을 향해 조향 (옆 어긋남을 도착 전에 없앰)
+    approach_v_max: 0.06     # [m/s] sim 전진 상한 (11-13: 0.12는 빠름 — 사용자)
+    approach_w_max: 0.5      # [rad/s] sim 회전 상한 (11-13: 1.0은 면 맞출 때 크게 돎)
+    approach_exit_m: 0.165   # [m] goal.target "exit" 기본 후진 거리 (values[0]이 있으면 그 값) — 상자에서 standoff까지
     # 상자 도킹 (goal.values = [gap, half]): 도면 자리는 힌트 — 인지 상자로 목표를 정함 (11-12). 팔은 pose_look으로 천천히 (launch arm_velocity_scale 0.15)
     box_match_m: 0.35        # [m] 힌트 상자 가운데에서 이만큼 안의 start_box · location_box만
     box_wait_s: 8.0          # [s] 첫 측정까지 정지해서 기다림 — 넘으면 approach_box_unseen

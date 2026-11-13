@@ -673,7 +673,7 @@ void MissionManager::go_home(bool corrected) {
   if (!back_.empty()) {  // 박스에 붙어 있음 — 먼저 똑바로 물러남
     const std::string back = back_;
     back_.clear();
-    run({stow(), SubGoal().set__skill("approach").set__target(back)}, [this, corrected](bool ok, const std::string & why) {
+    run({stow(), SubGoal().set__skill("approach").set__target(back).set__relation("exit")}, [this, corrected](bool ok, const std::string & why) {
       ok ? go_home(corrected) : finish(false, "retreat:" + why);
     });
     return;
@@ -777,9 +777,9 @@ void MissionManager::run_retry(std::vector<SubGoal> goals, Done done, int tries)
 
 void MissionManager::go_near(const Box & box, double px, double py, Done done, size_t k, std::vector<Pose2> poses) {
   if (k == 0 && poses.empty() && !back_.empty()) {  // 지금 박스에 붙어 있으면 먼저 standoff까지 똑바로 물러남 (Nav2는 원 0.18이라 붙은 자리에선 출발 못 함)
-    const std::string back = back_;
+    const std::string back = back_;  // 후진 거리 [m] — approach exit (odom 기준 똑바로, 11-13: 예전엔 map 자리로 가서 map이 밀리면 비틀림)
     back_.clear();
-    run({stow(), SubGoal().set__skill("approach").set__target(back)}, [this, box, px, py, done](bool ok, const std::string & why) {
+    run({stow(), SubGoal().set__skill("approach").set__target(back).set__relation("exit")}, [this, box, px, py, done](bool ok, const std::string & why) {
       if (!ok) { done(false, "retreat:" + why); return; }
       go_near(box, px, py, done);
     });
@@ -806,12 +806,12 @@ void MissionManager::go_near(const Box & box, double px, double py, Done done, s
   const auto m = to_map(poses[k].x, poses[k].y, poses[k].yaw);
   const double push = standoff_ - approach_gap_;  // 실패하면 Nav2가 어디서 멈췄는지 모름 — back_ 없음 (다음 navigate가 알아서)
   const auto f = to_map(poses[k].x + push * std::cos(poses[k].yaw), poses[k].y + push * std::sin(poses[k].yaw), poses[k].yaw);
-  run({stow(), SubGoal().set__skill("navigate").set__target(fmt("%.3f,%.3f,%.3f", m.x, m.y, m.yaw)),
+  run({stow(), SubGoal().set__skill("navigate").set__target(fmt("%.3f,%.3f,%.3f", m.x, m.y, m.yaw)).set__relation("look"),
        // 상자 도킹: 도면 자리(f)는 힌트 — skill_approach가 인지 상자 + gap으로 목표를 정함 (도면은 안 믿음, 11-12)
        SubGoal().set__skill("approach").set__target(fmt("%.4f,%.4f,%.4f", f.x, f.y, f.yaw) + fmt(",%.4f,%.4f", approach_gap_, box.half))
          .set__relation("dock_box")},
-    [this, box, px, py, done, k, poses, m](bool ok, const std::string & why) {
-      if (ok) { back_ = fmt("%.4f,%.4f,%.4f", m.x, m.y, m.yaw); done(true, ""); return; }
+    [this, box, px, py, done, k, poses, push](bool ok, const std::string & why) {
+      if (ok) { back_ = fmt("%.3f", push); done(true, ""); return; }
       RCLCPP_WARN(get_logger(), "접근 자리 %zu 실패 (%s) — 다음 변", k + 1, why.c_str());
       go_near(box, px, py, done, k + 1, poses);
     });

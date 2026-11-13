@@ -99,14 +99,16 @@ controller_server:
       stateful: true
       # 목표 위치 허용 오차(m). 퍽 앞 접근 정확도 — 팔 도달 범위가 좁아 기본 0.25보다 작게 (00-overview "도달 범위 주의"). (실측)
       xy_goal_tolerance: 0.10
-      # 목표 방향 허용 오차(rad). 0.15 ≈ 8.6°. (실측)
-      yaw_goal_tolerance: 0.15
+      # 목표 방향 허용 오차(rad). 0.5 ≈ 29° (11-13, 예전 0.15 ≈ 8.6° 실측).
+      #   상자 옆 목표에서 비스듬히 도착하면 MPPI가 제자리 회전을 못 해 nav_no_progress → approach가 안 불렸다.
+      #   최종 방향은 approach가 상자를 보며 맞춘다. 웨이포인트 방향이 중요한 주행이 생기면 다시 좁힌다.
+      yaw_goal_tolerance: 0.5
     # through-poses 기본 BT의 GoalCheckerSelector가 찾는 이름 — 값은 goal_checker와 같게.
     general_goal_checker:
       plugin: "nav2_controller::SimpleGoalChecker"
       stateful: true     # goal_checker와 같게 (위 설명)
       xy_goal_tolerance: 0.10
-      yaw_goal_tolerance: 0.15
+      yaw_goal_tolerance: 0.5
 
     # 경로 추종 플러그인 — ml::RlNavController (RL 정책, ONNX) + inner 바이패스
     #   enable=false → inner(MPPI — fallback_controller) 그대로. ~/FollowPath/toggle 서비스로 정책 ON/OFF.

@@ -419,6 +419,7 @@ bool Coordinator::approach_if_far(const SubGoal & g) {
 
 void Coordinator::navigate(const SubGoal & g) {
   Skill::Goal sg;
+  sg.target = g.relation == "look" ? "look" : "";  // look: 도착 전부터 팔을 look 자세로 (skill_navigate nav_look_m)
   sg.pose.header.frame_id = "map";
   sg.pose.pose.orientation.w = 1.0;
   if (is_id(g.target)) {
@@ -439,6 +440,14 @@ void Coordinator::navigate(const SubGoal & g) {
 
 void Coordinator::approach(const SubGoal & g) {
   const auto v = parse_numbers(g.target);  // "x,y,yaw" · 상자 도킹 "x,y,yaw,gap,half" (x,y,yaw = 도면 힌트 — skill이 인지로 고침)
+  if (g.relation == "exit") {  // 상자에서 빠져나오기: target "d" = 똑바로 후진 거리 [m] (비우면 skill 기본 approach_exit_m)
+    if (v.size() > 1) { fail("approach_bad_target"); return; }
+    Skill::Goal sg;
+    sg.target = "exit";
+    sg.values = v;
+    send("approach", sg, [this](const Skill::Result &) { next(); });
+    return;
+  }
   if (v.size() != 3 && v.size() != 5) { fail("approach_bad_target"); return; }
   Skill::Goal sg;
   sg.target = g.relation;  // 주행 정책: dock_box(기본) · park_home · drive_arc · drive_straight

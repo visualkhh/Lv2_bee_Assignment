@@ -1,6 +1,6 @@
 // skill_approach — /skills/approach: 목표 자세(map x,y,yaw) 앞 마지막 몇 cm를 저속 정밀 주행 (Nav2는 로봇을 원 0.18로 봐서 못 붙는 자리)
 //   goal.target = 쓸 주행 정책: dock_box(기본, 상자 앞 도킹) · park_home(출발 구역) · drive_arc · drive_straight
-//   approach_mode sim: 목표 방향 직선 따라가기(직선 위 carrot 조향 ≤ 0.12 m/s → 마지막 방향, 시뮬 drive_env 기준 제어를 11-12 고침) + 정책 보정 (dv, dw)
+//   approach_mode sim: 목표 방향 직선 따라가기(직선 위 carrot 조향 ≤ approach_v_max → 마지막 방향, 시뮬 drive_env 기준 제어를 11-12 고침) + 정책 보정 (dv, dw)
 //     — 이 노드가 정책을 직접 계산 (20 Hz). 정책: models/skills/<정책>/ (meta use: false면 기준 제어만)
 //     도착 판정은 정책 meta의 tol_m · tol_deg · hold_s (시뮬 drive_env TASKS와 같음)
 //   approach_mode legacy: 예전 coordinator approach (목표 뒤 approach_pre_m로 → 돌기 → 직선)
@@ -15,6 +15,8 @@
 //     상자 도킹은 odom 프레임에서: map은 cuVSLAM 보정으로 움직임 (11-12 Isaac 정답 대비 map→odom이 한 번에 21 cm · 5.5° 밀림,
 //     odom→base_footprint는 1 cm) → 목표를 map에 고정하면 붙은 뒤에 '지나침'으로 보고 후진. 측정(map)은 그 관측 시각의
 //     map→odom으로 odom에 옮김 (인지가 쓴 것과 같은 보정이라 상쇄) · 도면 힌트는 시작 때 한 번 옮김
+//   goal.target "exit" (상자에서 빠져나오기, 11-13): 지금 방향 그대로 values[0] m(없으면 approach_exit_m) 똑바로 후진 — odom 기준,
+//     정책 보정 없음 · 뒤는 카메라가 못 보므로 느리게 (기준 제어 후진 상한 0.05 m/s)
 #include <algorithm>
 #include <cmath>
 #include <map>
@@ -45,8 +47,11 @@ public:
     timeout_s_ = declare_parameter<double>("approach_timeout_s", 30.0);
     res_v_ = declare_parameter<double>("residual_v", 0.02);          // 시뮬 res_v · res_w (행동 1 = 이만큼)
     res_w_ = declare_parameter<double>("residual_w", 0.1);
+    exit_m_ = declare_parameter<double>("approach_exit_m", 0.165);  // exit 기본 후진 거리 [m] (= standoff 0.25 − gap 0.085)
     release_m_ = declare_parameter<double>("approach_release_m", 0.03);  // sim: 도착(tol_m×0.6) 뒤 이만큼 벗어나야 다시 위치 맞춤
     carrot_m_ = declare_parameter<double>("approach_carrot_m", 0.05);    // sim: 목표 직선 위 이만큼 앞 점을 향해 조향
+    v_max_ = declare_parameter<double>("approach_v_max", 0.06);          // sim: 전진 상한 [m/s]
+    w_max_ = declare_parameter<double>("approach_w_max", 0.5);           // sim: 회전 상한 [rad/s]
     look_q_ = declare_parameter<std::vector<double>>("pose_look", {0.0, -1.682497, 0.324631, 1.926843, 0.0});  // arm.yaml이 덮음
     box_match_m_ = declare_parameter<double>("box_match_m", 0.35);  // 상자 도킹: 힌트(도면) 상자 가운데에서 이만큼 안의 상자만
     box_wait_s_ = declare_parameter<double>("box_wait_s", 8.0);     // 첫 측정까지 기다림 (그동안 정지)
@@ -93,6 +98,8 @@ private:
   void start(const SkillGoal & g, Done done) {
     double x, y, yaw;
     box_mode_ = false;  // 이전 goal의 측정이 끼지 않게 (아래에서 다시 정함)
+    exit_ = g.target == "exit";
+    if (exit_) { start_exit(g, done); return; }
     frame_ = g.values.size() >= 2 ? "odom" : "map";
     if (!robot_pose(x, y, yaw)) { done(false, "approach_no_tf"); return; }
     const std::string name = g.target.empty() ? "dock_box" : g.target;
@@ -136,6 +143,28 @@ private:
       if (!box_ready()) return;
       mode_ == "sim" ? tick_sim() : tick_legacy();
     });
+  }
+
+  // 상자에서 빠져나오기 (헤더 설명): 목표 = 지금 자리에서 뒤로 d · 같은 방향 → tick_sim의 '지나침' 후진 가지로 똑바로 물러남
+  void start_exit(const SkillGoal & g, Done done) {
+    double x, y, yaw;
+    frame_ = "odom";
+    if (!robot_pose(x, y, yaw)) { done(false, "approach_no_tf"); return; }
+    const double d = g.values.empty() ? exit_m_ : g.values[0];
+    if (!(d > 0.0) || d > 1.0) { done(false, "approach_bad_target"); return; }
+    gx_ = x - d * std::cos(yaw);
+    gy_ = y - d * std::sin(yaw);
+    gyaw_ = yaw;
+    tol_m_ = 0.01;
+    tol_yaw_ = 3.0 * M_PI / 180.0;
+    hold_s_ = 0.2;
+    best_ = 1e9;
+    still_s_ = 0.0;
+    pos_done_ = false;
+    started_ = progress_ = now();
+    done_ = done;
+    stage("exit — 뒤로 " + std::to_string(d).substr(0, 5) + " m");
+    timer_ = create_wall_timer(std::chrono::milliseconds(50), [this]() { tick_sim(); });
   }
 
   // 상자 측정 → 걸러서 목표 갱신 (헤더 설명)
@@ -319,16 +348,16 @@ private:
     const double head_c = std::atan2(cy, cx);
     double v = 0.0, w = 0.0;
     if (pos_done_) {
-      w = std::clamp(3.0 * gyaw, -1.0, 1.0);
+      w = std::clamp(3.0 * gyaw, -w_max_, w_max_);
     } else if (along < -0.003) {
       v = std::max(-0.05, 1.5 * along);
       w = std::clamp(1.5 * gyaw, -0.3, 0.3);
     } else if (std::abs(head_c) > 45.0 * M_PI / 180.0 && dist > release) {
-      w = std::clamp(3.0 * head_c, -1.0, 1.0);
+      w = std::clamp(3.0 * head_c, -w_max_, w_max_);
     } else {
-      v = std::clamp(1.5 * along, 0.0, 0.12) * std::max(0.0, std::cos(head_c));
+      v = std::clamp(1.5 * along, 0.0, v_max_) * std::max(0.0, std::cos(head_c));
       if (along > 0.003) v = std::max(v, 0.01);
-      w = std::clamp(3.0 * head_c, -1.0, 1.0);
+      w = std::clamp(3.0 * head_c, -w_max_, w_max_);
     }
     if (dist <= tol_m_ && std::abs(gyaw) < tol_yaw_) still_s_ += 0.05;
     else still_s_ = 0.0;
@@ -346,7 +375,8 @@ private:
       return;
     }
     double dv, dw;
-    residual(x, y, yaw, dv, dw);
+    if (exit_) dv = dw = 0.0;
+    else residual(x, y, yaw, dv, dw);
     send(v + dv, w + dw);
   }
 
@@ -392,8 +422,10 @@ private:
   }
 
   std::string mode_;
-  double speed_, pre_m_, pos_tol_, yaw_tol_, timeout_s_, res_v_, res_w_, release_m_, carrot_m_;
+  double speed_, pre_m_, pos_tol_, yaw_tol_, timeout_s_, res_v_, res_w_, release_m_, carrot_m_, v_max_, w_max_;
   bool pos_done_ = false;
+  bool exit_ = false;
+  double exit_m_ = 0.165;
   std::string frame_ = "map";  // 목표·로봇 자세 프레임 — 상자 도킹은 odom
   ArmIO arm_;
   std::vector<double> look_q_;
