@@ -137,6 +137,15 @@ MissionManager::MissionManager()
   place_tol_ = declare_parameter<double>("place_tol", 0.010);
   place_search_ = declare_parameter<double>("place_search", 0.05);
   corr_max_ = declare_parameter<double>("tag_correction_max", 0.05);
+  acorr_on_ = declare_parameter<bool>("arena_correction", acorr_on_);
+  acorr_gate_ = declare_parameter<double>("arena_corr_gate", acorr_gate_);
+  acorr_max_shift_ = declare_parameter<double>("arena_corr_max_shift", acorr_max_shift_);
+  acorr_max_rot_ = declare_parameter<double>("arena_corr_max_rot", acorr_max_rot_);
+  acorr_min_sep_ = declare_parameter<double>("arena_corr_min_sep", acorr_min_sep_);
+  acorr_alpha_ = declare_parameter<double>("arena_corr_alpha", acorr_alpha_);
+  acorr_range_ = declare_parameter<double>("arena_corr_range", acorr_range_);
+  acorr_outlier_ = declare_parameter<double>("arena_corr_outlier", acorr_outlier_);
+  acorr_min_hits_ = static_cast<int>(declare_parameter<int64_t>("arena_corr_min_hits", acorr_min_hits_));
   signal_timeout_s_ = declare_parameter<double>("signal_timeout_s", 150.0);
   signal_error_cycles_ = static_cast<int>(declare_parameter<int64_t>("signal_error_cycles", 2));
   barcode_timeout_s_ = declare_parameter<double>("barcode_timeout_s", 20.0);
@@ -247,6 +256,7 @@ MissionManager::MissionManager()
   objects_sub_ = create_subscription<perception::msg::TrackedObjectArray>("/tracked_objects", rclcpp::QoS(5).reliable(),
     [this](perception::msg::TrackedObjectArray::ConstSharedPtr m) {
       objects_ = m;
+      if (active_ && acorr_on_) update_corr(*m);
       for (const auto & o : m->objects)  // 태그를 읽은 퍽의 마지막 모습 — 안 보이게 돼도 그 자리로 바로 pick (locate)
         if (is_puck(o) && !detail(o, "tag").empty()) last_seen_[std::stoi(detail(o, "tag"))] = o;
     });
@@ -303,6 +313,9 @@ void MissionManager::on_command(const std::string & cmd) {
   seen_tags_.clear();
   lying_.clear();
   corr_.assign(locations_.size(), {0.0, 0.0});
+  marks_.assign(start_boxes_.size() + loc_boxes_.size(), Mark{});
+  if (acorr_.n) { acorr_ = {}; publish_walls(); }
+  acorr_walls_ = {};
   barcode_.clear();
   error_.clear();
   back_.clear();
@@ -1304,9 +1317,11 @@ void MissionManager::stand_up(uint32_t id, double mx, double my, int tries, Done
 }
 
 // ---------- 좌표
-Pose2 MissionManager::to_map(double x, double y, double yaw) const { return arena_to_map({x, y, yaw}, start_); }
+Pose2 MissionManager::to_map(double x, double y, double yaw) const { return apply_corr(acorr_, arena_to_map({x, y, yaw}, start_)); }
 
-Pose2 MissionManager::to_arena(double mx, double my, double myaw) const {
+Pose2 MissionManager::to_arena(double mx0, double my0, double myaw0) const {
+  const auto u = unapply_corr(acorr_, {mx0, my0, myaw0});
+  const double mx = u.x, my = u.y, myaw = u.yaw;
   return {start_.x + std::cos(start_.yaw) * mx - std::sin(start_.yaw) * my,
           start_.y + std::sin(start_.yaw) * mx + std::cos(start_.yaw) * my, start_.yaw + myaw};
 }
@@ -1326,6 +1341,65 @@ bool MissionManager::robot_arena(Pose2 & p) const {
   } catch (const std::exception &) {
     return false;
   }
+}
+
+// ---------- 도면 보정 — 인지 상자(윗면 가운데, map) ↔ 도면 상자 짝으로 arena → map 변환을 고침
+//   start_box는 9개 상자 전부와 (태그 못 본 장소 상자도 start_box로 나옴), location_box는 태그의 장소 상자와만 짝지음.
+//   gate 안에 하나뿐일 때만 · 로봇에서 arena_corr_range 안 · arena_corr_min_hits번 본 짝만 맞춤에 씀
+void MissionManager::update_corr(const perception::msg::TrackedObjectArray & m) {
+  const size_t ns = start_boxes_.size();
+  if (marks_.size() != ns + loc_boxes_.size()) return;
+  std::vector<std::pair<double, double>> raw, cands;  // 도면 상자 map 점 (보정 전 · 지금 보정)
+  for (size_t i = 0; i < marks_.size(); ++i) {
+    const Box & b = i < ns ? start_boxes_[i] : loc_boxes_[i - ns];
+    const auto r = arena_to_map({b.x, b.y, 0}, start_);
+    const auto c = apply_corr(acorr_, r);
+    raw.push_back({r.x, r.y});
+    cands.push_back({c.x, c.y});
+  }
+  bool seen = false;
+  for (const auto & o : m.objects) {
+    const bool start_box = o.class_name == "start_box";
+    if (!start_box && o.class_name != "location_box") continue;
+    const auto dist = detail(o, "distance");
+    if (!dist.empty() && std::stod(dist) > acorr_range_) continue;
+    const double qx = o.pose.pose.position.x, qy = o.pose.pose.position.y;
+    int k = -1;
+    if (start_box) k = match_landmark(qx, qy, cands, acorr_gate_);
+    else {
+      const auto t = detail(o, "tag");
+      for (size_t li = 0; li < loc_tags_.size() && ns + li < cands.size(); ++li)
+        if (t == str(loc_tags_[li]) && std::hypot(cands[ns + li].first - qx, cands[ns + li].second - qy) < acorr_gate_)
+          k = static_cast<int>(ns + li);
+    }
+    if (k < 0) continue;
+    auto & mk = marks_[static_cast<size_t>(k)];
+    const double a = mk.hits ? acorr_alpha_ : 1.0;
+    mk.qx += a * (qx - mk.qx);
+    mk.qy += a * (qy - mk.qy);
+    ++mk.hits;
+    seen = true;
+  }
+  if (!seen) return;
+  std::vector<CorrPair> pairs;
+  for (size_t i = 0; i < marks_.size(); ++i)
+    if (marks_[i].hits >= acorr_min_hits_) pairs.push_back({raw[i].first, raw[i].second, marks_[i].qx, marks_[i].qy});
+  if (pairs.empty()) return;
+  const auto c = fit_arena_corr(pairs, acorr_min_sep_, acorr_max_shift_, acorr_max_rot_, acorr_outlier_);
+  const auto moved = [](const ArenaCorr & a, const ArenaCorr & b, double m, double r) {
+    return std::hypot(a.dx - b.dx, a.dy - b.dy) > m || std::abs(a.dth - b.dth) > r;
+  };
+  if (c.n == acorr_.n && !moved(c, acorr_, 0.01, 0.005)) return;  // 1 cm · 0.3° 안 변화는 버림 (기록이 넘치지 않게)
+  acorr_ = c;
+  std::string used;
+  for (size_t i = 0; i < marks_.size(); ++i)
+    if (marks_[i].hits >= acorr_min_hits_) used += (used.empty() ? "\"" : ", \"") + (i < ns ? "S" + str(static_cast<int>(i + 1)) : "L" + str(static_cast<int>(i - ns + 1))) + "\"";
+  RCLCPP_INFO(get_logger(), "도면 보정 dx %+.3f dy %+.3f dθ %+.1f° (근거 %d개 · 본 상자 %zu개)", c.dx, c.dy, c.dth * 180 / M_PI, c.n, pairs.size());
+  char line[256];
+  std::snprintf(line, sizeof(line), "{\"t\": %.3f, \"phase\": \"%s\", \"dx\": %.4f, \"dy\": %.4f, \"dth_deg\": %.2f, \"n\": %d, \"boxes\": [",
+                wall_s() - mission_t0_, phase_name(phase_), c.dx, c.dy, c.dth * 180 / M_PI, c.n);
+  append_log("arena_correction.jsonl", line + used + "]}");
+  if (moved(acorr_, acorr_walls_, 0.03, 0.017)) { acorr_walls_ = acorr_; publish_walls(); }  // 3 cm · 1° 넘게 바뀌면 /arena/walls 다시
 }
 
 // 경기장 벽을 map 격자로 (/arena/walls, latched) — nvblox_map이 /map에 겹쳐 Nav2가 매핑 처음부터 벽을 앎.

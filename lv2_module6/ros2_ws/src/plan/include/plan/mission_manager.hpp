@@ -120,7 +120,7 @@ private:
   //   memory: 목록에 없을 때 먼저 마지막으로 본 트랙(last_seen_)을 줌 — 첫 시도만 (그 pick이 실패하면 다시 봄)
   void locate(int tag, bool memory, std::function<void(const TrackedObject *)> cb);
 
-  Pose2 to_map(double x, double y, double yaw = 0.0) const;
+  Pose2 to_map(double x, double y, double yaw = 0.0) const;  // 도면 보정(acorr_)까지 더함
   Pose2 to_arena(double mx, double my, double myaw = 0.0) const;
   std::string point(double ax, double ay, double z) const;  // arena 점 → "x,y,z" (map)
   bool robot_arena(Pose2 & p) const;
@@ -231,6 +231,16 @@ private:
   struct Job { int tag; size_t loc; int cell; };
   std::vector<Job> jobs_;
   std::vector<std::pair<double, double>> corr_;  // 장소마다 태그 보정 (arena, )
+  // 도면 보정 — 인지한 시작 박스·장소 상자(윗면 가운데)를 도면 상자와 짝지어 arena → map 변환을 고침 (출발 자세 · 도면 오차)
+  //   켜면 to_map · to_arena 전부에 들어감 (다가설 자리 · 장소 · 복귀 · /arena/walls). 회차 시작마다 0부터
+  struct Mark { double qx = 0, qy = 0; int hits = 0; };  // 도면 상자 하나에 짝지은 인지 위치 (map, 지수 평균)
+  bool acorr_on_ = true;
+  double acorr_gate_ = 0.6, acorr_max_shift_ = 0.8, acorr_max_rot_ = 0.35, acorr_min_sep_ = 1.0;
+  double acorr_alpha_ = 0.3, acorr_range_ = 2.5, acorr_outlier_ = 0.15;
+  int acorr_min_hits_ = 3;
+  ArenaCorr acorr_, acorr_walls_;     // 지금 보정 · /arena/walls를 마지막으로 보낸 보정
+  std::vector<Mark> marks_;           // 시작 박스 0..5 · 장소 상자 6..8
+  void update_corr(const perception::msg::TrackedObjectArray & m);
   std::vector<std::string> results_;
   std::string build_json_, verify_json_;
   std::vector<std::vector<int>> seen_tags_;      // 재검증 — 장소마다 본 tag (12개 중복·누락)

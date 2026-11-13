@@ -61,6 +61,19 @@ struct Pose2 { double x = 0, y = 0, yaw = 0; };
 // 경기장(arena) 자세 → map 자세. start = 로봇이 켜진 자리의 arena 자세 (map 원점 = 그 자리, map x = 그때 로봇 앞)
 Pose2 arena_to_map(const Pose2 & p, const Pose2 & start);
 
+// 도면 보정 — 도면 → map 변환(arena_to_map)이 실제와 어긋난 만큼 (출발 자세 오차 · 도면 오차). map 안의 2D 강체:
+//   보정 map 점 = R(dth)·(도면 map 점) + (dx, dy)  — 회전 중심 = map 원점(켠 자리)
+struct ArenaCorr { double dx = 0, dy = 0, dth = 0; int n = 0; };
+Pose2 apply_corr(const ArenaCorr & c, const Pose2 & m);
+Pose2 unapply_corr(const ArenaCorr & c, const Pose2 & m);
+// 짝(도면 map 점 m ↔ 인지 map 점 q)으로 보정을 맞춤. 1개거나 도면 점끼리 min_sep보다 가까우면 이동만, 아니면 이동+회전 (2D 최소제곱).
+//   잔차가 outlier_m을 넘는 짝은 가장 큰 것부터 하나씩 빼고 다시 (2개 남을 때까지) · 회전은 ±max_rot, 이동은 max_shift로 자름
+//   n = 쓴 짝 수 (0 = 짝 없음 → 보정 0)
+struct CorrPair { double mx, my, qx, qy; };
+ArenaCorr fit_arena_corr(std::vector<CorrPair> pairs, double min_sep, double max_shift, double max_rot, double outlier_m);
+// 인지 점 q에 맞는 도면 상자 — cands(보정한 map 점) 중 gate 안 가장 가까운 것, 두 번째가 그보다 0.25 m 넘게 멀 때만 (헷갈리면 −1)
+int match_landmark(double qx, double qy, const std::vector<std::pair<double, double>> & cands, double gate);
+
 // 정사각 박스(중심 c, 반 변 half) 위의 점 p를 팔로 다루려고 다가설 자세 후보 — 가까운 변부터 (변 4개).
 //   변 바깥 standoff [m]에 서서 박스 안쪽을 바라봄, 변을 따라서는 p와 나란히 (박스 범위 안으로 자름). arena 좌표
 std::vector<Pose2> approach_poses(double cx, double cy, double half, double px, double py, double standoff);

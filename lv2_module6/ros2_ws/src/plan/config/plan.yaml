@@ -66,6 +66,18 @@ mission_manager:             # 주사위 기억 미션 (documents/mission/README
     location_boxes: [3.670, 0.950, 0.1025, 2.202, 3.700, 0.1025, 3.670, 5.354, 0.1025]   # 장소가 놓인 박스 [x, y, 반 변] — 셋 다 205 박스 (11-04 운영 확인: L2 받침대도 같은 크기)
     location_tags: [12, 13, 14]              # L1·L2·L3 장소 태그 번호
     tag_correction_max: 0.05                 # [m] 놓기 직전 인지 location_box(상자 윗면 가운데)가 예상 상자 중심에서 어긋난 만큼 칸을 옮기는 최대 거리 — 넘으면 잘못 본 것으로 보고 보정 안 함
+    # 도면 보정 — 경기장이 도면(위 좌표)과 100 % 같지 않고 출발 자세도 대충이라, 달리며 본 시작 박스·장소 상자(윗면 가운데)를
+    #   도면 상자와 짝지어 arena → map 변환에 (dx, dy, dθ)를 더함. 다가설 자리·장소·복귀·/arena/walls 전부 (회차 시작마다 0부터)
+    #   기록: 로그 "도면 보정 dx … (근거 n개)" · <회차>/arena_correction.jsonl
+    arena_correction: true
+    arena_corr_gate: 0.6           # [m] 인지 상자가 (지금 보정한) 도면 상자에서 이 안이고 다른 상자는 그보다 0.25 m 넘게 멀 때만 짝
+    arena_corr_range: 2.5          # [m] 로봇에서 이보다 먼 상자는 안 씀 (depth 오차)
+    arena_corr_min_hits: 3         # 같은 상자를 이만큼 봐야 근거로 씀 (한 프레임 오인 거름)
+    arena_corr_alpha: 0.3          # 상자마다 인지 위치 지수 평균 (작을수록 천천히 — 튐 방지)
+    arena_corr_min_sep: 1.0        # [m] 근거 상자끼리 이만큼 떨어져야 회전까지 맞춤 (아니면 이동만)
+    arena_corr_outlier: 0.15       # [m] 맞춘 뒤 잔차가 이보다 큰 상자는 빼고 다시 (근거 3개 이상일 때)
+    arena_corr_max_shift: 0.8      # [m] 이동 한계
+    arena_corr_max_rot: 0.35       # [rad] 회전 한계 (20°)
     # 적재함: 장부(칸 → tag)는 coordinator가 씀 (/coordinator/basket) — 쓰는 칸은 coordinator basket_use. 다 차면 나머지는 시작 박스에서 직접 운반
     box_top_z: 0.070                         # 박스 윗면 = 퍽 바닥
     puck_height: 0.060
