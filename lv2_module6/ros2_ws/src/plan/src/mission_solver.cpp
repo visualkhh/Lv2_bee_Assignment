@@ -145,7 +145,8 @@ const char * phase_name(Phase p) {
   return names[static_cast<int>(p)];
 }
 
-Phase next_phase(Phase p, bool ok) {
+Phase next_phase(Phase p, bool ok, bool diag) {
+  if (diag && (p == Phase::GO_OBSERVE || p == Phase::BARCODE || p == Phase::READ)) ok = true;
   switch (p) {
     case Phase::IDLE: return ok ? Phase::GO_OBSERVE : Phase::IDLE;
     case Phase::GO_OBSERVE: return ok ? Phase::BARCODE : Phase::ERROR;
@@ -157,6 +158,16 @@ Phase next_phase(Phase p, bool ok) {
     case Phase::RETURN: return ok ? Phase::DONE : Phase::ERROR;
     default: return p;
   }
+}
+
+bool diag_fatal(bool ok, const std::string & why, int & stuck_streak, int stuck_limit) {
+  if (ok) { stuck_streak = 0; return false; }
+  for (const char * f : {"estop", "manual", "explore", "cancelled", "preempted", "aborted", "arm_contact", "collision",
+                         "overcurrent", "coordinator_unavailable"})
+    if (why.find(f) != std::string::npos) return true;
+  if (why.find("nav_no_progress") != std::string::npos || why.find("nav_failed") != std::string::npos)
+    return ++stuck_streak >= stuck_limit;
+  return false;
 }
 
 std::pair<double, double> tag_correction(double ex, double ey, double ox, double oy, double max_m) {

@@ -155,6 +155,9 @@ MissionManager::MissionManager()
   observe_move_ = bp.size() >= 3;
   if (observe_move_) barcode_pose_ = {bp.at(0), bp.at(1), bp.at(2)};
   home_hold_s_ = declare_parameter<double>("home_hold_s", 3.0);
+  // 현장 진단 실행 — 실패해도 기록하고 계속 (치명 이유만 정지 · mission_solver diag_fatal). "start:DIAG…"는 그 회차만 켬
+  continue_on_fail_ = declare_parameter<bool>("continue_on_fail", false);
+  stuck_limit_ = static_cast<int>(declare_parameter<int64_t>("diag_stuck_limit", 3));
   log_dir_ = declare_parameter<std::string>("log_dir", "~/.ros/mission");
   photo_topic_ = declare_parameter<std::string>("photo_topic", "/gripper_cam/color/image_raw");
   // 학습된 플래너 (learning/plan/mission_sim.py에서 학습 · models/plan/plan_next.onnx) — 기본은 지금 규칙 순서
@@ -231,6 +234,8 @@ MissionManager::MissionManager()
 // ---------- 단계
 void MissionManager::on_command(const std::string & cmd) {
   if (cmd == "abort") { if (active_) stop("aborted"); return; }
+  // "start:DIAG" = 처음부터 끝까지 + 실패해도 계속 (현장 진단 — plan.yaml continue_on_fail을 이 회차만 켬)
+  const bool diag = cmd == "start:DIAG";
   // "start" = 처음부터 끝까지 · "start:<단계>" = 그 단계 하나만 (TUI 미션 메뉴 — 실기에서 단계별 시험)
   //   혼자 돌릴 수 있는 단계만: BARCODE · READ · SURVEY · RETURN (BUILD·VERIFY는 SURVEY 결과가 있어야 함)
   Phase only = Phase::IDLE;
@@ -238,7 +243,7 @@ void MissionManager::on_command(const std::string & cmd) {
     const std::string name = cmd.substr(6);
     for (const Phase p : {Phase::BARCODE, Phase::READ, Phase::SURVEY, Phase::RETURN})
       if (name == phase_name(p)) only = p;
-    if (only == Phase::IDLE) { note("단계만 실행 거부: " + name + " (BARCODE · READ · SURVEY · RETURN만)"); return; }
+    if (only == Phase::IDLE && !diag) { note("단계만 실행 거부: " + name + " (BARCODE · READ · SURVEY · RETURN만)"); return; }
   } else if (cmd != "start") {
     return;
   }
@@ -279,6 +284,10 @@ void MissionManager::on_command(const std::string & cmd) {
   only_ = only;
   signal_window_ = false;
   mission_t0_ = wall_s();
+  diag_run_ = diag || continue_on_fail_;
+  stuck_ = 0;
+  counts_ = {};
+  if (diag_run_) note("현장 진단 실행 — 실패해도 기록하고 계속 (치명 이유만 정지)");
   if (only != Phase::IDLE) note(std::string("단계만 실행: ") + phase_name(only));
   enter(only != Phase::IDLE ? only : next_phase(Phase::IDLE, true));
 }
@@ -286,7 +295,7 @@ void MissionManager::on_command(const std::string & cmd) {
 void MissionManager::finish(bool ok, const std::string & why) {
   if (!active_) return;
   // 단계만 실행이면 여기서 끝 — start:BARCODE는 관측(바코드 + 신호)이라 READ까지
-  const Phase n = only_ == Phase::IDLE ? next_phase(phase_, ok)
+  const Phase n = only_ == Phase::IDLE ? next_phase(phase_, ok, diag_run_)
                 : !ok ? Phase::ERROR
                 : (only_ == Phase::BARCODE && phase_ == Phase::BARCODE) ? Phase::READ : Phase::DONE;
   if (!ok) result(std::string(phase_name(phase_)) + ": " + why);
@@ -309,7 +318,7 @@ void MissionManager::enter(Phase p, const std::string & why) {
     case Phase::DONE:
       mission_line(true, "");
       active_ = false;
-      note("기록: " + run_dir_);
+      note("기록: " + run_dir_ + (results_.empty() ? "" : " · 실패 " + str(static_cast<int>(results_.size())) + "건 (결과 목록)"));
       break;
     case Phase::ERROR: stop(why); break;
     default: break;
@@ -358,7 +367,7 @@ void MissionManager::barcode_phase() {
   if (!robot_arena(barcode_origin_)) barcode_origin_ = start_;  // 다가갔다가 돌아올 자리
   timer_ = create_wall_timer(std::chrono::milliseconds(250), [this]() {
     if (phase_ != Phase::BARCODE) { timer_->cancel(); return; }
-    if (!signal_error_.empty()) {  // 멈춰 있는데도 신호 오류 사이클이 이어짐 — 추정하지 않고 팔 접고 정지
+    if (!signal_error_.empty() && !diag_run_) {  // 멈춰 있는데도 신호 오류 사이클이 이어짐 — 추정하지 않고 팔 접고 정지 (diag: 바코드는 계속 · READ가 기록)
       timer_->cancel();
       write_log("signal.json", "{\"ok\": false, \"error\": " + q(signal_error_) + ", \"raw\": " + q(signal_.raw) + "}\n");
       barcode_done(false, "signal_" + signal_error_);
@@ -400,7 +409,7 @@ void MissionManager::barcode_phase() {
       // gaze에서 안 읽히면 팔은 그대로 한 걸음 앞으로 (바코드 = 출발 자리 정면)
       // 신호가 확정되기 전에는 다가가지 않음 — 움직이면 오른쪽 신호등이 pole_front_cam 시야 밖으로 나감 (11-12 실기: 다가가다 신호 못 읽음)
       //   확정되면 그때부터 다가감 · 신호 시간(signal_timeout_s)이 지나면 기다리지 않음 (READ에서 signal_timeout)
-      const bool hold = signal_window_ && !signal_ready_ && (now() - read_started_).seconds() < signal_timeout_s_;
+      const bool hold = signal_window_ && !signal_ready_ && signal_error_.empty() && (now() - read_started_).seconds() < signal_timeout_s_;
       if (hold && gaze_at_.nanoseconds() > 0) gaze_at_ = now();  // 기다리는 동안은 바코드 대기·포기 시간을 안 셈
       if (hold && !hold_noted_ && gaze_at_.nanoseconds() > 0) { hold_noted_ = true; note("gaze 제자리에서 바코드·신호 — 신호 확정 뒤에 다가감"); }
       const bool waited = !hold && gaze_at_.nanoseconds() > 0 && (now() - gaze_at_).seconds() > barcode_gaze_wait_s_;
@@ -585,7 +594,7 @@ void MissionManager::load(size_t b, std::vector<int> found, size_t k) {
 }
 
 void MissionManager::solve_allocation() {
-  std::string why;
+  std::string why = order_.size() == 3 ? "" : "no_order";  // 바코드·신호 없음 (diag에서 관측 실패) — 조사만 하고 BUILD 건너뜀
   std::string list;
   for (const auto & p : pucks_) {
     const int slot = basket_slot_of(p.tag);
@@ -593,7 +602,7 @@ void MissionManager::solve_allocation() {
             ", \"shape\": " + q(p.shape) + ", \"box\": " + str(static_cast<int>(puck_at_[p.tag].first) + 1) +
             ", \"tray_slot\": " + (slot < 0 ? "null" : str(slot)) + "}";
   }
-  const bool ok = allocate(pucks_, counts_, alloc_, why);
+  const bool ok = why.empty() && allocate(pucks_, counts_, alloc_, why);
   std::string groups;
   if (ok) {
     for (const size_t li : build_loc_order_) {  // 장소 방문 순서 (build_location_order) — 장소 번호 li는 그대로
@@ -992,6 +1001,7 @@ void MissionManager::run(std::vector<SubGoal> goals, Done done) {
     const uint32_t fs = result.result ? result.result->final_step : 0;
     close_steps(ok, ok ? "" : why, ok ? step_log_.goals.size() - 1 : fs ? fs - 1 : step_log_.cur);
     if (!ok && interrupted(why)) { stop("interrupted: " + why); return; }
+    if (diag_run_ && diag_fatal(ok, why, stuck_, stuck_limit_)) { stop("fatal: " + why); return; }
     done(ok, why);
   };
   execute_client_->async_send_goal(goal, options);
@@ -1264,6 +1274,7 @@ void MissionManager::mission_line(bool ok, const std::string & why) {
   for (const auto & x : results_) r.push_back(q(x));
   append_log("phases.jsonl", fmt("{\"t0\": %.3f, \"t1\": %.3f, \"dur_s\": %.3f", mission_t0_, t, t - mission_t0_) +
     ", \"phase\": \"MISSION\", \"ok\": " + (ok ? "true" : "false") + ", \"reason\": " + q(why) +
+    ", \"diag\": " + (diag_run_ ? "true" : "false") +
     ", \"only\": " + q(only_ == Phase::IDLE ? "" : phase_name(only_)) + ", \"placed\": " + str(placed_) +
     ", \"total\": " + str(static_cast<int>(jobs_.size())) + ", \"results\": [" + join(r) + "]}");
 }

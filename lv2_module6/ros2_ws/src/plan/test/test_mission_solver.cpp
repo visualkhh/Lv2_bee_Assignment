@@ -125,6 +125,39 @@ TEST(MissionFlow, NextPhase) {  // — 관측 실패만 정지, 그 뒤는 끝�
   EXPECT_STREQ(phase_name(Phase::VERIFY), "VERIFY");
 }
 
+TEST(MissionFlow, DiagNextPhase) {  // 현장 진단 — 관측 실패도 다음 단계로 (SURVEY까지 자료 모음), 복귀 실패만 ERROR
+  EXPECT_EQ(next_phase(Phase::GO_OBSERVE, false, true), Phase::BARCODE);
+  EXPECT_EQ(next_phase(Phase::BARCODE, false, true), Phase::READ);
+  EXPECT_EQ(next_phase(Phase::READ, false, true), Phase::SURVEY);
+  EXPECT_EQ(next_phase(Phase::SURVEY, false, true), Phase::RETURN);
+  EXPECT_EQ(next_phase(Phase::BUILD, false, true), Phase::VERIFY);
+  EXPECT_EQ(next_phase(Phase::RETURN, false, true), Phase::ERROR);
+  EXPECT_EQ(next_phase(Phase::RETURN, true, true), Phase::DONE);
+}
+
+TEST(MissionFlow, DiagFatal) {  // 치명(정지) vs 계속
+  int stuck = 0;
+  for (const char * why : {"estop", "estop_blocked", "manual_override", "manual_teach_override", "explore_override",
+                           "cancelled", "preempted", "aborted", "arm_contact", "retreat:arm_contact", "collision_monitor_stop",
+                           "overcurrent", "coordinator_unavailable"})
+    EXPECT_TRUE(diag_fatal(false, why, stuck, 3)) << why;
+  for (const char * why : {"barcode_missing", "unknown_barcode:X", "signal_timeout", "signal_count", "approach_blocked",
+                           "approach_failed", "grasp_empty", "grasp_failed_all", "place_failed", "pick_timeout", "puck_lost",
+                           "no_order", "stand_still_lying", ""})
+    EXPECT_FALSE(diag_fatal(false, why, stuck, 3)) << why;
+  EXPECT_EQ(stuck, 0);
+  // 주행 갇힘 — 이어서 3번째에 치명 · 사이에 성공이 있으면 다시 0부터
+  stuck = 0;
+  EXPECT_FALSE(diag_fatal(false, "nav_no_progress", stuck, 3));
+  EXPECT_FALSE(diag_fatal(false, "nav_failed", stuck, 3));
+  EXPECT_FALSE(diag_fatal(true, "", stuck, 3));
+  EXPECT_EQ(stuck, 0);
+  EXPECT_FALSE(diag_fatal(false, "nav_no_progress", stuck, 3));
+  EXPECT_FALSE(diag_fatal(false, "approach_blocked", stuck, 3));  // 갇힘 아닌 실패는 셈을 안 바꿈
+  EXPECT_FALSE(diag_fatal(false, "nav_failed", stuck, 3));
+  EXPECT_TRUE(diag_fatal(false, "nav_no_progress", stuck, 3));
+}
+
 TEST(MissionFlow, TagCorrection) {  // 
   auto [dx, dy] = tag_correction(1.0, 2.0, 1.012, 1.995, 0.05);
   EXPECT_NEAR(dx, 0.012, 1e-9);
