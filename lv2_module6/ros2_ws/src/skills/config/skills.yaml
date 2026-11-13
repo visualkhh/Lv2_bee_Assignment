@@ -12,8 +12,8 @@ skill_approach:
     approach_pos_tol: 0.005  # [m] legacy 도착
     approach_yaw_tol: 0.03   # [rad] legacy 방향 맞춤
     approach_timeout_s: 30.0 # [s] 전체 · 4초 동안 3 mm도 못 줄이면 approach_blocked
-    residual_v: 0.0          # [m/s] 정책 행동 1 = 이만큼 (시뮬 res_v)
-    residual_w: 0.0          # [rad/s] (시뮬 res_w)
+    residual_v: 0.02         # [m/s] 정책 행동 1 = 이만큼 (시뮬 res_v)
+    residual_w: 0.1          # [rad/s] (시뮬 res_w)
     approach_release_m: 0.03 # [m] sim: tol_m×0.6 안에 한 번 들면 이만큼 벗어날 때까지 마지막 방향만
     approach_carrot_m: 0.05  # [m] sim: 목표 방향 직선 위 이만큼 앞 점을 향해 조향 (옆 어긋남을 도착 전에 없앰)
     # 상자 도킹 (goal.values = [gap, half]): 도면 자리는 힌트 — 인지 상자로 목표를 정함 (11-12). 팔은 pose_look으로 천천히 (launch arm_velocity_scale 0.15)
@@ -24,7 +24,7 @@ skill_approach:
     box_alpha: 0.3           # 새 측정을 섞는 비율
     box_rate_mps: 0.02       # [m/s] 목표를 옮기는 최대 속도 (11-12: 측정마다 1 cm → 8 cm/s로 목표가 움직여 상자 앞에서 크게 돎)
     box_rate_dps: 3.0        # [deg/s] 목표 방향을 돌리는 최대 속도
-    box_min_side_m: 0.17     # [m] 윗면 짧은 변이 이보다 작으면 잘린 측정 — 버림 (가운데가 보이는 쪽으로 쏠림)
+    box_min_side_m: 0.19     # [m] 윗면 짧은 변이 이보다 작으면 잘린 측정 — 버림 (가운데가 보이는 쪽으로 쏠림)
     box_freeze_m: 0.10       # [m] 목표까지 이보다 가까우면 목표 고정 (가까울수록 잘려 보임 — 마지막은 odom)
 skill_pose:
   ros__parameters:

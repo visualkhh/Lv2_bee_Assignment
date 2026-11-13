@@ -462,9 +462,10 @@ global_costmap:
       resolution: 0.05
       track_unknown_space: true
       always_send_full_costmap: true
-      # 전역 계획: 정적 벽 + 작은 팽창만 — 동적 장애물은 local costmap/DWB·ONNX ESDF가 맡는다.
-      # (obstacle_layer까지 넣으면 전역 계획이 동적 장애물에 민감해져 좁은 통로에서 자주 실패)
-      plugins: ["static_layer", "inflation_layer"]
+      # 전역 계획: 정적 벽 + 카메라에 보인 장애물(상자 — map.pgm에는 벽만 있음) + 팽창.
+      # (11-13 obstacle_layer 추가: 없으면 Smac이 상자를 통과하는 경로를 내고 MPPI가 상자 앞에서 멈춤.
+      #  예전에 뺀 이유 — 좁은 통로에서 전역 계획이 자주 실패 — 가 다시 보이면 이 줄부터 의심)
+      plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
         map_subscribe_transient_local: true
