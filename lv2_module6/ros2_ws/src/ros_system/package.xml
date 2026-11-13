@@ -26,6 +26,7 @@
   <exec_depend>moveit_simple_controller_manager</exec_depend>
   <exec_depend>control</exec_depend>
   <exec_depend>ml</exec_depend>
+  <exec_depend>perception</exec_depend>   <!-- static_2d: static_esdf_slice -->
   <!-- 실기 PC에만 설치 (테스트베드 이미지에는 없음 — faker가 대신함) -->
   <exec_depend>realsense2_camera</exec_depend>
   <exec_depend>robot_localization</exec_depend>

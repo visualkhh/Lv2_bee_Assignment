@@ -49,7 +49,7 @@ class StaticMapTests(unittest.TestCase):
 
     def test_static_keeps_localization_removes_reconstruction(self):
         ctx = self.context(map_backend='static_2d', static_map_yaml=str(self.map))
-        self.assertEqual(set(self.active(ctx)), {'cuvslam_slam', 'map_server', 'lifecycle_manager_map', 'rewind'})
+        self.assertEqual(set(self.active(ctx)), {'cuvslam_slam', 'map_server', 'lifecycle_manager_map', 'rewind', 'static_esdf_slice'})
         with patch.object(self.mod.importlib.util, 'find_spec', return_value=object()), patch.object(self.mod, 'get_package_share_directory', return_value='/installed') as pkg:
             for action in self.mod.check_slam(ctx):
                 action.execute(ctx)
