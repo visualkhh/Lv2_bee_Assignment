@@ -139,10 +139,16 @@ class MapGate:
 
 
 def image(m, dtype, ch):
-    """sensor_msgs/Image → numpy (row step 패딩 제거, cv_bridge 없이)"""
-    a = np.frombuffer(bytes(m.data), dtype).reshape(m.height, m.step // np.dtype(dtype).itemsize)
+    """sensor_msgs/Image → numpy (row step 패딩 제거, cv_bridge 없이) — m.data(array.array)를 복사 없이 그대로 봄"""
+    a = np.frombuffer(m.data, dtype).reshape(m.height, m.step // np.dtype(dtype).itemsize)
     a = a[:, :m.width * ch]
     return a.reshape(m.height, m.width, ch) if ch > 1 else a
+
+
+def near_mask(depth, lim):
+    """uint16 depth → uint8 마스크 (1 = 0 < depth ≤ lim, 추적에서 뺌) — ((depth > 0) & (depth ≤ lim)).astype(uint8)과 같은 값.
+    depth − 1을 uint16으로 빼면 0은 65535로 넘어가 한 번 비교로 끝남 (임시 배열 4개 → 1개)"""
+    return (depth - np.uint16(1) < lim).view(np.uint8)
 
 
 class CuvslamSlam(Node):
@@ -159,6 +165,7 @@ class CuvslamSlam(Node):
         self.map_tf_tolerance = Duration(seconds=float(self.declare_parameter('map_tf_tolerance', 0.5).value))
         self.depth_scale = float(self.declare_parameter('depth_scale_factor', 1000.0).value)  # 16UC1 mm → m
         self.min_depth = float(self.declare_parameter('min_depth', 0.5).value)  # [m] 이 안 픽셀(자기 팔)은 추적에서 뺌
+        self.near_raw = max(math.ceil(self.min_depth * self.depth_scale) - 1, 0)  # depth 원값 < min_depth·scale ⇔ ≤ 이 값 (정수)
         # EKF에 주는 속도 분산 — 실측으로 맞출 값 (σ 0.05 m/s · 0.05 rad/s에서 시작)
         self.lin_var = float(self.declare_parameter('linear_variance', 0.0025).value)
         self.ang_var = float(self.declare_parameter('angular_variance', 0.0025).value)
@@ -271,7 +278,7 @@ class CuvslamSlam(Node):
         self.last_ns = ns
         rgb = image(c, np.uint8, 3) if c.encoding in ('rgb8', 'bgr8') else image(c, np.uint8, 1)
         depth = image(d, np.uint16, 1)
-        mask = ((depth > 0) & (depth < self.min_depth * self.depth_scale)).astype(np.uint8)  # 0이 아닌 픽셀 = 추적에서 뺌
+        mask = near_mask(depth, self.near_raw)  # 0이 아닌 픽셀 = 추적에서 뺌
         est, slam = self.tracker.track(ns, [rgb], masks=[mask], depths=[depth])
         if est.world_from_rig is None:
             self.lost += 1
@@ -339,7 +346,8 @@ class CuvslamSlam(Node):
         self.path.header.stamp = stamp
         self.path.poses.append(ps)
         del self.path.poses[:-3000]  # 최근 3000개(15Hz면 약 3분20초)만 — 계속 쌓이면 발행이 무거워짐
-        if self.ok % 5 == 0:  # 경로는 3Hz 정도로만
+        # 경로는 3Hz 정도로만 · 받는 쪽(RViz·bag)이 있을 때만 — 3000개 Path 변환이 한 번 26 ms (실기 Orin, CPU ~8%)
+        if self.ok % 5 == 0 and self.path_pub.get_subscription_count() > 0:
             self.path_pub.publish(self.path)
 
 
