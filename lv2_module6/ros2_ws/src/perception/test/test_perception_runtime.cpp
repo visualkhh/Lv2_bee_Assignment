@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include <cstdlib>
+#include <chrono>
 #include <rcl/time.h>
 #include "perception/perception_node.hpp"
 
@@ -32,6 +33,19 @@ struct PerceptionNodeTestPeer {
     f.frame_id = "camera";
   }
   static void elapsed(PerceptionNode & n) { n.frames_.at("gripper_cam").infer_t = 0; }
+  static void elapsed_seconds(PerceptionNode & n, double seconds) {
+    n.frames_.at("gripper_cam").infer_t =
+      std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count() - seconds;
+  }
+  static void navigation(PerceptionNode & n, std::initializer_list<int> statuses) {
+    action_msgs::msg::GoalStatusArray m;
+    for (const int status : statuses) {
+      action_msgs::msg::GoalStatus goal;
+      goal.status = static_cast<int8_t>(status);
+      m.status_list.push_back(goal);
+    }
+    n.on_navigation_status(m);
+  }
   static double inferences(PerceptionNode & n) { return n.prof_[{"gripper_cam", "YOLO"}][1]; }
   static auto take(PerceptionNode & n) { return n.take_frames(); }
   static void stamp(PerceptionNode & n, int64_t ns) { n.frames_.at("gripper_cam").stamp = rclcpp::Time(ns); }
@@ -105,6 +119,40 @@ TEST_F(Runtime, CameraStopExpiresTrackWithoutInference) {
   PerceptionNodeTestPeer::tracks(*node)[1] = t;
   PerceptionNodeTestPeer::publish(*node);
   EXPECT_TRUE(PerceptionNodeTestPeer::tracks(*node).empty());
+}
+
+TEST_F(Runtime, NavigationThrottleDefersWithoutClaimingAndResumesLatestFrame) {
+  node = std::make_shared<PerceptionNode>(rclcpp::NodeOptions().parameter_overrides({
+    rclcpp::Parameter("model_path", "/nonexistent.onnx"), rclcpp::Parameter("navigation_throttle", true)}));
+  PerceptionNodeTestPeer::frame(*node);
+  PerceptionNodeTestPeer::elapsed_seconds(*node, 0.35);
+  PerceptionNodeTestPeer::navigation(*node, {4, 2});  // completed old goal + executing new goal
+  EXPECT_TRUE(PerceptionNodeTestPeer::take(*node).empty());
+  PerceptionNodeTestPeer::navigation(*node, {4});
+  EXPECT_EQ(PerceptionNodeTestPeer::take(*node).size(), 1u);  // resume without waiting the navigation interval
+  PerceptionNodeTestPeer::elapsed(*node);
+  EXPECT_TRUE(PerceptionNodeTestPeer::take(*node).empty());  // same image is never claimed twice
+}
+
+TEST_F(Runtime, NavigationThrottleRemainsOptIn) {
+  PerceptionNodeTestPeer::frame(*node);
+  PerceptionNodeTestPeer::elapsed_seconds(*node, 0.35);
+  PerceptionNodeTestPeer::navigation(*node, {2});
+  EXPECT_EQ(PerceptionNodeTestPeer::take(*node).size(), 1u);
+}
+
+TEST(InferenceSchedule, ActiveStatusesAndBoundedNavigationRate) {
+  InferenceSchedule gate;
+  gate.configure(true, 1.0);
+  for (int s = 0; s <= 6; ++s) EXPECT_EQ(InferenceSchedule::active_status(s), s >= 1 && s <= 3);
+  gate.navigation_active(true);
+  EXPECT_FALSE(gate.due(10.99, 10.0));
+  EXPECT_TRUE(gate.due(11.0, 10.0));
+  gate.navigation_active(false);
+  EXPECT_TRUE(gate.due(10.25, 10.0));
+  EXPECT_THROW(gate.configure(true, 0.0), std::invalid_argument);
+  EXPECT_THROW(gate.configure(true, 4.1), std::invalid_argument);
+  EXPECT_THROW(gate.configure(true, std::nan("")), std::invalid_argument);
 }
 
 TEST_F(Runtime, RecentTrackSurvivesCameraGap) {

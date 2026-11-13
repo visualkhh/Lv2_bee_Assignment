@@ -19,7 +19,7 @@ nvblox_node:
     # 카메라 15 fps (640x360x15) — 그보다 자주 돌릴 이유 없음. 지도 갱신은 Nav2 global_costmap(1 Hz)에 맞춰 낮게
     integrate_depth_rate_hz: 15.0
     integrate_color_rate_hz: 0.0
-    update_mesh_rate_hz: 2.0
+    update_mesh_rate_hz: 0.0       # 0 = 메시 안 만듦 — 메시는 RViz 3D 보기용 (Nav2 /map·costmap은 2D ESDF·점유만 씀) · GPU 메모리·시간 아낌 (11-14 실기: 메모리 바닥 → 재부팅). 보려면 2.0
     update_esdf_rate_hz: 5.0
     publish_layer_rate_hz: 2.0
     # 경기장(약 4.4 × 6.3 m)을 통째로 기억 — 멀어져도 지우지 않음

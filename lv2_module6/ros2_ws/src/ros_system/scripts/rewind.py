@@ -115,10 +115,15 @@ class Rewind(Node):
         self.pub.publish(msg)
 
 
-rclpy.init()
-n = Rewind()
-try:
-    rclpy.spin(n)
-finally:
-    n.destroy_node()
-    rclpy.shutdown()
+def main():
+    rclpy.init()
+    n = Rewind()
+    try:
+        rclpy.spin(n)
+    finally:
+        n.destroy_node()
+        rclpy.shutdown()
+
+
+if __name__ == '__main__':  # py_helpers가 import해 같은 프로세스에서 띄움
+    main()

@@ -196,6 +196,15 @@ PerceptionNode::PerceptionNode(const rclcpp::NodeOptions & options) : rclcpp::No
   // OpenCV 스레드 수 — 프로세스 전체 (AprilTag 3번 · resize · cvtColor · morphology …). 0 = OpenCV 기본(코어 수) · 시작할 때만
   if (const auto n = declare_parameter<int>("cv_threads", 0); n > 0) cv::setNumThreads(n);
   RCLCPP_INFO(get_logger(), "OpenCV 스레드 %d개 (cv_threads)", cv::getNumThreads());
+  // Startup-only opt-in: navigation keeps obstacle/body_filter processing, while
+  // YOLO/tag inference uses fewer frames. Terminal status resumes normal rate.
+  const bool navigation_throttle = pb("navigation_throttle", false);
+  inference_schedule_.configure(navigation_throttle, pd("navigation_infer_hz", 1.0));
+  if (navigation_throttle) {
+    navigation_status_sub_ = create_subscription<action_msgs::msg::GoalStatusArray>(
+      "/skills/navigate/_action/status", rclcpp::QoS(1).reliable().transient_local(),
+      [this](action_msgs::msg::GoalStatusArray::ConstSharedPtr m) { on_navigation_status(*m); });
+  }
   sync_slop_ = pd("sync_slop", 0.05);                   // 컬러·depth 시각 차 허용 [s]
   max_frame_age_s_ = pd("max_frame_age_s", TRACK_TIMEOUT_S);
   max_tf_fallback_age_s_ = pd("max_tf_fallback_age_s", 0.3);  // 영상 시각 TF가 없을 때 최신 TF 허용 시각 차 [s] (0 = 한도 없음)
@@ -437,12 +446,19 @@ void PerceptionNode::check_clock() {
   last_ros_time_ = t;
 }
 
+void PerceptionNode::on_navigation_status(const action_msgs::msg::GoalStatusArray & status) {
+  const bool active = std::any_of(status.status_list.begin(), status.status_list.end(),
+    [](const auto & goal) { return InferenceSchedule::active_status(goal.status); });
+  std::lock_guard<std::mutex> lk(mutex_);
+  inference_schedule_.navigation_active(active);
+}
+
 std::vector<std::pair<std::string, PerceptionNode::Frame>> PerceptionNode::take_frames() {
   std::vector<std::pair<std::string, Frame>> cams;
   std::lock_guard<std::mutex> lk(mutex_);
   check_clock();
   for (auto & [c, s] : frames_) {
-    if (s.bgr.empty() || s.depth_mm.empty() || s.fx <= 0 || wall_s() - s.infer_t <= 0.2) continue;
+    if (s.bgr.empty() || s.depth_mm.empty() || s.fx <= 0 || !inference_schedule_.due(wall_s(), s.infer_t)) continue;
     if (s.processed_stamp && *s.processed_stamp == s.stamp) continue;
     s.processed_stamp = s.stamp;  // 선택·claim은 같은 잠금 안에서. 실패 영상도 무한 재시도하지 않음
     if (!fresh_frame(s)) { ++stale_frames_; continue; }

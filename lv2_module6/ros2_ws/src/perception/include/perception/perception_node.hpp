@@ -26,11 +26,13 @@
 #include <opencv2/core.hpp>
 
 #include "diagnostic_msgs/msg/diagnostic_array.hpp"
+#include "action_msgs/msg/goal_status_array.hpp"
 #include "message_filters/subscriber.hpp"
 #include "message_filters/sync_policies/approximate_time.hpp"
 #include "message_filters/synchronizer.hpp"
 #include "perception/msg/tracked_object_array.hpp"
 #include "perception/perception_core.hpp"
+#include "perception/inference_schedule.hpp"
 #include "perception/yolo_onnx.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/camera_info.hpp"
@@ -94,6 +96,7 @@ private:
 
   // ---- 상태 (mutex_로 보호)
   std::mutex mutex_;
+  InferenceSchedule inference_schedule_;  // mutex_ protects status updates and frame selection
   std::map<std::string, Frame> frames_;
   std::map<int, Track> tracks_;
   int next_id_{1};
@@ -123,6 +126,7 @@ private:
   std::vector<rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr> info_subs_;
   rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr dice_sub_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr mission_cmd_sub_;  // /cmd/mission start… → 바코드 기억(barcode_once) 지움
+  rclcpp::Subscription<action_msgs::msg::GoalStatusArray>::SharedPtr navigation_status_sub_;
   std::atomic<bool> barcode_reset_{false};
   std::regex barcode_once_re_;
   std::atomic<double> barcode_until_{0.0};  // 이 시각(wall_s)까지 바코드 찾음 — 미션 start로 엶
@@ -140,6 +144,7 @@ private:
 
   // ---- 처리
   void on_infer();
+  void on_navigation_status(const action_msgs::msg::GoalStatusArray & status);
   std::vector<std::pair<std::string, Frame>> take_frames();
   bool fresh_frame(const Frame & frame) const;
   void check_clock();  // mutex_ 안에서 호출
