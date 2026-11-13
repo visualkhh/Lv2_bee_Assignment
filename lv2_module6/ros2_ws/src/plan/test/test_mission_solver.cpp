@@ -308,3 +308,71 @@ TEST(MissionSolver, PartialAllocationField1114) {
   EXPECT_EQ(filled['R'] + filled['Y'] + filled['G'], 12);
   EXPECT_FALSE(allocate_partial({}, c, a, filled));
 }
+
+// ---------- 도면 보정 (arena → map) — 출발 자세가 (0.1, −0.05, 5°) 어긋났다고 보고 인지 상자 위치를 만들어 맞춤
+namespace {
+const Pose2 kStart{0.734, 0.950, M_PI};
+const ArenaCorr kTrue{0.10, -0.05, 5.0 * M_PI / 180, 0};
+CorrPair seen(double ax, double ay, double ex = 0, double ey = 0) {  // 도면 상자 (ax, ay) — 인지 = 참 보정 + 잡음 (ex, ey)
+  const auto m = arena_to_map({ax, ay, 0}, kStart);
+  const auto q = apply_corr(kTrue, m);
+  return {m.x, m.y, q.x + ex, q.y + ey};
+}
+}  // namespace
+
+TEST(ArenaCorr, ApplyUnapplyRoundTripAndToMap) {
+  const auto m = arena_to_map({3.670, 3.152, 0.3}, kStart);
+  const auto c = apply_corr(kTrue, m);  // mission_manager to_map = apply_corr(acorr_, arena_to_map(...))
+  EXPECT_GT(std::hypot(c.x - m.x, c.y - m.y), 0.1);
+  const auto back = unapply_corr(kTrue, c);
+  EXPECT_NEAR(back.x, m.x, 1e-9);
+  EXPECT_NEAR(back.y, m.y, 1e-9);
+  EXPECT_NEAR(back.yaw, m.yaw, 1e-9);
+  const auto z = apply_corr(ArenaCorr{}, m);  // 보정 0 = 예전 to_map 그대로
+  EXPECT_DOUBLE_EQ(z.x, m.x);
+  EXPECT_DOUBLE_EQ(z.y, m.y);
+}
+
+TEST(ArenaCorr, OnePairTranslationOnly) {
+  const auto p = seen(1.468, 0.950);
+  const auto c = fit_arena_corr({p}, 1.0, 0.8, 0.35, 0.15);
+  EXPECT_EQ(c.n, 1);
+  EXPECT_DOUBLE_EQ(c.dth, 0.0);
+  EXPECT_NEAR(c.dx, p.qx - p.mx, 1e-9);
+  EXPECT_NEAR(c.dy, p.qy - p.my, 1e-9);
+  EXPECT_EQ(fit_arena_corr({}, 1.0, 0.8, 0.35, 0.15).n, 0);
+}
+
+TEST(ArenaCorr, TwoSeparatedPairsRecoverRotation) {
+  const auto c = fit_arena_corr({seen(1.468, 0.950), seen(3.670, 3.152)}, 1.0, 0.8, 0.35, 0.15);
+  EXPECT_EQ(c.n, 2);
+  EXPECT_NEAR(c.dth, kTrue.dth, 1e-9);
+  EXPECT_NEAR(c.dx, kTrue.dx, 1e-9);
+  EXPECT_NEAR(c.dy, kTrue.dy, 1e-9);
+  // 가까운 두 상자(0.5 m < min_sep)면 회전은 안 맞춤
+  EXPECT_DOUBLE_EQ(fit_arena_corr({seen(1.468, 0.950), seen(1.468, 1.450)}, 1.0, 0.8, 0.35, 0.15).dth, 0.0);
+}
+
+TEST(ArenaCorr, DropsOutlierAndClamps) {
+  // 4개 중 하나는 0.4 m 틀린 짝 — 빼고 나머지 3개로
+  const auto c = fit_arena_corr({seen(1.468, 0.950, 0.01), seen(3.670, 3.152, -0.01), seen(0.734, 5.354), seen(3.670, 3.886, 0.4, 0)},
+                                1.0, 0.8, 0.35, 0.15);
+  EXPECT_EQ(c.n, 3);
+  EXPECT_NEAR(c.dth, kTrue.dth, 0.01);
+  EXPECT_NEAR(c.dx, kTrue.dx, 0.02);
+  // 한계: 2 m 이동 → 0.8 m · 40° 회전 → 20°
+  const auto far = fit_arena_corr({{0, 0, 2.0, 0}}, 1.0, 0.8, 0.35, 0.15);
+  EXPECT_NEAR(far.dx, 0.8, 1e-9);
+  const double r = 40.0 * M_PI / 180;
+  const auto rot = fit_arena_corr({{1, 0, std::cos(r), std::sin(r)}, {-1, 0, -std::cos(r), -std::sin(r)}}, 1.0, 0.8, 0.35, 0.15);
+  EXPECT_NEAR(rot.dth, 0.35, 1e-9);
+}
+
+TEST(ArenaCorr, MatchLandmarkGateAndUnique) {
+  const std::vector<std::pair<double, double>> boxes{{0.0, 0.0}, {0.734, 0.0}, {3.0, 3.0}};
+  EXPECT_EQ(match_landmark(0.10, 0.05, boxes, 0.6), 0);
+  EXPECT_EQ(match_landmark(3.3, 3.2, boxes, 0.6), 2);
+  EXPECT_EQ(match_landmark(0.37, 0.0, boxes, 0.6), -1);  // 두 상자 가운데 — 헷갈림
+  EXPECT_EQ(match_landmark(1.6, 1.6, boxes, 0.6), -1);   // 어느 상자에서도 gate 밖
+  EXPECT_EQ(match_landmark(0.0, 0.0, {}, 0.6), -1);
+}

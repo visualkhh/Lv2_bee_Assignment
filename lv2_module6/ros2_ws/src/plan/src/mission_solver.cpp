@@ -136,6 +136,64 @@ Pose2 arena_to_map(const Pose2 & p, const Pose2 & start) {
   return {c * dx - s * dy, s * dx + c * dy, std::remainder(p.yaw - start.yaw, 2 * M_PI)};
 }
 
+Pose2 apply_corr(const ArenaCorr & c, const Pose2 & m) {
+  const double co = std::cos(c.dth), si = std::sin(c.dth);
+  return {co * m.x - si * m.y + c.dx, si * m.x + co * m.y + c.dy, std::remainder(m.yaw + c.dth, 2 * M_PI)};
+}
+
+Pose2 unapply_corr(const ArenaCorr & c, const Pose2 & m) {
+  const double x = m.x - c.dx, y = m.y - c.dy, co = std::cos(c.dth), si = std::sin(c.dth);
+  return {co * x + si * y, -si * x + co * y, std::remainder(m.yaw - c.dth, 2 * M_PI)};
+}
+
+ArenaCorr fit_arena_corr(std::vector<CorrPair> pairs, double min_sep, double max_shift, double max_rot, double outlier_m) {
+  ArenaCorr c;
+  while (!pairs.empty()) {
+    const double n = static_cast<double>(pairs.size());
+    double mx = 0, my = 0, qx = 0, qy = 0, sep = 0;
+    for (const auto & p : pairs) { mx += p.mx / n; my += p.my / n; qx += p.qx / n; qy += p.qy / n; }
+    for (const auto & a : pairs) for (const auto & b : pairs) sep = std::max(sep, std::hypot(a.mx - b.mx, a.my - b.my));
+    double th = 0;
+    if (sep >= min_sep) {  // 2D 최소제곱 회전 (Umeyama, 배율 없음)
+      double sa = 0, sb = 0;
+      for (const auto & p : pairs) {
+        const double ax = p.mx - mx, ay = p.my - my, bx = p.qx - qx, by = p.qy - qy;
+        sa += ax * bx + ay * by;
+        sb += ax * by - ay * bx;
+      }
+      th = std::clamp(std::atan2(sb, sa), -max_rot, max_rot);
+    }
+    c.dth = th;
+    c.dx = qx - (std::cos(th) * mx - std::sin(th) * my);
+    c.dy = qy - (std::sin(th) * mx + std::cos(th) * my);
+    c.n = static_cast<int>(pairs.size());
+    if (pairs.size() <= 2) break;  // 2개면 어느 쪽이 틀렸는지 모름
+    size_t worst = 0;
+    double worst_r = -1;
+    for (size_t i = 0; i < pairs.size(); ++i) {
+      const auto e = apply_corr(c, {pairs[i].mx, pairs[i].my, 0});
+      const double r = std::hypot(e.x - pairs[i].qx, e.y - pairs[i].qy);
+      if (r > worst_r) { worst_r = r; worst = i; }
+    }
+    if (worst_r <= outlier_m) break;
+    pairs.erase(pairs.begin() + static_cast<long>(worst));
+  }
+  const double s = std::hypot(c.dx, c.dy);
+  if (s > max_shift) { c.dx *= max_shift / s; c.dy *= max_shift / s; }
+  return c;
+}
+
+int match_landmark(double qx, double qy, const std::vector<std::pair<double, double>> & cands, double gate) {
+  int best = -1;
+  double d1 = std::numeric_limits<double>::infinity(), d2 = d1;
+  for (size_t i = 0; i < cands.size(); ++i) {
+    const double d = std::hypot(cands[i].first - qx, cands[i].second - qy);
+    if (d < d1) { d2 = d1; d1 = d; best = static_cast<int>(i); }
+    else if (d < d2) d2 = d;
+  }
+  return d1 < gate && d2 > d1 + 0.25 ? best : -1;
+}
+
 std::vector<Pose2> approach_poses(double cx, double cy, double half, double px, double py, double standoff) {
   const double lx = std::clamp(px, cx - half, cx + half), ly = std::clamp(py, cy - half, cy + half);
   // 변마다 (점에서 그 변까지 거리, 자세) — 서쪽 변이면 x = cx − half − standoff에 서서 +x(동)를 봄
