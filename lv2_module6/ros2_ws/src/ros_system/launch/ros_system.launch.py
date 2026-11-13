@@ -28,7 +28,7 @@ import os
 import yaml
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription, OpaqueFunction, RegisterEventHandler
+from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription, OpaqueFunction, RegisterEventHandler, TimerAction
 from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -240,6 +240,12 @@ def generate_launch_description():
     ])
 
 
+# 관리자를 노드보다 이만큼 늦게 띄움 [s] (11-13): 막 뜬 노드에 바로 change_state를 보내면 요청은 처리되는데 응답이 관리자에게
+#   못 돌아오는 경우가 있음 (응답 통로가 아직 안 이어짐 — 로그 60개 중 5개, 매번 시작 직후 첫 전환). Nav2 관리자는 응답을 무한정
+#   기다려 그대로 멈춤 (reset.sh로만 풀림). 늦게 띄우면 연결이 끝난 뒤라 경합이 줄어듦 — 다시 나면 감시·재시도 스크립트를 더함
+LIFECYCLE_DELAY_S = 4.0
+
+
 def nav2_nodes():
     """진짜 Nav2 서버 — 노드 이름 = nav2_params.yaml 최상위 키. 관리자 둘로 나눠 올림:
       lifecycle_manager_base       velocity_smoother · collision_monitor — 바퀴 명령 체인 (odom만 있으면 뜸 → 수동 조작은 지도 없이도)
@@ -266,8 +272,10 @@ def nav2_nodes():
         server('nav2_velocity_smoother', 'velocity_smoother',
                remaps=[('cmd_vel', '/cmd_vel_mux'), ('cmd_vel_smoothed', '/cmd_vel_smoothed')], cond=chain),
         server('nav2_collision_monitor', 'collision_monitor', cond=chain),  # 입출력 토픽은 yaml (cmd_vel_in/out_topic)
-        server('nav2_lifecycle_manager', 'lifecycle_manager', name='lifecycle_manager_base', cond=chain),
-        server('nav2_lifecycle_manager', 'lifecycle_manager', name='lifecycle_manager_navigation'),
+        TimerAction(period=LIFECYCLE_DELAY_S, actions=[
+            server('nav2_lifecycle_manager', 'lifecycle_manager', name='lifecycle_manager_base', cond=chain),
+            server('nav2_lifecycle_manager', 'lifecycle_manager', name='lifecycle_manager_navigation'),
+        ]),
     ]
 
 def check_slam(context):

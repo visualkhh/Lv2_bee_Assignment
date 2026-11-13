@@ -637,6 +637,7 @@ bool Coordinator::approach_if_far(const SubGoal & g) {
 
 void Coordinator::navigate(const SubGoal & g) {
   Skill::Goal sg;
+  sg.target = g.relation;  // skill_navigate 옵션 (공백으로 여럿): look = 도착 전 팔 look 자세 · near = 목표 nav_near_m 안이면 성공
   sg.pose.header.frame_id = "map";
   sg.pose.pose.orientation.w = 1.0;
   if (is_id(g.target)) {
@@ -656,11 +657,28 @@ void Coordinator::navigate(const SubGoal & g) {
 }
 
 void Coordinator::approach(const SubGoal & g) {
-  const auto v = parse_numbers(g.target);
-  if (v.size() != 3) { fail("approach_bad_target"); return; }
+  const auto v = parse_numbers(g.target);  // "x,y,yaw" · 상자 도킹 "x,y,yaw,gap,half" (x,y,yaw = 도면 힌트 — skill이 인지로 고침)
+  if (g.relation == "exit") {  // 상자에서 빠져나오기: target "d" = 똑바로 후진 거리 [m] (비우면 skill 기본 approach_exit_m)
+    Skill::Goal sg;
+    sg.target = "exit";
+    if (!g.target.empty()) {  // 숫자 하나 — parse_numbers는 2개 이상만 받아서 따로 (11-13: 그 탓에 늘 기본 0.165로 물러났음)
+      try {
+        size_t used = 0;
+        sg.values = {std::stod(g.target, &used)};
+        if (g.target.find_first_not_of(" ", used) != std::string::npos) throw std::invalid_argument(g.target);
+      } catch (const std::exception &) {
+        fail("approach_bad_target");
+        return;
+      }
+    }
+    send("approach", sg, [this](const Skill::Result &) { next(); });
+    return;
+  }
+  if (v.size() != 3 && v.size() != 5) { fail("approach_bad_target"); return; }
   Skill::Goal sg;
   sg.target = g.relation;  // 주행 정책: dock_box(기본) · park_home · drive_arc · drive_straight
   sg.pose = map_pose(v[0], v[1], 0.0, v[2]);
+  if (v.size() == 5) sg.values = {v[3], v[4]};
   send("approach", sg, [this](const Skill::Result &) { next(); });
 }
 
