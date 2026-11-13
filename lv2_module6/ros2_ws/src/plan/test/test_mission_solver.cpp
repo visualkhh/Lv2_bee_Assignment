@@ -278,3 +278,32 @@ TEST(MissionFlow, ParseStart) {
     EXPECT_EQ(why, w) << cmd;
   }
 }
+
+TEST(MissionSolver, PartialAllocationField1114) {
+  // 실기 11-14: 태그 퍽 7개 (빨강 직육 2 · 빨강 원기둥 2 · 초록 직육 2 · 초록 원기둥 1) · 신호 R4 Y2 G6 · P2-04 (내림 → L1 G · L2 R · L3 Y)
+  const Counts c{4, 2, 6};
+  bool asc = true;
+  ASSERT_TRUE(parse_barcode("P2-04", asc));
+  EXPECT_EQ(assign_locations(c, asc), "GRY");
+  const auto pucks = make(2, 2, 1, 2);  // red cyl 2 · red box 2 · green cyl 1 · green box 2
+  std::map<int, char> a;
+  std::string why;
+  EXPECT_FALSE(allocate(pucks, c, a, why));
+  EXPECT_EQ(why, "puck_count");
+  std::map<char, int> filled;
+  ASSERT_TRUE(allocate_partial(pucks, c, a, filled));
+  EXPECT_EQ(filled['R'], 4);  // L2 R4 다 채움
+  EXPECT_EQ(filled['Y'], 2);  // L3 Y2 ← 초록 직육면체 2
+  EXPECT_EQ(filled['G'], 1);  // L1 G6 중 1 (초록 원기둥)
+  EXPECT_EQ(a.size(), 7u);
+  for (const auto & p : pucks) {
+    const char g = a.at(p.tag);
+    if (p.color == "red") EXPECT_EQ(g, 'R');
+    else if (p.shape == "box") EXPECT_EQ(g, 'Y');
+    else EXPECT_EQ(g, 'G');
+  }
+  // 12개로 풀리는 경우는 allocate와 같은 수만큼 채움 · 퍽이 없으면 false
+  ASSERT_TRUE(allocate_partial(make(3, 1, 2, 6), Counts{4, 2, 6}, a, filled));
+  EXPECT_EQ(filled['R'] + filled['Y'] + filled['G'], 12);
+  EXPECT_FALSE(allocate_partial({}, c, a, filled));
+}

@@ -42,6 +42,10 @@ struct Puck {
 //   초록 = 초록 수 − g가 정해지므로, 그 수만큼 모양 s 퍽이 있는지만 보면 된다 (원기둥 먼저, 안 되면 직육면체).
 //   → tag → 'R'|'Y'|'G'. 실패 why = unknown_puck(색·모양 모름 — 추정 금지) | duplicate_tag | puck_count | no_allocation
 bool allocate(const std::vector<Puck> & pucks, const Counts & c, std::map<int, char> & out, std::string & why);
+// 현장 진단 전용 — allocate가 puck_count · no_allocation으로 실패할 때(퍽이 12개가 아님) 가진 퍽으로 최대한 채움.
+//   규칙은 같음: R = 빨강만 · G = 초록만 · Y = 한 모양(색 상관없음). 다 채운 그룹(장소) 수가 가장 많게, 같으면 채운 눈 합이 많게.
+//   색·모양 모르는 퍽 · 같은 tag는 뺌. 남는 퍽은 out에 없음. 그룹마다 채운 수 → filled ('R'·'Y'·'G'). 하나도 못 채우면 false
+bool allocate_partial(const std::vector<Puck> & pucks, const Counts & c, std::map<int, char> & out, std::map<char, int> & filled);
 
 // 주사위 눈 n → 3×3 칸 번호 (0 = 북서 · 8 = 남동, 행 우선). 2·3은 ↘ 대각선, 6은 좌우 두 열 (발제 p4 그림)
 std::vector<int> dice_cells(int n);

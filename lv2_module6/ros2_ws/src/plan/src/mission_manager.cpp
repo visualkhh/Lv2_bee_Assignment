@@ -628,7 +628,14 @@ void MissionManager::solve_allocation() {
             ", \"shape\": " + q(p.shape) + ", \"box\": " + str(static_cast<int>(puck_at_[p.tag].first) + 1) +
             ", \"tray_slot\": " + (slot < 0 ? "null" : str(slot)) + "}";
   }
-  const bool ok = why.empty() && allocate(pucks_, counts_, alloc_, why);
+  bool ok = why.empty() && allocate(pucks_, counts_, alloc_, why);
+  // 현장 진단만: 퍽이 12개가 아니라 못 나누면 가진 퍽으로 최대한 (다 채운 장소 먼저) — 빈 눈은 기록하고 BUILD는 있는 퍽만
+  //   (대회 규칙대로면 할당 실패 = BUILD 없이 RETURN · 평소 실행은 그대로)
+  std::map<char, int> filled;
+  const bool partial = !ok && diag_run_ && (why == "puck_count" || why == "no_allocation") &&
+                       allocate_partial(pucks_, counts_, alloc_, filled);
+  if (partial) ok = true;
+  std::vector<std::string> empty;
   std::string groups;
   if (ok) {
     for (const size_t li : build_loc_order_) {  // 장소 방문 순서 (build_location_order) — 장소 번호 li는 그대로
@@ -641,12 +648,24 @@ void MissionManager::solve_allocation() {
         jobs_.push_back({tags[k], li, cells[k]});
         t += std::string(t.empty() ? "" : ", ") + "{\"tag\": " + str(tags[k]) + ", \"cell\": " + str(cells[k]) + "}";
       }
+      std::vector<std::string> gap;
+      for (size_t k = tags.size(); k < cells.size(); ++k) gap.push_back(str(cells[k]));
+      if (!gap.empty())
+        empty.push_back("L" + str(static_cast<int>(li) + 1) + " " + g + " " + str(static_cast<int>(std::min(tags.size(), cells.size()))) +
+                        "/" + str(static_cast<int>(cells.size())) + " (빈 칸 " + join(gap) + ")");
       groups += std::string(groups.empty() ? "" : ", ") + "\"L" + str(static_cast<int>(li) + 1) + "\": {\"group\": " +
-                q(std::string(1, g)) + ", \"pucks\": [" + t + "]}";
+                q(std::string(1, g)) + ", \"pucks\": [" + t + "], \"empty_cells\": [" + join(gap) + "]}";
     }
   }
+  std::vector<std::string> eq;
+  for (const auto & e : empty) eq.push_back(q(e));
   write_log("allocation.json", "{\"pucks\": [" + list + "], \"ok\": " + (ok ? "true" : "false") + ", \"why\": " + q(why) +
-            ", \"locations\": {" + groups + "}}\n");
+            ", \"partial\": " + (partial ? "true" : "false") + ", \"empty\": [" + join(eq) + "], \"locations\": {" + groups + "}}\n");
+  if (partial) {
+    result("diag: 부분 할당 (" + why + ":" + str(static_cast<int>(pucks_.size())) + ") — 퍽 " + str(static_cast<int>(jobs_.size())) +
+           "개로 BUILD" + (empty.empty() ? "" : " · 빈 눈 " + join(empty)));
+    RCLCPP_WARN(get_logger(), "부분 할당 — 빈 눈: %s", empty.empty() ? "없음" : join(empty).c_str());
+  }
   if (!ok) { finish(false, why + (pucks_.size() != 12 ? ":" + std::to_string(pucks_.size()) : "")); return; }
   finish(true);
 }

@@ -71,6 +71,41 @@ bool allocate(const std::vector<Puck> & pucks, const Counts & c, std::map<int, c
 }
 
 // 가운데 칸(4)이 있으면 먼저 — 이웃이 놓인 뒤엔 가운데 성공률이 떨어짐 (81~83%)
+bool allocate_partial(const std::vector<Puck> & pucks, const Counts & c, std::map<int, char> & out, std::map<char, int> & filled) {
+  std::vector<Puck> ok;
+  std::set<int> tags;
+  for (const auto & p : pucks)
+    if ((p.color == "red" || p.color == "green") && (p.shape == "cyl" || p.shape == "box") && tags.insert(p.tag).second) ok.push_back(p);
+  const auto n = [&](const std::string & color, const std::string & shape) {
+    return static_cast<int>(std::count_if(ok.begin(), ok.end(), [&](const Puck & p) {
+      return p.color == color && (shape.empty() || p.shape == shape);
+    }));
+  };
+  // Y 모양 · Y에 넣을 빨강·초록 수를 다 따져 봄 (많아야 2 × 7 × 7)
+  int best_full = -1, best_sum = -1, best_yr = 0, best_yg = 0;
+  std::string best_shape;
+  for (const std::string shape : {"cyl", "box"})
+    for (int yr = 0; yr <= std::min(c.y, n("red", shape)); ++yr)
+      for (int yg = 0; yg <= std::min(c.y - yr, n("green", shape)); ++yg) {
+        const int r = std::min(c.r, n("red", "") - yr), g = std::min(c.g, n("green", "") - yg), y = yr + yg;
+        const int full = (r == c.r) + (y == c.y) + (g == c.g), sum = r + y + g;
+        if (full > best_full || (full == best_full && sum > best_sum)) {
+          best_full = full; best_sum = sum; best_shape = shape; best_yr = yr; best_yg = yg;
+        }
+      }
+  out.clear();
+  filled = {{'R', 0}, {'Y', 0}, {'G', 0}};
+  if (best_sum <= 0) return false;
+  int yr = best_yr, yg = best_yg;
+  for (const auto & p : ok) {  // Y 먼저 (그 모양에서), 나머지는 색대로 그룹이 찰 때까지
+    int & left = p.color == "red" ? yr : yg;
+    const char grp = p.color == "red" ? 'R' : 'G';
+    if (p.shape == best_shape && left > 0) { out[p.tag] = 'Y'; --left; ++filled['Y']; }
+    else if (filled[grp] < group_count(c, grp)) { out[p.tag] = grp; ++filled[grp]; }
+  }
+  return true;
+}
+
 std::vector<int> dice_cells(int n) {
   static const std::vector<int> table[7] = {{}, {4}, {0, 8}, {4, 0, 8}, {0, 2, 6, 8}, {4, 0, 2, 6, 8}, {0, 3, 6, 2, 5, 8}};
   return (n >= 1 && n <= 6) ? table[n] : std::vector<int>{};
