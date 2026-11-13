@@ -124,6 +124,9 @@ if(BUILD_TESTING)
   ament_add_gtest(test_perception_core test/test_perception_core.cpp TIMEOUT 60
     ENV PERCEPTION_TEST_DATA=${CMAKE_CURRENT_SOURCE_DIR}/test/data)
   target_link_libraries(test_perception_core ${PROJECT_NAME}_cpp)
+  ament_add_gtest(test_perception_runtime test/test_perception_runtime.cpp TIMEOUT 120
+    ENV ROS_DOMAIN_ID=191 ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST)
+  target_link_libraries(test_perception_runtime ${PROJECT_NAME}_cpp)
   if(ZXing_FOUND)
     ament_add_gtest(test_barcode_fallback test/test_barcode_fallback.cpp TIMEOUT 60
       ENV PERCEPTION_TEST_DATA=${CMAKE_CURRENT_SOURCE_DIR}/test/data)
