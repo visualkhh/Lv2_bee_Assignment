@@ -3,6 +3,11 @@ opencr_bridge.py (virtual OpenCR on /tmp/opencr) so the ROS side can connect rig
 Viewport starts with colliders hidden.
 While playing, puck ground truth goes to /tmp/beebot_sim_pucks.json (loops/pick_loop.py use_sim=true logs it).
 Same result on every machine, no personal layout file.
+Window: Kit raises and focuses its own window several times while loading (GLFW XRaiseWindow/XSetInputFocus, which
+GNOME's focus-new-windows setting does not stop), so typing in a terminal gets interrupted. BEE_START_MINIMIZED=1
+(default off) keeps the window minimized until the stage has loaded + KEEP_MIN_S, then leaves it alone
+(open it from the dock, then press Play). The first raises come from Kit before this script runs, so they still
+happen (11-13) - only ISAAC_HEADLESS=1 avoids them. No effect headless.
 Sensor realism, BEE_SIM_NOISE (default 1, 0 = all off, shared with camera_adapter.py on the ROS side): RTX motion
 blur on the colour images, mild on purpose (exposure 0.3 frame) - unmeasured values stay weaker than the real camera
 so the sim never fails for reasons the robot would not. Depth is not blurred (checked 11-13).
@@ -57,11 +62,39 @@ def write_truth(stage, pucks):
     os.replace(TRUTH_FILE + ".tmp", TRUTH_FILE)
 
 
+KEEP_MIN_S = 15.0  # [s] after the stage has loaded (late layout windows still raise the app)
+
+
+async def _keep_minimized(app, state):
+    """Minimize the main window whenever Kit raises it, until state['until'] (wall time) has passed."""
+    try:
+        import carb.windowing
+        import omni.appwindow
+        win = omni.appwindow.get_default_app_window().get_window()
+        wi = carb.windowing.acquire_windowing_interface()
+    except Exception as e:  # noqa: BLE001 - headless or API change: never block the startup
+        print(f"[isaac_startup] window stays as is ({e!r})", flush=True)
+        return
+    if win is None:
+        return
+    while time.time() < state["until"]:
+        if not wi.is_window_minimized(win):
+            wi.minimize_window(win)
+        await app.next_update_async()
+    print("[isaac_startup] window no longer kept minimized - open it from the dock", flush=True)
+
+
 async def _setup():
     app = omni.kit.app.get_app()
+    minimized = {"until": time.time() + 600.0}  # until the stage has loaded (set below)
+    if os.environ.get("BEE_START_MINIMIZED", "0") == "1" and not os.environ.get("ISAAC_HEADLESS"):
+        asyncio.ensure_future(_keep_minimized(app, minimized))
+    else:
+        minimized["until"] = 0.0
     for _ in range(60):  # let the default windows come up first
         await app.next_update_async()
     await omni.usd.get_context().open_stage_async(os.path.abspath(SCENE))
+    minimized["until"] = min(minimized["until"], time.time() + KEEP_MIN_S)
     # Viewport: no collider debug draw, no guide-purpose prims (the robot's collision meshes are guides).
     # Set after opening the stage so per-user persistent settings don't win.
     # Render mode stays at the default RTX - Real-Time: /rtx/rendermode is global, so it also drives the ROS camera images.
