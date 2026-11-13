@@ -2,8 +2,9 @@
 <!--
   bt_navigator through-poses 행동 트리 — Nav2 기본 navigate_through_poses_w_replanning_and_recovery.xml(Lyrical) 복사본.
   바꾼 곳 둘:
-  ① RemovePassedGoals radius 0.7 → 0.15 m. 기본 0.7은 출발점에서 0.7 m 안의 첫 웨이포인트를
-     '이미 지나갔다'고 지워 버린다 — 가까운 웨이포인트가 통째로 사라짐 (테스트베드 실측).
+  ① RemovePassedGoals radius 0.7 → 0.40 m. 기본 0.7은 출발점에서 0.7 m 안의 첫 웨이포인트를
+     '이미 지나갔다'고 지워 버린다. 반대로 0.15는 컨트롤러 추종 오차(0.2~0.3 m)로 지나친 점을
+     체크하지 못해 같은 웨이포인트로 되돌아가며 맴돈다 (테스트베드 실측) → 0.40으로 절충.
   ② BackUp 후진 0.30 → 0.10 m. pole_front_cam이 뒤를 못 봐서 0.30 m 후진은 벽에 박힌다
      (navigate_to_pose.xml과 같은 이유).
   ros_system.launch.py가 bt_navigator의 default_nav_through_poses_bt_xml로 넘긴다.
@@ -29,7 +30,7 @@
                 <ValidatePath path="{remaining_path}"/>
               </ReactiveSequence>
               <ReactiveSequence>
-                <RemovePassedGoals input_goals="{goals}" output_goals="{goals}" radius="0.15" input_waypoint_statuses="{waypoint_statuses}" output_waypoint_statuses="{waypoint_statuses}"/>
+                <RemovePassedGoals input_goals="{goals}" output_goals="{goals}" radius="0.40" input_waypoint_statuses="{waypoint_statuses}" output_waypoint_statuses="{waypoint_statuses}"/>
                 <ComputePathThroughPoses goals="{goals}" path="{path}" planner_id="{selected_planner}" error_code_id="{compute_path_error_code}" error_msg="{compute_path_error_msg}"/>
               </ReactiveSequence>
             </Fallback>

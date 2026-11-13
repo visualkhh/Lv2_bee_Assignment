@@ -19,7 +19,7 @@ def generate_launch_description():
     config = PathJoinSubstitution([FindPackageShare('perception'), 'config', 'perception.yaml'])
     return LaunchDescription([
         # C++판 노드는 .onnx만 읽음 — 비워 두면 팀 기본 model.pt를 찾아 모델 없이 빈 목록이 됨 (yaml과 같은 v5 .onnx를 기본으로)
-        DeclareLaunchArgument('model_path', default_value='bee_yolo11n_v5.onnx',
+        DeclareLaunchArgument('model_path', default_value='bee_yolo11n_v6.onnx',
                               description='YOLO 가중치 (.onnx — 이름만 쓰면 share/perception/model에서 찾음)'),
         DeclareLaunchArgument('device', default_value='cuda',
                               description='추론 장치: cuda (젯슨 GPU — ONNX Runtime CUDA, 안 되면 저절로 CPU) | cpu'),

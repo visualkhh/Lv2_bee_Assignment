@@ -1,5 +1,6 @@
 // perception_core 테스트 — 파이썬 test/test_node.py의 같은 이름 시험을 C++판 함수로 (숫자·기대값 그대로)
 #include <gtest/gtest.h>
+#include <map>
 
 #include <cmath>
 #include <cstdlib>
@@ -427,4 +428,54 @@ TEST(Core, NumpyStats) {
   EXPECT_DOUBLE_EQ(np_median({3, 1, 2}), 2.0);
   EXPECT_DOUBLE_EQ(np_median({4, 1, 3, 2}), 2.5);
   EXPECT_DOUBLE_EQ(np_percentile({1, 2, 3, 4, 5}, 90), 4.6);
+}
+
+// 11/12 CPU 절약: AprilTag를 퍽·상자 네모 안에서만 찾아도 같은 태그 · 같은 꼭짓점 (화면 좌표로 되돌림) · 네모 합치기
+TEST(Core, TagsInRois) {
+  cv::Mat img = full(360, 640, {255, 255, 255});
+  marker(2, 40).copyTo(img(cv::Rect(60, 50, 40, 40)));
+  marker(13, 70).copyTo(img(cv::Rect(400, 200, 70, 70)));
+  marker(5, 40).copyTo(img(cv::Rect(560, 20, 40, 40)));  // 네모 밖 — 찾지 않음
+  TagDetector det;
+  const auto all = detect_tags(&det, img);
+  const auto rois = merge_rois({{60, 50, 100, 90}, {400, 200, 470, 270}, {405, 205, 460, 260}}, 0.3, 12, 640, 360);
+  ASSERT_EQ(rois.size(), 2u);  // 겹친 두 네모는 하나로
+  const auto in = detect_tags_in(&det, img, rois);
+  std::map<int, Tag> a, b;
+  for (const auto & t : all) a[t.id] = t;
+  for (const auto & t : in) b[t.id] = t;
+  ASSERT_EQ(b.size(), 2u);
+  EXPECT_FALSE(b.count(5));
+  for (int id : {2, 13}) {
+    ASSERT_TRUE(a.count(id) && b.count(id)) << id;
+    for (int j = 0; j < 4; ++j) EXPECT_LT(cv::norm(a[id].corners[j] - b[id].corners[j]), 0.5) << id;
+    EXPECT_EQ(a[id].box, b[id].box);
+  }
+  // 네모가 화면 대부분이면 그냥 전체 (같은 결과)
+  EXPECT_EQ(detect_tags_in(&det, img, {{0, 0, 640, 360}}).size(), all.size());
+}
+
+// 11/12 도킹: 로봇 쪽 면까지 거리 · 모서리 · 면 (로봇 앞 0.30 m에 20.5 cm 상자, 10° 돌아감)
+TEST(Core, BoxFaceDistCornersFaces) {
+  BoxTop bt;
+  const double yaw = 10.0 * PI / 180.0, half = 0.1025;
+  bt.c = {0.069 + 0.30 + half / std::cos(yaw), 0.0};  // 로봇 앞면(0.069)에서 0.30 앞에 가까운 면 (가운데 줄 기준)
+  bt.ax = bt.ay = 2 * half;
+  bt.yaw = yaw;
+  for (double u = -half; u <= half; u += 0.005)  // 윗면 점 (5 mm 간격)
+    for (double v = -half; v <= half; v += 0.005)
+      bt.pts.emplace_back(bt.c[0] + u * std::cos(yaw) - v * std::sin(yaw), bt.c[1] + u * std::sin(yaw) + v * std::cos(yaw));
+  const auto d = box_face_dist(bt, {0.0, 0.0}, 0.0, 0.069, 0.08, 0.0);
+  ASSERT_TRUE(d);
+  // 띠(|y| < 8 cm) 안 가장 가까운 점 = 돌아간 면이 y = ±8 cm에서 앞으로 나온 곳 → 0.30 − 0.08·tan10° 근처
+  EXPECT_NEAR(*d, 0.30 - 0.08 * std::tan(yaw), 0.006);
+  const auto cs = box_corners(bt.c, yaw, bt.ax, bt.ay);
+  for (const auto & q : cs) EXPECT_NEAR(cv::norm(q - bt.c), half * std::sqrt(2.0), 1e-9);
+  const auto fs = box_faces(bt.c, yaw, bt.ax, bt.ay);
+  EXPECT_NEAR(fs[2][2], wrap_yaw(yaw + PI, 2 * PI), 1e-9);  // 로봇 쪽 면 = 바깥 방향이 로봇을 향함 (yaw + 180°)
+  EXPECT_NEAR(fs[2][0], bt.c[0] - half * std::cos(yaw), 1e-9);
+  // 잘려서 점이 적으면 없음
+  BoxTop few;
+  few.pts = {{0.4, 0.0}, {0.41, 0.0}};
+  EXPECT_FALSE(box_face_dist(few, {0.0, 0.0}, 0.0, 0.069));
 }

@@ -67,9 +67,9 @@ private:
     track_merge_m_, pixel_sigma_, depth_sigma0_, depth_sigma_k_, q_, q_dyn_, self_radius_, body_radius_, body_height_,
     yaw_min_aspect_, fine_min_px_, depth_min_valid_, puck_tag_size_, yaw_min_elong_, location_tag_size_, box_min_side_,
     box_max_side_, box_cell_, box_tag_margin_, box_edge_px_, box_conf_, box_roi_margin_, dice_margin_, tag_gamma_,
-    tag_min_px_, tag_half_min_px_;
+    tag_min_px_, tag_half_min_px_, tag_roi_margin_, robot_front_x_;
   int imgsz_, cpu_threads_, self_arm_hits_, hue_tol_, edge_px_, near_px_, yaw_min_points_, dice_px_;
-  bool tag_center_, self_filter_, agnostic_nms_, trust_model_posture_, box_detect_, tag_half_, barcode_once_;
+  bool tag_center_, self_filter_, agnostic_nms_, trust_model_posture_, box_detect_, tag_half_, barcode_once_, tag_roi_, box_roi_yolo_;
   std::string device_, track_frame_, base_frame_;
   std::vector<std::string> self_links_;
   std::vector<double> body_box_;
@@ -134,7 +134,9 @@ private:
                                                     const std::string & color, const std::string & shape,
                                                     const std::string & posture, std::optional<double> tag_y,
                                                     const std::string & face, const cv::Matx33d & rot, const cv::Vec3d & trans);
-  std::optional<std::vector<std::array<double, 4>>> box_rois(const cv::Mat & bgr);
+  // 상자 깊이 찾기 범위 — 상자 전용 모델(box_model_path) 네모 · 없으면 본 모델 'box' 네모(box_roi_yolo) · 둘 다 없으면 화면 전체(없음)
+  std::optional<std::vector<std::array<double, 4>>> box_rois(const cv::Mat & bgr, const std::vector<YoloBox> & res);
+  bool model_has_box_{false};  // 본 YOLO 모델에 'box' 종류가 있음 (퍽+상자 한 모델)
   void publish_debug(const std::string & cam, const Frame & s, const std::vector<YoloBox> & res, const std::vector<Tag> & tags,
                      const std::vector<Det> & dets, const std::vector<int> & tids);
   void on_publish();

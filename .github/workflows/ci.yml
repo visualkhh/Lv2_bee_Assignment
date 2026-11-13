@@ -45,7 +45,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build testbed image
-        run: docker build -f ${{ matrix.dockerfile }} -t lv2-module6:testbed .
+        # GitHub ARM 러너에서 ports.ubuntu.com DNS가 간헐적으로 실패한다 (2026-11-11 CI 실측:
+        #   "Could not resolve 'ports.ubuntu.com'" → apt-get update 실패).
+        #   --network=host로 러너 DNS를 그대로 쓰고, 일시 실패는 3회까지 재시도한다.
+        run: |
+          for attempt in 1 2 3; do
+            if docker build --network=host -f ${{ matrix.dockerfile }} -t lv2-module6:testbed .; then
+              exit 0
+            fi
+            echo "::warning::docker build failed (attempt ${attempt}/3) — retrying in 15s"
+            sleep 15
+          done
+          exit 1
       - name: test-all (serial → firmware → packages → hardware → bringup → faker)
         # 평소 11~13분. 어딘가 멈추면 6시간 한도까지 러너를 잡아먹으므로 30분에서 끊는다 (실패 → debug 수집은 돈다)
         timeout-minutes: 30

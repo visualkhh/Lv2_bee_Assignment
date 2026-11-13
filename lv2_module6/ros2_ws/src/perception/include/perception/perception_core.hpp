@@ -46,6 +46,9 @@ struct Det {
   std::optional<double> yaw;
   double yaw_period{0.0};
   std::optional<Box> box;  // 영상 박스 (상자·장소 태그는 없음)
+  // 상자: 잘림(화면 가장자리) · 로봇 쪽 면 — 잰 순간의 면 위 점(추적 좌표)과 로봇 앞 방향(단위 벡터). 발행할 때 지금 로봇 앞면까지 거리로 바꿈
+  bool cut{false};
+  std::optional<cv::Vec2d> face_pt, face_dir;
 };
 
 // 트랙 하나 — 파이썬 self.tracks[id]
@@ -65,6 +68,9 @@ struct Track {
   std::optional<double> yaw;
   double yaw_period{0.0};
   std::optional<double> distance;  // 발행 순간 로봇까지 바닥 위 거리 [m]
+  bool cut{false};                     // 상자: 마지막 관측이 화면에 잘림 → 가운데·크기·모서리를 믿지 말 것
+  std::optional<cv::Vec2d> face_pt, face_dir;  // 상자: 로봇 쪽 면 (Det와 같음, 추적 좌표 — 발행 때 map으로)
+  std::optional<double> face_dist;     // 발행 순간 로봇 앞면 → 상자 로봇 쪽 면 [m]
 };
 
 // ---------- 종류 · 같은 물체
@@ -151,6 +157,12 @@ private:
 };
 std::vector<Tag> detect_tags(TagDetector * det, const cv::Mat & bgr, double gamma = 0.0, bool half = false,
                              std::optional<double> min_px = std::nullopt, std::optional<double> half_min_px = std::nullopt);
+// AprilTag를 화면 일부(퍽·상자 YOLO 네모)에서만 찾기 — CPU 절약 (젯슨 11/12: 영상 전체 3번 검사에 60~78 ms)
+//   merge_rois: 네모를 margin(변 비율) + pad_px만큼 넓히고 겹치는 것을 합침 · detect_tags_in: 네모마다 detect_tags, 화면 좌표로
+std::vector<Box> merge_rois(std::vector<Box> rois, double margin, int pad_px, int w, int h);
+std::vector<Tag> detect_tags_in(TagDetector * det, const cv::Mat & bgr, const std::vector<Box> & rois, double gamma = 0.0,
+                                bool half = false, std::optional<double> min_px = std::nullopt,
+                                std::optional<double> half_min_px = std::nullopt);
 Box clip_box(double x0, double y0, double x1, double y1, int w, int h);
 // 퍽 박스 안 퍽 태그 → (번호, 꼭짓점) · 없으면 없음
 std::optional<std::pair<int, std::array<cv::Point2d, 4>>> tag_in_box(const std::vector<Tag> & tags, const Box & box,
@@ -174,6 +186,8 @@ struct BoxTop {
   double a{0.0}, b{0.0};     // 긴 변, 짧은 변 [m]
   std::optional<double> yaw; // 주기 90° · 잘렸으면 없음
   double top_z{0.0};
+  double ax{0.0}, ay{0.0};   // yaw 방향 변 · 그에 수직인 변 [m] (붙인 상자처럼 직사각형일 때 모서리·면을 바르게)
+  std::vector<cv::Vec2d> pts;  // 이 윗면에 든 깊이 점 xy (추적 좌표) — 잘려도 로봇 쪽 면까지 거리를 잴 때 (box_face_dist)
 };
 std::vector<BoxTop> find_box_tops(const cv::Mat1f & depth_m, const cv::Matx33d & rot, const cv::Vec3d & trans, double fx,
                                   double fy, double cx, double cy, double floor_z, std::pair<double, double> h_range,
@@ -182,6 +196,14 @@ std::vector<BoxTop> find_box_tops(const cv::Mat1f & depth_m, const cv::Matx33d &
                                   const std::optional<std::vector<std::array<double, 4>>> & rois = std::nullopt,
                                   const std::vector<cv::Vec3d> & mask_px = {});
 bool tag_on_box(const cv::Vec2d & tag_xy, const BoxTop & box, double margin);
+// 로봇 앞면 → 상자의 로봇 쪽 면 거리 [m] — 윗면 깊이 점 중 로봇 앞 띠(|옆| < half_band) 안에서 가장 가까운 쪽(하위 q 분위)
+//   잘려서 가운데·크기를 못 믿어도, 로봇 쪽 모서리가 보이는 동안은 잼. robot_xy·robot_yaw = base_footprint (추적 좌표)
+//   front_x = base_footprint → 로봇 앞면 [m] · 띠 안 점이 min_pts보다 적으면 없음
+std::optional<double> box_face_dist(const BoxTop & box, const cv::Vec2d & robot_xy, double robot_yaw, double front_x,
+                                    double half_band = 0.08, double q = 0.05, int min_pts = 8);
+// 상자 네 모서리 · 네 면 (가운데 xy, 바깥 방향 yaw) — 가운데 c, yaw 방향 변 ax · 수직 변 ay
+std::array<cv::Vec2d, 4> box_corners(const cv::Vec2d & c, double yaw, double ax, double ay);
+std::array<cv::Vec3d, 4> box_faces(const cv::Vec2d & c, double yaw, double ax, double ay);
 bool box_cut(const BoxTop & box, const cv::Matx33d & rot, const cv::Vec3d & trans, double fx, double fy, double cx,
              double cy, int w, int h, double edge_px);
 

@@ -629,6 +629,49 @@ std::vector<Tag> detect_tags(TagDetector * det, const cv::Mat & bgr, double gamm
   return out;
 }
 
+std::vector<Box> merge_rois(std::vector<Box> rois, double margin, int pad_px, int w, int h) {
+  // 네모마다 margin(변 길이 비율) + pad_px만큼 넓히고 화면 안으로 · 겹치거나 닿는 네모는 하나로 (같은 곳을 두 번 안 찾게)
+  for (auto & r : rois) {
+    const int mx = static_cast<int>((r.x1 - r.x0) * margin) + pad_px, my = static_cast<int>((r.y1 - r.y0) * margin) + pad_px;
+    r = {std::max(r.x0 - mx, 0), std::max(r.y0 - my, 0), std::min(r.x1 + mx, w), std::min(r.y1 + my, h)};
+  }
+  for (bool changed = true; changed;) {
+    changed = false;
+    for (size_t i = 0; i < rois.size() && !changed; ++i)
+      for (size_t j = i + 1; j < rois.size(); ++j) {
+        const Box & a = rois[i], & b = rois[j];
+        if (a.x0 <= b.x1 && b.x0 <= a.x1 && a.y0 <= b.y1 && b.y0 <= a.y1) {
+          rois[i] = {std::min(a.x0, b.x0), std::min(a.y0, b.y0), std::max(a.x1, b.x1), std::max(a.y1, b.y1)};
+          rois.erase(rois.begin() + static_cast<long>(j));
+          changed = true;
+          break;
+        }
+      }
+  }
+  return rois;
+}
+
+std::vector<Tag> detect_tags_in(TagDetector * det, const cv::Mat & bgr, const std::vector<Box> & rois, double gamma, bool half,
+                                std::optional<double> min_px, std::optional<double> half_min_px) {
+  // 네모(merge_rois 결과)마다 잘라서 detect_tags → 원래 화면 좌표로 옮김. 네모가 화면 전체 넓이의 60 %를 넘으면 그냥 전체
+  double area = 0.0;
+  for (const auto & r : rois) area += static_cast<double>(r.x1 - r.x0) * (r.y1 - r.y0);
+  if (area > 0.6 * bgr.cols * bgr.rows) return detect_tags(det, bgr, gamma, half, min_px, half_min_px);
+  std::vector<Tag> out;
+  for (const auto & r : rois) {
+    if (r.x1 - r.x0 < 8 || r.y1 - r.y0 < 8) continue;
+    const cv::Mat crop = bgr(cv::Range(r.y0, r.y1), cv::Range(r.x0, r.x1));
+    for (auto t : detect_tags(det, crop, gamma, half, min_px, half_min_px)) {
+      const cv::Point2d o(r.x0, r.y0);
+      t.c += o;
+      for (auto & q : t.corners) q += o;
+      t.box = {t.box.x0 + r.x0, t.box.y0 + r.y0, t.box.x1 + r.x0, t.box.y1 + r.y0};
+      out.push_back(t);
+    }
+  }
+  return out;
+}
+
 Box clip_box(double x0, double y0, double x1, double y1, int w, int h) {
   return {std::max(static_cast<int>(x0), 0), std::max(static_cast<int>(y0), 0), std::min(static_cast<int>(x1), w - 1),
           std::min(static_cast<int>(y1), h - 1)};
@@ -825,7 +868,50 @@ std::vector<BoxTop> find_box_tops(const cv::Mat1f & depth_m, const cv::Matx33d &
     bt.b = std::min(a, b);
     bt.yaw = yaw;
     bt.top_z = np_median(zs);
+    // yaw는 minAreaRect 각도를 ±45°로 접은 것 — 90°의 홀수배만큼 접었으면 width·height가 yaw 기준으로 바뀜
+    const double turns = std::round((deg2rad(rr.angle) - yaw) / (PI / 2));
+    const bool swap = static_cast<long>(std::abs(turns)) % 2 == 1;
+    bt.ax = swap ? b : a;
+    bt.ay = swap ? a : b;
+    {  // 이 덩어리(칸 번호 k)의 깊이 점 — 로봇 쪽 면까지 거리용
+      for (size_t i = 0; i < top.size(); ++i)
+        if (lab.at<int>(ij[i].y, ij[i].x) == k) bt.pts.emplace_back(top[i][0], top[i][1]);
+    }
     out.push_back(bt);
+  }
+  return out;
+}
+
+std::optional<double> box_face_dist(const BoxTop & box, const cv::Vec2d & robot_xy, double robot_yaw, double front_x,
+                                    double half_band, double q, int min_pts) {
+  const double c = std::cos(-robot_yaw), sn = std::sin(-robot_yaw);
+  std::vector<double> xs;
+  for (const auto & p : box.pts) {
+    const double dx = p[0] - robot_xy[0], dy = p[1] - robot_xy[1];
+    const double fx = dx * c - dy * sn, fy = dx * sn + dy * c;  // 로봇 기준 (x 앞 · y 왼쪽)
+    if (fx > 0.0 && std::abs(fy) < half_band) xs.push_back(fx);
+  }
+  if (static_cast<int>(xs.size()) < min_pts) return std::nullopt;
+  std::sort(xs.begin(), xs.end());
+  const double near = xs[static_cast<size_t>(q * static_cast<double>(xs.size() - 1))];  // 맨 앞 몇 점은 깊이 잡음일 수 있어 분위
+  return near - front_x;
+}
+
+std::array<cv::Vec2d, 4> box_corners(const cv::Vec2d & c, double yaw, double ax, double ay) {
+  const double co = std::cos(yaw), sn = std::sin(yaw);
+  const double ds[4][2] = {{ax, ay}, {-ax, ay}, {-ax, -ay}, {ax, -ay}};
+  std::array<cv::Vec2d, 4> out;
+  for (int i = 0; i < 4; ++i)
+    out[i] = {c[0] + (ds[i][0] * co - ds[i][1] * sn) / 2, c[1] + (ds[i][0] * sn + ds[i][1] * co) / 2};
+  return out;
+}
+
+std::array<cv::Vec3d, 4> box_faces(const cv::Vec2d & c, double yaw, double ax, double ay) {
+  std::array<cv::Vec3d, 4> out;
+  const double half[4] = {ax / 2, ay / 2, ax / 2, ay / 2};
+  for (int i = 0; i < 4; ++i) {
+    const double n = wrap_yaw(yaw + i * PI / 2, 2 * PI);  // 바깥 방향: yaw, yaw+90°, yaw+180°, yaw+270°
+    out[i] = {c[0] + half[i] * std::cos(n), c[1] + half[i] * std::sin(n), n};
   }
   return out;
 }

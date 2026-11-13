@@ -2,13 +2,18 @@
 perception:
   ros__parameters:
     rate_hz: 10.0            # /tracked_objects 발행 주기 (설계: 10Hz · reliable)
-    model_path: "bee_yolo11n_v5.onnx"  # 비면 share/perception/model/model.pt(팀 모델) 자동 탐색, 없으면 빈 목록 · 파일 이름만 쓰면 그 폴더에서 찾음
+    model_path: "bee_yolo11n_v6.onnx"  # 비면 share/perception/model/model.pt(팀 모델) 자동 탐색, 없으면 빈 목록 · 파일 이름만 쓰면 그 폴더에서 찾음
+                            #   bee_yolo11n_v6 (11/12): 퍽 + 상자 한 모델 — v5 10클래스 + 10 box(미션 상자 전체, 배경 택배 상자 아님)
+                            #     v5에서 이어서 · 상자 라벨 전부 사용자 검수 · 라벨 안 된 녹화 상자+퍽 장면 · 쌓은 퍽 보강 (yolo_puck runs/one11f)
+                            #     시험 (640 · conf 0.4, 같은 채점): 로봇 카메라 퍽 710/767 (v5 717) · 대회 장면만 688/744 (v5 696) · 헛검출 30 (v5 11, 대부분 쌓은 퍽을 한 네모로)
+                            #     상자 37/39 (상자 전용 box_v5 38) · 옛 실물 퍽 181/193 (v5 175) · 신호등 상태 573/582 (v5 577)
+                            #     상자 종류가 있어서 tag_roi · box_roi_yolo(CPU 절약)가 켜짐 · ONNX 384×640, .pt와 검출 같음 (시험 1072 = 1072)
                             #   bee_yolo11n_v5.onnx: bee_yolo11n_v5.pt를 ONNX로 바꾼 것 (입력 384×640 고정 — 카메라 640×360에 맞춤, 실행에 onnxruntime 필요)
                             #     로봇 카메라 시험은 .pt와 같음 (퍽 727/767 · 헛검출 23)
                             #   bee_yolo11n_v5.pt: v4와 같은 10클래스(빨강·초록 퍽 × 사각·원기둥 · 신호등 상태 4 · person · obstacle) — v4 + 노트북 카메라 실물 234장 + 잘못된 학습 라벨 고침
                             #     시험 (imgsz 640 · conf 0.4, 학습에 안 쓴 사진 · 시험 라벨 확인 후): 로봇 카메라 퍽 767개 중 727 찾음(94.8%) · 헛검출 23
                             #     옛 실물 시험 퍽 187/193 · 헛검출 8 · 신호등 상태 579/582
-                            #   되돌리기: "bee_yolo11n_v5.pt" (onnxruntime 없을 때) · "bee_yolo11n_v4.pt" · "" (팀 기본 model.pt)
+                            #   되돌리기: "bee_yolo11n_v5.onnx" (상자 없는 퍽 모델 — tag_roi·box_roi_yolo는 저절로 꺼짐) · "bee_yolo11n_v5.pt" · "" (팀 기본 model.pt)
     confidence: 0.4         # 검출 신뢰도 하한
     imgsz: 640              # YOLO 입력 한 변 — .pt일 때만 씀 (.onnx는 만들 때 정한 384×640으로 고정) · 416보다 작은 퍽을 더 찾음
     # device: C++판 코드 기본 "cuda"(GPU 안 되면 저절로 CPU) · 파이썬판 기본 "cpu" — 여기 두지 않음: 노드 이름 아래 값이 launch 덮어쓰기(/**)를 이겨 stand_test perception_device가 안 먹었다 (2026-11-06)
@@ -35,6 +40,12 @@ perception:
     body_radius: 0.2        # 차체 원점에서 수평 이 안 · 높이 body_height 아래면 자기 몸 [m] (적재함·폴)
     tag_gamma: 2.5          # AprilTag를 감마로 어둡게 편 영상에서 한 번 더 찾음 (0 = 끔) — 광택 반사로 회색이 된 검은 칸 (11/07 Isaac: 판독 9→14/16)
     tag_half: true          # 반 크기 영상에서도 한 번 더 — 가까워 크게(한 변 70 px+) 찍힌 태그는 원본에서 테두리를 못 찾았음 (11/07 Isaac)
+    tag_roi: false          # AprilTag를 YOLO 퍽·상자 네모 안에서만 (젯슨 CPU 절약 11/12) — 모델에 'box' 종류가 있을 때만 · 네모가 없으면 화면 전체
+                            #   로봇에서 켰을 때 태그 결과가 끔과 같은지 확인한 뒤 true로 (ros2 param set /perception tag_roi true)
+    tag_roi_margin: 0.3     #   네모를 변 길이의 이 비율 + 12 px만큼 넓혀서 찾음
+    box_roi_yolo: false     # 상자 깊이 찾기를 YOLO 'box' 네모 안에서만 (해상도 그대로 — 위치·방향 정밀도 같음) · 'box' 네모가 없으면 화면 전체
+                            #   로봇에서 상자 위치·방향이 끔과 같은지 확인한 뒤 true로 (ros2 param set /perception box_roi_yolo true)
+    robot_front_x: 0.069    # [m] base_footprint → 로봇 앞면 — 상자 details face_dist_m (로봇 앞면 → 상자 로봇 쪽 면) 기준
     body_box: [-0.25, 0.08, 0.15]  # 차체 직사각형 [x_min, x_max, y_half] base_footprint 기준 [m] — 있으면 body_radius 대신
                             #   URDF base_link 상자 x −0.2325~0.0688 · y ±0.133 + 여유 1~2 cm. 반경 0.2는 차체 앞 13 cm까지 지워
                             #   inspect 자세에서 상자 앞쪽(차체에서 2~5 cm) 퍽을 자기 몸으로 버렸음 (11/07 Isaac 시험)

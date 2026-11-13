@@ -57,6 +57,16 @@ std::string fmt(const char * f, double v) {
   return b;
 }
 
+// 상자 로봇 쪽 면까지 지금 거리 [m] — 잰 순간의 면 위 점 face_pt를 그때 로봇 앞 방향 face_dir로 지금 로봇 앞면에서 잼 (추적 좌표)
+//   로봇이 그 뒤 움직여도 odom 기준이라 거리가 따라 줄어듦 (카메라에서 상자가 안 보이는 마지막 몇 cm도)
+static std::optional<double> face_dist_now(const Track & tr, const cv::Matx33d & base_rot, const cv::Vec3d & base_t, double front_x) {
+  if (!tr.face_pt || !tr.face_dir) return std::nullopt;
+  const cv::Vec2d head(base_rot(0, 0), base_rot(1, 0));
+  const cv::Vec2d front = cv::Vec2d(base_t[0], base_t[1]) + head * (front_x / std::max(cv::norm(head), 1e-9));
+  return (*tr.face_pt - front).dot(*tr.face_dir);
+}
+
+
 // ROS Image ↔ cv::Mat — cv_bridge를 안 씀: 젯슨은 ROS cv_bridge가 OpenCV 4.6, 이 노드는 JetPack OpenCV 4.8이라
 //   cv_bridge를 링크하면 두 버전 라이브러리가 한 프로그램에 같이 올라감 (빌드 경고 "libopencv_* 406 may conflict with 408")
 cv::Mat image_to_mat(const sensor_msgs::msg::Image & m, bool color) {
@@ -241,6 +251,14 @@ PerceptionNode::PerceptionNode(const rclcpp::NodeOptions & options) : rclcpp::No
   tag_half_ = pb("tag_half", true);                     // 반 크기 영상도
   tag_min_px_ = pd("tag_min_perimeter_px", 16.0);       // 태그 후보 최소 둘레 [px] (CPU 절약 — 실물·Isaac 955장 같은 태그)
   tag_half_min_px_ = pd("tag_half_min_perimeter_px", 24.0);
+  // AprilTag를 YOLO 퍽·상자 네모 안에서만 (CPU 절약 — 젯슨 11/12: 영상 전체 검사 60~78 ms). 퍽 태그는 퍽 윗면 · 장소 태그는 상자 윗면이라
+  //   둘 다 네모 안. 본 모델에 'box' 종류가 없거나(장소 태그를 놓침) 이번 영상에 퍽·상자 네모가 없으면 예전처럼 화면 전체
+  tag_roi_ = pb("tag_roi", false);  // 기본 끔 — 로봇에서 결과가 같은지 확인한 뒤 켬 (11/12)
+  tag_roi_margin_ = pd("tag_roi_margin", 0.3);          // 네모를 변 길이의 이 비율 + 12 px만큼 넓혀서 (태그가 네모 가장자리에 걸려도)
+  // 상자 깊이 찾기를 본 모델 'box' 네모 안에서만 (상자 전용 모델이 없을 때) — 해상도는 그대로라 위치·방향 정밀도는 같음
+  //   이번 영상에 'box' 네모가 없으면 예전처럼 화면 전체
+  box_roi_yolo_ = pb("box_roi_yolo", false);  // 기본 끔 — 로봇에서 상자가 같은지 확인한 뒤 켬 (11/12)
+  robot_front_x_ = pd("robot_front_x", 0.069);  // base_footprint → 로봇 앞면 [m] (상자 face_dist_m 기준 · 시뮬 pick_env ROBOT_FRONT_X)
   barcode_once_ = pb("barcode_once", true);             // 바코드를 한 번 읽으면 더 안 찾고 읽은 내용만 0.5초마다 다시 냄
 
   // ---- 모델
@@ -273,6 +291,9 @@ PerceptionNode::PerceptionNode(const rclcpp::NodeOptions & options) : rclcpp::No
     RCLCPP_WARN(get_logger(), "model_path 없음 — 빈 목록 발행 (기동 검사용)");
   }
   if (!box_model_path.empty()) box_model_ = load(resolve_model_path(box_model_path, model_dir), "상자 YOLO 모델");
+  if (model_)
+    for (const auto & [k, v] : model_->names())
+      if (v == "box") model_has_box_ = true;
 #ifdef PERCEPTION_HAVE_ZXING
   barcode_ = std::make_shared<Barcode>();
 #endif
@@ -400,7 +421,18 @@ void PerceptionNode::update_tracks(const std::string & cam, Frame & s, const std
   if (!tf) return;  // 위치를 못 구함
   const auto [rot, trans] = *tf;
   const double t_tag = mono_s();
-  const auto tags = detect_tags(&tag_det_, s.bgr, tag_gamma_, tag_half_, tag_min_px_, tag_half_min_px_);
+  std::vector<Box> tag_rois;  // 퍽·상자 네모 (tag_roi) — 본 모델에 상자 종류가 있을 때만 (없으면 장소 태그를 놓침)
+  if (tag_roi_ && model_has_box_)
+    for (const auto & b : res) {
+      const auto it = names_.find(b.cls);
+      if (it == names_.end()) continue;
+      const auto cls = split_class(it->second).first;
+      if (cls == "puck" || cls == "box") tag_rois.push_back(clip_box(b.x0, b.y0, b.x1, b.y1, w, h));
+    }
+  const auto tags = tag_rois.empty()
+    ? detect_tags(&tag_det_, s.bgr, tag_gamma_, tag_half_, tag_min_px_, tag_half_min_px_)
+    : detect_tags_in(&tag_det_, s.bgr, merge_rois(tag_rois, tag_roi_margin_, 12, w, h), tag_gamma_, tag_half_, tag_min_px_,
+                     tag_half_min_px_);
   prof_add(cam, "AprilTag", t_tag);
   // 로봇 몸(차체·팔) — 자기 몸 필터와 상자 찾기에 같이 씀
   const auto body = self_filter_ && (!res.empty() || box_detect_) ? robot_body(now_stamp) : std::nullopt;
@@ -529,20 +561,28 @@ void PerceptionNode::update_tracks(const std::string & cam, Frame & s, const std
   const double t_box = mono_s();
   std::vector<BoxTop> boxes;
   if (box_detect_) {
-    const auto rois = box_rois(s.bgr);
+    const auto rois = box_rois(s.bgr, res);
     boxes = find_box_tops(depth_m, rot, trans, s.fx, s.fy, s.cx, s.cy, floor_z, box_h_, box_min_side_, box_max_side_, box_cell_, 4,
                           3.0, avoid, rois, arm_all);
     prof_add(cam, "상자", t_box);
   }
-  for (auto & bt : boxes)  // 화면 가장자리에 잘린 상자 → 방향 모름
-    if (box_cut(bt, rot, trans, s.fx, s.fy, s.cx, s.cy, depth_m.cols, depth_m.rows, box_edge_px_)) bt.yaw.reset();
+  std::vector<bool> cut(boxes.size(), false);
+  for (size_t i = 0; i < boxes.size(); ++i)  // 화면 가장자리에 잘린 상자 → 방향 모름 · 가운데·크기도 일부로 잰 값 (cut 표시)
+    if (box_cut(boxes[i], rot, trans, s.fx, s.fy, s.cx, s.cy, depth_m.cols, depth_m.rows, box_edge_px_)) {
+      boxes[i].yaw.reset();
+      cut[i] = true;
+    }
+  // 로봇 앞 방향 (추적 좌표) — 상자 로봇 쪽 면까지 거리 (box_face_dist)
+  std::optional<std::pair<cv::Vec2d, double>> robot2d;
+  if (base_now) robot2d = std::make_pair(cv::Vec2d(base_now->second[0], base_now->second[1]),
+                                         std::atan2(base_now->first(1, 0), base_now->first(0, 0)));
   std::map<size_t, std::pair<int, std::optional<double>>> box_tag;  // 상자 번호 → (태그 번호, 태그 yaw)
   for (const auto & t : tags) {  // 장소 태그 (L1~L3) — 붙은 상자를 location_box로
     if (!location_tags_.count(t.id)) continue;
     auto d = marker_det(s, t.box, t.c, rot, trans, "location_box");
     if (!d) continue;
     auto [l_yaw, face] = tag_yaw(t.corners, location_tag_size_, s.fx, s.fy, s.cx, s.cy, rot);
-    if (face != "side") l_yaw.reset();  // 옆면 태그의 법선만 방향으로 씀
+    if (face != "side") l_yaw.reset();  // 장소 태그는 상자 윗면(위치는 정해지지 않음) → 태그로는 방향을 안 정함 (방향 = 윗면 변)
     std::optional<size_t> on;
     for (size_t i = 0; i < boxes.size(); ++i)
       if (tag_on_box(cv::Vec2d(d->z[0], d->z[1]), boxes[i], box_tag_margin_)) { on = i; break; }
@@ -550,7 +590,7 @@ void PerceptionNode::update_tracks(const std::string & cam, Frame & s, const std
       box_tag[*on] = {t.id, l_yaw};
       continue;
     }
-    // 윗면을 못 찾음 → 태그에서 상자 안쪽으로 반 변 · 방향 모르면 태그 위치 그대로
+    // 윗면을 못 찾음 → 상자 위치 = 태그 위치 (태그가 윗면 어디에 붙었는지 몰라 상자 가운데와 최대 약 10 cm 어긋남 · 방향 모름)
     d->tag = t.id;
     d->size = location_box_size_;
     if (l_yaw) {
@@ -568,12 +608,20 @@ void PerceptionNode::update_tracks(const std::string & cam, Frame & s, const std
     d.class_name = "start_box";
     d.z = {bt.c[0], bt.c[1], bt.top_z};
     d.R = rot * r_cam * rot.t();
-    d.size = {bt.a, bt.b, std::max(bt.top_z - floor_z, 0.01)};
+    // 크기: 방향을 알면 yaw 방향 변 · 수직 변 순서 (모서리·면을 바르게) · 모르면 긴 변 · 짧은 변
+    d.size = bt.yaw ? cv::Vec3d(bt.ax, bt.ay, std::max(bt.top_z - floor_z, 0.01)) : cv::Vec3d(bt.a, bt.b, std::max(bt.top_z - floor_z, 0.01));
+    d.cut = cut[i];
+    if (robot2d)
+      if (const auto fd = box_face_dist(bt, robot2d->first, robot2d->second, robot_front_x_)) {
+        const cv::Vec2d dir(std::cos(robot2d->second), std::sin(robot2d->second));
+        d.face_pt = robot2d->first + dir * (robot_front_x_ + *fd);  // 잰 순간 로봇 쪽 면 위 점
+        d.face_dir = dir;
+      }
     d.conf = 1.0;
     d.px = cv::Point(static_cast<int>(s.fx * p_img[0] / p_img[2] + s.cx), static_cast<int>(s.fy * p_img[1] / p_img[2] + s.cy));
     d.yaw = bt.yaw;
     d.yaw_period = PI / 2;  // 윗면 사각형 변 방향 — 정사각형이라 90°마다 같음
-    if (box_tag.count(i)) {  // 장소 태그가 붙은 상자 → location_box (방향은 태그 법선 우선)
+    if (box_tag.count(i)) {  // 장소 태그가 윗면에 있는 상자 → location_box (방향 = 윗면 변, 90° 주기)
       d.class_name = "location_box";
       d.tag = box_tag[i].first;
       if (box_tag[i].second) { d.yaw = box_tag[i].second; d.yaw_period = 2 * PI; }
@@ -601,6 +649,8 @@ void PerceptionNode::update_tracks(const std::string & cam, Frame & s, const std
     tr.p = d.z; tr.P = d.R; tr.size = d.size; tr.conf = d.conf; tr.px = d.px;
     tr.color = d.color; tr.posture = d.posture; tr.shape = d.shape; tr.content = d.content;
     tr.tag = d.tag; tr.yaw = d.yaw; tr.yaw_period = d.yaw_period;
+    tr.cut = d.cut; tr.face_pt = d.face_pt; tr.face_dir = d.face_dir;
+    if (base_now) tr.face_dist = face_dist_now(tr, base_now->first, base_now->second, robot_front_x_);
     tr.last_seen_sec = now_stamp.sec; tr.last_seen_nsec = now_stamp.nanosec;
     tr.camera = cam;
     out.objects.push_back(to_msg(tids[i], to_map(tr)));
@@ -664,9 +714,22 @@ void PerceptionNode::publish_debug(const std::string & cam, const Frame & s, con
   debug_pubs_[cam]->publish(mat_to_image(img, hd));
 }
 
-std::optional<std::vector<std::array<double, 4>>> PerceptionNode::box_rois(const cv::Mat & bgr) {
+std::optional<std::vector<std::array<double, 4>>> PerceptionNode::box_rois(const cv::Mat & bgr, const std::vector<YoloBox> & res) {
   // 상자 전용 YOLO → 상자 네모들 (box_roi_margin만큼 넓힘) · 모델이 없거나 실패면 없음 (화면 전체)
-  if (!box_model_) return std::nullopt;
+  //   상자 전용 모델이 없으면 본 모델(퍽+상자 한 모델)의 'box' 네모 — 이번 영상에 하나도 없으면 없음 (화면 전체, 상자를 놓치지 않게)
+  if (!box_model_) {
+    if (!box_roi_yolo_ || !model_has_box_) return std::nullopt;
+    std::vector<std::array<double, 4>> out;
+    for (const auto & b : res) {
+      const auto it = names_.find(b.cls);
+      if (it == names_.end() || it->second != "box") continue;
+      const double mx = (b.x1 - b.x0) * box_roi_margin_, my = (b.y1 - b.y0) * box_roi_margin_;
+      out.push_back({std::max(0.0, b.x0 - mx), std::max(0.0, b.y0 - my), std::min(bgr.cols - 1.0, b.x1 + mx),
+                     std::min(bgr.rows - 1.0, b.y1 + my)});
+    }
+    if (out.empty()) return std::nullopt;
+    return out;
+  }
   std::vector<YoloBox> r;
   try {
     r = box_model_->predict(bgr, static_cast<float>(box_conf_), false);
@@ -871,10 +934,13 @@ std::vector<int> PerceptionNode::fuse(const std::string & cam, const builtin_int
     used_t.insert(tid);
     const Det & d = dets[i];
     Track & tr = tracks_.at(tid);
-    cv::Matx33d K;
-    std::tie(tr.p, tr.P, K) = kf_update(tr.p, pred[tid], d.z, d.R);
-    const double a = (K(0, 0) + K(1, 1) + K(2, 2)) / 3.0;  // 이번 관측을 믿은 정도 — 크기도 같은 비율로
-    tr.size = tr.size + a * (d.size - tr.size);
+    if (!(d.cut && (tr.class_name == "start_box" || tr.class_name == "location_box"))) {
+      // 잘린 상자 관측은 가운데·크기를 갱신하지 않음 — 일부로 잰 값이 다가가는 동안 위치를 끌고 감 (11/12 사용자: 상자 앞 1~2 cm 도킹)
+      cv::Matx33d K;
+      std::tie(tr.p, tr.P, K) = kf_update(tr.p, pred[tid], d.z, d.R);
+      const double a = (K(0, 0) + K(1, 1) + K(2, 2)) / 3.0;  // 이번 관측을 믿은 정도 — 크기도 같은 비율로
+      tr.size = tr.size + a * (d.size - tr.size);
+    }
     tr.t = std::max(tr.t, t);
     if (t >= tr.last_seen_sec + tr.last_seen_nsec * 1e-9) { tr.last_seen_sec = stamp.sec; tr.last_seen_nsec = stamp.nanosec; }
     tr.seen[cam] = t;
@@ -892,6 +958,10 @@ std::vector<int> PerceptionNode::fuse(const std::string & cam, const builtin_int
       tr.yaw.reset();  // 자세가 바뀜 → 옛 방향은 뜻이 없음
     }
     if (!d.posture.empty()) tr.yaw_posture = d.posture;
+    if (tr.class_name == "start_box" || tr.class_name == "location_box") {  // 상자: 잘림 · 로봇 쪽 면은 최신 관측
+      tr.cut = d.cut;
+      if (d.face_pt) { tr.face_pt = d.face_pt; tr.face_dir = d.face_dir; }
+    }
   }
   for (size_t i = 0; i < dets.size(); ++i) {
     if (used_d.count(i)) continue;
@@ -903,6 +973,7 @@ std::vector<int> PerceptionNode::fuse(const std::string & cam, const builtin_int
     tr.seen[cam] = t;
     tr.camera = cam; tr.px = d.px; tr.color = d.color; tr.tag = d.tag; tr.content = d.content; tr.shape = d.shape;
     tr.yaw = d.yaw; tr.yaw_period = d.yaw_period; tr.yaw_posture = d.posture;
+    tr.cut = d.cut; tr.face_pt = d.face_pt; tr.face_dir = d.face_dir;
     tracks_[next_id_] = tr;
     used_d[i] = next_id_++;
   }
@@ -957,6 +1028,14 @@ Track PerceptionNode::to_map(const Track & tr) {
   out.p = rot * tr.p + trans;
   out.P = rot * tr.P * rot.t();
   if (tr.yaw) out.yaw = wrap_yaw(*tr.yaw + std::atan2(rot(1, 0), rot(0, 0)), tr.yaw_period);
+  if (tr.face_pt) {
+    const cv::Vec3d q = rot * cv::Vec3d((*tr.face_pt)[0], (*tr.face_pt)[1], 0.0) + trans;
+    out.face_pt = cv::Vec2d(q[0], q[1]);
+  }
+  if (tr.face_dir) {
+    const cv::Vec3d q = rot * cv::Vec3d((*tr.face_dir)[0], (*tr.face_dir)[1], 0.0);
+    out.face_dir = cv::Vec2d(q[0], q[1]);
+  }
   return out;
 }
 
@@ -992,6 +1071,23 @@ TrackedObject PerceptionNode::to_msg(int tid, const Track & tr) const {
   if (tr.distance) o.details.push_back(kv("distance", fmt("%.3f", *tr.distance)));
   if (tr.tag) o.details.push_back(kv("tag", std::to_string(*tr.tag)));
   if (!tr.content.empty()) o.details.push_back(kv("content", tr.content));
+  if (o.class_name == "start_box" || o.class_name == "location_box") {
+    // 상자 도킹용 (11/12 · approach 목표와 같은 단위: m · rad · map 기준)
+    //   face_dist_m: 로봇 앞면 → 상자 로봇 쪽 면 (잘려도 · 안 보여도 마지막으로 잰 면에서 odom으로 계속)
+    //   cut: 마지막 관측이 화면에 잘림 → 가운데·크기·corners·faces를 믿지 말 것 (판단 쪽 기억 값을 쓸 것)
+    //   corners: 네 모서리 "x,y;…" · faces: 네 면 "x,y,yaw;…" (면 가운데 · 바깥 방향) — 방향을 알고 안 잘렸을 때만
+    if (tr.face_dist) o.details.push_back(kv("face_dist_m", fmt("%.3f", *tr.face_dist)));
+    if (tr.cut) o.details.push_back(kv("cut", "true"));
+    if (tr.yaw && !tr.cut) {
+      const cv::Vec2d c(tr.p[0], tr.p[1]);
+      std::string cs, fs;
+      for (const auto & q : box_corners(c, *tr.yaw, tr.size[0], tr.size[1])) cs += (cs.empty() ? "" : ";") + fmt("%.3f", q[0]) + "," + fmt("%.3f", q[1]);
+      for (const auto & f : box_faces(c, *tr.yaw, tr.size[0], tr.size[1]))
+        fs += (fs.empty() ? "" : ";") + fmt("%.3f", f[0]) + "," + fmt("%.3f", f[1]) + "," + fmt("%.4f", f[2]);
+      o.details.push_back(kv("corners", cs));
+      o.details.push_back(kv("faces", fs));
+    }
+  }
   return o;
 }
 
@@ -1030,6 +1126,7 @@ void PerceptionNode::on_publish() {
   const auto base = lookup_tf(base_frame_, builtin_interfaces::msg::Time(), true);  // 로봇 ~ 물체 바닥 위 거리
   for (auto & [tid, tr] : items) {
     if (base) tr.distance = std::hypot(tr.p[0] - base->second[0], tr.p[1] - base->second[1]);
+    if (base) tr.face_dist = face_dist_now(tr, base->first, base->second, robot_front_x_);
     out.objects.push_back(to_msg(tid, to_map(tr)));
   }
   pub_->publish(out);

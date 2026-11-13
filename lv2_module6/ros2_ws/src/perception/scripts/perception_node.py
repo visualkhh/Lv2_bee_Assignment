@@ -29,7 +29,7 @@
 
 [상자]
   depth로 바닥 위 상자 윗면(205×205×70 mm, 붙이면 더 큰 판)을 찾음 (find_box_tops) → 위치 = 윗면 가운데 · size = 잰 크기 · yaw 주기 90°.
-  윗면 옆에 장소 태그(12~14)가 있으면 location_box (yaw = 태그 법선, 주기 360°) · 없으면 start_box.
+  윗면에 장소 태그(12~14)가 있으면 location_box (yaw = 윗면 변, 주기 90°) · 없으면 start_box.
   태그만 보이고 윗면을 못 찾으면 태그에서 상자 안쪽으로 반 변(location_box_size) 옮긴 곳이 location_box.
 
 [신호등]
@@ -835,7 +835,7 @@ def find_box_tops(depth_m, rot, trans, fx, fy, cx, cy, floor_z, h_range, min_sid
 
 
 def tag_on_box(tag_xy, box, margin):
-    """장소 태그 위치(xy)가 상자 윗면 사각형(find_box_tops 결과 하나)의 옆면 근처(사각형을 margin [m]만큼 넓힌 안)에 있는가 → True/False"""
+    """장소 태그 위치(xy)가 상자 윗면 사각형(find_box_tops 결과 하나)을 margin [m]만큼 넓힌 안에 있는가 → True/False"""
     c, (a, b), yaw, _ = box
     d = np.asarray(tag_xy, float) - c
     if yaw is None:  # 잘린 상자(방향 모름, box_cut) — 사각형을 돌릴 수 없으니 가운데에서 대각선 반 + margin 안이면 그 상자
@@ -1313,16 +1313,14 @@ class PerceptionNode(Node):
             d = self.marker_det(s, box, (u, v), rot, trans, "location_box")
             if d is None:
                 continue
-            # 방향: 상자 옆면(접근 방향 쪽)에 붙은 태그의 바라보는 방향(법선) — 퍽 옆면과 같은 계산(tag_yaw)
-            #   yaw = 태그 앞쪽(상자 밖, 로봇이 다가오는 쪽)을 가리킴 · 놓을 때 상자 방향 보정용
-            #   비스듬히 봐서 옆면으로 안 나오면 안 씀 (모름 — 합칠 때 아는 방향을 덮지 않음)
+            # 장소 태그는 상자 윗면(위치는 정해지지 않음) → 태그로는 방향을 안 정함 (방향 = 윗면 변, 아래 상자 검출)
             l_yaw, face = tag_yaw(corners, self.location_tag_size, s["fx"], s["fy"], s["cx"], s["cy"], rot)
             l_yaw = l_yaw if face == "side" else None
             on = [i for i, bx in enumerate(boxes) if tag_on_box(d["z"][:2], bx, self.box_tag_margin)]
             if on:  # 윗면을 찾은 상자에 붙은 태그 → 그 상자에 번호·방향 (아래 상자 검출에서 같이 만듦)
                 box_tag[on[0]] = (tid_tag, l_yaw)
                 continue
-            # 윗면을 못 찾음 (멀거나 일부만 보임) → 태그에서 상자 안쪽(법선 반대)으로 반 변 옮긴 곳 · 방향 모르면 태그 위치 그대로
+            # 윗면을 못 찾음 (멀거나 일부만 보임) → 상자 위치 = 태그 위치 (상자 가운데와 최대 약 10 cm 어긋남 · 방향 모름)
             d["tag"] = tid_tag
             d["size"] = self.location_box_size.copy()
             if l_yaw is not None:
@@ -1336,7 +1334,7 @@ class PerceptionNode(Node):
                  "size": np.array([a, b, max(top_z - floor_z, 0.01)]), "conf": 1.0,
                  "px": (int(s["fx"] * p_img[0] / p_img[2] + s["cx"]), int(s["fy"] * p_img[1] / p_img[2] + s["cy"])),
                  "color": "", "posture": "", "yaw": byaw, "yaw_period": np.pi / 2}  # 윗면 사각형 변 방향 — 정사각형이라 90°마다 같음
-            if i in box_tag:  # 장소 태그가 붙은 상자 → location_box (방향은 태그 법선을 우선 — 360° 구분됨)
+            if i in box_tag:  # 장소 태그가 윗면에 있는 상자 → location_box (방향 = 윗면 변, 90° 주기)
                 d["class_name"], d["tag"] = "location_box", box_tag[i][0]
                 if box_tag[i][1] is not None:
                     d["yaw"], d["yaw_period"] = box_tag[i][1], 2 * np.pi
@@ -1440,8 +1438,8 @@ class PerceptionNode(Node):
         if want:
             locs = [x for x in locs if x[1].get("tag") == want]
         if not locs and any_box:
-            # 팔을 상자 위로 옮기는 동안 옆면 태그가 안 보이면 장소 상자 트랙이 2초 뒤 지워짐
-            # → 지금 보이는 상자 중 로봇에서 가장 가까운 것으로 찍음 (위에서 내려다보면 옆면 태그는 원래 안 보임)
+            # 팔을 상자 위로 옮기는 동안 장소 태그가 화면에서 안 보이면 장소 상자 트랙이 2초 뒤 지워짐
+            # → 지금 보이는 상자 중 로봇에서 가장 가까운 것으로 찍음
             self.get_logger().warning(f"주사위 사진: 장소 상자(tag {want or '아무거나'}) 트랙 없음 — 지금 보이는 가장 가까운 상자로 찍음")
             locs = any_box
         if not locs:
