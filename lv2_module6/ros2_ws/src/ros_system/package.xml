@@ -26,6 +26,7 @@
   <exec_depend>moveit_simple_controller_manager</exec_depend>
   <exec_depend>control</exec_depend>
   <exec_depend>ml</exec_depend>
+  <exec_depend>perception</exec_depend>   <!-- static_2d: static_esdf_slice -->
   <!-- 실기 PC에만 설치 (테스트베드 이미지에는 없음 — faker가 대신함) -->
   <exec_depend>realsense2_camera</exec_depend>
   <exec_depend>robot_localization</exec_depend>
@@ -38,6 +39,7 @@
   <exec_depend>nav_msgs</exec_depend>
   <!-- 진짜 Nav2 서버 (launch가 직접 띄움 — nav2_bringup은 시뮬레이션 의존성까지 끌어와 안 씀) -->
   <exec_depend>nav2_lifecycle_manager</exec_depend>
+  <exec_depend>nav2_map_server</exec_depend>
   <exec_depend>nav2_bt_navigator</exec_depend>
   <exec_depend>nav2_planner</exec_depend>
   <exec_depend>nav2_navfn_planner</exec_depend>

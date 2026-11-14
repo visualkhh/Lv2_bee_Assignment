@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.16)
 project(manager)
+# 빌드 종류를 안 주면(colcon build 그대로) 최적화 없이(-O0) 빌드됨 — 실기 젯슨에서 perception 상자 검출이 8배 느렸음 (11-13)
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+  set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
+endif()
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)

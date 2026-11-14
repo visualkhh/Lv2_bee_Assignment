@@ -13,6 +13,8 @@
 // [파이썬과 다른 점]
 //   - 모델은 .onnx만 (ultralytics .pt는 못 읽음 — 경고 후 빈 목록). OBB 모델의 회전 박스(누운 퍽 축)는 안 씀
 //   - 바코드는 zxing-cpp C++ 라이브러리가 빌드에 있을 때만 (libzxing-dev). 없으면 진단에 "없음"
+#include <atomic>
+#include <regex>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -24,11 +26,13 @@
 #include <opencv2/core.hpp>
 
 #include "diagnostic_msgs/msg/diagnostic_array.hpp"
+#include "action_msgs/msg/goal_status_array.hpp"
 #include "message_filters/subscriber.hpp"
 #include "message_filters/sync_policies/approximate_time.hpp"
 #include "message_filters/synchronizer.hpp"
 #include "perception/msg/tracked_object_array.hpp"
 #include "perception/perception_core.hpp"
+#include "perception/inference_schedule.hpp"
 #include "perception/yolo_onnx.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/camera_info.hpp"
@@ -55,6 +59,7 @@ public:
     std::string frame_id;
     double fx{0}, fy{0}, cx{0}, cy{0};
     double infer_t{0};       // 마지막 추론 시작 (벽시계 [s])
+    std::optional<builtin_interfaces::msg::Time> processed_stamp;  // 동일 측정을 두 번 융합하지 않음
     std::vector<std::pair<Box, std::string>> drops;  // 버린 퍽 박스와 이유 (디버그 영상)
   };
   // 시험용: 동기화된 쌍 · camera_info를 직접 넣음
@@ -62,6 +67,7 @@ public:
   void on_info(const std::string & cam, const sensor_msgs::msg::CameraInfo & msg);
 
 private:
+  friend struct PerceptionNodeTestPeer;
   // ---- 파라미터 (이름은 파이썬과 같음)
   double rate_hz_, conf_th_, sync_slop_, match_dist_, puck_center_offset_, puck_center_full_deg_, det_merge_iou_,
     track_merge_m_, pixel_sigma_, depth_sigma0_, depth_sigma_k_, q_, q_dyn_, self_radius_, body_radius_, body_height_,
@@ -77,6 +83,8 @@ private:
   cv::Vec3d location_box_size_;
   std::set<int> puck_tag_ids_, location_tags_;
   JudgeParams judge_;
+  double max_frame_age_s_, max_tf_fallback_age_s_, map_tf_cache_s_;
+  bool map_tf_required_{false};
 
   // ---- 모델 · 검출기
   std::unique_ptr<YoloOnnx> model_, box_model_;
@@ -88,6 +96,7 @@ private:
 
   // ---- 상태 (mutex_로 보호)
   std::mutex mutex_;
+  InferenceSchedule inference_schedule_;  // mutex_ protects status updates and frame selection
   std::map<std::string, Frame> frames_;
   std::map<int, Track> tracks_;
   int next_id_{1};
@@ -96,6 +105,12 @@ private:
   std::map<std::pair<std::string, std::string>, std::array<double, 3>> prof_;  // (카메라, 단계) → 합 ms · 횟수 · 최대 ms
   std::map<std::string, double> prof_last_;
   std::optional<std::pair<cv::Matx33d, cv::Vec3d>> out_tf_;  // 마지막 map ← track_frame
+  double out_tf_at_{0.0};
+  std::optional<double> last_ros_time_;
+  bool map_output_started_{false}, map_tf_available_{false};
+  size_t stale_frames_{0};
+  size_t tf_stale_rejected_{0};
+  double last_tf_rejection_{-1e18};
   std::string qr_text_, barcode_text_;
   double qr_seen_{0.0};
 
@@ -110,6 +125,15 @@ private:
   std::vector<CamSync> syncs_;
   std::vector<rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr> info_subs_;
   rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr dice_sub_;
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr mission_cmd_sub_;  // /cmd/mission start… → 바코드 기억(barcode_once) 지움
+  rclcpp::Subscription<action_msgs::msg::GoalStatusArray>::SharedPtr navigation_status_sub_;
+  std::atomic<bool> barcode_reset_{false};
+  std::regex barcode_once_re_;
+  std::atomic<double> barcode_until_{0.0};  // 이 시각(wall_s)까지 바코드 찾음 — 미션 start로 엶
+  double barcode_window_s_ = 180.0;
+  double barcode_pole_s_ = 3.0;
+  std::atomic<double> barcode_from_{0.0};  // 바코드 찾기 창을 연 시각 (wall_s)
+  bool barcode_always_ = false;
   rclcpp::Publisher<TrackedObjectArray>::SharedPtr pub_;
   std::map<std::string, rclcpp::Publisher<TrackedObjectArray>::SharedPtr> det_pubs_;
   std::map<std::string, rclcpp::Publisher<Image>::SharedPtr> debug_pubs_;
@@ -120,13 +144,20 @@ private:
 
   // ---- 처리
   void on_infer();
+  void on_navigation_status(const action_msgs::msg::GoalStatusArray & status);
+  std::vector<std::pair<std::string, Frame>> take_frames();
+  bool fresh_frame(const Frame & frame) const;
+  void check_clock();  // mutex_ 안에서 호출
   void update_tracks(const std::string & cam, Frame & s, const std::vector<YoloBox> & res);
   std::vector<int> fuse(const std::string & cam, const builtin_interfaces::msg::Time & stamp, const std::vector<Det> & dets);
   void prune(double now_s);
   std::optional<std::pair<cv::Matx33d, cv::Vec3d>> lookup_tf(const std::string & frame_id,
                                                             const builtin_interfaces::msg::Time & stamp, bool quiet = false);
   std::optional<Body> robot_body(const builtin_interfaces::msg::Time & stamp);
-  Track to_map(const Track & tr);
+  using Transform = std::pair<cv::Matx33d, cv::Vec3d>;
+  std::optional<Transform> map_transform();
+  std::optional<Track> to_map(const Track & tr);
+  Track to_map(const Track & tr, const Transform & tf) const;
   TrackedObject to_msg(int tid, const Track & tr) const;
   std::optional<Det> marker_det(const Frame & s, const Box & box, cv::Point2d center, const cv::Matx33d & rot,
                                 const cv::Vec3d & trans, const std::string & cls);

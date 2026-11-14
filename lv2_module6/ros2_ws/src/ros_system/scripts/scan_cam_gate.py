@@ -31,8 +31,8 @@ def near_zeroed(m, min_range):
 
 
 class ScanCamGate(Node):
-    def __init__(self):
-        super().__init__('scan_cam_gate')
+    def __init__(self, name='scan_cam_gate'):  # py_helpers는 launch 이름(pole_depth_gate)을 직접 줌 — 한 프로세스라 __node 리매핑을 못 씀
+        super().__init__(name)
         self.joints = list(self.declare_parameter('scan_pose_joints', ['joint1', 'joint2', 'joint3', 'joint4', 'joint5']).value)
         self.pose = [float(v) for v in self.declare_parameter('scan_pose', [2.618, 0.681, -1.414, 1.082, 0.0]).value]
         self.tol = float(self.declare_parameter('scan_pose_tolerance', 0.05).value)

@@ -37,6 +37,7 @@ cli/
     ├── bus.py         # Bus — 발행·대기·모드 게이트 · cmd_* (한 번 실행 명령과 메뉴가 같이 씀)
     ├── defs.py        # BACK/MAIN/QUIT/STAY/TIMEOUT · MENU_REFRESH_S
     ├── consts.py      # 관절 이름 · 파라미터 변환
+    ├── fielddebug.py  # 현장 디버그 — 신호등 지금(SignalTracker) · 부하 · 빌드 정보 · Nav2 노드 · 로그(`python3 op/fielddebug.py logs`) · 스냅샷 영상
     └── pages/         # Page → Menu → 각 화면 (MenuItem 객체)
         ├── page.py    # Page 베이스만
         ├── mainmenu/ status/ mode/ manual/ arm/ map/ mapmenu/ params/ devices/ topics/  # 화면별 package
@@ -109,6 +110,7 @@ Dialog (op/dialog/dialog.py — 하위 클래스는 op/dialog/<이름>_dialog.py
  ├─ InputDialog      한 줄 입력 · validate        ← ui.modal_input
  ├─ KeyDialog        키 하나 (confirm의 y/n)      ← ui.modal_key · ui.confirm
  ├─ PagerDialog      결과창 스크롤                ← ui.pager
+ │   └─ FollowDialog 명령 출력 따라 보기          ← 미션 l·p (새 창을 못 열 때 — tmux 밖 · 화면 없음)
  ├─ BusyDialog       처리 중 창 (키 루프 없음)    ← ui.busy · step · progress
  ├─ TeleopDialog     텔레오퍼                     ← bus.cmd_teleop
 ```
@@ -124,6 +126,7 @@ State (op/bars/state/state.py)  — text()만 정함 (빈 문자열 = 그 칸 �
  ├─ TaskState(미션 · Enter → 미션 화면) · PerceptionState(보이는 물체) · ControllerState · CollisionState · SlamState(cuVSLAM Hz · 점프) · DiagState  (줄 2)
  ├─ TopicRateState (키·라벨·기준 Hz를 받아 joint·odom·imu·카메라·점구름·인지 7개)  (줄 3)
  ├─ RobotState                                                               (줄 4)
+ ├─ PowerState · LoadState(1분 load/코어 — 1.5 넘으면 빨강)                    (줄 5)
  └─ NoDataState  (상태를 하나도 못 받았을 때만)
 StateBar (bars/state/state_bar.py)  — State를 줄(row)로 받아 ' | '로 이어 그림 · add(state, row)로 칸·줄 추가
  └─ TopStateBar (bars/state/top_state_bar.py) — 위 구성. Window.top_bar, Window.top_lines()가 그린다

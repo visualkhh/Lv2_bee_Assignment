@@ -318,9 +318,18 @@ bool BeebotSystemHardware::apply_state(const std::string & text) {
   bool arm_nan = false;
   for (size_t k = wheel_vals; k < MOTORS * 3; ++k) if (std::isnan(v[k])) arm_nan = true;
   arm_nan_ = arm_nan;
+  // 바퀴 위치 = 펌웨어의 서보 누적 rad(서보 전원 켠 뒤 누적 — bringup을 다시 띄워도 0이 아님). diff_drive_controller는
+  //   직전 위치를 0으로 시작해 첫 주기에 그 누적값 전체를 '한 번에 달린 거리'로 적분한다 → EKF odom이 서 있는데 앞으로 튐
+  //   (실기 11-14: 0.75 m · 2.89 m — cuVSLAM map→odom 보정이 그 차이를 큰 점프로 보고 잠금). 첫 S 값을 0으로 삼는다
+  //   (TurtleBot3 노드가 첫 엔코더 값을 기준으로 잡는 것과 같음)
+  if (!wheel_zeroed_) {
+    wheel_zero_ = {v[0], v[3]};
+    wheel_zeroed_ = true;
+  }
   size_t i = 0;
-  for (const auto * name : WHEELS) {
-    set_state(std::string(name) + "/position", v[i++]);
+  for (size_t w = 0; w < std::size(WHEELS); ++w) {
+    const auto * name = WHEELS[w];
+    set_state(std::string(name) + "/position", v[i++] - wheel_zero_[w]);
     set_state(std::string(name) + "/velocity", v[i++]);
     if (wheel_effort_) set_state(std::string(name) + "/effort", v[i]);  // URDF 바퀴에 effort 상태가 있을 때만
     ++i;

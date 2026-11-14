@@ -67,6 +67,22 @@ TEST(ArmObs, PickBoxLayout) {
   EXPECT_DOUBLE_EQ(o[64], 3.0);     // 관절 부하 비는 3에서 자름
 }
 
+// pick_far 68 = pick_box 67 + 먼 퍽 표시 1 (시뮬 pick_env far_prob > 0의 마지막 칸) — 앞 67개는 pick_box와 똑같음
+TEST(ArmObs, PickFarLayout) {
+  ml::ArmObsIn in;
+  in.cam_x = 0.03; in.cam_z = -0.04; in.insp_y = -0.02;
+  in.act1.fill(0.1); in.grip_pos = 0.01; in.load = {0.1, 0.5, 4.0, 0.0, 0.2};
+  std::vector<double> box(ml::ARM_OBS_MAX, -9), far(ml::ARM_OBS_MAX, -9);
+  ASSERT_EQ(ml::arm_obs(ml::ArmLayout::PickBox, in, box.data()), 67u);
+  ASSERT_EQ(ml::arm_obs(ml::ArmLayout::PickFar, in, far.data()), 68u);
+  EXPECT_EQ(ml::arm_obs_size(ml::ArmLayout::PickFar), 68u);
+  for (size_t i = 0; i < 67; ++i) EXPECT_DOUBLE_EQ(far[i], box[i]) << i;
+  EXPECT_DOUBLE_EQ(far[67], 1.0);  // 먼 퍽 표시
+  ml::ArmLayout l;
+  ASSERT_TRUE(ml::arm_layout_from("pick_far", l));  // meta.yaml layout: pick_far
+  EXPECT_EQ(l, ml::ArmLayout::PickFar);
+}
+
 // unload_slot 58 = pick 41 + 행동 기록 10 + 50·그리퍼 + 그리퍼 부하 + 관절 부하 5 (시뮬 UnloadEnv obs_extra)
 TEST(ArmObs, UnloadSlotLayout) {
   ml::ArmObsIn in;

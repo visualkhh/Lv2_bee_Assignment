@@ -252,7 +252,8 @@ return_type RlArmCorrection::update_and_write_commands(const rclcpp::Time & time
     if (delta_ != J5{}) reset_run();
   } else {
     since_policy_ += dt;
-    const bool cam_kind = it->layout == ArmLayout::Pick || it->layout == ArmLayout::PickBox ? hand_.kind == "puck"
+    const bool cam_kind = it->layout == ArmLayout::Pick || it->layout == ArmLayout::PickBox || it->layout == ArmLayout::PickFar
+                          ? hand_.kind == "puck"
                         : it->layout == ArmLayout::UnloadSlot ? hand_.kind == "slot_puck"
                         : (hand_.kind == "cell" || hand_.kind == "slot");
     cam_age = (time - rclcpp::Time(hand_.header.stamp, time.get_clock_type())).seconds();
@@ -271,7 +272,7 @@ return_type RlArmCorrection::update_and_write_commands(const rclcpp::Time & time
       in.cam_y = hand_.rel.y;
       in.face_yaw = hand_.face_yaw;
       in.is_box = hand_.is_box;
-      // pick_box · unload_slot (시뮬 pick_env 설계 · slot_env UnloadEnv와 같은 정의)
+      // pick_box · pick_far · unload_slot (시뮬 pick_env 설계 · slot_env UnloadEnv와 같은 정의)
       in.act1 = act1_; in.act2 = act2_;
       const size_t ne = 2 * joints_.size();
       const auto eff = [this](size_t k) { const auto v = state_interfaces_[k].get_optional<double>(); return v ? *v : 0.0; };

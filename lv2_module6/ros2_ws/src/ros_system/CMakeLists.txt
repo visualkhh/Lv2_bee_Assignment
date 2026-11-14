@@ -10,6 +10,11 @@ install(PROGRAMS scripts/scan_cam_gate.py DESTINATION lib/${PROJECT_NAME} RENAME
 install(PROGRAMS scripts/cuvslam_slam.py DESTINATION lib/${PROJECT_NAME} RENAME cuvslam_slam)
 # nvblox 격자 → /map(latched) + 저장 지도 불러오기 (scripts/nvblox_map.py 머리말)
 install(PROGRAMS scripts/nvblox_map.py DESTINATION lib/${PROJECT_NAME} RENAME nvblox_map)
+# 경로 리와인드 — 실패한 주행의 odom 궤적을 0.4 m 후진 (ros_system.launch.py가 띄운다)
+install(PROGRAMS scripts/rewind.py DESTINATION lib/${PROJECT_NAME} RENAME rewind)
+# 위 셋(rewind · scan_cam_gate · nvblox_map)을 한 프로세스로 (py_helpers_one_process) — py_helpers가 import하도록 .py도 같은 폴더에
+install(PROGRAMS scripts/py_helpers.py DESTINATION lib/${PROJECT_NAME} RENAME py_helpers)
+install(FILES scripts/rewind.py scripts/scan_cam_gate.py scripts/nvblox_map.py DESTINATION lib/${PROJECT_NAME})
 
 # 로봇 모델은 워크스페이스 루트의 urdf/ 에 둔다 (Isaac Sim 등 ROS 밖에서도 같은 파일을 쓰므로).
 # 모델 하나 = 폴더 하나: urdf/<이름>/urdf.xacro (+ meshes/) — launch 인자 urdf:=<이름>으로 고름 (기본 default)
@@ -42,6 +47,14 @@ if(BUILD_TESTING)
   ament_add_test(test_slam_launch GENERATE_RESULT_FOR_RETURN_CODE_ZERO
     COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/test/test_slam_launch.py"
     TIMEOUT 60)
+  ament_add_test(test_static_map_launch GENERATE_RESULT_FOR_RETURN_CODE_ZERO
+    COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/test/test_static_map_launch.py"
+    TIMEOUT 60)
+  ament_add_test(test_cuvslam_image GENERATE_RESULT_FOR_RETURN_CODE_ZERO
+    COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/test/test_cuvslam_image.py"
+    TIMEOUT 60)
+  # resource_watch는 ROS 패키지 밖(lv2_module6/tools)의 순수 Python 도구라
+  # colcon test 대상이 아니다. 테스트는 tools/README-resource-watch.md의 수동 명령으로 실행한다.
 endif()
 
 ament_package()

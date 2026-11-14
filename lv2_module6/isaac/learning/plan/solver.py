@@ -10,7 +10,7 @@ from functools import lru_cache
 
 from baseline import DICE_ORDER, PUCK_TRIES
 from mission_sim import (BASKET, BOX_LYING, BOX_UP, HAND, HOME_I, LOAD, LOST, N_PER_PUCK, OFF, OK, PICK, PLACE,
-                         PLACED_LYING, REPICK, RETURN, STAND, STAND_PLACED, UNLOAD, travel_s)
+                         PLACED_LYING, REPICK, RETURN, ROBOT_SKILLS_ONLY, STAND, STAND_PLACED, UNLOAD, travel_s)
 
 N_STOP = 9  # 0~5 시작 박스 · 6~8 장소 (mission_sim PLACES 번호와 같음)
 
@@ -32,7 +32,7 @@ def _doomed(env, loc):
         if l != loc:
             continue
         s, t = env.status[i], env.tries[i]
-        if s == LOST or (s != OK and t >= PUCK_TRIES):  # 기준선과 같은 한도 (기준선도 배치 때 박스 퍽을 다시 집음)
+        if s == LOST or (s == PLACED_LYING and ROBOT_SKILLS_ONLY) or (s != OK and t >= PUCK_TRIES):  # 누운 퍽 세우기는 로봇에 없음 · 시도 한도는 기준선과 같게
             return True
     return False
 

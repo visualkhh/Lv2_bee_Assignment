@@ -1,10 +1,10 @@
 #pragma once
 
 // coordinator (🛠 직접 작성, 담당: 권형중) — 설계: documents/project/ros/03-plan.md "coordinator가 지키는 실행 규칙"
-//   계획(/task/sub_goals)의 단계를 차례로 skill 노드(skills 패키지, 🎬 /skills/<skill> 액션)에 맡기는 순서 담당 (2026-11-04 skill 노드로 나눔)
-//   입력: /task/sub_goals (mission_manager 계획), /tracked_objects (대상 id 검증 · 물체 자세), /state/operation_mode · /state/emergency
+//   계획(/task/execute_plan 또는 legacy /task/sub_goals)의 단계를 차례로 skill 노드(skills 패키지, 🎬 /skills/<skill> 액션)에 맡기는 순서 담당
+//   입력: /task/execute_plan (정식 계획 Action), /task/sub_goals (legacy ingress), /tracked_objects (대상 id 검증 · 물체 자세), /state/operation_mode · /state/emergency
 //   출력: 🎬 /skills/{navigate,approach,pose,inspect,pick,place,load,unload,stand,stand_pick}, ✉️ /task/status → mission_manager,
-//         📢 /coordinator/basket (적재함 장부, latched) · 📞 /coordinator/basket_clear
+//         📢 /task/current_plan (accepted plan telemetry, latched) · 📢 /coordinator/basket (적재함 장부, latched) · 📞 /coordinator/basket_clear
 //   이 노드에 남은 것: 계획 검증 · 단계 순서 · 물체 → 좌표 (다가갈 자리 · 놓을 면 · 볼 점) · 적재함 장부와 손에 든 퍽 · 모드·비상정지 취소 · 실패 횟수
 //   팔·주행 동작, 학습 정책, 시작·스캔 자세는 skill 노드 (skills/launch/skills.launch.py · documents/project/ros/05-arm.md)
 // 규칙:
@@ -33,6 +33,7 @@
 #include "diagnostic_updater/diagnostic_updater.hpp"
 #include "geometry_msgs/msg/pose.hpp"
 #include "perception/msg/tracked_object_array.hpp"
+#include "plan/action/execute_plan.hpp"
 #include "plan/action/skill.hpp"
 #include "plan/msg/basket_state.hpp"
 #include "plan/msg/sub_goal_array.hpp"
@@ -67,6 +68,7 @@ using plan::msg::SubGoal;
 using plan::msg::SubGoalArray;
 using plan::msg::TaskStatus;
 using Skill = plan::action::Skill;
+using ExecutePlan = plan::action::ExecutePlan;
 
 class Coordinator : public rclcpp::Node {
 public:
@@ -76,10 +78,21 @@ private:
   struct PuckInfo { std::string shape, color; int tag = -1; bool check = false; };  // shape "" = 빔
   using Ok = std::function<void(const Skill::Result &)>;
   using Fail = std::function<void(const std::string &)>;
+  using ExecuteHandle = rclcpp_action::ServerGoalHandle<ExecutePlan>;
+
+  struct PlanRequest {
+    SubGoalArray plan;
+    std::shared_ptr<ExecuteHandle> action;
+  };
+
+  enum class StopDisposition { PREEMPT, CANCEL, ABORT };
 
   // ---------- 계획 받기 · 검증 · 모드
   void on_mode(const std::string & mode);
   void on_plan(const SubGoalArray & plan);
+  void submit_plan(const SubGoalArray & plan, std::shared_ptr<ExecuteHandle> action = nullptr);
+  void start_plan(PlanRequest request);
+  void queue_plan(PlanRequest request);
   bool validate(const SubGoalArray & plan, std::string & why) const;
   static bool is_id(const std::string & s);
   const perception::msg::TrackedObject * find(uint32_t id) const;
@@ -92,8 +105,16 @@ private:
   // /skills/<action>에 goal — 서버가 아직 없으면 1초마다 다시 (server_wait_s 넘으면 skill_unavailable:<action>).
   //   step_timeout_s.<action> 안에 결과가 없으면 취소하고 <action>_timeout. 성공이면 ok, 실패면 on_fail(이유)
   void send(const std::string & action, const Skill::Goal & goal, Ok ok, Fail on_fail = nullptr);
-  void cancel_all();
+  void begin_stop(const std::string & reason, StopDisposition disposition);
+  void finish_stop();
+  void finish_action(const std::shared_ptr<ExecuteHandle> & handle, bool success, bool cancelled,
+                     uint32_t final_step, const std::string & reason);
+  void publish_feedback(const std::string & stage);
+  rclcpp_action::GoalResponse on_execute_goal(const rclcpp_action::GoalUUID &, std::shared_ptr<const ExecutePlan::Goal>);
+  rclcpp_action::CancelResponse on_execute_cancel(const std::shared_ptr<ExecuteHandle> &);
+  void on_execute_accepted(const std::shared_ptr<ExecuteHandle> &);
   bool robot_xy(double & x, double & y) const;
+  bool far_fallback(const std::string & why, const std::string & target) const;  // pick 실패 → pick_far로 다시 할지
   bool approach_if_far(const SubGoal & g);  // 대상이 reach_m 밖이면 다가가는 navigate를 맡기고 true (끝나면 같은 단계를 다시)
   void navigate(const SubGoal & g);
   void approach(const SubGoal & g);
@@ -115,7 +136,7 @@ private:
 
   void status(uint32_t step, uint8_t state, const std::string & reason);
 
-  double server_wait_s_, waited_s_ = 0, reach_m_, approach_m_, place_spacing_, box_margin_m_;
+  double server_wait_s_, waited_s_ = 0, reach_m_, approach_m_, place_spacing_, box_margin_m_, pick_far_min_m_, pick_far_max_m_;
   std::set<std::string> pose_names_;
   std::map<std::string, rclcpp_action::Client<Skill>::SharedPtr> skills_;  // action 이름 → 클라이언트
   std::map<std::string, double> step_timeout_s_;                            // action 이름 → 단계 시간 제한 [s] (0 = 없음)
@@ -123,6 +144,15 @@ private:
   rclcpp_action::ClientGoalHandle<Skill>::SharedPtr active_;
   std::string active_action_;
   rclcpp::TimerBase::SharedPtr retry_;
+  bool child_pending_ = false;
+  bool stopping_ = false;
+  uint64_t stopping_gen_ = 0;
+  std::string stop_reason_;
+  StopDisposition stop_disposition_ = StopDisposition::ABORT;
+  rclcpp_action::ClientGoalHandle<Skill>::SharedPtr stopping_child_;
+  std::string stopping_child_action_;
+  rclcpp::TimerBase::SharedPtr stop_timer_;
+  rclcpp::TimerBase::SharedPtr action_terminal_timer_;
   std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
   size_t approached_ = static_cast<size_t>(-1);  // 다가가기를 이미 한 단계 (idx_) — 단계마다 한 번만
@@ -140,6 +170,8 @@ private:
   SubGoalArray plan_;
   size_t idx_ = 0;
   uint64_t gen_ = 0;  // 새 계획·취소 때마다 증가 — 옛 goal 결과가 새 단계를 건드리지 않게
+  std::shared_ptr<ExecuteHandle> active_plan_action_;
+  std::shared_ptr<PlanRequest> pending_plan_;
   TrackedObjectArray::ConstSharedPtr objects_;
   // 기억한 퍽 — perception은 안 보이면 2초 뒤 지우므로(long_memory false, 11/04 "기억은 통합 쪽") 마지막으로 본 모습을 remember_s 동안
   //   (적재 뒤 팔이 상자를 안 보는 자세여도 다음 퍽을 그 자리로 바로 pick). 집으면 지움 · 같은 자리에 새 트랙이 생기면 지움
@@ -147,9 +179,10 @@ private:
   std::map<uint32_t, Seen> remembered_;
   double remember_s_ = 120.0;
   void remember(const TrackedObjectArray & m);
-  std::shared_ptr<SubGoalArray> waiting_plan_;
   rclcpp::Publisher<TaskStatus>::SharedPtr status_pub_;
+  rclcpp::Publisher<SubGoalArray>::SharedPtr current_plan_pub_;
   rclcpp::Subscription<SubGoalArray>::SharedPtr goals_sub_;
+  rclcpp_action::Server<ExecutePlan>::SharedPtr execute_server_;
   rclcpp::Subscription<TrackedObjectArray>::SharedPtr objects_sub_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr mode_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr estop_sub_;

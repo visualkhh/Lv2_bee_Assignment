@@ -4,9 +4,12 @@
 skill_navigate:
   ros__parameters:
     server_wait_s: 30.0
+    nav_near_m: 0.20         # [m] goal.target "near": 멈추거나 실패해도 목표에서 이 안이면 성공 (상자 앞 자리 — approach가 마저 맞춤)
+    nav_near_yaw: 0.8        # [rad] "near" 성공은 방향 차도 이 안일 때만 (11-14: 등진 채 성공 처리 → approach가 크게 돌다 실패)
+    nav_look_m: 0.6          # [m] goal.target "look": 남은 경로가 이만큼 안이면 팔을 pose_look으로 (상자 도킹 앞, 11-13)
 skill_approach:
   ros__parameters:
-    approach_mode: "sim"     # sim: 시뮬 drive_env 기준 제어 (돌기 → 직진 ≤ 0.12 m/s → 마지막 방향) + 주행 정책 보정 · legacy: 예전
+    approach_mode: "sim"     # sim: 목표 방향 직선 따라가기 (carrot 조향 ≤ approach_v_max → 마지막 방향) + 주행 정책 보정 · legacy: 예전
     approach_speed: 0.05     # [m/s] legacy 직선 속도 (앞 자리로 갈 때는 2배)
     approach_pre_m: 0.10     # [m] legacy: 목표 뒤 이만큼에서 목표 방향으로 돌고 직선 (박스 바로 앞 제자리 회전 금지)
     approach_pos_tol: 0.005  # [m] legacy 도착
@@ -14,6 +17,23 @@ skill_approach:
     approach_timeout_s: 30.0 # [s] 전체 · 4초 동안 3 mm도 못 줄이면 approach_blocked
     residual_v: 0.02         # [m/s] 정책 행동 1 = 이만큼 (시뮬 res_v)
     residual_w: 0.1          # [rad/s] (시뮬 res_w)
+    approach_min_speed: 0.03 # [m/s] 도착 전 최소 속도 — 실기 바퀴가 약 2~3 cm/s 아래 명령엔 안 움직여 마지막 1~2 cm에서 멈췄음 (11-12)
+    approach_release_m: 0.03 # [m] sim: tol_m×0.6 안에 한 번 들면 이만큼 벗어날 때까지 마지막 방향만
+    approach_carrot_m: 0.05  # [m] sim: 목표 방향 직선 위 이만큼 앞 점을 향해 조향 (옆 어긋남을 도착 전에 없앰)
+    approach_v_max: 0.06     # [m/s] sim 전진 상한 (11-13: 0.12는 빠름 — 사용자)
+    approach_w_max: 0.5      # [rad/s] sim 회전 상한 (11-13: 1.0은 면 맞출 때 크게 돎)
+    approach_exit_m: 0.165   # [m] goal.target "exit" 기본 후진 거리 (values[0]이 있으면 그 값) — 상자에서 standoff까지
+    # 상자 도킹 (goal.values = [gap, half]): 도면 자리는 힌트 — 인지 상자로 목표를 정함 (11-12). 팔은 pose_look으로 천천히 (launch arm_velocity_scale 0.15)
+    box_match_m: 0.45        # [m] 힌트 상자 가운데에서 이만큼 안의 start_box · location_box만 (11-13: 0.35 → 0.45 — 지도 오차 20~25 cm에 측정이 밖으로 나감, 상자끼리는 0.7 m 넘게 떨어짐)
+    box_wait_s: 8.0          # [s] 첫 측정까지 정지해서 기다림 — 넘으면 approach_box_unseen
+    box_seed_s: 30.0         # [s] 첫 측정만 이만큼 지난 것도 받음 (시작 전 기억 포함 — map→odom은 관측 시각 것이라 오래돼도 맞음) — 시작하며 팔이 올라가 pole_front_cam이 가려져도 도착 직전 측정으로 시작 (11-13)
+    box_stale_s: 1.0         # [s] last_seen이 이보다 오래된 측정은 버림
+    box_jump_m: 0.08         # [m] 추정에서 이만큼 넘게 튄 측정은 버림
+    box_alpha: 0.3           # 새 측정을 섞는 비율
+    box_rate_mps: 0.02       # [m/s] 목표를 옮기는 최대 속도 (11-12: 측정마다 1 cm → 8 cm/s로 목표가 움직여 상자 앞에서 크게 돎)
+    box_rate_dps: 3.0        # [deg/s] 목표 방향을 돌리는 최대 속도
+    box_min_side_m: 0.19     # [m] 윗면 짧은 변이 이보다 작으면 잘린 측정 — 버림 (가운데가 보이는 쪽으로 쏠림)
+    box_freeze_m: 0.10       # [m] 목표까지 이보다 가까우면 목표 고정 (가까울수록 잘려 보임 — 마지막은 odom)
 skill_pose:
   ros__parameters:
     initial_pose_enabled: true
@@ -30,6 +50,16 @@ skill_inspect:
 skill_pick:
   ros__parameters:
     max_grasp_tries: 2       # 파지 후보를 점수순으로 몇 개까지
+skill_pick_far:              # 박스 먼 쪽 퍽 — 시뮬 pick_env 먼 퍽 모드(train.py --task pick_far)와 같은 값
+  ros__parameters:
+    max_grasp_tries: 2
+    far_open_gap_m: 0.066    # [m] 닿는 구간 전 손가락 사이 (시뮬 far_open_gap_mm 66)
+    far_tilt_deg: 45.0       # 들어갈 때 손 기울기 — 아래 셋은 정책 학습 조건, 바꾸면 시뮬과 달라짐
+    far_back_m: 0.08         # [m] 뒤로 뺀 자세: 쥘 자리에서 손 방향으로 이만큼 뒤
+    far_lift_in_max_m: 0.08  # [m] 들어올릴 때 안 닿으면 로봇 쪽으로 당기는 최대
+    far_contact_vel_scale: 0.7      # 닿는 구간 속도 (팀 관절 한계 ×), 퍽 x ≤ far_slow_x_m — 정책 학습 범위 0.5~0.7 안에서만 (0.3 학습 안 함)
+    far_contact_vel_scale_far: 0.5  # 퍽 x > far_slow_x_m (박스 끝, 팔 거의 다 뻗음) — 70 %면 95.7 %라 천천히
+    far_slow_x_m: 0.27             # [m, base_footprint 퍽 바닥 가운데] 시뮬 11/13: 70 %는 ≤ 270 mm 99.0 % · 50 %는 전체 99.3 %
 skill_place:
   ros__parameters:
     held_bottom_m: 0.0606    # [m] 손끝 → 손 안 퍽 바닥

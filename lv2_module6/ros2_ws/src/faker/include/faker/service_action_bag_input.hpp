@@ -48,6 +48,7 @@
 
 #include "control_msgs/srv/set_odometry.hpp"
 #include "ml/srv/score_grasps.hpp"
+#include "ml/srv/set_fallback.hpp"
 #include "moveit_msgs/action/move_group.hpp"
 #include "moveit_msgs/srv/apply_planning_scene.hpp"
 #include "moveit_task_constructor_msgs/action/execute_task_solution.hpp"
@@ -175,6 +176,7 @@ private:
   std::shared_future<moveit_msgs::srv::ApplyPlanningScene::Response::SharedPtr> scene_fut_;
   rclcpp::Client<control_msgs::srv::SetOdometry>::SharedPtr odom_cli_;
   rclcpp::Client<std_srvs::srv::SetBool>::SharedPtr rl_toggle_cli_;  // controller_server/FollowPath/toggle (RL↔DWB)
+  rclcpp::Client<ml::srv::SetFallback>::SharedPtr rl_fallback_cli_;  // controller_server/FollowPath/set_fallback (DWB↔MPPI 등)
   std::map<std::string, rclcpp::Client<rcl_interfaces::srv::SetParameters>::SharedPtr> set_param_clis_;  // 노드별 set_parameters
   std::shared_future<control_msgs::srv::SetOdometry::Response::SharedPtr> odom_fut_;
   rclcpp::Client<rcl_interfaces::srv::SetParameters>::SharedPtr opencr_params_cli_;

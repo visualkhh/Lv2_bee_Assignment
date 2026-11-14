@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.16)
 project(perception)
+# 빌드 종류를 안 주면(colcon build 그대로) 최적화 없이(-O0) 빌드됨 — 실기 젯슨에서 perception 상자 검출이 8배 느렸음 (11-13)
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+  set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
+endif()
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
@@ -9,6 +13,7 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(action_msgs REQUIRED)
 find_package(builtin_interfaces REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
@@ -20,6 +25,7 @@ find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(ament_index_cpp REQUIRED)
+find_package(nav_msgs REQUIRED)
 # 인지 노드 C++판 (perception_node) — 영상·YOLO·AprilTag·바코드
 # AprilTag: OpenCV 4.7+는 objdetect(본체) · 4.6 이하는 contrib aruco — 있는 쪽을 씀 (젯슨 4.8 · PC 도커 4.6)
 find_package(OpenCV REQUIRED COMPONENTS core imgproc calib3d imgcodecs OPTIONAL_COMPONENTS objdetect aruco)  # imgcodecs = 테스트 사진 읽기
@@ -54,24 +60,25 @@ rosidl_get_typesupport_target(msgs_cpp ${PROJECT_NAME} rosidl_typesupport_cpp)  
 
 # --- C++ 노드: 클래스 구현(src/<노드>.cpp)은 라이브러리로 묶고, 실행 파일(src/<노드>_main.cpp)과 테스트가 함께 링크
 #     선언·설명은 include/perception/<노드>.hpp
-add_library(${PROJECT_NAME}_nodes STATIC src/body_filter.cpp src/signal_decoder.cpp)
+add_library(${PROJECT_NAME}_nodes STATIC src/body_filter.cpp src/signal_decoder.cpp src/static_esdf_slice.cpp)
 target_include_directories(${PROJECT_NAME}_nodes PUBLIC include)
 target_compile_features(${PROJECT_NAME}_nodes PUBLIC cxx_std_17)
 target_link_libraries(${PROJECT_NAME}_nodes PUBLIC rclcpp::rclcpp ${sensor_msgs_TARGETS} ${std_msgs_TARGETS} ${geometry_msgs_TARGETS}
   diagnostic_updater::diagnostic_updater urdf::urdf tf2::tf2 tf2_ros::tf2_ros tf2_geometry_msgs::tf2_geometry_msgs
-  ament_index_cpp::ament_index_cpp ${msgs_cpp})
-foreach(node body_filter signal_decoder)
+  ament_index_cpp::ament_index_cpp ${nav_msgs_TARGETS} opencv_core opencv_imgproc ${msgs_cpp})
+# static_esdf_slice: map_backend:=static_2d에서 nvblox ESDF slice 대역 (RL 주행 controller 입력)
+foreach(node body_filter signal_decoder static_esdf_slice)
   add_executable(${node} src/${node}_main.cpp)
   target_link_libraries(${node} ${PROJECT_NAME}_nodes)
 endforeach()
-install(TARGETS body_filter signal_decoder DESTINATION lib/${PROJECT_NAME})
+install(TARGETS body_filter signal_decoder static_esdf_slice DESTINATION lib/${PROJECT_NAME})
 
 # YOLO 인지 노드 — C++판이 perception_node (bringup·launch가 이 이름으로 띄움, 11/11 젯슨 CPU 때문에 C++로)
 #   계산 함수 perception_core · YOLO 실행 yolo_onnx · 노드 perception_node (설명은 include/perception/<이름>.hpp)
 add_library(${PROJECT_NAME}_cpp STATIC src/perception_core.cpp src/yolo_onnx.cpp src/perception_node.cpp)
 target_include_directories(${PROJECT_NAME}_cpp PUBLIC include)
 target_compile_features(${PROJECT_NAME}_cpp PUBLIC cxx_std_17)
-target_link_libraries(${PROJECT_NAME}_cpp PUBLIC rclcpp::rclcpp ${sensor_msgs_TARGETS} ${std_msgs_TARGETS}
+target_link_libraries(${PROJECT_NAME}_cpp PUBLIC rclcpp::rclcpp ${sensor_msgs_TARGETS} ${std_msgs_TARGETS} ${action_msgs_TARGETS}
   ${geometry_msgs_TARGETS} ${diagnostic_msgs_TARGETS} tf2::tf2 tf2_ros::tf2_ros ament_index_cpp::ament_index_cpp
   message_filters::message_filters ${OpenCV_LIBS} onnxruntime::onnxruntime ${msgs_cpp})
 if(ZXing_FOUND)
@@ -119,11 +126,21 @@ if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   ament_add_gtest(test_body_filter test/test_body_filter.cpp TIMEOUT 60 ENV ROS_DOMAIN_ID=108)
   target_link_libraries(test_body_filter ${PROJECT_NAME}_nodes)
+  ament_add_gtest(test_static_esdf_slice test/test_static_esdf_slice.cpp TIMEOUT 60)
+  target_link_libraries(test_static_esdf_slice ${PROJECT_NAME}_nodes)
   ament_add_gtest(test_signal test/test_signal.cpp TIMEOUT 60)
   target_link_libraries(test_signal ${PROJECT_NAME}_nodes)
   ament_add_gtest(test_perception_core test/test_perception_core.cpp TIMEOUT 60
     ENV PERCEPTION_TEST_DATA=${CMAKE_CURRENT_SOURCE_DIR}/test/data)
   target_link_libraries(test_perception_core ${PROJECT_NAME}_cpp)
+  ament_add_gtest(test_perception_runtime test/test_perception_runtime.cpp TIMEOUT 120
+    ENV ROS_DOMAIN_ID=191 ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST)
+  target_link_libraries(test_perception_runtime ${PROJECT_NAME}_cpp)
+  if(ZXing_FOUND)
+    ament_add_gtest(test_barcode_fallback test/test_barcode_fallback.cpp TIMEOUT 60
+      ENV PERCEPTION_TEST_DATA=${CMAKE_CURRENT_SOURCE_DIR}/test/data)
+    target_link_libraries(test_barcode_fallback ${PROJECT_NAME}_cpp)
+  endif()
   ament_add_test(test_launch GENERATE_RESULT_FOR_RETURN_CODE_ZERO
     COMMAND ros2 launch "${CMAKE_CURRENT_SOURCE_DIR}/launch/perception.launch.py" --show-args
     TIMEOUT 60)

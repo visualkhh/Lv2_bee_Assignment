@@ -12,6 +12,7 @@ tools/
 ├── run-rviz         # start|stop|restart 실행기 (기본 start)
 ├── bag/             # rosbag 기록 (record.sh · snap_on_fail.py)
 ├── course/          # Isaac USD → faker/world 지도 (build_map_usd.py)
+├── foxglove/        # Foxglove 레이아웃 (맥·아이패드 — bringup의 foxglove_bridge에 붙음)
 ├── rviz/
 │   ├── start.sh     # RVIZ_CONFIG=operator(기본)·light·mapping
 │   ├── stop.sh
@@ -198,16 +199,20 @@ cd tools
 ./run-cli mission status   # 미션 화면과 같은 줄 (단계 · skill · 실패 이력 · 적재함 · 주행 · SLAM · 진단)
 ./run-cli mission start    # /cmd/mission start (mission_manager)
 ./run-cli mission abort    # /cmd/mission abort
-./run-cli mission skill pick 5   # skill 한 단계만 (/task/sub_goals → coordinator) — AUTO에서만
+./run-cli mission skill pick 5   # skill 한 단계만 (legacy /task/sub_goals → coordinator) — AUTO에서만
 ./run-cli mission stop     # 진행 중 skill 전부 취소
 ```
+
+미션 화면(메인 9)의 현장 디버그 줄: `[신호등 지금]`(지금 사이클 몇 번째·색별 수·꺼짐 경과 + 정답 비교) · `[인지]`(카메라별 YOLO/전체 ms · 버린 관측 수)
+· `[Nav2]`(수명주기 6개) · `[부하]`(load/코어 + CPU 상위 3) · `[빌드]`(브랜치·커밋·수정 수·perception CMAKE_BUILD_TYPE) · 바코드 줄의 읽은 카메라·찾기 창 남은 초.
+키: `l` 최근 WARN/ERROR 로그 새 창 · `d` 디버그 스냅샷(`~/.ros/bee_snapshots/<시각>/`) · `a` 정답 신호 입력 (또는 `BEE_SIGNAL_ANSWER="R G R R G R G G Y G Y G"`).
 
 메뉴 **9) 미션** 한 화면에서 RViz·`ros2` 명령 없이 "왜 멈췄나"를 봅니다 (2초마다 갱신):
 
 | 줄 | 내용 | 출처 |
 |---|---|---|
 | [미션] | 단계 + 단계 경과 + note · 바코드 · 신호 R/Y/G · 배정 · 놓음/전체 · 결과 6개 · 오류 | `/mission/state` |
-| [skill] | step/전체 · skill → 대상 · RUNNING/FAILED + 경과 · 이유 | `/task/status` + `/task/sub_goals` |
+| [skill] | step/전체 · skill → 대상 · RUNNING/FAILED + 경과 · 이유 | `/task/status` + `/task/current_plan` (legacy fallback `/task/sub_goals`) |
 | [실패 이력] | 최근 10건 (시각 · skill 실패 이유 · 미션 ERROR 이유) — 이유 문자열은 그대로 표시 | 위 둘 |
 | [적재함] | 칸:tag (`?` 모름 · `!` 확인 필요) · 손에 든 퍽 · 실은 순서 (장부를 못 받으면 /mission/state의 tray 사본) | `/coordinator/basket` |
 | [주행] | 남은 거리 · 회복 횟수 · 경과 · 제어기 RL/DWB(이유) · cloud 나이 · scan_min · v·w · 충돌 감시 켬/끔 + 지금 정지·감속 | Nav2 feedback · `/controller_server/FollowPath/status` · manual_control 진단 · `/collision_monitor_state` |

@@ -223,6 +223,25 @@ std::map<int, int> merge_tracks(std::map<int, Track> & tracks, double dist_m) {
   return gone;
 }
 
+std::map<int, int> merge_single(std::map<int, Track> & tracks, const std::string & cls) {
+  std::map<int, int> gone;
+  int keep = -1;
+  for (auto it = tracks.begin(); it != tracks.end();) {  // map이라 번호 오름차순 — 처음 것이 가장 오래된 번호
+    if (it->second.class_name != cls) { ++it; continue; }
+    if (keep < 0) { keep = it->first; ++it; continue; }
+    Track & ta = tracks.at(keep);
+    const Track & tb = it->second;
+    if (tb.t > ta.t) {  // 더 최근에 본 쪽의 위치·상태(신호등 색)·본 자리
+      ta.p = tb.p; ta.P = tb.P; ta.t = tb.t; ta.color = tb.color; ta.conf = tb.conf;
+      ta.camera = tb.camera; ta.px = tb.px; ta.last_seen_sec = tb.last_seen_sec; ta.last_seen_nsec = tb.last_seen_nsec;
+    }
+    for (const auto & [c, s] : tb.seen) ta.seen[c] = std::max(ta.seen.count(c) ? ta.seen.at(c) : s, s);
+    gone[it->first] = keep;
+    it = tracks.erase(it);
+  }
+  return gone;
+}
+
 // ---------- 자기 몸
 double seg_dist(const cv::Vec3d & p, const cv::Vec3d & a, const cv::Vec3d & b) {
   const cv::Vec3d ab = b - a;
@@ -797,7 +816,8 @@ std::vector<BoxTop> find_box_tops(const cv::Mat1f & depth_m, const cv::Matx33d &
                                   double min_side, double max_side, double cell, int step, double max_range,
                                   const std::optional<std::pair<cv::Vec2d, double>> & avoid,
                                   const std::optional<std::vector<std::array<double, 4>>> & rois,
-                                  const std::vector<cv::Vec3d> & mask_px) {
+                                  const std::vector<cv::Vec3d> & mask_px,
+                                  const std::optional<Body> & avoid_body, const std::vector<double> & body_box) {
   std::vector<BoxTop> out;
   if (rois && rois->empty()) return out;
   std::vector<cv::Vec3d> top, tall;
@@ -816,7 +836,10 @@ std::vector<BoxTop> find_box_tops(const cv::Mat1f & depth_m, const cv::Matx33d &
         if ((u - a[0]) * (u - a[0]) + (v - a[1]) * (v - a[1]) <= std::pow(1.5 * a[2] + 6.0, 2)) { arm = true; break; }
       if (arm) continue;
       const cv::Vec3d p = rot * cv::Vec3d((u - cx) * z / fx, (v - cy) * z / fy, z) + trans;
-      if (avoid && std::hypot(p[0] - avoid->first[0], p[1] - avoid->first[1]) <= avoid->second) continue;
+      if (avoid_body && body_box.size() == 3) {
+        const cv::Vec3d local = avoid_body->rot.t() * (p - avoid_body->base);
+        if (local[0] >= body_box[0] && local[0] <= body_box[1] && std::abs(local[1]) <= body_box[2]) continue;
+      } else if (avoid && std::hypot(p[0] - avoid->first[0], p[1] - avoid->first[1]) <= avoid->second) continue;
       const double hz = p[2] - floor_z;
       if (hz > h_range.first && hz < h_range.second) top.push_back(p);
       if (hz > 0.15 && hz < 0.6) tall.push_back(p);
@@ -837,31 +860,40 @@ std::vector<BoxTop> find_box_tops(const cv::Mat1f & depth_m, const cv::Matx33d &
   cv::morphologyEx(grid, grid, cv::MORPH_CLOSE, cv::Mat1b::ones(3, 3));  // 퍽 그림자 구멍을 메움
   cv::Mat lab;
   const int n = cv::connectedComponents(grid, lab);
+  // 성분마다 전체 라벨 영상을 재탐색하지 않고, 한 번의 순회로 같은 row-major 순서를 유지.
+  std::vector<std::vector<cv::Point2f>> components(n);
+  for (int y = 0; y < lab.rows; ++y)
+    for (int x = 0; x < lab.cols; ++x) {
+      const int k = lab.at<int>(y, x);
+      if (k > 0) components[k].emplace_back(static_cast<float>(x * cell + static_cast<float>(ox)),
+                                            static_cast<float>(y * cell + static_cast<float>(oy)));
+    }
+  std::vector<std::vector<size_t>> points(n);
+  for (size_t i = 0; i < top.size(); ++i) points[lab.at<int>(ij[i].y, ij[i].x)].push_back(i);
   for (int k = 1; k < n; ++k) {
-    std::vector<cv::Point2f> cells;
-    for (int y = 0; y < lab.rows; ++y)
-      for (int x = 0; x < lab.cols; ++x)
-        if (lab.at<int>(y, x) == k)
-          cells.emplace_back(static_cast<float>(x * cell + static_cast<float>(ox)), static_cast<float>(y * cell + static_cast<float>(oy)));
+    const auto & cells = components[k];
     if (cells.size() < 4) continue;
     const cv::RotatedRect rr = cv::minAreaRect(cells);
     const double mx = rr.center.x, my = rr.center.y;
     const double a = rr.size.width + cell, b = rr.size.height + cell;  // 칸 하나만큼 넓힘
     if (std::min(a, b) < min_side || std::max(a, b) > max_side) continue;
     const double yaw = wrap_yaw(deg2rad(rr.angle), PI / 2);
+    const double turns = std::round((deg2rad(rr.angle) - yaw) / (PI / 2));
+    const bool swap = static_cast<long>(std::abs(turns)) % 2 == 1;
+    const double ax = swap ? b : a, ay = swap ? a : b;
     if (!tall.empty()) {  // 사각형 안 높은 점이 많으면 상자 아님 (원통 방해물·다리)
       const double c = std::cos(-yaw), sn = std::sin(-yaw);
       int inside = 0;
       for (const auto & p : tall) {
         const double dx = p[0] - mx, dy = p[1] - my;
         const double lx = dx * c - dy * sn, ly = dx * sn + dy * c;
-        inside += std::abs(lx) < a / 2 && std::abs(ly) < b / 2;
+        inside += std::abs(lx) < ax / 2 && std::abs(ly) < ay / 2;
       }
       if (inside > 0.3 * cells.size()) continue;
     }
     std::vector<double> zs;
-    for (const auto & p : top)
-      if (std::abs(p[0] - mx) < a / 2 && std::abs(p[1] - my) < b / 2) zs.push_back(p[2]);
+    for (const size_t i : points[k]) zs.push_back(top[i][2]);
+    if (zs.empty()) continue;
     BoxTop bt;
     bt.c = {mx, my};
     bt.a = std::max(a, b);
@@ -869,13 +901,10 @@ std::vector<BoxTop> find_box_tops(const cv::Mat1f & depth_m, const cv::Matx33d &
     bt.yaw = yaw;
     bt.top_z = np_median(zs);
     // yaw는 minAreaRect 각도를 ±45°로 접은 것 — 90°의 홀수배만큼 접었으면 width·height가 yaw 기준으로 바뀜
-    const double turns = std::round((deg2rad(rr.angle) - yaw) / (PI / 2));
-    const bool swap = static_cast<long>(std::abs(turns)) % 2 == 1;
-    bt.ax = swap ? b : a;
-    bt.ay = swap ? a : b;
+    bt.ax = ax;
+    bt.ay = ay;
     {  // 이 덩어리(칸 번호 k)의 깊이 점 — 로봇 쪽 면까지 거리용
-      for (size_t i = 0; i < top.size(); ++i)
-        if (lab.at<int>(ij[i].y, ij[i].x) == k) bt.pts.emplace_back(top[i][0], top[i][1]);
+      for (const size_t i : points[k]) bt.pts.emplace_back(top[i][0], top[i][1]);
     }
     out.push_back(bt);
   }

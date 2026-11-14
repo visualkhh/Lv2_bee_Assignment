@@ -95,7 +95,7 @@ class Window:
         self.back, self.main = back, main
         tty = sys.stdin.isatty()
         while True:
-            self.emit('tick', 0.2)
+            self.emit('tick', 0.05)
             items = items_fn()
             if not items:
                 return BACK if once else STAY
@@ -155,7 +155,9 @@ class Window:
                         return None
                     k = keys.read(min(0.1, remain))
                     if k is None or not keys.pending():   # 키가 밀려 있으면 ROS 폴링은 건너뜀
-                        self.emit('tick', 0.02)
+                        # ROS 콜백을 5 ms만 — 100 Hz 토픽이 늘 들어와 이 시간을 꽉 채워 돌기 때문에 이 시간이 곧 CPU
+                        # (로봇 측정: 20 ms 28% → 5 ms 13% · 10 Hz /tracked_objects도 밀리지 않음 · 1 ms는 밀림)
+                        self.emit('tick', 0.005)
                     if k is None:
                         continue
                     order = [self.menu_bar] + ([self.center_comp] if self.center_comp is not None else []) \

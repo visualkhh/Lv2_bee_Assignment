@@ -4,11 +4,13 @@
 #include "ament_index_cpp/get_package_share_directory.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
 #include <filesystem>
+#include <sstream>
 #include <fstream>
 #include <set>
 
@@ -39,7 +41,17 @@ std::string fmt(const char * f, double a, double b = 0, double c = 0) {
   return buf;
 }
 
-std::string q(const std::string & s) { return "\"" + s + "\""; }
+std::string q(const std::string & s) {  // JSON 문자열 (따옴표·역슬래시·줄바꿈만 — 이유·target은 그 밖 제어 문자가 없음)
+  std::string out = "\"";
+  for (const char c : s) {
+    if (c == '"' || c == '\\') out += '\\';
+    out += c == '\n' ? ' ' : c;
+  }
+  return out + "\"";
+}
+double wall_s() {  // 기록용 벽시계 [s, epoch] — 시뮬 /clock과 상관없이 실제 걸린 시간
+  return std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();
+}
 std::string str(int v) { return std::to_string(v); }
 std::string join(const std::vector<std::string> & v) {
   std::string out;
@@ -50,7 +62,7 @@ bool is_puck(const perception::msg::TrackedObject & o) { return o.class_name.rfi
 bool is_lying(const perception::msg::TrackedObject & o) { return o.class_name == "puck_lying"; }
 // coordinator가 사람·안전 때문에 멈춘 실패 — 다시 시도하지 않고 미션을 멈춤 (estop · 수동/탐사 전환 · 다른 계획이 끼어듦)
 bool interrupted(const std::string & why) {
-  for (const char * p : {"estop", "manual", "explore", "cancelled"})
+  for (const char * p : {"estop", "manual", "explore", "cancelled", "preempted"})
     if (why.rfind(p, 0) == 0) return true;
   return false;
 }
@@ -91,12 +103,28 @@ MissionManager::MissionManager()
   loc_boxes_ = boxes(declare_parameter<std::vector<double>>("location_boxes",
     {3.670, 0.950, 0.1025, 2.202, 3.700, 0.1025, 3.670, 5.354, 0.1025}), -1.0);
   for (const auto v : declare_parameter<std::vector<int64_t>>("location_tags", {12, 13, 14})) loc_tags_.push_back(static_cast<int>(v));
+  // 박스마다 다가갈 변 (11-13 사용자 지정) — 한 줄에 "+x -y"처럼, 비거나 개수가 안 맞으면 네 변 다 (벽 거르기만)
+  const auto set_sides = [this](std::vector<Box> & bs, const char * name) {
+    const auto v = declare_parameter<std::vector<std::string>>(name, std::vector<std::string>{});
+    if (v.empty()) return;
+    if (v.size() != bs.size()) {
+      RCLCPP_WARN(get_logger(), "%s %zu개 ≠ 박스 %zu개 — 무시 (네 변 다)", name, v.size(), bs.size());
+      return;
+    }
+    for (size_t i = 0; i < bs.size(); ++i) {
+      std::istringstream in(v[i]);
+      for (std::string t; in >> t;) bs[i].sides.push_back(t);
+    }
+  };
+  set_sides(start_boxes_, "start_box_sides");
+  set_sides(loc_boxes_, "location_box_sides");
   puck_dx_ = declare_parameter<std::vector<double>>("puck_offsets_x", {-0.040, 0.040});
   box_top_z_ = declare_parameter<double>("box_top_z", 0.070);
   puck_h_ = declare_parameter<double>("puck_height", 0.060);
   grid_step_ = declare_parameter<double>("grid_step", 0.060);
   standoff_ = declare_parameter<double>("standoff", 0.25);
   approach_gap_ = declare_parameter<double>("approach_gap", 0.085);
+  nav_turn_m_ = declare_parameter<double>("nav_turn_m", 0.55);
   approach_tries_ = static_cast<int>(declare_parameter<int64_t>("approach_tries", 3));
   retries_ = static_cast<int>(declare_parameter<int64_t>("retries", 2));
   match_radius_ = declare_parameter<double>("match_radius", 0.04);
@@ -110,16 +138,77 @@ MissionManager::MissionManager()
   place_tol_ = declare_parameter<double>("place_tol", 0.010);
   place_search_ = declare_parameter<double>("place_search", 0.05);
   corr_max_ = declare_parameter<double>("tag_correction_max", 0.05);
+  acorr_on_ = declare_parameter<bool>("arena_correction", acorr_on_);
+  acorr_gate_ = declare_parameter<double>("arena_corr_gate", acorr_gate_);
+  acorr_max_shift_ = declare_parameter<double>("arena_corr_max_shift", acorr_max_shift_);
+  acorr_max_rot_ = declare_parameter<double>("arena_corr_max_rot", acorr_max_rot_);
+  acorr_min_sep_ = declare_parameter<double>("arena_corr_min_sep", acorr_min_sep_);
+  acorr_alpha_ = declare_parameter<double>("arena_corr_alpha", acorr_alpha_);
+  acorr_range_ = declare_parameter<double>("arena_corr_range", acorr_range_);
+  acorr_outlier_ = declare_parameter<double>("arena_corr_outlier", acorr_outlier_);
+  acorr_step_m_ = declare_parameter<double>("arena_corr_step_m", acorr_step_m_);
+  acorr_step_rad_ = declare_parameter<double>("arena_corr_step_rad", acorr_step_rad_);
+  acorr_walls_m_ = declare_parameter<double>("arena_corr_walls_m", acorr_walls_m_);
+  acorr_walls_rad_ = declare_parameter<double>("arena_corr_walls_rad", acorr_walls_rad_);
+  acorr_min_hits_ = static_cast<int>(declare_parameter<int64_t>("arena_corr_min_hits", acorr_min_hits_));
   signal_timeout_s_ = declare_parameter<double>("signal_timeout_s", 150.0);
   signal_error_cycles_ = static_cast<int>(declare_parameter<int64_t>("signal_error_cycles", 2));
   barcode_timeout_s_ = declare_parameter<double>("barcode_timeout_s", 20.0);
   barcode_arm_pose_ = declare_parameter<std::string>("barcode_arm_pose", "gaze");
+  barcode_pole_s_ = declare_parameter<double>("barcode_pole_s", 3.0);
+  light_check_s_ = declare_parameter<double>("light_check_s", light_check_s_);
+  signal_read_min_s_ = declare_parameter<double>("signal_read_min_s", signal_read_min_s_);
+  barcode_gaze_wait_s_ = declare_parameter<double>("barcode_gaze_wait_s", 3.0);
+  barcode_advance_step_m_ = declare_parameter<double>("barcode_advance_step_m", 0.06);
+  barcode_advance_max_m_ = declare_parameter<double>("barcode_advance_max_m", 0.30);
+  barcode_min_gap_m_ = declare_parameter<double>("barcode_min_gap_m", 0.13);
+  barcode_gaze_after_signal_ = declare_parameter<bool>("barcode_gaze_after_signal", barcode_gaze_after_signal_);
+  arm_sag_rad_ = declare_parameter<double>("arm_sag_rad", arm_sag_rad_);
+  motor_error_stop_ = declare_parameter<bool>("motor_error_stop", motor_error_stop_);
+  joint_sub_ = create_subscription<sensor_msgs::msg::JointState>("/joint_states", rclcpp::SensorDataQoS(),
+    [this](sensor_msgs::msg::JointState::ConstSharedPtr m) {
+      for (size_t i = 0; i < m->name.size() && i < m->position.size(); ++i)
+        if (m->name[i].rfind("joint", 0) == 0) joints_now_[m->name[i]] = m->position[i];  // 팔 joint1~5만
+    });
+  // OpenCR 모터 에러 — ros2_control 하드웨어 진단 "모터 에러: joint2 과부하 → ~/reboot_motors …" (ERROR)
+  diag_sub_ = create_subscription<diagnostic_msgs::msg::DiagnosticArray>("/diagnostics", rclcpp::QoS(50),
+    [this](diagnostic_msgs::msg::DiagnosticArray::ConstSharedPtr m) {
+      for (const auto & st : m->status) {
+        if (st.message.find("모터 에러") == std::string::npos) continue;
+        if (st.level < diagnostic_msgs::msg::DiagnosticStatus::ERROR) continue;
+        const auto cut = st.message.find(" →");
+        const std::string what = st.message.substr(0, cut);
+        if (what != motor_error_) RCLCPP_ERROR(get_logger(), "%s (%s)", what.c_str(), st.name.c_str());
+        motor_error_ = what;
+        if (motor_error_stop_ && active_) stop("motor_error: " + what + " — ~/reboot_motors 뒤 다시");
+      }
+    });
+  // 손 카메라 정면 거리 — 바코드 단계에서만 계산 (화면 가운데 60×60 px depth 하위 10 %, 0 = 측정 없음은 뺌)
+  grip_depth_sub_ = create_subscription<sensor_msgs::msg::Image>(
+    declare_parameter<std::string>("gripper_depth_topic", "/gripper_cam/aligned_depth_to_color/image_raw"), rclcpp::SensorDataQoS(),
+    [this](sensor_msgs::msg::Image::ConstSharedPtr m) {
+      if (phase_ != Phase::BARCODE || m->encoding != "16UC1" || m->width < 60 || m->height < 60) return;
+      std::vector<uint16_t> v;
+      v.reserve(3600);
+      for (uint32_t y = m->height / 2 - 30; y < m->height / 2 + 30; ++y) {
+        const auto * row = reinterpret_cast<const uint16_t *>(&m->data[y * m->step]);
+        for (uint32_t x = m->width / 2 - 30; x < m->width / 2 + 30; ++x) if (row[x]) v.push_back(row[x]);
+      }
+      grip_front_at_ = now();
+      if (v.size() < 300) { grip_front_m_ = -1.0; return; }  // 너무 가까워 depth가 비거나 측정 없음
+      std::nth_element(v.begin(), v.begin() + v.size() / 10, v.end());  // 가까운 쪽 10 % — 반투명 판 너머를 재도 가장 가까운 면 기준
+      grip_front_m_ = v[v.size() / 10] * 0.001;
+      grip_front_at_ = now();
+    });
   // 비우면 출발(관측) 자리에서 그대로 바코드를 봄 — 이동 없음 (실기 11-12: 출발 자리에서 신호등·바코드가 다 보이고,
   //   26 cm 뒤 자리로 가려면 Nav2가 전진만 해서 돌아섰다 다시 돌아 한 바퀴를 돎)
   const auto bp = declare_parameter<std::vector<double>>("barcode_pose_arena", std::vector<double>{});
   observe_move_ = bp.size() >= 3;
   if (observe_move_) barcode_pose_ = {bp.at(0), bp.at(1), bp.at(2)};
   home_hold_s_ = declare_parameter<double>("home_hold_s", 3.0);
+  // 현장 진단 실행 — 실패해도 기록하고 계속 (치명 이유만 정지 · mission_solver diag_fatal). "start:DIAG…"는 그 회차만 켬
+  continue_on_fail_ = declare_parameter<bool>("continue_on_fail", false);
+  stuck_limit_ = static_cast<int>(declare_parameter<int64_t>("diag_stuck_limit", 3));
   log_dir_ = declare_parameter<std::string>("log_dir", "~/.ros/mission");
   photo_topic_ = declare_parameter<std::string>("photo_topic", "/gripper_cam/color/image_raw");
   // 학습된 플래너 (learning/plan/mission_sim.py에서 학습 · models/plan/plan_next.onnx) — 기본은 지금 규칙 순서
@@ -139,7 +228,7 @@ MissionManager::MissionManager()
   tf_buffer_ = std::make_unique<tf2_ros::Buffer>(get_clock());
   tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
   const auto latched = rclcpp::QoS(1).reliable().transient_local();
-  goals_pub_ = create_publisher<SubGoalArray>("/task/sub_goals", rclcpp::QoS(10).reliable().transient_local());
+  execute_client_ = rclcpp_action::create_client<ExecutePlan>(this, "/task/execute_plan");
   state_pub_ = create_publisher<MissionState>("/mission/state", latched);
   markers_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>("/mission/markers", latched);
   walls_pub_ = create_publisher<nav_msgs::msg::OccupancyGrid>("/arena/walls", latched);
@@ -150,9 +239,16 @@ MissionManager::MissionManager()
     [this](std_msgs::msg::String::ConstSharedPtr m) { barcode_msg_ = m->data; barcode_rx_ = now(); });
   // 신호 — 이번 READ 시작 뒤에 끝난 사이클만 (지난 회차의 latched 답은 버림).
   //   /mission/signal은 새 답일 때만 나와서 지난 회차와 같은 신호면 다시 안 옴 → 사이클마다 오는 /mission/signal_status의 ok도 확정으로 봄
+  //   BARCODE(관측 — 손 카메라 바코드 + pole_front_cam 신호 동시) 동안에도 받음
+  //   오류 사이클은 팔·바퀴가 멈춰 있을 때만 셈 (움직이는 동안은 팔이 가리거나 흐려서 생긴 오류일 수 있음 — 다음 사이클을 봄)
   const auto on_signal = [this](const perception::msg::MissionSignal & m) {
-    if (phase_ != Phase::READ || signal_ready_ || !signal_error_.empty()) return;
+    const bool barcode = phase_ == Phase::BARCODE;
+    if ((phase_ != Phase::READ && !barcode) || signal_ready_ || !signal_error_.empty()) return;
     if (rclcpp::Time(m.header.stamp, RCL_ROS_TIME) < read_started_) return;
+    if (barcode && !m.ok && !observe_still()) {
+      RCLCPP_WARN(get_logger(), "신호 사이클 %s [%s] (팔·바퀴 움직이는 중 — 안 셈)", m.error.c_str(), m.raw.c_str());
+      return;
+    }
     const auto a = signal_action(m.ok, m.error, signal_streak_, signal_error_cycles_);
     if (a == SignalAction::ACCEPT) { signal_ = m; signal_ready_ = true; }
     else if (a == SignalAction::STOP) { signal_ = m; signal_error_ = m.error; }
@@ -165,20 +261,12 @@ MissionManager::MissionManager()
   objects_sub_ = create_subscription<perception::msg::TrackedObjectArray>("/tracked_objects", rclcpp::QoS(5).reliable(),
     [this](perception::msg::TrackedObjectArray::ConstSharedPtr m) {
       objects_ = m;
+      if (active_ && acorr_on_) update_corr(*m);
       for (const auto & o : m->objects)  // 태그를 읽은 퍽의 마지막 모습 — 안 보이게 돼도 그 자리로 바로 pick (locate)
         if (is_puck(o) && !detail(o, "tag").empty()) last_seen_[std::stoi(detail(o, "tag"))] = o;
     });
   basket_sub_ = create_subscription<plan::msg::BasketState>("/coordinator/basket", rclcpp::QoS(1).reliable().transient_local(),
     [this](plan::msg::BasketState::ConstSharedPtr m) { basket_ = m; if (active_) publish_state(); });
-  status_sub_ = create_subscription<TaskStatus>("/task/status", rclcpp::QoS(10).reliable().transient_local(),
-    [this](TaskStatus::ConstSharedPtr s) {
-      if (!waiting_plan_ || s->plan_id != waiting_plan_ || s->state == TaskStatus::RUNNING) return;
-      waiting_plan_ = 0;
-      auto done = std::move(waiting_done_);
-      const bool ok = s->state == TaskStatus::SUCCEEDED;
-      if (!ok && interrupted(s->reason)) { stop("interrupted: " + s->reason); return; }
-      done(ok, s->reason);
-    });
   markers_timer_ = create_wall_timer(std::chrono::seconds(1), [this]() { publish_markers(); });
   diag_.setHardwareID("beebot");
   diag_.add("상태", [this](diagnostic_updater::DiagnosticStatusWrapper & s) {
@@ -198,7 +286,15 @@ MissionManager::MissionManager()
 // ---------- 단계
 void MissionManager::on_command(const std::string & cmd) {
   if (cmd == "abort") { if (active_) stop("aborted"); return; }
-  if (cmd != "start" || active_) return;
+  // 시작 명령 문법은 mission_solver parse_start — "start" · "start:<단계>"(BARCODE·READ·SURVEY·RETURN만, TUI 단계별 시험)
+  //   · "start:DIAG[:<바코드>:<신호>]" (실패해도 계속) · "start:[DIAG_]FROM_SURVEY:<바코드>:<신호>" (관측 없이 준 값으로 SURVEY부터)
+  StartCmd sc;
+  std::string bad;
+  if (!parse_start(cmd, sc, bad)) {
+    if (bad != "not_start") note("시작 거부: " + cmd + " (" + bad + ")");
+    return;
+  }
+  if (active_) return;
   int left = 0;
   if (basket_) {
     for (const auto & b : basket_->slots) left += b.filled;
@@ -222,6 +318,9 @@ void MissionManager::on_command(const std::string & cmd) {
   seen_tags_.clear();
   lying_.clear();
   corr_.assign(locations_.size(), {0.0, 0.0});
+  marks_.assign(start_boxes_.size() + loc_boxes_.size(), Mark{});
+  if (acorr_.n) { acorr_ = {}; publish_walls(); }
+  acorr_walls_ = {};
   barcode_.clear();
   error_.clear();
   back_.clear();
@@ -232,29 +331,64 @@ void MissionManager::on_command(const std::string & cmd) {
   std::strftime(stamp, sizeof(stamp), "%Y%m%d_%H%M%S", std::localtime(&t));
   run_dir_ = log_dir_ + "/" + stamp;
   std::filesystem::create_directories(run_dir_ + "/photos");
-  enter(next_phase(Phase::IDLE, true));
+  only_ = sc.only;
+  signal_window_ = false;
+  mission_t0_ = wall_s();
+  diag_run_ = sc.diag || continue_on_fail_;
+  stuck_ = 0;
+  counts_ = {};
+  given_ = sc.given;
+  given_barcode_ = sc.barcode;
+  given_counts_ = sc.counts;
+  if (diag_run_) note("현장 진단 실행 — 실패해도 기록하고 계속 (치명 이유만 정지)");
+  if (sc.only != Phase::IDLE) note(std::string("단계만 실행: ") + phase_name(sc.only));
+  goto_ = sc.go_to;
+  if (!goto_.empty()) {  // 실기 이동 시험 — 관측·조사 없이 적은 상자들에 미션처럼 다가가기만
+    std::string list;
+    for (const auto & g : goto_) list += (list.empty() ? "" : ",") + g;
+    note("상자로 가기 " + list + " — SURVEY처럼 (Nav2 → 상자 도킹) · 끝나면 복귀");
+    phase_ = Phase::SURVEY;
+    phase_t0_ = wall_s();
+    ctx_.clear();
+    goto_seq(0);
+    return;
+  }
+  if (sc.from_survey) {  // 관측 건너뜀 — 준 바코드·신호를 본 것처럼 (SURVEY → BUILD → VERIFY → RETURN)
+    note("관측 건너뜀 — 바코드 " + sc.barcode + " · 신호 " + cmd.substr(cmd.rfind(':') + 1) + "로 SURVEY부터");
+    use_given(false);
+    enter(Phase::SURVEY);
+    return;
+  }
+  enter(sc.only != Phase::IDLE ? sc.only : next_phase(Phase::IDLE, true));
 }
 
 void MissionManager::finish(bool ok, const std::string & why) {
   if (!active_) return;
-  const Phase n = next_phase(phase_, ok);
+  // 단계만 실행이면 여기서 끝 — start:BARCODE는 관측(바코드 + 신호)이라 READ까지
+  const Phase n = only_ == Phase::IDLE ? next_phase(phase_, ok, diag_run_)
+                : !ok ? Phase::ERROR
+                : (only_ == Phase::BARCODE && phase_ == Phase::BARCODE) ? Phase::READ : Phase::DONE;
   if (!ok) result(std::string(phase_name(phase_)) + ": " + why);
+  phase_line(ok, why, n);
   enter(n, why);
 }
 
 void MissionManager::enter(Phase p, const std::string & why) {
   phase_ = p;
+  phase_t0_ = wall_s();
+  ctx_.clear();
   switch (p) {
     case Phase::GO_OBSERVE: go_observe(); break;
     case Phase::BARCODE: barcode_phase(); break;
     case Phase::READ: read_phase(); break;
-    case Phase::SURVEY: survey(0); break;
+    case Phase::SURVEY: use_given(true); survey(0); break;
     case Phase::BUILD: build(0); break;
     case Phase::VERIFY: verify(0); break;
     case Phase::RETURN: go_home(); break;
     case Phase::DONE:
+      mission_line(true, "");
       active_ = false;
-      note("기록: " + run_dir_);
+      note("기록: " + run_dir_ + (results_.empty() ? "" : " · 실패 " + str(static_cast<int>(results_.size())) + "건 (결과 목록)"));
       break;
     case Phase::ERROR: stop(why); break;
     default: break;
@@ -275,53 +409,184 @@ void MissionManager::go_observe() {
 }
 
 void MissionManager::barcode_phase() {
-  if (barcode_arm_pose_.empty()) { barcode_read(); return; }
-  // 팔을 앞으로 뻗어 gripper_cam으로 — pole_front_cam은 해상도가 모자라 바코드 막대를 못 가름 (실기 11-12)
-  note("팔 " + barcode_arm_pose_ + " 자세 → 손 카메라로 바코드");
-  run({SubGoal().set__skill("pose").set__target(barcode_arm_pose_)}, [this](bool ok, const std::string & why) {
-    if (!ok) { barcode_done(false, "barcode_pose_failed:" + why); return; }
-    barcode_read();
-  });
-}
-
-void MissionManager::barcode_done(bool ok, const std::string & why) {
-  if (barcode_arm_pose_.empty()) { ok ? finish(true, "") : finish(false, why); return; }
-  run({stow()}, [this, ok, why](bool sok, const std::string & swhy) {  // 실패해도 팔은 접고 끝냄
-    if (!ok) { finish(false, why); return; }
-    finish(sok, "barcode_stow_failed:" + swhy);
-  });
-}
-
-void MissionManager::barcode_read() {
+  // ① 지금 자세(pole_front_cam)로 barcode_pole_s 동안 먼저 봄 → 읽히면 팔 안 움직임
+  // ② 안 읽히면 팔을 barcode_arm_pose(gaze)로 뻗으며 계속 봄 — 가는 도중에 읽혀도 바로 stow 계획을 보내 멈추고 접음
+  //    (coordinator는 새 계획이 오면 진행 중 goal을 취소함 · 취소된 gaze 결과는 waiting_plan_이 바뀌어 무시됨)
+  // ③ gaze에 도착하고 barcode_gaze_wait_s 안에 못 읽으면 팔은 그대로 barcode_advance_step_m씩 앞으로 (최대 barcode_advance_max_m)
+  //    — 가는 도중에 읽혀도 바로 접음. 끝나면 팔 접고 다가간 만큼 똑바로 후진 (approach 후진)
+  //    다가가기는 손 카메라 정면 depth가 barcode_min_gap_m보다 멀 때만 (모르거나 1 s 넘게 안 오면 안 감) · 최대 barcode_advance_max_m
+  // ④ 더 다가갈 수 없는 자리에서 barcode_timeout_s 동안 안 읽히면 (gaze에 못 가면 pole_s + timeout_s) stow·후진 뒤 barcode_missing
   // 이번에 실제로 본 바코드만 — /tracked_objects의 barcode(last_seen ≥ 시작) 또는 시작 뒤 받은 /mission/qr
-  note("바코드 읽는 중");
+  note("관측 — 바코드(pole 3초 뒤 손 카메라 gaze) + 신호(pole_front_cam) 같이");
   phase_started_ = now();
-  timer_ = create_wall_timer(std::chrono::milliseconds(500), [this]() {
+  signal_ = perception::msg::MissionSignal();  // 신호 관측 창을 바코드 시작부터 엶 (READ와 병렬)
+  signal_ready_ = false;
+  signal_streak_ = 0;
+  signal_error_.clear();
+  read_started_ = phase_started_;
+  signal_window_ = true;
+  gaze_sent_ = false;
+  returning_ = false;
+  light_warned_ = false;
+  hold_noted_ = false;
+  bad_barcode_.clear();
+  gaze_at_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
+  gaze_free_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
+  gaze_wait_noted_ = false;
+  gaze_joints_.clear();
+  advanced_m_ = 0.0;
+  moving_ = false;
+  grip_front_m_ = -1.0;  // 지난 실행 값을 믿지 않음 — 이번 단계의 손 카메라 depth로만
+  if (!robot_arena(barcode_origin_)) barcode_origin_ = start_;  // 다가갔다가 돌아올 자리
+  timer_ = create_wall_timer(std::chrono::milliseconds(250), [this]() {
     if (phase_ != Phase::BARCODE) { timer_->cancel(); return; }
+    if (!signal_error_.empty() && !diag_run_) {  // 멈춰 있는데도 신호 오류 사이클이 이어짐 — 추정하지 않고 팔 접고 정지 (diag: 바코드는 계속 · READ가 기록)
+      timer_->cancel();
+      write_log("signal.json", "{\"ok\": false, \"error\": " + q(signal_error_) + ", \"raw\": " + q(signal_.raw) + "}\n");
+      barcode_done(false, "signal_" + signal_error_);
+      return;
+    }
+    if (!light_warned_ && (now() - phase_started_).seconds() > light_check_s_) {  // 신호등이 pole_front_cam에 안 보임 — 방향·가림 확인
+      light_warned_ = true;
+      bool seen = false;
+      if (objects_) for (const auto & o : objects_->objects)
+        if (o.class_name == "traffic_light" && rclcpp::Time(o.last_seen, RCL_ROS_TIME) >= phase_started_) seen = true;
+      if (!seen) {
+        RCLCPP_WARN(get_logger(), "관측 %.0f s 동안 신호등이 안 보임 — 로봇 방향·팔 가림 확인 (바코드는 계속)", light_check_s_);
+        note("신호등 안 보임 — 방향·팔 가림 확인");
+      }
+    }
+    // 미등록 바코드(P2-01~04 아님)는 잘못 읽은 것일 수 있어 버리고 계속 찾음 — 끝까지 그것만 보이면 unknown_barcode로 정지 (발제: 미등록 → 안전 정지)
+    const auto take = [this](const std::string & t) {
+      bool asc = false;
+      if (t.empty() || !barcode_.empty()) return;
+      if (parse_barcode(t, asc)) { barcode_ = t; return; }
+      if (t != bad_barcode_) RCLCPP_WARN(get_logger(), "미등록 바코드 '%s' — 버리고 계속 찾음", t.c_str());
+      bad_barcode_ = t;
+    };
     if (objects_) for (const auto & o : objects_->objects)
-      if (o.class_name == "barcode" && rclcpp::Time(o.last_seen, RCL_ROS_TIME) >= phase_started_) barcode_ = detail(o, "content");
-    if (barcode_.empty() && barcode_rx_ >= phase_started_) barcode_ = barcode_msg_;
+      if (o.class_name == "barcode" && rclcpp::Time(o.last_seen, RCL_ROS_TIME) >= phase_started_) take(detail(o, "content"));
+    if (barcode_rx_ >= phase_started_) take(barcode_msg_);
+    const double t = (now() - phase_started_).seconds();
     if (barcode_.empty()) {
-      if ((now() - phase_started_).seconds() > barcode_timeout_s_) { timer_->cancel(); barcode_done(false, "barcode_missing"); }
+      // 신호 확정 전에는 팔을 접은 채 기다림 (barcode_gaze_after_signal) — 뻗은 채 오래 버티면 joint2 과부하 (11-14 실기)
+      const bool signal_wait = signal_window_ && !signal_ready_ && signal_error_.empty() &&
+                               (now() - read_started_).seconds() < signal_timeout_s_;
+      const bool arm_wait = barcode_gaze_after_signal_ && signal_wait;
+      if (!arm_wait && t > barcode_pole_s_ && gaze_free_.nanoseconds() == 0) gaze_free_ = now();
+      if (arm_wait && !gaze_sent_ && t > barcode_pole_s_ && !gaze_wait_noted_) {
+        gaze_wait_noted_ = true;
+        note("팔 접은 채 신호 먼저 확정 (팔 과부하 방지) — 확정 뒤 " + barcode_arm_pose_ + "로 바코드");
+      }
+      // gaze 유지 중 관절이 처지면(과부하·토크 꺼짐) 손 카메라가 바닥을 봄 — 기다리지 않고 정지
+      if (arm_sag_rad_ > 0 && gaze_at_.nanoseconds() > 0 && !gaze_joints_.empty()) {
+        for (const auto & [name, q0] : gaze_joints_) {
+          const auto it = joints_now_.find(name);
+          if (it == joints_now_.end() || std::abs(it->second - q0) <= arm_sag_rad_) continue;
+          RCLCPP_ERROR(get_logger(), "gaze 유지 중 %s가 %.2f rad 벗어남 — 팔 처짐 (과부하?)", name.c_str(), it->second - q0);
+          timer_->cancel();
+          barcode_done(false, "arm_sag:" + name);
+          return;
+        }
+      }
+      if (!gaze_sent_ && !barcode_arm_pose_.empty() && t > barcode_pole_s_ && !arm_wait) {
+        gaze_sent_ = true;
+        note("팔 " + barcode_arm_pose_ + " 자세로 뻗으며 손 카메라로 바코드");
+        run({SubGoal().set__skill("pose").set__target(barcode_arm_pose_)}, [this](bool ok, const std::string & why) {
+          if (phase_ != Phase::BARCODE || !barcode_.empty()) return;
+          if (ok) { gaze_at_ = now(); gaze_joints_ = joints_now_; return; }  // 도착 — 그대로 계속 봄 (관절 값 기억: 처짐 감시)
+          timer_->cancel();
+          barcode_done(false, "barcode_pose_failed:" + why);
+        });
+      }
+      // gaze에서 안 읽히면 팔은 그대로 한 걸음 앞으로 (바코드 = 출발 자리 정면)
+      // 신호가 확정되기 전에는 다가가지 않음 — 움직이면 오른쪽 신호등이 pole_front_cam 시야 밖으로 나감 (11-12 실기: 다가가다 신호 못 읽음)
+      //   확정되면 그때부터 다가감 · 신호 시간(signal_timeout_s)이 지나면 기다리지 않음 (READ에서 signal_timeout)
+      const bool hold = signal_window_ && !signal_ready_ && signal_error_.empty() && (now() - read_started_).seconds() < signal_timeout_s_;
+      if (hold && gaze_at_.nanoseconds() > 0) gaze_at_ = now();  // 기다리는 동안은 바코드 대기·포기 시간을 안 셈
+      if (hold && !hold_noted_ && gaze_at_.nanoseconds() > 0) { hold_noted_ = true; note("gaze 제자리에서 바코드·신호 — 신호 확정 뒤에 다가감"); }
+      const bool waited = !hold && gaze_at_.nanoseconds() > 0 && (now() - gaze_at_).seconds() > barcode_gaze_wait_s_;
+      // 읽힐 때까지 다가감 — 손 카메라 정면이 barcode_min_gap_m보다 가깝거나(또는 depth를 모르면) · 최대 거리면 그만
+      const bool fresh = (now() - grip_front_at_).seconds() < 1.0;  // 1 s 넘게 depth가 안 오면 모름 → 안 다가감
+      const bool room = fresh && grip_front_m_ > barcode_min_gap_m_ + barcode_advance_step_m_ * 0.5 &&
+                        advanced_m_ + barcode_advance_step_m_ <= barcode_advance_max_m_ + 1e-6;
+      if (waited && !moving_ && room) {
+        {
+          moving_ = true;
+          const double d = std::min(barcode_advance_step_m_, grip_front_m_ - barcode_min_gap_m_);  // 마지막 걸음은 남은 만큼만
+          // 목표 = 출발 자리에서 출발 방향으로 (지금까지 + d) — 지금 자세 기준으로 잡으면 걸음마다 방향 오차가 쌓였음 (11-12: 0 → −9 → −14°)
+          const Pose2 & o = barcode_origin_;
+          const double k = advanced_m_ + d;
+          const auto g = to_map(o.x + k * std::cos(o.yaw), o.y + k * std::sin(o.yaw), o.yaw);
+          note(fmt("바코드가 안 읽혀 다가감 (지금까지 %.2f m · 손 카메라 정면 %.2f m · 팔 그대로)", advanced_m_ + d, grip_front_m_));
+          run({SubGoal().set__skill("approach").set__target(fmt("%.4f,%.4f,%.4f", g.x, g.y, g.yaw)).set__relation("drive_straight")},
+            [this, d](bool ok, const std::string & why) {
+              if (phase_ != Phase::BARCODE || !barcode_.empty()) return;
+              moving_ = false;
+              advanced_m_ += d;  // 실패해도 간 만큼으로 보고 돌아올 때 원래 자리로 감
+              gaze_at_ = now();  // 새 자리에서 다시 barcode_gaze_wait_s 동안 봄
+              if (!ok) RCLCPP_WARN(get_logger(), "바코드 다가가기 멈춤 (%s) — 이 자리에서 봄", why.c_str());
+            });
+        }
+      }
+      // 포기는 더 다가갈 수 없는 마지막 자리에서 barcode_timeout_s를 기다린 뒤에만 (다가가는 시간은 안 셈 — 실기 11-12: 23 s 전체
+      //   제한에 걸려 1 s 뒤 읽힌 바코드를 놓침) · gaze에 아예 못 가면 pole_s + timeout_s
+      const bool final_wait = gaze_at_.nanoseconds() > 0 && !moving_ && !room && (now() - gaze_at_).seconds() > barcode_timeout_s_;
+      const bool no_gaze = gaze_at_.nanoseconds() == 0 && gaze_free_.nanoseconds() > 0 &&
+                           (now() - gaze_free_).seconds() > barcode_timeout_s_;  // gaze를 보낼 수 있게 된 뒤 timeout 안에 도착 못 함
+      if (final_wait || no_gaze) {
+        timer_->cancel();
+        barcode_done(false, bad_barcode_.empty() ? "barcode_missing" : "unknown_barcode:" + bad_barcode_);
+      }
       return;
     }
     timer_->cancel();
-    RCLCPP_INFO(get_logger(), "바코드 %s", barcode_.c_str());
+    RCLCPP_INFO(get_logger(), "바코드 %s (%.1f s · %s)", barcode_.c_str(), t, gaze_sent_ ? "손 카메라" : "팔 안 움직임");
     snap("barcode");
-    if (!observe_move_) { barcode_done(true, ""); return; }  // 이미 관측 자리 — 팔만 접음
+    if (!observe_move_) { barcode_done(true, ""); return; }  // 이미 관측 자리 — 팔을 뻗었으면 접음
     const auto p = to_map(start_.x, start_.y, M_PI);  // 관측 = 출발 자리에서 −X(π)를 봄 — 팔부터 접고 이동
     run({stow(), SubGoal().set__skill("navigate").set__target(fmt("%.3f,%.3f,%.3f", p.x, p.y, p.yaw))},
       [this](bool ok, const std::string & why) { finish(ok, "observe_nav_failed:" + why); });
   });
 }
 
+bool MissionManager::observe_still() const {
+  // 관측 중 팔·바퀴가 멈춰 있음 — pole 3초(팔 stow) 또는 gaze 도착 뒤 · 다가가기·복귀 중 아님
+  return !moving_ && !returning_ && (!gaze_sent_ || gaze_at_.nanoseconds() > 0);
+}
+
+void MissionManager::barcode_done(bool ok, const std::string & why) {
+  if (!gaze_sent_) { ok ? finish(true, "") : finish(false, why); return; }  // 팔을 안 움직였음
+  // 뻗던·다가가던 중이면 이 계획이 진행 중 goal을 취소함 · 팔 접고 → 다가갔으면 원래 자리로 똑바로 후진
+  std::vector<SubGoal> back{stow()};
+  if (advanced_m_ > 0.0 || moving_) {
+    const auto o = to_map(barcode_origin_.x, barcode_origin_.y, barcode_origin_.yaw);
+    back.push_back(SubGoal().set__skill("approach").set__target(fmt("%.4f,%.4f,%.4f", o.x, o.y, o.yaw)).set__relation("drive_straight"));
+  }
+  moving_ = false;
+  returning_ = true;
+  run(back, [this, ok, why](bool sok, const std::string & swhy) {  // 실패해도 접고(·돌아오고) 끝냄
+    returning_ = false;
+    gaze_sent_ = false;  // 팔 접음 (abort 때 다시 접을 필요 없음)
+    if (!ok) { finish(false, why); return; }
+    // 바코드는 읽었음 — 후진 복귀가 조금 덜 맞아도(approach_blocked 등) 미션은 계속 (다음 이동은 Nav2) · 팔 접기 실패만 멈춤
+    if (!sok) RCLCPP_WARN(get_logger(), "바코드 뒤 복귀 덜 됨 (%s) — 계속", swhy.c_str());
+    finish(sok || swhy.rfind("approach", 0) == 0, "barcode_return_failed:" + swhy);
+  });
+}
+
 void MissionManager::read_phase() {
-  note("신호 12회 관측 중");
-  signal_ = perception::msg::MissionSignal();
-  signal_ready_ = false;
-  signal_streak_ = 0;
-  signal_error_.clear();
-  read_started_ = now();
+  // 신호는 BARCODE 시작부터 받고 있음 (barcode_phase) — 이미 확정됐으면 바로 다음 · READ만 실행이면 여기서 창을 엶
+  if (!signal_window_) {
+    signal_ = perception::msg::MissionSignal();
+    signal_ready_ = false;
+    signal_streak_ = 0;
+    signal_error_.clear();
+    read_started_ = now();
+    signal_window_ = true;
+  }
+  read_phase_at_ = now();
+  note(signal_ready_ ? "신호 — 관측(바코드) 중에 이미 확정" : "신호 12회 관측 중 (바코드 뒤 팔 접고 계속)");
   timer_ = create_wall_timer(std::chrono::milliseconds(500), [this]() {
     if (phase_ != Phase::READ) { timer_->cancel(); return; }
     if (!signal_error_.empty()) {  // 오류 사이클이 이어짐 — 추정하지 않고 정지
@@ -331,7 +596,9 @@ void MissionManager::read_phase() {
       return;
     }
     if (!signal_ready_) {
-      if ((now() - read_started_).seconds() > signal_timeout_s_) { timer_->cancel(); finish(false, "signal_timeout"); }
+      // 신호 시간 = 관측 시작부터 signal_timeout_s — 바코드에 시간을 다 써도 READ에서 최소 signal_read_min_s는 봄
+      const double waited = (now() - read_started_).seconds(), in_read = (now() - read_phase_at_).seconds();
+      if (waited > signal_timeout_s_ && in_read > signal_read_min_s_) { timer_->cancel(); finish(false, "signal_timeout"); }
       return;
     }
     timer_->cancel();
@@ -345,6 +612,11 @@ void MissionManager::read_phase() {
       ", \"sequence\": [" + seq + "], \"raw\": " + q(signal_.raw) + ", \"cycles\": " + str(signal_.cycles) + ", \"counts\": {\"R\": " + str(counts_.r) +
       ", \"Y\": " + str(counts_.y) + ", \"G\": " + str(counts_.g) + "}, \"order\": " + q(order_) + "}\n");
     if (!valid_counts(counts_, why)) { finish(false, why); return; }
+    if (only_ == Phase::READ && barcode_.empty()) {  // READ만 실행 — 바코드 없이 신호만 확인
+      RCLCPP_INFO(get_logger(), "신호 R%d Y%d G%d (READ만 — 바코드 없어 장소 배정은 안 함)", counts_.r, counts_.y, counts_.g);
+      finish(true);
+      return;
+    }
     if (!code_ok) { finish(false, "unknown_barcode:" + barcode_); return; }
     RCLCPP_INFO(get_logger(), "신호 R%d Y%d G%d · %s → L1 %c · L2 %c · L3 %c", counts_.r, counts_.y, counts_.g,
                 barcode_.c_str(), order_[0], order_[1], order_[2]);
@@ -352,12 +624,51 @@ void MissionManager::read_phase() {
   });
 }
 
+// 시작 명령으로 받은 바코드·신호 — from_survey면 처음부터 쓰고, diag면 관측이 실패한 것만 바꿔 씀 (fallback)
+void MissionManager::use_given(bool fallback) {
+  if (!given_) return;
+  bool asc = false;
+  std::string why;
+  const bool code_ok = parse_barcode(barcode_, asc), count_ok = valid_counts(counts_, why);
+  if (code_ok && count_ok) return;  // 관측이 다 됨
+  std::string used;
+  if (!code_ok) { barcode_ = given_barcode_; used += "바코드 " + barcode_; }
+  if (!count_ok) {
+    counts_ = given_counts_;
+    used += std::string(used.empty() ? "" : " · ") + "신호 R" + str(counts_.r) + "Y" + str(counts_.y) + "G" + str(counts_.g);
+  }
+  parse_barcode(barcode_, asc);
+  order_ = assign_locations(counts_, asc);
+  if (fallback) result("diag: 관측 실패 → 시작 명령 값 " + used);
+  write_log(fallback ? "signal_given.json" : "signal.json", "{\"given\": true, \"barcode\": " + q(barcode_) +
+    ", \"ascending\": " + (asc ? "true" : "false") + ", \"counts\": {\"R\": " + str(counts_.r) + ", \"Y\": " +
+    str(counts_.y) + ", \"G\": " + str(counts_.g) + "}, \"order\": " + q(order_) + "}\n");
+  publish_state();
+}
+
 // ---------- SURVEY — 시작 박스 6곳 전부 조사하면서 적재함에 싣기
+void MissionManager::goto_seq(size_t k) {
+  if (!active_) return;
+  if (k >= goto_.size()) { note("상자로 가기 끝 — 출발 구역으로 복귀"); only_ = Phase::RETURN; enter(Phase::RETURN); return; }
+  const std::string id = goto_[k];
+  const size_t i = static_cast<size_t>(id[1] - '1');
+  const Box box = id[0] == 'L' ? loc_boxes_.at(i) : start_boxes_.at(i);
+  ctx_ = "\"goto\": " + q(id);
+  note("상자로 가기 " + id + " (" + str(static_cast<int>(k) + 1) + "/" + str(static_cast<int>(goto_.size())) + ")");
+  go_near(box, box.x, box.y, [this, k, id](bool ok, const std::string & why) {
+    result("GOTO " + id + (ok ? ": ok" : ": " + why));
+    if (!ok) RCLCPP_WARN(get_logger(), "상자로 가기 %s 실패 (%s) — 다음", id.c_str(), why.c_str());
+    else snap("goto_" + id);
+    goto_seq(k + 1);
+  });
+}
+
 void MissionManager::survey(size_t k) {  // k = 방문 순서 인덱스 (survey_order_) · b = 박스 번호(0부터)
   if (k >= survey_order_.size()) { solve_allocation(); return; }
   survey_k_ = k;
   const size_t b = survey_order_[k];
   const Box box = start_boxes_[b];
+  ctx_ = "\"box\": " + str(static_cast<int>(b) + 1);
   note("시작 박스 " + str(static_cast<int>(b) + 1) + " 조사");
   go_near(box, box.x, box.y, [this, b, box](bool ok, const std::string & why) {
     if (!ok) { result("box " + str(static_cast<int>(b) + 1) + ": approach_failed " + why); survey(survey_k_ + 1); return; }
@@ -396,6 +707,7 @@ void MissionManager::load(size_t b, std::vector<int> found, size_t k) {
   if (k >= found.size()) { survey(survey_k_ + 1); return; }
   if (!basket_has_room()) { load(b, found, found.size()); return; }  // 꽉 참 — 나머지는 BUILD 때 시작 박스에서 직접
   const int tag = found[k];
+  ctx_ = "\"box\": " + str(static_cast<int>(b) + 1) + ", \"tag\": " + str(tag);
   note("퍽 " + str(tag) + " → 적재함 (load next)");
   // 칸은 coordinator가 고르고 장부에 tag까지 적음 (pick 때 그 퍽의 tag·색·모양을 기억해 둠)
   grab(tag, [this, b, found, k, tag](bool ok, const std::string & why) {
@@ -414,7 +726,7 @@ void MissionManager::load(size_t b, std::vector<int> found, size_t k) {
 }
 
 void MissionManager::solve_allocation() {
-  std::string why;
+  std::string why = order_.size() == 3 ? "" : "no_order";  // 바코드·신호 없음 (diag에서 관측 실패) — 조사만 하고 BUILD 건너뜀
   std::string list;
   for (const auto & p : pucks_) {
     const int slot = basket_slot_of(p.tag);
@@ -422,7 +734,14 @@ void MissionManager::solve_allocation() {
             ", \"shape\": " + q(p.shape) + ", \"box\": " + str(static_cast<int>(puck_at_[p.tag].first) + 1) +
             ", \"tray_slot\": " + (slot < 0 ? "null" : str(slot)) + "}";
   }
-  const bool ok = allocate(pucks_, counts_, alloc_, why);
+  bool ok = why.empty() && allocate(pucks_, counts_, alloc_, why);
+  // 현장 진단만: 퍽이 12개가 아니라 못 나누면 가진 퍽으로 최대한 (다 채운 장소 먼저) — 빈 눈은 기록하고 BUILD는 있는 퍽만
+  //   (대회 규칙대로면 할당 실패 = BUILD 없이 RETURN · 평소 실행은 그대로)
+  std::map<char, int> filled;
+  const bool partial = !ok && diag_run_ && (why == "puck_count" || why == "no_allocation") &&
+                       allocate_partial(pucks_, counts_, alloc_, filled);
+  if (partial) ok = true;
+  std::vector<std::string> empty;
   std::string groups;
   if (ok) {
     for (const size_t li : build_loc_order_) {  // 장소 방문 순서 (build_location_order) — 장소 번호 li는 그대로
@@ -435,12 +754,24 @@ void MissionManager::solve_allocation() {
         jobs_.push_back({tags[k], li, cells[k]});
         t += std::string(t.empty() ? "" : ", ") + "{\"tag\": " + str(tags[k]) + ", \"cell\": " + str(cells[k]) + "}";
       }
+      std::vector<std::string> gap;
+      for (size_t k = tags.size(); k < cells.size(); ++k) gap.push_back(str(cells[k]));
+      if (!gap.empty())
+        empty.push_back("L" + str(static_cast<int>(li) + 1) + " " + g + " " + str(static_cast<int>(std::min(tags.size(), cells.size()))) +
+                        "/" + str(static_cast<int>(cells.size())) + " (빈 칸 " + join(gap) + ")");
       groups += std::string(groups.empty() ? "" : ", ") + "\"L" + str(static_cast<int>(li) + 1) + "\": {\"group\": " +
-                q(std::string(1, g)) + ", \"pucks\": [" + t + "]}";
+                q(std::string(1, g)) + ", \"pucks\": [" + t + "], \"empty_cells\": [" + join(gap) + "]}";
     }
   }
+  std::vector<std::string> eq;
+  for (const auto & e : empty) eq.push_back(q(e));
   write_log("allocation.json", "{\"pucks\": [" + list + "], \"ok\": " + (ok ? "true" : "false") + ", \"why\": " + q(why) +
-            ", \"locations\": {" + groups + "}}\n");
+            ", \"partial\": " + (partial ? "true" : "false") + ", \"empty\": [" + join(eq) + "], \"locations\": {" + groups + "}}\n");
+  if (partial) {
+    result("diag: 부분 할당 (" + why + ":" + str(static_cast<int>(pucks_.size())) + ") — 퍽 " + str(static_cast<int>(jobs_.size())) +
+           "개로 BUILD" + (empty.empty() ? "" : " · 빈 눈 " + join(empty)));
+    RCLCPP_WARN(get_logger(), "부분 할당 — 빈 눈: %s", empty.empty() ? "없음" : join(empty).c_str());
+  }
   if (!ok) { finish(false, why + (pucks_.size() != 12 ? ":" + std::to_string(pucks_.size()) : "")); return; }
   finish(true);
 }
@@ -462,6 +793,7 @@ void MissionManager::build(size_t i) {
 
 void MissionManager::bring(size_t i) {
   const Job job = jobs_[i];
+  ctx_ = "\"tag\": " + str(job.tag) + ", \"loc\": \"L" + str(static_cast<int>(job.loc) + 1) + "\", \"cell\": " + str(job.cell);
   const auto skip = [this, i, job](const std::string & why) {
     result("puck " + str(job.tag) + ": " + why);
     build_json_ += std::string(build_json_.empty() ? "" : ", ") + "{\"tag\": " + str(job.tag) + ", \"ok\": false, \"why\": " + q(why) + "}";
@@ -565,6 +897,7 @@ void MissionManager::place_check(size_t i, int tries) {
     publish_state();
     job_done(i, ok);
   };
+  attempt_ = tries;
   run({SubGoal().set__skill("place").set__target(point(tx, ty, box_top_z_))}, [this, i, tries, tx, ty, next](bool ok, const std::string & why) {
     if (!ok) { next(false, "place_failed " + why); return; }
     const rclcpp::Time t0 = now();  // 놓은 뒤에 실제로 본 것만
@@ -597,8 +930,8 @@ void MissionManager::place_check(size_t i, int tries) {
 }
 
 // ---------- VERIFY — 장소마다 새로 본 퍽만 (발제 p7: 목표 상태 복사 금지) → 칸별 판정 + 12개 중복·누락
-void MissionManager::verify(size_t li) {
-  if (li >= locations_.size()) {
+void MissionManager::verify(size_t k) {  // k = 재확인 순서 인덱스 — 놓은 순서(build_location_order)의 거꾸로 (11-14: 마지막에 놓은 곳부터, 되돌아가지 않음)
+  if (k >= build_loc_order_.size()) {
     std::vector<int> all, dup, missing;
     for (const auto & j : jobs_) all.push_back(j.tag);
     global_check(seen_tags_, all, dup, missing);
@@ -612,15 +945,17 @@ void MissionManager::verify(size_t li) {
     finish(true);
     return;
   }
+  const size_t li = build_loc_order_[build_loc_order_.size() - 1 - k];
   const std::string name = "L" + str(static_cast<int>(li) + 1);
+  ctx_ = "\"loc\": " + q(name);
   note(name + " 재검증");
   const double lx = locations_[li].first, ly = locations_[li].second;
-  go_near(loc_boxes_[li], lx, ly, [this, li, name](bool ok, const std::string & why) {
+  go_near(loc_boxes_[li], lx, ly, [this, k, li, name](bool ok, const std::string & why) {
     if (!ok) {
       result(name + ": verify_approach_failed " + why);
       seen_tags_.push_back({});
       verify_json_ += std::string(verify_json_.empty() ? "" : ", ") + "{\"location\": " + q(name) + ", \"ok\": false, \"why\": " + q(why) + "}";
-      verify(li + 1);
+      verify(k + 1);
       return;
     }
     correct(li);
@@ -628,7 +963,7 @@ void MissionManager::verify(size_t li) {
     const double cx = center.first, cy = center.second;
     const rclcpp::Time t0 = now();
     run_retry({SubGoal().set__skill("inspect").set__target(point(cx, cy, box_top_z_ + puck_h_))},
-      [this, li, name, cx, cy, t0](bool ok2, const std::string & why2) {
+      [this, k, li, name, cx, cy, t0](bool ok2, const std::string & why2) {
         if (!ok2) RCLCPP_WARN(get_logger(), "%s inspect 실패 (%s) — 본 것만 기록", name.c_str(), why2.c_str());
         snap("verify_" + name);
         const auto c = to_map(cx, cy);
@@ -663,17 +998,18 @@ void MissionManager::verify(size_t li) {
         result(name + ": " + (r.ok ? "ok" : "mismatch"));
         RCLCPP_INFO(get_logger(), "재검증 %s: 칸 %zu개 · 새로 본 퍽 %zu개 · 빈 칸 퍽 %zu개 → %s", name.c_str(), r.cells.size(),
                     seen.size(), r.extra.size(), r.ok ? "일치" : "불일치");
-        verify(li + 1);
+        verify(k + 1);
       });
   });
 }
 
 // ---------- RETURN — 출발 구역 가운데 → 외곽 직사각형이 구역 안인지 확인, 밖이면 한 번 보정 → 정지
 void MissionManager::go_home(bool corrected) {
+  ctx_.clear();
   if (!back_.empty()) {  // 박스에 붙어 있음 — 먼저 똑바로 물러남
     const std::string back = back_;
     back_.clear();
-    run({stow(), SubGoal().set__skill("approach").set__target(back)}, [this, corrected](bool ok, const std::string & why) {
+    run({stow(), SubGoal().set__skill("approach").set__target(back).set__relation("exit")}, [this, corrected](bool ok, const std::string & why) {
       ok ? go_home(corrected) : finish(false, "retreat:" + why);
     });
     return;
@@ -705,14 +1041,32 @@ void MissionManager::go_home(bool corrected) {
 }
 
 void MissionManager::stop(const std::string & why) {
+  if (active_) {  // 시간 기록 — 진행 중 단계·단계·미션을 실패로 닫음 (finish → ERROR로 왔으면 단계 줄은 이미 씀)
+    close_steps(false, why, step_log_.cur);
+    if (phase_ != Phase::ERROR) phase_line(false, why, Phase::ERROR);
+    mission_line(false, why);
+  }
   active_ = false;
+  const auto goal = waiting_goal_;
+  waiting_goal_.reset();
   waiting_plan_ = 0;
+  waiting_done_ = nullptr;
   phase_ = Phase::ERROR;
   error_ = why;
   if (timer_) timer_->cancel();
-  SubGoalArray stop;  // plan_id 0 + 빈 목록 = coordinator 정지 (진행 중 goal 취소)
-  stop.header.stamp = now();
-  goals_pub_->publish(stop);
+  // 관측 중 팔을 뻗은 채 멈추면 다음 시작·주행 때 부딪힘 → 접기(stow)만 새 goal로 보냄 (결과는 안 기다림)
+  const bool fold = gaze_sent_ && !interrupted(why.rfind("interrupted: ", 0) == 0 ? why.substr(13) : why);
+  if (goal) execute_client_->async_cancel_goal(goal);
+  else if (execute_client_ && !fold) execute_client_->async_cancel_all_goals();  // fold면 새 goal이 진행 중 계획을 preempt
+  if (fold) {
+    ExecutePlan::Goal stow_goal;
+    stow_goal.plan_id = PLAN_ID_BASE + ++plan_seq_;
+    stow_goal.goals.push_back(stow());
+    stow_goal.goals.back().step = 1;
+    execute_client_->async_send_goal(stow_goal);
+    gaze_sent_ = false;
+    RCLCPP_WARN(get_logger(), "정지 — 뻗은 팔 접기(stow)만 보냄");
+  }
   write_log("error.json", "{\"why\": " + q(why) + ", \"results\": [" + [&] {
     std::vector<std::string> v;
     for (const auto & r : results_) v.push_back(q(r));
@@ -756,17 +1110,57 @@ void MissionManager::publish_state() {
 // ---------- skill 요청
 void MissionManager::run(std::vector<SubGoal> goals, Done done) {
   if (!active_) return;  // abort·오류 뒤에 남은 콜백이 새 계획을 보내지 않게
-  SubGoalArray plan;
-  plan.header.stamp = now();
-  plan.plan_id = PLAN_ID_BASE + ++plan_seq_;
+  ExecutePlan::Goal goal;
+  goal.plan_id = PLAN_ID_BASE + ++plan_seq_;
   for (size_t i = 0; i < goals.size(); ++i) goals[i].step = static_cast<uint32_t>(i + 1);
-  plan.goals = std::move(goals);
-  waiting_plan_ = plan.plan_id;
+  const uint32_t plan_id = goal.plan_id;
+  close_steps(false, "superseded", step_log_.cur);  // 앞 계획이 아직 안 끝났는데 새 계획 (coordinator가 앞 것을 취소함)
+  step_log_ = {plan_id, goals, 0, wall_s(), attempt_, phase_name(phase_), ctx_};
+  attempt_ = 0;
+  goal.goals = std::move(goals);
+  waiting_plan_ = plan_id;
   waiting_done_ = std::move(done);
-  goals_pub_->publish(plan);
+  rclcpp_action::Client<ExecutePlan>::SendGoalOptions options;
+  options.goal_response_callback = [this, plan_id](const ExecuteGoalHandle::SharedPtr & handle) {
+    if (waiting_plan_ != plan_id) return;
+    if (!handle) {
+      close_steps(false, "coordinator_unavailable", step_log_.cur);
+      waiting_plan_ = 0;
+      auto done = std::move(waiting_done_);
+      done(false, "coordinator_unavailable");
+      return;
+    }
+    waiting_goal_ = handle;
+  };
+  // 단계 경계 — coordinator가 단계를 시작할 때마다 feedback(current_step)을 냄 → 앞 단계들은 성공으로 닫음
+  options.feedback_callback = [this, plan_id](ExecuteGoalHandle::SharedPtr, const std::shared_ptr<const ExecutePlan::Feedback> f) {
+    auto & s = step_log_;
+    if (s.plan != plan_id || f->current_step == 0 || f->current_step - 1 <= s.cur || f->current_step > s.goals.size()) return;
+    const size_t idx = f->current_step - 1;
+    const double t = wall_s();
+    for (size_t k = s.cur; k < idx; ++k) step_line(k, k == s.cur ? s.t0 : t, t, true, "", k == s.cur && idx == s.cur + 1);
+    s.cur = idx;
+    s.t0 = t;
+  };
+  options.result_callback = [this, plan_id](const ExecuteGoalHandle::WrappedResult & result) {
+    if (waiting_plan_ != plan_id || !active_) return;
+    waiting_plan_ = 0;
+    waiting_goal_.reset();
+    auto done = std::move(waiting_done_);
+    const bool ok = result.code == rclcpp_action::ResultCode::SUCCEEDED && result.result && result.result->success;
+    const std::string why = result.result && !result.result->reason.empty() ? result.result->reason :
+      (result.code == rclcpp_action::ResultCode::CANCELED ? "cancelled" : "coordinator_failed");
+    const uint32_t fs = result.result ? result.result->final_step : 0;
+    close_steps(ok, ok ? "" : why, ok ? step_log_.goals.size() - 1 : fs ? fs - 1 : step_log_.cur);
+    if (!ok && interrupted(why)) { stop("interrupted: " + why); return; }
+    if (diag_run_ && diag_fatal(ok, why, stuck_, stuck_limit_)) { stop("fatal: " + why); return; }
+    done(ok, why);
+  };
+  execute_client_->async_send_goal(goal, options);
 }
 
 void MissionManager::run_retry(std::vector<SubGoal> goals, Done done, int tries) {
+  attempt_ = tries;
   run(goals, [this, goals, done, tries](bool ok, const std::string & why) {
     if (ok || tries >= retries_) { done(ok, why); return; }
     RCLCPP_WARN(get_logger(), "%s %s 실패 (%s) — 다시 (%d/%d)", goals.front().skill.c_str(), goals.front().target.c_str(),
@@ -777,9 +1171,9 @@ void MissionManager::run_retry(std::vector<SubGoal> goals, Done done, int tries)
 
 void MissionManager::go_near(const Box & box, double px, double py, Done done, size_t k, std::vector<Pose2> poses) {
   if (k == 0 && poses.empty() && !back_.empty()) {  // 지금 박스에 붙어 있으면 먼저 standoff까지 똑바로 물러남 (Nav2는 원 0.18이라 붙은 자리에선 출발 못 함)
-    const std::string back = back_;
+    const std::string back = back_;  // 후진 거리 [m] — approach exit (odom 기준 똑바로, 11-13: 예전엔 map 자리로 가서 map이 밀리면 비틀림)
     back_.clear();
-    run({stow(), SubGoal().set__skill("approach").set__target(back)}, [this, box, px, py, done](bool ok, const std::string & why) {
+    run({stow(), SubGoal().set__skill("approach").set__target(back).set__relation("exit")}, [this, box, px, py, done](bool ok, const std::string & why) {
       if (!ok) { done(false, "retreat:" + why); return; }
       go_near(box, px, py, done);
     });
@@ -794,6 +1188,26 @@ void MissionManager::go_near(const Box & box, double px, double py, Done done, s
         return da != db ? da < db : std::hypot(a.x - r.x, a.y - r.y) < std::hypot(b.x - r.x, b.y - r.y);
       });
     }
+    if (!box.sides.empty()) {  // 지정한 변만 — 다가설 자리 yaw로 변을 앎 (서쪽 변에 서면 +x를 봄 → "-x")
+      //   "+x@0.41": 그 변은 박스 가운데에서 0.41 m (변 법선 방향)에 섬 — approach를 시작할 자리 (11-13 사용자 지정, 지도 그림의 빨간 점)
+      //   시도 순서 = 적은 순서 (11-14: 앞에 적은 면이 진입 면, 뒤는 실패할 때 대신 — tools/plan 경로 계산과 맞춤)
+      std::vector<Pose2> kept;
+      for (const auto & t : box.sides) {
+        for (auto p : poses) {
+          const double c = std::cos(p.yaw), s = std::sin(p.yaw);
+          const std::string side = std::abs(c) > std::abs(s) ? (c > 0 ? "-x" : "+x") : (s > 0 ? "-y" : "+y");
+          if (t.compare(0, 2, side) != 0) continue;
+          if (t.size() > 3 && t[2] == '@') {  // 법선 거리만 바꿈 (옆 위치는 approach_poses 그대로)
+            const double d = std::stod(t.substr(3));
+            if (std::abs(c) > std::abs(s)) p.x = box.x - d * (c > 0 ? 1 : -1);
+            else p.y = box.y - d * (s > 0 ? 1 : -1);
+          }
+          kept.push_back(p);
+          break;
+        }
+      }
+      poses = kept;
+    }
     // 벽에 막힌 변은 처음부터 뺌 (예: 시작 박스 1 서쪽 — x 1.101 벽과 박스 사이 0.27 m. 다가설 자리가 벽 위라 Nav2가 벽으로 몰고 감)
     poses.erase(std::remove_if(poses.begin(), poses.end(), [this](const Pose2 & p) {
       const bool blocked = wall_distance(p.x, p.y, walls_) < wall_clearance_;
@@ -803,14 +1217,39 @@ void MissionManager::go_near(const Box & box, double px, double py, Done done, s
   }
   if (k >= poses.size() || static_cast<int>(k) >= approach_tries_) { done(false, "approach_failed"); return; }
   // Nav2로 변 앞 standoff까지 → approach로 approach_gap까지 직선으로 붙음 (Nav2 원형 footprint로는 못 붙는 거리)
-  const auto m = to_map(poses[k].x, poses[k].y, poses[k].yaw);
-  const double push = standoff_ - approach_gap_;  // 실패하면 Nav2가 어디서 멈췄는지 모름 — back_ 없음 (다음 navigate가 알아서)
+  // Nav2 목표는 박스 가운데에서 nav_turn_m까지 법선으로 물림 — 붙은 자리(0.39 m)에선 몸(외접 0.30 m)이 박스에 걸려 못 돌고
+  //   등진 채 멈춤 (11-14). 벽 쪽으로는 min(0.32, 원래 자리 벽 거리)보다 안 다가섬. 나머지는 approach가 직선으로 메움
+  Pose2 n = poses[k];
+  {
+    const double c = std::cos(n.yaw), s = std::sin(n.yaw);
+    const double clear = std::min(0.32, wall_distance(n.x, n.y, walls_));
+    for (double d = (box.x - n.x) * c + (box.y - n.y) * s + 0.02; d <= nav_turn_m_ + 1e-6; d += 0.02) {
+      const double x = box.x - d * c, y = box.y - d * s;
+      if (wall_distance(x, y, walls_) < clear) break;
+      n.x = x; n.y = y;
+    }
+  }
+  const auto m = to_map(n.x, n.y, n.yaw);
+  // 다가설 자리 → 도킹 자리 거리 (변마다 다름 — "@d") · 붙은 뒤 exit도 이만큼 물러나 이 자리로
+  const double push = (box.x - poses[k].x) * std::cos(poses[k].yaw) + (box.y - poses[k].y) * std::sin(poses[k].yaw)
+                      - box.half - approach_gap_;
   const auto f = to_map(poses[k].x + push * std::cos(poses[k].yaw), poses[k].y + push * std::sin(poses[k].yaw), poses[k].yaw);
-  run({stow(), SubGoal().set__skill("navigate").set__target(fmt("%.3f,%.3f,%.3f", m.x, m.y, m.yaw)),
-       SubGoal().set__skill("approach").set__target(fmt("%.4f,%.4f,%.4f", f.x, f.y, f.yaw)).set__relation("dock_box")},
-    [this, box, px, py, done, k, poses, m](bool ok, const std::string & why) {
-      if (ok) { back_ = fmt("%.4f,%.4f,%.4f", m.x, m.y, m.yaw); done(true, ""); return; }
+  // navigate "look"(도착 전 팔 올리기)은 안 씀 (11-13 headless: 팔이 pole_front_cam을 가려 보던 상자를 잃고, 0.25 m에선 gripper_cam에 잘려 보임)
+  run({stow(), SubGoal().set__skill("navigate").set__target(fmt("%.3f,%.3f,%.3f", m.x, m.y, m.yaw)).set__relation("near"),
+       // 상자 도킹: 도면 자리(f)는 힌트 — skill_approach가 인지 상자 + gap으로 목표를 정함 (도면은 안 믿음, 11-12)
+       SubGoal().set__skill("approach").set__target(fmt("%.4f,%.4f,%.4f", f.x, f.y, f.yaw) + fmt(",%.4f,%.4f", approach_gap_, box.half))
+         .set__relation("dock_box")},
+    [this, box, px, py, done, k, poses, push, n](bool ok, const std::string & why) {
+      // 붙은 뒤 exit은 Nav2 목표 자리(n)까지 물러남 — approach 시작 자리(@d)는 돌 공간이 없을 수 있음
+      if (ok) { back_ = fmt("%.3f", std::hypot(box.x - n.x, box.y - n.y) - box.half - approach_gap_); done(true, ""); return; }
       RCLCPP_WARN(get_logger(), "접근 자리 %zu 실패 (%s) — 다음 변", k + 1, why.c_str());
+      // 상자 앞에서 끝남(붙다 멈춤 · 상자를 못 봐 다가설 자리에 섬) — 그대로 Nav2를 보내면 제자리에서 돌다 상자를 밀거나(11-13),
+      //   후진 금지라 몸 뒤가 벽에 걸려 못 빠져나옴 (11-13 headless) → 먼저 똑바로 물러남
+      if (why == "approach_blocked" || why == "approach_box_unseen") {
+        run({stow(), SubGoal().set__skill("approach").set__target(fmt("%.3f", push)).set__relation("exit")},
+            [this, box, px, py, done, k, poses](bool, const std::string &) { go_near(box, px, py, done, k + 1, poses); });
+        return;
+      }
       go_near(box, px, py, done, k + 1, poses);
     });
 }
@@ -871,6 +1310,7 @@ void MissionManager::grab(int tag, Done done, int tries) {
       return;
     }
     lying_.erase(tag);
+    attempt_ = tries;
     run({SubGoal().set__skill("pick").set__target(std::to_string(o->id))}, [this, tag, done, tries](bool ok, const std::string & why) {
       if (ok || tries >= retries_ || interrupted(why)) { done(ok, why); return; }
       RCLCPP_WARN(get_logger(), "퍽 %d pick 실패 (%s) — 다시 찾아서 (%d/%d)", tag, why.c_str(), tries + 1, retries_);
@@ -904,6 +1344,7 @@ void MissionManager::locate(int tag, bool memory, std::function<void(const Track
 
 void MissionManager::stand_up(uint32_t id, double mx, double my, int tries, Done done) {
   note("누운 퍽 세우기 (" + str(tries + 1) + "/" + str(retries_ + 1) + ")");
+  attempt_ = tries;
   run({SubGoal().set__skill("stand").set__target(std::to_string(id))}, [this, mx, my, tries, done](bool ok, const std::string & why) {
     if (!ok) { done(false, "stand_failed " + why); return; }
     // 손은 퍽 위 80mm로 비켜 있음 — 인지가 선 퍽을 다시 볼 시간
@@ -923,9 +1364,11 @@ void MissionManager::stand_up(uint32_t id, double mx, double my, int tries, Done
 }
 
 // ---------- 좌표
-Pose2 MissionManager::to_map(double x, double y, double yaw) const { return arena_to_map({x, y, yaw}, start_); }
+Pose2 MissionManager::to_map(double x, double y, double yaw) const { return apply_corr(acorr_, arena_to_map({x, y, yaw}, start_)); }
 
-Pose2 MissionManager::to_arena(double mx, double my, double myaw) const {
+Pose2 MissionManager::to_arena(double mx0, double my0, double myaw0) const {
+  const auto u = unapply_corr(acorr_, {mx0, my0, myaw0});
+  const double mx = u.x, my = u.y, myaw = u.yaw;
   return {start_.x + std::cos(start_.yaw) * mx - std::sin(start_.yaw) * my,
           start_.y + std::sin(start_.yaw) * mx + std::cos(start_.yaw) * my, start_.yaw + myaw};
 }
@@ -945,6 +1388,66 @@ bool MissionManager::robot_arena(Pose2 & p) const {
   } catch (const std::exception &) {
     return false;
   }
+}
+
+// ---------- 도면 보정 — 인지 상자(윗면 가운데, map) ↔ 도면 상자 짝으로 arena → map 변환을 고침
+//   start_box는 9개 상자 전부와 (태그 못 본 장소 상자도 start_box로 나옴), location_box는 태그의 장소 상자와만 짝지음.
+//   gate 안에 하나뿐일 때만 · 로봇에서 arena_corr_range 안 · arena_corr_min_hits번 본 짝만 맞춤에 씀
+void MissionManager::update_corr(const perception::msg::TrackedObjectArray & m) {
+  const size_t ns = start_boxes_.size();
+  if (marks_.size() != ns + loc_boxes_.size()) return;
+  std::vector<std::pair<double, double>> raw, cands;  // 도면 상자 map 점 (보정 전 · 지금 보정)
+  for (size_t i = 0; i < marks_.size(); ++i) {
+    const Box & b = i < ns ? start_boxes_[i] : loc_boxes_[i - ns];
+    const auto r = arena_to_map({b.x, b.y, 0}, start_);
+    const auto c = apply_corr(acorr_, r);
+    raw.push_back({r.x, r.y});
+    cands.push_back({c.x, c.y});
+  }
+  bool seen = false;
+  for (const auto & o : m.objects) {
+    const bool start_box = o.class_name == "start_box";
+    if (!start_box && o.class_name != "location_box") continue;
+    const auto dist = detail(o, "distance");
+    if (!dist.empty() && std::stod(dist) > acorr_range_) continue;
+    const double qx = o.pose.pose.position.x, qy = o.pose.pose.position.y;
+    int k = -1;
+    if (start_box) k = match_landmark(qx, qy, cands, acorr_gate_);
+    else {
+      const auto t = detail(o, "tag");
+      for (size_t li = 0; li < loc_tags_.size() && ns + li < cands.size(); ++li)
+        if (t == str(loc_tags_[li]) && std::hypot(cands[ns + li].first - qx, cands[ns + li].second - qy) < acorr_gate_)
+          k = static_cast<int>(ns + li);
+    }
+    if (k < 0) continue;
+    auto & mk = marks_[static_cast<size_t>(k)];
+    const double a = mk.hits ? acorr_alpha_ : 1.0;
+    mk.qx += a * (qx - mk.qx);
+    mk.qy += a * (qy - mk.qy);
+    ++mk.hits;
+    seen = true;
+  }
+  if (!seen) return;
+  std::vector<CorrPair> pairs;
+  for (size_t i = 0; i < marks_.size(); ++i)
+    if (marks_[i].hits >= acorr_min_hits_) pairs.push_back({raw[i].first, raw[i].second, marks_[i].qx, marks_[i].qy});
+  if (pairs.empty()) return;
+  const auto c = fit_arena_corr(pairs, acorr_min_sep_, acorr_max_shift_, acorr_max_rot_, acorr_outlier_);
+  const auto moved = [](const ArenaCorr & a, const ArenaCorr & b, double m, double r) {
+    return std::hypot(a.dx - b.dx, a.dy - b.dy) > m || std::abs(a.dth - b.dth) > r;
+  };
+  if (c.n == acorr_.n && !moved(c, acorr_, acorr_step_m_, acorr_step_rad_)) return;  // 작은 흔들림은 버림 (목표·기록이 흔들리지 않게)
+  acorr_ = c;
+  std::string used;
+  for (size_t i = 0; i < marks_.size(); ++i)
+    if (marks_[i].hits >= acorr_min_hits_) used += (used.empty() ? "\"" : ", \"") + (i < ns ? "S" + str(static_cast<int>(i + 1)) : "L" + str(static_cast<int>(i - ns + 1))) + "\"";
+  RCLCPP_INFO(get_logger(), "도면 보정 dx %+.3f dy %+.3f dθ %+.1f° (근거 %d개 · 본 상자 %zu개)", c.dx, c.dy, c.dth * 180 / M_PI, c.n, pairs.size());
+  char line[256];
+  std::snprintf(line, sizeof(line), "{\"t\": %.3f, \"phase\": \"%s\", \"dx\": %.4f, \"dy\": %.4f, \"dth_deg\": %.2f, \"n\": %d, \"boxes\": [",
+                wall_s() - mission_t0_, phase_name(phase_), c.dx, c.dy, c.dth * 180 / M_PI, c.n);
+  append_log("arena_correction.jsonl", line + used + "]}");
+  // /arena/walls 다시 보내기는 크게 바뀔 때만 — 보낼 때마다 Nav2 costmap 정적 층이 다시 잡힘 (11-14: 주행 중 10번 → 벽에 부딪힘)
+  if (acorr_walls_m_ > 0 && moved(acorr_, acorr_walls_, acorr_walls_m_, acorr_walls_rad_)) { acorr_walls_ = acorr_; publish_walls(); }
 }
 
 // 경기장 벽을 map 격자로 (/arena/walls, latched) — nvblox_map이 /map에 겹쳐 Nav2가 매핑 처음부터 벽을 앎.
@@ -979,13 +1482,76 @@ void MissionManager::publish_walls() {
         g.data[static_cast<size_t>(cy) * g.info.width + cx] = 100;
     }
   }
+  // 시작 박스 · 장소 상자도 칸 100 (11-14) — 7 cm 낮은 상자는 다가가면 카메라 광선이 로컬 코스트맵에서 가까운 면을 지워
+  //   DWB가 몸으로 긁고 돌다 밀었다 (시뮬 상자 3을 0.5 m). 붙는 건 approach(코스트맵 안 씀)라 지도에 있어도 붙음
+  size_t nb = 0;
+  for (const auto * set : {&start_boxes_, &loc_boxes_}) {
+    for (const auto & b : *set) {
+      ++nb;
+      for (double ax = b.x - b.half; ax <= b.x + b.half + 1e-9; ax += res / 2) {
+        for (double ay = b.y - b.half; ay <= b.y + b.half + 1e-9; ay += res / 2) {
+          const auto m = to_map(ax, ay, 0.0);
+          const int cx = static_cast<int>(std::floor((m.x - x0) / res)), cy = static_cast<int>(std::floor((m.y - y0) / res));
+          if (cx >= 0 && cy >= 0 && cx < static_cast<int>(g.info.width) && cy < static_cast<int>(g.info.height))
+            g.data[static_cast<size_t>(cy) * g.info.width + cx] = 100;
+        }
+      }
+    }
+  }
   walls_pub_->publish(g);
-  RCLCPP_INFO(get_logger(), "경기장 벽 %zu개 → /arena/walls (%ux%u)", walls_.size() / 4, g.info.width, g.info.height);
+  RCLCPP_INFO(get_logger(), "경기장 벽 %zu개 · 상자 %zu개 → /arena/walls (%ux%u)", walls_.size() / 4, nb, g.info.width, g.info.height);
 }
 
 void MissionManager::write_log(const std::string & name, const std::string & json) const {
   if (run_dir_.empty()) return;
   std::ofstream(run_dir_ + "/" + name) << json;
+}
+
+void MissionManager::append_log(const std::string & name, const std::string & line) const {
+  if (run_dir_.empty()) return;
+  std::ofstream(run_dir_ + "/" + name, std::ios::app) << line << '\n';  // 닫히면서 바로 씀 — 전원이 꺼져도 앞 줄은 남음
+}
+
+// ---------- 시간 기록 (steps.jsonl · phases.jsonl) — tools/plan/step_stats.py가 skill별 시도·성공률·시간으로 모음
+//   dur_s null = feedback을 놓쳐 단계 경계를 모름 (그 단계는 시간 통계에서 뺌)
+void MissionManager::step_line(size_t k, double t0, double t1, bool ok, const std::string & why, bool timed) {
+  const auto & s = step_log_;
+  if (k >= s.goals.size()) return;
+  const auto & g = s.goals[k];
+  append_log("steps.jsonl", fmt("{\"t0\": %.3f, \"t1\": %.3f, \"dur_s\": ", t0, t1) +
+    (timed ? fmt("%.3f", t1 - t0) : std::string("null")) + ", \"phase\": " + q(s.phase) +
+    ", \"plan\": " + std::to_string(s.plan) + ", \"step\": " + str(static_cast<int>(k) + 1) +
+    ", \"steps\": " + str(static_cast<int>(s.goals.size())) + ", \"skill\": " + q(g.skill) + ", \"target\": " + q(g.target) +
+    ", \"relation\": " + q(g.relation) + ", \"ok\": " + (ok ? "true" : "false") + ", \"reason\": " + q(why) +
+    ", \"retry\": " + str(s.retry) + (s.ctx.empty() ? "" : ", " + s.ctx) + "}");
+}
+
+void MissionManager::close_steps(bool ok, const std::string & why, size_t last) {
+  auto & s = step_log_;
+  if (!s.plan || s.goals.empty()) return;
+  last = std::min(std::max(last, s.cur), s.goals.size() - 1);
+  const double t = wall_s();
+  for (size_t k = s.cur; k <= last; ++k)  // 경계를 놓친 단계(cur < last)는 시간 모름
+    step_line(k, k == s.cur ? s.t0 : t, t, k == last ? ok : true, k == last ? why : "", k == s.cur && last == s.cur);
+  s.plan = 0;
+}
+
+void MissionManager::phase_line(bool ok, const std::string & why, Phase next) {
+  const double t = wall_s();
+  append_log("phases.jsonl", fmt("{\"t0\": %.3f, \"t1\": %.3f, \"dur_s\": %.3f", phase_t0_, t, t - phase_t0_) +
+    ", \"phase\": " + q(phase_name(phase_)) + ", \"ok\": " + (ok ? "true" : "false") + ", \"reason\": " + q(why) +
+    ", \"next\": " + q(phase_name(next)) + "}");
+}
+
+void MissionManager::mission_line(bool ok, const std::string & why) {
+  const double t = wall_s();
+  std::vector<std::string> r;
+  for (const auto & x : results_) r.push_back(q(x));
+  append_log("phases.jsonl", fmt("{\"t0\": %.3f, \"t1\": %.3f, \"dur_s\": %.3f", mission_t0_, t, t - mission_t0_) +
+    ", \"phase\": \"MISSION\", \"ok\": " + (ok ? "true" : "false") + ", \"reason\": " + q(why) +
+    ", \"diag\": " + (diag_run_ ? "true" : "false") +
+    ", \"only\": " + q(only_ == Phase::IDLE ? "" : phase_name(only_)) + ", \"placed\": " + str(placed_) +
+    ", \"total\": " + str(static_cast<int>(jobs_.size())) + ", \"results\": [" + join(r) + "]}");
 }
 
 // ---------- 사진 — 찍을 때만 구독해서 한 장 받고 끊음 (영상을 계속 받지 않게)

@@ -18,9 +18,19 @@ perception:
     imgsz: 640              # YOLO 입력 한 변 — .pt일 때만 씀 (.onnx는 만들 때 정한 384×640으로 고정) · 416보다 작은 퍽을 더 찾음
     # device: C++판 코드 기본 "cuda"(GPU 안 되면 저절로 CPU) · 파이썬판 기본 "cpu" — 여기 두지 않음: 노드 이름 아래 값이 launch 덮어쓰기(/**)를 이겨 stand_test perception_device가 안 먹었다 (2026-11-06)
     cpu_threads: 2          # CPU로 추론할 때 스레드 수 (C++판: ONNX Runtime · 파이썬판: torch) — 기본(코어 전부)이면 제어·Nav2가 밀림 (도커 7코어 중 5코어를 먹었음)
+    cv_threads: 0           # OpenCV 스레드 수 (0 = OpenCV 기본 = 코어 수 · 시작할 때만 읽음) — ONNX Runtime 스레드(cpu_threads)와 따로.
+                            #   프로세스 전체에 걸림: AprilTag(aruco, 원본·감마·반 크기 3번) · resize · cvtColor(HSV·회색) · LUT · morphologyEx · connectedComponents
+                            #   AprilTag가 거의 전부 — 젯슨 640×360 3번 CPU 시간/프레임(중앙/p90/최대): 기본 6스레드 38/66/95 ms · 2스레드 24/41/75 · 1스레드 22/37/68,
+                            #   검출 같음, 걸리는 시간은 21~69 ms로 늘지만 추론 주기 250 ms 안. 나머지(작은 ROI 색 변환·격자 정리)는 작아서 스레드 줄여도 거의 그대로
+                            #   로봇에서 2로 시험 권장 (ros2 param은 안 됨 — launch 재시작). CPU를 더 줄이는 다른 손잡이: tag_roi (아래)
     track_frame: "odom"      # 추적·융합 좌표계 (끊김 없음) — /tracked_objects는 발행 순간의 map ← odom으로 바꿔 map 기준
     # 컬러·depth 동기화 · 두 카메라 융합 (scripts/perception_node.py 맨 위 설명)
     sync_slop: 0.05         # 컬러·정렬 depth를 한 쌍으로 묶는 시각 차 한도 [s]
+    max_frame_age_s: 2.0    # 기존 트랙 만료와 같은 상한. 오래된 영상·같은 stamp는 재추론하지 않음
+    max_tf_fallback_age_s: 0.3   # 영상 시각 TF가 없을 때 최신 TF와 허용하는 최대 시각 차 [s] (0 = 한도 없음) — 멈춘 TF만 거름.
+                                 #   실기 부하에서 정상 지연이 얼마인지 진단 "시각 차 초과 TF"로 본 뒤 줄일 것
+    map_tf_cache_s: 0.0     # map TF가 끊기면 마지막 변환을 이만큼 유지 [s] (0 = 계속 — cuVSLAM이 잠깐 놓쳐도 좌표 유지)
+    map_tf_required: false  # true = map TF가 한 번도 없으면 좌표 발행 보류 · false = odom 그대로 (map:=none · map 원점 = 출발 자리)
     match_dist: 0.4         # 같은 클래스 검출을 기존 트랙에 붙이는 거리 한도 [m] — 그 안에서 마할라노비스 거리 작은 쌍부터 1:1
     det_merge_iou: 0.5      # 한 프레임에서 겹친(IoU ≥) 같은 퍽 박스를 하나로 (0 = 끔) — fuse가 1:1이라 두 번째 박스가 중복 트랙이 됐음 (11/07)
     track_merge_m: 0.03     # 이 안의 같은 퍽 트랙 둘을 오래된 id 하나로 [m] (0 = 끔) — 퍽 폭 3 cm보다 작게 (붙은 다른 퍽은 안 합침)
@@ -80,7 +90,8 @@ signal_decoder:              # 신호등 12회 점멸 (발제 v5 §02) — /trac
     blinks: 12               # 한 사이클 점멸 수 — 아니면 error count
     min_count: 1             # 색별 횟수 범위 (발제: 각 1~6회) — 벗어나면 error range
     max_count: 6
-    confirm: 2               # 같은 답이 이만큼 연달아 나와야 ok (반복 신호 — 한 사이클 약 27초라 처음 확정까지 약 1분)
+    tail_gap_max_s: 4.5      # [s] 끊긴 뒷부분 끝 ~ 다음 사이클 첫 켜짐이 이보다 길면 안 합침 (사이클 사이 3초 · 끝이나 처음 한 칸을 놓치면 5초)
+    confirm: 1               # 같은 답이 이만큼 연달아 나와야 ok — 1 = 12개를 한 번 다 보면 확정 (끊긴 뒷부분 + 다음 사이클 앞부분 합쳐도 됨 · 실기 11-12)
 # 자기 몸 점구름 필터 (C++ body_filter, 담당: 전승혜) — Nav2 costmap·collision_monitor 입력에서 팔·차체 점을 뺀다
 body_filter:
   ros__parameters:

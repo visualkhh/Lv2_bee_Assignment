@@ -42,7 +42,6 @@ from rclpy.qos import (
     QoSDurabilityPolicy,
     QoSProfile,
     QoSReliabilityPolicy,
-    qos_profile_sensor_data,
 )
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import CameraInfo, Imu, JointState, PointCloud2
@@ -62,6 +61,13 @@ LATCHED = QoSProfile(
     durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
 )
 LIVE = QoSProfile(depth=10, reliability=QoSReliabilityPolicy.RELIABLE)
+# 생존·Hz만 보는 빠른 토픽(odom·imu 100 Hz …) — 최신 1개만 쌓아 파이썬이 밀린 메시지를 다 꺼내지 않게 (Hz는 발행 순번으로)
+PULSE = QoSProfile(depth=1, reliability=QoSReliabilityPolicy.BEST_EFFORT)
+try:   # rclpy가 콜백에 (msg, MessageInfo)를 줌 (Iron+) — 없으면(Humble · fake/docker 대역) 받은 개수로 Hz
+    from rclpy.subscription import MessageInfo  # noqa: F401
+    MSG_INFO = True
+except ImportError:
+    MSG_INFO = False
 
 STATE_TOPICS = {
     'operation_mode': '/state/operation_mode',
@@ -94,6 +100,10 @@ class OperatorTool(Node):
         self.ui.window.connect('tick', self._on_tick)
         self.ui.window.connect('navigate', self._on_navigate)
         self.ui._reconnect_status = self.reconnect_status
+        # 전역 executor에 노드를 붙여 둔다 — rclpy.spin_once(node)가 매번 add/remove_node로 wait set을 다시 만들고
+        # 콜백 하나만 돌리던 것(TUI CPU 대부분)을 없앰. 이미 붙어 있으면 spin_once·spin_until_future_complete가 떼지 않는다.
+        if hasattr(rclpy, 'get_global_executor'):   # fake/docker 대역엔 없음
+            rclpy.get_global_executor().add_node(self)
         self._wire()
 
     # ------------------------------------------------------------- ROS 배선
@@ -168,20 +178,18 @@ class OperatorTool(Node):
         self.create_subscription(Bool, '/state/emergency',
                                  lambda m: self.state.on_emergency(m.data), LATCHED)
         self.create_subscription(String, '/state/devices', self._on_devices, LATCHED)
-        self.create_subscription(JointState, '/joint_states',
-                                 lambda m: self.state.on_joints(m.name, m.position, m.velocity, m.effort), 10)
-        # 상단 생존 표시용 — 수신 시각만 (카메라는 영상 대신 가벼운 camera_info)
+        self.create_subscription(JointState, '/joint_states', self._pulse(
+            'joint_states', lambda m, seq: self.state.on_joints(m.name, m.position, m.velocity, m.effort, seq)), PULSE)
+        # 상단 생존 표시용 — 수신 시각만 (카메라는 영상 대신 가벼운 camera_info) · 풀지 않고(raw) 순번만
         for key, topic, typ in (('odom', '/odom', Odometry), ('imu', '/imu', Imu),
                                 ('front_cam', '/pole_front_cam/color/camera_info', CameraInfo),
                                 ('gripper_cam', '/gripper_cam/color/camera_info', CameraInfo),
-                                ('cuvslam', '/cuvslam/odom', Odometry)):
-            self.create_subscription(typ, topic, lambda _m, key=key: self.state.tick(key), qos_profile_sensor_data)
-        # 점구름은 크니 풀지 않고(raw) 수신 시각만 — raw를 못 받는 대역(fake/docker)이면 이 칸은 ✗
-        try:
-            self.create_subscription(PointCloud2, '/pole_front_cam/depth/color/points_filtered',
-                                     lambda _m: self.state.tick('points'), qos_profile_sensor_data, raw=True)
-        except TypeError:
-            pass
+                                ('cuvslam', '/cuvslam/odom', Odometry),
+                                ('points', '/pole_front_cam/depth/color/points_filtered', PointCloud2)):
+            try:
+                self.create_subscription(typ, topic, self._pulse(key), PULSE, raw=True)
+            except TypeError:   # raw를 못 받는 대역(fake/docker)
+                self.create_subscription(typ, topic, self._pulse(key), PULSE)
         self.create_subscription(DiagnosticArray, '/diagnostics_agg',
                                  lambda m: self.state.on_diagnostics(m.status), LIVE)
         # 커스텀 msg가 빌드 전이면 해당 줄만 비활성 (cli 동작에는 지장 없음)
@@ -226,9 +234,23 @@ class OperatorTool(Node):
         from op.pages.nodes import wire_all
         wire_all(self)
 
+    def _pulse(self, key: str, then=None):
+        """수신 콜백 — then이 있으면 then(msg, 발행 순번)(그쪽이 tick), 없으면 state.tick(key, 순번).
+        순번이 있으면 depth 1로 건너뛴 메시지도 Hz에 든다."""
+        def on(m, seq=None):
+            if then is not None:
+                then(m, seq)
+            else:
+                self.state.tick(key, seq)
+        if MSG_INFO:
+            return lambda m, info: on(m, info.get('publication_sequence_number'))
+        return lambda m: on(m)
+
     def _wire_mission(self):
         """미션 화면 디버그 줄·상단 미션 칸용 구독 — msg가 없는 환경이면 그 줄만 빠진다."""
         subs = (  # (패키지.msg, 클래스, 토픽, QoS, 콜백) — QoS는 발행 쪽과 맞춤 (mission_manager.cpp · coordinator.cpp)
+            ('plan.msg', 'SubGoalArray', '/task/current_plan', LATCHED, self.state.on_sub_goals),
+            # 구형 coordinator/Isaac/fake가 아직 legacy ingress만 발행할 때의 화면 호환
             ('plan.msg', 'SubGoalArray', '/task/sub_goals', LATCHED, self.state.on_sub_goals),
             ('plan.msg', 'BasketState', '/coordinator/basket', LATCHED, self.state.on_basket),
             ('perception.msg', 'MissionSignal', '/mission/signal_status', LIVE, self.state.on_signal_status),
@@ -243,10 +265,51 @@ class OperatorTool(Node):
             except Exception:
                 continue
             self.create_subscription(typ, topic, cb, qos)
+        # 미션 시작 명령 — 다른 터미널·자기가 보낸 것 모두 (바코드 찾기 창 남은 시간 계산)
+        self.create_subscription(String, '/cmd/mission', lambda m: self.state.on_mission_cmd(m.data), LIVE)
+        self._wire_nav2_life()
         try:  # Nav2 주행 진행 (navigate skill이 보낸 goal)
             from nav2_msgs.action import NavigateToPose  # type: ignore
             self.create_subscription(NavigateToPose.Impl.FeedbackMessage, '/navigate_to_pose/_action/feedback',
                                      lambda m: self.state.on_nav_feedback(m.feedback), LIVE)
+        except Exception:
+            pass
+
+    def _wire_nav2_life(self):
+        """Nav2 노드 수명주기 — NAV2_POLL_S마다 get_state를 비동기로 (화면을 안 막음 · 메뉴 루프의 spin이 응답을 받음).
+        서비스가 없으면 None, 10 s 넘게 응답이 없으면 '응답 없음'. lifecycle_msgs·타이머가 없는 대역(fake)이면 줄이 빠진다."""
+        from op.fielddebug import NAV2_NODES, NAV2_POLL_S
+        try:
+            from lifecycle_msgs.srv import GetState  # type: ignore
+            clients = {n: self.create_client(GetState, f'/{n}/get_state') for n, _ in NAV2_NODES}
+        except Exception:
+            return
+        pending: dict = {}
+        life = self.state.nav2_life
+
+        def done(fut, name):
+            try:
+                res = fut.result()
+            except Exception:
+                res = None
+            life[name] = Bus.LIFECYCLE_STATES.get(res.current_state.id, res.current_state.label) if res else '응답 없음'
+
+        def poll():
+            now = time.monotonic()
+            for name, cli in clients.items():
+                fut, at = pending.get(name, (None, 0.0))
+                if fut is not None and not fut.done():
+                    if now - at < 10.0:
+                        continue
+                    life[name] = '응답 없음'
+                if not cli.service_is_ready():
+                    life[name] = None
+                    continue
+                fut = cli.call_async(GetState.Request())
+                fut.add_done_callback(lambda f, n=name: done(f, n))
+                pending[name] = (fut, now)
+        try:
+            self.create_timer(NAV2_POLL_S, poll)
         except Exception:
             pass
 
@@ -496,6 +559,9 @@ def main(argv=None) -> int:
     except KeyboardInterrupt:
         return 130
     finally:
+        if args.command == 'menu':   # TUI가 켠 녹화(미션 x · 토픽 메뉴)는 TUI와 같이 끝 — q · Ctrl+C · SIGHUP(ssh 끊김) · SIGTERM
+            from op import bagrec
+            bagrec.stop_mine()
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()

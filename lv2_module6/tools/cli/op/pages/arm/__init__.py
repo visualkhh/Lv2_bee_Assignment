@@ -3,7 +3,7 @@
 숫자를 치지 않는다: ↑↓ 관절 · ←→ 목표 ∓2° · , . ∓1° 로 **목표만** 바꾸고, Enter(또는 왼쪽 '적용')를 눌러야
 움직인다 — 그때 바꾼 관절의 이동량을 보여 주고 확인(기본 아니오)을 받는다. 한계 범위 밖으로는 목표가 못 간다.
 실제 전송은 `Bus.cmd_arm`(set)을 그대로 쓴다 — MANUAL 전환 확인·MAPPING/E-STOP 거절·manual_control 속도 제한이 그대로 적용.
-이름 있는 자세(stow · carry_left · carry_right · gaze)는 왼쪽 5~8 — skill_pose를 coordinator로 보냄(MoveIt 경로, AUTO에서만 실행 · 확인 거침).
+이름 있는 자세(stow · carry_left · carry_right · gaze · look)는 왼쪽 5~9 — skill_pose를 coordinator로 보냄(MoveIt 경로, AUTO에서만 실행 · 확인 거침).
 window.navigate('arm') 로 연다.
 """
 from __future__ import annotations
@@ -20,7 +20,8 @@ from ...menus import ActionItem, Menu
 
 # 이름 있는 자세 — coordinator pose_names(plan.yaml)가 받는 것만 (gaze = 응시: 손 카메라로 정면). scan은 없앰
 POSES = [('5', 'stow', '접기 (주행·시작 자세)'), ('6', 'carry_left', '왼쪽으로 들기 (운반)'), ('7', 'carry_right', '오른쪽으로 들기 (운반)'),
-         ('8', 'gaze', '응시 — 앞으로 뻗어 손 카메라로 정면 (바코드 등 · 앞 공간 확인)')]
+         ('8', 'gaze', '응시 — 앞으로 뻗어 손 카메라로 정면 (바코드 등 · 앞 공간 확인)'),
+         ('9', 'look', '내려다보기 — 상자 앞 퍽 둘을 손 카메라 한 장에 (inspect 1차 자세)')]
 BIG_MOVE = math.radians(30.0)   # 한 관절이 이만큼 넘게 움직이면 확인창에 경고
 
 

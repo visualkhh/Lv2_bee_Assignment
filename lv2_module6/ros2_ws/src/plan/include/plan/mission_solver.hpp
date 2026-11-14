@@ -42,6 +42,10 @@ struct Puck {
 //   초록 = 초록 수 − g가 정해지므로, 그 수만큼 모양 s 퍽이 있는지만 보면 된다 (원기둥 먼저, 안 되면 직육면체).
 //   → tag → 'R'|'Y'|'G'. 실패 why = unknown_puck(색·모양 모름 — 추정 금지) | duplicate_tag | puck_count | no_allocation
 bool allocate(const std::vector<Puck> & pucks, const Counts & c, std::map<int, char> & out, std::string & why);
+// 현장 진단 전용 — allocate가 puck_count · no_allocation으로 실패할 때(퍽이 12개가 아님) 가진 퍽으로 최대한 채움.
+//   규칙은 같음: R = 빨강만 · G = 초록만 · Y = 한 모양(색 상관없음). 다 채운 그룹(장소) 수가 가장 많게, 같으면 채운 눈 합이 많게.
+//   색·모양 모르는 퍽 · 같은 tag는 뺌. 남는 퍽은 out에 없음. 그룹마다 채운 수 → filled ('R'·'Y'·'G'). 하나도 못 채우면 false
+bool allocate_partial(const std::vector<Puck> & pucks, const Counts & c, std::map<int, char> & out, std::map<char, int> & filled);
 
 // 주사위 눈 n → 3×3 칸 번호 (0 = 북서 · 8 = 남동, 행 우선). 2·3은 ↘ 대각선, 6은 좌우 두 열 (발제 p4 그림)
 std::vector<int> dice_cells(int n);
@@ -56,6 +60,19 @@ struct Pose2 { double x = 0, y = 0, yaw = 0; };
 
 // 경기장(arena) 자세 → map 자세. start = 로봇이 켜진 자리의 arena 자세 (map 원점 = 그 자리, map x = 그때 로봇 앞)
 Pose2 arena_to_map(const Pose2 & p, const Pose2 & start);
+
+// 도면 보정 — 도면 → map 변환(arena_to_map)이 실제와 어긋난 만큼 (출발 자세 오차 · 도면 오차). map 안의 2D 강체:
+//   보정 map 점 = R(dth)·(도면 map 점) + (dx, dy)  — 회전 중심 = map 원점(켠 자리)
+struct ArenaCorr { double dx = 0, dy = 0, dth = 0; int n = 0; };
+Pose2 apply_corr(const ArenaCorr & c, const Pose2 & m);
+Pose2 unapply_corr(const ArenaCorr & c, const Pose2 & m);
+// 짝(도면 map 점 m ↔ 인지 map 점 q)으로 보정을 맞춤. 1개거나 도면 점끼리 min_sep보다 가까우면 이동만, 아니면 이동+회전 (2D 최소제곱).
+//   잔차가 outlier_m을 넘는 짝은 가장 큰 것부터 하나씩 빼고 다시 (2개 남을 때까지) · 회전은 ±max_rot, 이동은 max_shift로 자름
+//   n = 쓴 짝 수 (0 = 짝 없음 → 보정 0)
+struct CorrPair { double mx, my, qx, qy; };
+ArenaCorr fit_arena_corr(std::vector<CorrPair> pairs, double min_sep, double max_shift, double max_rot, double outlier_m);
+// 인지 점 q에 맞는 도면 상자 — cands(보정한 map 점) 중 gate 안 가장 가까운 것, 두 번째가 그보다 0.25 m 넘게 멀 때만 (헷갈리면 −1)
+int match_landmark(double qx, double qy, const std::vector<std::pair<double, double>> & cands, double gate);
 
 // 정사각 박스(중심 c, 반 변 half) 위의 점 p를 팔로 다루려고 다가설 자세 후보 — 가까운 변부터 (변 4개).
 //   변 바깥 standoff [m]에 서서 박스 안쪽을 바라봄, 변을 따라서는 p와 나란히 (박스 범위 안으로 자름). arena 좌표
@@ -73,7 +90,37 @@ const char * phase_name(Phase p);
 //   관측(GO_OBSERVE · BARCODE · READ) 실패 = ERROR (발제: 신호·바코드 오류면 정지 · 추정 금지)
 //   SURVEY 실패(할당 불가) = 쌓을 게 없으니 RETURN · BUILD는 퍽 단위로 실패를 기록하고 VERIFY · VERIFY 실패도 RETURN
 //   RETURN 실패 = ERROR. DONE · ERROR는 그대로
-Phase next_phase(Phase p, bool ok);
+//   diag (현장 진단 실행 — "start:DIAG…" · plan.yaml continue_on_fail): 관측 실패도 기록만 하고 다음 단계로 (SURVEY로 자료를 더 모음)
+Phase next_phase(Phase p, bool ok, bool diag = false);
+
+// ---------- 현장 진단 실행 — 실패해도 다음 퍽·장소·단계로 가되, 아래 "치명" 이유면 지금처럼 바로 정지 (ERROR · coordinator 정지)
+//   사람·안전: estop(estop_blocked 포함) · manual(수동·티칭 전환) · explore · cancelled · preempted · aborted
+//   부딪힘·과전류: arm_contact · collision · overcurrent
+//   계속해도 소용없음: coordinator_unavailable
+//   주행 갇힘: nav_no_progress · nav_failed가 stuck_limit번 이어짐 (사이에 성공한 계획이 있으면 다시 0부터)
+//   ok = 계획 성공 (stuck 셈을 0으로) · 이유는 앞부분이 아니라 어디에 있어도 봄 ("retreat:arm_contact")
+bool diag_fatal(bool ok, const std::string & why, int & stuck_streak, int stuck_limit);
+
+// "R4Y2G6" → 신호 횟수 (R·Y·G 한 번씩, 순서 상관없음, 대소문자 상관없음) + valid_counts. why = bad_counts | count_out_of_range | sum_not_12
+bool parse_counts(const std::string & text, Counts & c, std::string & why);
+
+// /cmd/mission 시작 명령 (TUI 미션 메뉴 · ros2 topic pub)
+//   start                                   처음부터 끝까지
+//   start:<BARCODE|READ|SURVEY|RETURN>      그 단계만
+//   start:DIAG[:<바코드>:<신호>]            처음부터 + 실패해도 계속 (diag). 바코드·신호를 주면 관측이 실패했을 때 대신 씀
+//   start:FROM_SURVEY:<바코드>:<신호>       관측(GO_OBSERVE·BARCODE·READ) 없이 준 값으로 SURVEY부터 끝까지
+//   start:DIAG_FROM_SURVEY:<바코드>:<신호>  위 둘을 같이
+//   start:GOTO:<목록>                       S1~S6(시작 박스)·L1~L3(장소)을 적은 순서로 SURVEY처럼 다가감(Nav2 → 상자 도킹) 뒤 복귀 — 실기 이동 시험
+//   예: start:DIAG_FROM_SURVEY:P2-04:R4Y2G6 — 바코드는 parse_barcode 표(P2-01~04), 신호는 parse_counts
+//   why = not_start | unknown_command | need_barcode_signal | unknown_barcode | bad_counts | count_out_of_range | sum_not_12
+struct StartCmd {
+  Phase only = Phase::IDLE;  // 단계만 (IDLE = 전체)
+  bool diag = false, from_survey = false, given = false;  // given = 바코드·신호를 받음
+  std::string barcode;
+  Counts counts;
+  std::vector<std::string> go_to;  // start:GOTO:S1,S2,L1 — 그 상자들에 미션처럼 다가가기만 (S1~S6 시작 박스 · L1~L3 장소)
+};
+bool parse_start(const std::string & cmd, StartCmd & out, std::string & why);
 
 // ---------- 놓기 기준 보정 — 장소 태그를 예상 자리(ex, ey)가 아닌 (ox, oy)에서 봤으면 그만큼 칸을 옮긴다 (arena).
 //   max_m 넘게 어긋나면 잘못 본 것으로 보고 보정 안 함 (0, 0)

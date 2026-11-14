@@ -85,6 +85,8 @@ cv::Vec3d puck_center(const cv::Vec3d & p, const cv::Vec3d & cam, double offset,
 double box_iou(const Box & a, const Box & b);
 std::vector<Det> merge_overlap_dets(const std::vector<Det> & dets, double iou_min);
 std::map<int, int> merge_tracks(std::map<int, Track> & tracks, double dist_m);
+// 경기장에 하나뿐인 종류(cls)의 트랙을 가장 오래된 번호 하나로 — 위치·색은 가장 최근에 본 트랙 것 (지운 번호 → 남긴 번호)
+std::map<int, int> merge_single(std::map<int, Track> & tracks, const std::string & cls);
 
 // ---------- 자기 몸
 struct Body {
@@ -194,7 +196,9 @@ std::vector<BoxTop> find_box_tops(const cv::Mat1f & depth_m, const cv::Matx33d &
                                   double min_side, double max_side, double cell, int step = 4, double max_range = 3.0,
                                   const std::optional<std::pair<cv::Vec2d, double>> & avoid = std::nullopt,
                                   const std::optional<std::vector<std::array<double, 4>>> & rois = std::nullopt,
-                                  const std::vector<cv::Vec3d> & mask_px = {});
+                                  const std::vector<cv::Vec3d> & mask_px = {},
+                                  const std::optional<Body> & avoid_body = std::nullopt,
+                                  const std::vector<double> & body_box = {});
 bool tag_on_box(const cv::Vec2d & tag_xy, const BoxTop & box, double margin);
 // 로봇 앞면 → 상자의 로봇 쪽 면 거리 [m] — 윗면 깊이 점 중 로봇 앞 띠(|옆| < half_band) 안에서 가장 가까운 쪽(하위 q 분위)
 //   잘려서 가운데·크기를 못 믿어도, 로봇 쪽 모서리가 보이는 동안은 잼. robot_xy·robot_yaw = base_footprint (추적 좌표)
