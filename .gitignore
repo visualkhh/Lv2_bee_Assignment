@@ -60,3 +60,12 @@ lv2_module6/tools/artifacts/
 .agents/
 .archify/
 graphify-out/
+
+# 자동 생성 리포트용 Notion 스크래핑 캐시
+.notion_cache.txt
+
+# Slack 수동 통계 덤프/자격증명 — 비공개 메시지·세션 토큰, 절대 커밋 금지
+/.github/scripts/slack.zip
+/.github/scripts/slackdump_*.zip
+/.github/scripts/slack_secrets.txt
+/.github/scripts/.env

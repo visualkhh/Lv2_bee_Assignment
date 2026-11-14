@@ -1,0 +1,77 @@
+# Notion 활동 통계 — 공개 스크랩 + 로컬 스냅샷. README의 NOTION_STATS 블록만 갱신한다.
+name: notion-stats
+
+on:
+  schedule:
+    # 매일 04:20 KST (UTC 19:20)
+    - cron: '20 19 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: notion-stats
+  cancel-in-progress: false
+
+jobs:
+  stats:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup deploy key (main push)
+        env:
+          DEPLOY_KEY: ${{ secrets.CONTRIBUTORS_DEPLOY_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts
+          git remote set-url origin git@github.com:${{ github.repository }}.git
+          git remote -v
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Playwright (Notion 공개 페이지 수집)
+        run: |
+          python -m pip install --quiet playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Scrape Notion public page (best effort)
+        continue-on-error: true
+        env:
+          NOTION_TEXT: .notion_cache.txt
+        run: python .github/scripts/notion_scrape.py
+
+      - name: Generate Notion report
+        env:
+          NOTION_TEXT: .notion_cache.txt
+          NOTION_SNAPSHOT: notion_snapshot.json
+        run: python .github/scripts/notion_stats.py
+
+      - name: Commit README
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add README.md
+          if git diff --cached --quiet; then
+            echo 'README 변경 없음'
+            exit 0
+          fi
+          git commit -m 'docs: Notion 활동 통계 갱신 [skip ci]'
+          for i in 1 2 3; do
+            if git push origin HEAD:main; then
+              echo 'main 반영 완료'
+              exit 0
+            fi
+            echo "push 실패 — rebase 후 재시도 ($i/3)"
+            git pull --rebase origin main
+            sleep 3
+          done
+          echo 'push 실패 — 수동 확인 필요'
+          exit 1

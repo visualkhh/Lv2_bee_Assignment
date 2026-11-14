@@ -1,0 +1,496 @@
+{
+  "journal": [
+    {
+      "date": "2026-11-12",
+      "date_end": "2026-11-12",
+      "author": "Hyeongjung Kwon",
+      "work": "로봇 통합 실기 테스트 & ros bag 활용 디버깅으로 현 문제점들 발견 및 정리중",
+      "status": "진행 중",
+      "login": "JuneKunst"
+    },
+    {
+      "date": "2026-10-27",
+      "date_end": "2026-10-27",
+      "author": "정혁",
+      "work": "Isaac Lab 퍽 집기 스크립트(pick_sm.py)·랜덤화 환경 작성, 새 Houdini 자산(미로·퍽·선반) 반영, 앞 캐스터 제거",
+      "status": "완료",
+      "login": "cowsjh"
+    },
+    {
+      "date": "2026-10-28",
+      "date_end": "2026-10-28",
+      "author": "정혁",
+      "work": "로봇 질량·무게중심·IMU 위치 실측값을 URDF/USD에 반영, 시뮬 재시험, 서보 토크상수 보정과 관절 강성 조정",
+      "status": "완료",
+      "login": "cowsjh"
+    },
+    {
+      "date": "2026-10-29",
+      "date_end": "2026-10-29",
+      "author": "정혁",
+      "work": "미션 맵 장면(시작 박스·퍽 12개·선반·신호등) 구성, 후면 배터리 모델 추가 후 시뮬 재시험",
+      "status": "완료",
+      "login": "cowsjh"
+    },
+    {
+      "date": "2026-10-30",
+      "date_end": "2026-10-30",
+      "author": "정혁",
+      "work": "바구니 퍽 보관 링(storage support) 설계, 링 적용 시뮬 시험, 출력용 STL 제작",
+      "status": "완료",
+      "login": "cowsjh"
+    },
+    {
+      "date": "2026-10-31",
+      "date_end": "2026-10-31",
+      "author": "정혁",
+      "work": "보관 링 시험 보고서 작성, 링을 URDF·USD·기본 모델에 반영 후 푸시",
+      "status": "완료",
+      "login": "cowsjh"
+    },
+    {
+      "date": "2026-11-01",
+      "date_end": "2026-11-01",
+      "author": "정혁",
+      "work": "퍽 세우기(stand-up) 설계·학습, 팔 처짐 보정 원인 규명, 집기→적재 데모 구성",
+      "status": "완료",
+      "login": "cowsjh"
+    },
+    {
+      "date": "2026-11-02",
+      "date_end": "2026-11-02",
+      "author": "정혁",
+      "work": "12슬롯 적재·하역 자세 테이블 작성, IK 일치 검증, URDF·SRDF·USD 병합",
+      "status": "완료",
+      "login": "cowsjh"
+    },
+    {
+      "date": "2026-11-04",
+      "date_end": "2026-11-04",
+      "author": "정혁",
+      "work": "스킬 정책(park_home·drive_arc·regrasp_stood) 학습, 팔 중력 처짐 측정·보상 구현, PR 작성",
+      "status": "완료",
+      "login": "cowsjh"
+    },
+    {
+      "date": "2026-11-06",
+      "date_end": "2026-11-06",
+      "author": "정혁",
+      "work": "isaac 폴더 구조 재편, 트위스트 상태 반영·PR 작성, 집기 시험 도구·학습 구조 정리",
+      "status": "완료",
+      "login": "cowsjh"
+    },
+    {
+      "date": "2026-11-07",
+      "date_end": "2026-11-07",
+      "author": "정혁",
+      "work": "태그 인식 개선·검사 자세 비교, 집기·적재·하역 RL 설계와 기준 성능 측정, PR 분리",
+      "status": "완료",
+      "login": "cowsjh"
+    },
+    {
+      "date": "2026-11-08",
+      "date_end": "2026-11-08",
+      "author": "정혁",
+      "work": "집기→적재 실기 연속 시험, 동작 간 대기시간 정리, 변경분을 PR 3개로 분할",
+      "status": "완료",
+      "login": "cowsjh"
+    },
+    {
+      "date": "2026-10-25",
+      "date_end": "2026-10-25",
+      "author": "정혁",
+      "work": "Houdini로 선반·퍽 모델링, 퍽 4종·선반·미로 usda 제작",
+      "status": "완료",
+      "login": "cowsjh"
+    },
+    {
+      "date": "2026-10-26",
+      "date_end": "2026-10-26",
+      "author": "정혁",
+      "work": "펌웨어 개선 후 실기 사인 재시험·전후 비교, 시험 도구 문서화, 환경 USD 정리, Houdini→Isaac USD 변환 스크립트",
+      "status": "진행 중",
+      "login": "cowsjh"
+    },
+    {
+      "date": "2026-10-24",
+      "date_end": "2026-10-24",
+      "author": "정혁",
+      "work": "실기 팔 사인파·주기별 응답 시험, 홀드·램프·계단 측정, 그리퍼 방향·변환·쥐는 힘 측정, Isaac 반영값 정리",
+      "status": "진행 중",
+      "login": "cowsjh"
+    },
+    {
+      "date": "2026-10-23",
+      "date_end": "2026-10-23",
+      "author": "정혁",
+      "work": "로봇 링크 좌표축 정렬·검증, IK 손끝 일치, 퍽 집기 상태 기계(pick_sm.py) 작성 시작",
+      "status": "진행 중",
+      "login": "cowsjh"
+    },
+    {
+      "date": "2026-10-22",
+      "date_end": "2026-10-22",
+      "author": "정혁",
+      "work": "교실 HDRI·바닥 텍스처로 장면 제작, 카메라 브라켓 위치 수정, Isaac Lab 퍽 적재 환경·팔 도달 범위·IK 환경",
+      "status": "완료",
+      "login": "cowsjh"
+    },
+    {
+      "date": "2026-10-21",
+      "date_end": "2026-10-21",
+      "author": "정혁",
+      "work": "앞 캐스터 추가로 넘어짐 해결(설계), 퍽 USD 2종 제작, v00 URDF·USD 정리·머지",
+      "status": "완료",
+      "login": "cowsjh"
+    },
+    {
+      "date": "2026-10-20",
+      "date_end": "2026-10-20",
+      "author": "정혁",
+      "work": "Isaac 바퀴 drive·마찰 세팅, 팔·바퀴 게인 XM430 기준 재조정, 넘어짐 시험·재임포트 스크립트",
+      "status": "완료",
+      "login": "cowsjh"
+    },
+    {
+      "date": "2026-10-19",
+      "date_end": "2026-10-19",
+      "author": "정혁",
+      "work": "팔 위치 어긋남 원인 해결·손목 카메라 반영, Isaac 관절 게인(K/D) 1차 튜닝, 체결 볼트 조달",
+      "status": "진행 중",
+      "login": "cowsjh"
+    },
+    {
+      "date": "2026-10-17",
+      "date_end": "2026-10-17",
+      "author": "정혁",
+      "work": "팔 장착 위치 오차 수정, URDF 재생성 파이프라인 정리",
+      "status": "완료",
+      "login": "cowsjh"
+    },
+    {
+      "date": "2026-10-16",
+      "date_end": "2026-10-16",
+      "author": "정혁",
+      "work": "베이스·저장 랙 collision 수정, Isaac에서 퍽 홈 삽입 확인",
+      "status": "완료",
+      "login": "cowsjh"
+    },
+    {
+      "date": "2026-10-15",
+      "date_end": "2026-10-15",
+      "author": "정혁",
+      "work": "Isaac Sim 튜토리얼 선별, 팀 설계 문서 검토, URDF 1차 머지",
+      "status": "완료",
+      "login": "cowsjh"
+    },
+    {
+      "date": "2026-10-14",
+      "date_end": "2026-10-14",
+      "author": "정혁",
+      "work": "BEE URDF 완성, Isaac Sim 임포트·관절 drive 튜닝",
+      "status": "완료",
+      "login": "cowsjh"
+    },
+    {
+      "date": "2026-10-14",
+      "date_end": "2026-10-14",
+      "author": "김현하",
+      "work": "시스템 설계",
+      "status": "완료",
+      "login": "visualkhh"
+    },
+    {
+      "date": "2026-10-15",
+      "date_end": "2026-10-15",
+      "author": "김현하",
+      "work": "시스템설계 리뷰 및 협업방식논의",
+      "status": "완료",
+      "login": "visualkhh"
+    },
+    {
+      "date": "2026-10-16",
+      "date_end": "2026-11-04",
+      "author": "승혜 전",
+      "work": "인지",
+      "status": "진행 중",
+      "login": "SeungHye-J"
+    },
+    {
+      "date": "2026-10-16",
+      "date_end": "2026-10-16",
+      "author": "Hyeongjung Kwon",
+      "work": "nav2 서버 참조용 config file (nav2_params.yaml) 작업",
+      "status": "진행 중",
+      "login": "JuneKunst"
+    },
+    {
+      "date": "2026-10-18",
+      "date_end": "2026-10-18",
+      "author": "김현하",
+      "work": "테스트 시뮬레이터",
+      "status": "완료",
+      "login": "visualkhh"
+    },
+    {
+      "date": "2026-10-21",
+      "date_end": "2026-10-21",
+      "author": "김현하",
+      "work": "jetson 셋팅",
+      "status": "완료",
+      "login": "visualkhh"
+    },
+    {
+      "date": "2026-10-22",
+      "date_end": "2026-10-22",
+      "author": "김현하",
+      "work": "jetson 셋팅 - ros",
+      "status": "완료",
+      "login": "visualkhh"
+    },
+    {
+      "date": "2026-10-23",
+      "date_end": "2026-10-23",
+      "author": "김현하",
+      "work": "jetson 셋팅 - project",
+      "status": "완료",
+      "login": "visualkhh"
+    },
+    {
+      "date": "2026-10-26",
+      "date_end": "2026-10-26",
+      "author": "김현하",
+      "work": "제어 firmware 주기수정",
+      "status": "완료",
+      "login": "visualkhh"
+    },
+    {
+      "date": "2026-10-26",
+      "date_end": "2026-10-26",
+      "author": "김현하",
+      "work": "실기 수동 제어 테스트",
+      "status": "완료",
+      "login": "visualkhh"
+    },
+    {
+      "date": "2026-10-27",
+      "date_end": "2026-10-27",
+      "author": "김현하",
+      "work": "강화학습을 위한 하드웨어 준비",
+      "status": "완료",
+      "login": "visualkhh"
+    },
+    {
+      "date": "2026-10-28",
+      "date_end": "2026-10-28",
+      "author": "김현하",
+      "work": "강화학습을 위한 소프트웨어 셋팅",
+      "status": "완료",
+      "login": "visualkhh"
+    },
+    {
+      "date": "2026-10-29",
+      "date_end": "2026-10-29",
+      "author": "김현하",
+      "work": "강화학습 준비  가설,실행,확인",
+      "status": "완료",
+      "login": "visualkhh"
+    },
+    {
+      "date": "2026-10-30",
+      "date_end": "2026-10-30",
+      "author": "김현하",
+      "work": "강화학습 준비  가설,실행,확인",
+      "status": "완료",
+      "login": "visualkhh"
+    },
+    {
+      "date": "2026-10-30",
+      "date_end": "2026-11-10",
+      "author": "김현하",
+      "work": "강화학습 nav-controller",
+      "status": "완료",
+      "login": "visualkhh"
+    },
+    {
+      "date": "2026-11-11",
+      "date_end": "2026-11-12",
+      "author": "김현하",
+      "work": "로봇 실제 동작확인 컨트롤 및 nav",
+      "status": "완료",
+      "login": "visualkhh"
+    },
+    {
+      "date": "2026-11-16",
+      "date_end": "2026-11-16",
+      "author": "김현하",
+      "work": "시연준비",
+      "status": "진행 중",
+      "login": "visualkhh"
+    }
+  ],
+  "meetings": [
+    {
+      "date": "2026-11-12",
+      "title": "Real 환경 테스트"
+    },
+    {
+      "date": "2026-10-26",
+      "title": "팀 싱크 맞추기"
+    },
+    {
+      "date": "2026-10-23",
+      "title": "미션 제작"
+    },
+    {
+      "date": "2026-10-21",
+      "title": "학습 조건 설계"
+    },
+    {
+      "date": "2026-10-15",
+      "title": "시스템설계 리뷰 및 협업방식논의"
+    },
+    {
+      "date": "2026-10-14",
+      "title": "시스템설계 논의 및 롤정의"
+    },
+    {
+      "date": "2026-10-12",
+      "title": "롤정의"
+    },
+    {
+      "date": "2026-10-01",
+      "title": "로봇 구조 구체화 3"
+    },
+    {
+      "date": "2026-09-29",
+      "title": "로봇 구성 수정 계획"
+    },
+    {
+      "date": "2026-09-23",
+      "title": "로봇 구성 구체화 2"
+    },
+    {
+      "date": "2026-09-22",
+      "title": "로봇 구성 구체화 1"
+    },
+    {
+      "date": "2026-09-21",
+      "title": "첫 4명 완전체 논의"
+    },
+    {
+      "date": "2026-09-18",
+      "title": "과제 로봇 방향 & 팀 논의"
+    },
+    {
+      "date": "2026-11-09",
+      "title": "플랜 싱크"
+    },
+    {
+      "date": "2026-11-10",
+      "title": "업무분장  및싱크"
+    },
+    {
+      "date": "2026-11-11",
+      "title": "시나리오, 발표회의"
+    },
+    {
+      "date": "2026-11-12",
+      "title": "팀간소통방식 논의"
+    }
+  ],
+  "trouble": [
+    {
+      "date": "2026-11-11",
+      "status": "해결 완료",
+      "problem": "그리퍼 카메라 상자 높이 인식 문제",
+      "details": [
+        "11/11 팔 교체 후 joint4·joint5 서보 영점 미측정(실제 +2.08°, +1.53° 더 숙임) + 카메라 브래킷(CB_A) 교체 후 gripper_cam 장착각 미반영(약 +2°) → TF상 카메라가 실제보다 덜 숙여 있어 책상·상자 높이가 약 20 mm 높게 인식됨",
+        "gripper_cam depth로 책상 평면을 여러 자세에서 재고 줄자로 확인해 실측값 반영 — joint2~5 서보 영점(joint4 −0.036, joint5 −0.027 rad) + gripper_cam pitch 20° → 22° (URDF · Isaac USD). 보정 뒤 책상 +0.4 mm, 상자 윗면 69.9 mm (줄자 70 mm). PR #161"
+      ]
+    },
+    {
+      "date": "2026-11-11",
+      "status": "해결 필요",
+      "problem": "매니퓰레이터 떨림",
+      "details": []
+    },
+    {
+      "date": "2026-11-10",
+      "status": "해결 필요",
+      "problem": "skill-pick-far",
+      "details": [
+        "퍽 위 5 cm 수직 자세는 손 높이 때문에 쥐는 자세보다 약 30 mm 덜 닿음 (x 235~260 mm vs 270~290 mm). 수평(0°) 진입은 관절 한계(joint4 −97.4°, joint2 −110°, joint3 +80°)로 불가",
+        "먼 퍽만 새 skill pick_standing_far(/skills/pick_far)로: 45° 기울여 진입 → 피치 다운 → 수직 닫기. 도달 448 → 533 cm² (+19 %), 반경 +26 mm. 가까운 퍽은 기존 pick. 상세·수정 패키지는 본문"
+      ]
+    },
+    {
+      "date": "2026-10-24",
+      "status": "해결 완료",
+      "problem": "OpenCR 지연, 그리퍼 방향 문제",
+      "details": [
+        "펌웨어가 서보 8개를 개별 패킷으로 읽고 쓰고, 들어온 C를 전부 처리한 뒤에 S를 보내는 구조. 그리퍼 방향·영점·변환 상수가 실측 전 값.",
+        "해결 방법을 작성해 주세요."
+      ]
+    },
+    {
+      "date": "2026-11-08",
+      "status": "해결 완료",
+      "problem": "cuvslam,vnblox navigation",
+      "details": [
+        "네비게이션 문제- config수정 완료 정상"
+      ]
+    },
+    {
+      "date": "2026-11-12",
+      "status": "해결 완료",
+      "problem": "navigation planner change smac",
+      "details": [
+        "completed"
+      ]
+    }
+  ],
+  "todos": [
+    {
+      "title": "✦ 투두리스트 : 각자의 할 일을 작성",
+      "people": []
+    },
+    {
+      "title": "Beebot test 제작 및 테스트",
+      "people": [
+        "정혁"
+      ]
+    },
+    {
+      "title": "카메라 브라켓 설계",
+      "people": [
+        "정혁"
+      ]
+    },
+    {
+      "title": "시스템셋팅",
+      "people": [
+        "김현하"
+      ]
+    },
+    {
+      "title": "ros기반작업",
+      "people": [
+        "김현하"
+      ]
+    },
+    {
+      "title": "navigation planner and controller",
+      "people": [
+        "김현하"
+      ]
+    },
+    {
+      "title": "네비 실기기 테스트 및 검증",
+      "people": [
+        "김현하"
+      ]
+    }
+  ],
+  "captured_at": "2026-11-13"
+}
